@@ -31,12 +31,12 @@ internal static class PackLock
         var root = document.RootElement;
         if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("format", out var format) || format.ValueKind != JsonValueKind.String
             || format.GetString() != Format || !root.TryGetProperty("members", out var members)
-            || members.ValueKind != JsonValueKind.Array || root.EnumerateObject().Any(p => p.Name is not ("format" or "members")))
+            || members.ValueKind != JsonValueKind.Array || root.EnumerateObject().Any(p => !PackRegistry.Shape("familyFile").Contains(p.Name)))
             return (null, $"{PackPaths.LockFile} is not a '{Format}' lock: format and members, nothing else.");
         var entries = new List<LockEntry>();
         foreach (var m in members.EnumerateArray())
         {
-            if (m.ValueKind != JsonValueKind.Object || m.EnumerateObject().Any(p => p.Name is not ("id" or "version" or "digest"))
+            if (m.ValueKind != JsonValueKind.Object || m.EnumerateObject().Any(p => !PackRegistry.Shape("familyMember").Contains(p.Name))
                 || !m.TryGetProperty("id", out var id) || !m.TryGetProperty("version", out var version) || !m.TryGetProperty("digest", out var digest)
                 || id.ValueKind != JsonValueKind.String || version.ValueKind != JsonValueKind.String || digest.ValueKind != JsonValueKind.String
                 || id.GetString() is not { } i || !PackManifest.IsValidId(i) || version.GetString() is not { } v || !SemVer.TryParse(v, out _)

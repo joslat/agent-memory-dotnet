@@ -55,6 +55,7 @@ def _load_registry():
 
 
 REGISTRY = _load_registry()
+SHAPE = {name: set(doc["fields"]) for name, doc in REGISTRY["documents"].items()}
 
 FILES = "META/files.json"
 SIGNATURES = "META/signatures/"
@@ -150,7 +151,7 @@ KEY_ID = re.compile(r"[0-9a-f]{64}", re.ASCII)
 def entry_shaped(s):
     """A DSSE signature entry as the format writes it, for every envelope kind (review 2, 3; as .NET's Dsse.IsEntry): a key id of
     64 lowercase hex and a signature of strict base64 decoding to 1 to 72 bytes, nothing else."""
-    return isinstance(s, dict) and set(s) == {"keyid", "sig"} and isinstance(s["keyid"], str) and bool(KEY_ID.fullmatch(s["keyid"])) \
+    return isinstance(s, dict) and set(s) == SHAPE["signatureEntry"] and isinstance(s["keyid"], str) and bool(KEY_ID.fullmatch(s["keyid"])) \
         and isinstance(s["sig"], str) and 0 < len(strict_b64(s["sig"]) or b"") <= 72
 
 
@@ -383,7 +384,7 @@ def read_revocations(policy, data, now):
     env = profile(data)
     if not isinstance(env, dict) or env.get("payloadType") != REVOCATIONS_TYPE or not isinstance(env.get("payload"), str) \
             or not isinstance(env.get("signatures"), list) \
-            or set(env) != {"payloadType", "payload", "signatures"} or not all(entry_shaped(e) for e in env["signatures"]):
+            or set(env) != SHAPE["envelope"] or not all(entry_shaped(e) for e in env["signatures"]):
         raise Refused("the revocation document is not a DSSE envelope of a revocation document")
     try:
         payload = base64.b64decode(env["payload"], validate=True)
@@ -412,7 +413,7 @@ def read_revocations(policy, data, now):
     if not signers:
         raise Refused("the revocation document is not signed by a key the trust policy names as revoker")
     doc = profile(payload)
-    if not isinstance(doc, dict) or set(doc) - {"format", "issuedAt", "expires", "digests", "keys"} or doc.get("format") != REVOCATIONS_FORMAT:
+    if not isinstance(doc, dict) or set(doc) - SHAPE["revocations"] or doc.get("format") != REVOCATIONS_FORMAT:
         raise Refused("the revocation document is not a v1.2 revocation document")
     issued, expires = instant(doc.get("issuedAt")), instant(doc.get("expires"))
     if issued is None or expires is None or expires <= issued:
@@ -422,7 +423,7 @@ def read_revocations(policy, data, now):
     digests, revoked = doc.get("digests"), doc.get("keys")
     if not isinstance(digests, list) or not all(isinstance(d, str) and DIGEST.fullmatch(d) for d in digests):
         raise Refused("the revocation document has a malformed digests list")
-    if not isinstance(revoked, list) or not all(isinstance(k, dict) and not (set(k) - {"keyId", "compromisedAt"}) and isinstance(k.get("keyId"), str)
+    if not isinstance(revoked, list) or not all(isinstance(k, dict) and not (set(k) - SHAPE["revokedKey"]) and isinstance(k.get("keyId"), str)
                                                  and KEY_ID.fullmatch(k["keyId"]) and ("compromisedAt" not in k or instant(k["compromisedAt"]) is not None)
                                                  for k in revoked):
         raise Refused("the revocation document has a malformed keys list")
@@ -553,7 +554,7 @@ def manifest_checks(manifest, content, now):
             raise Refused("the pack's validUntil has passed")
     if "source" in manifest:
         source = manifest["source"]
-        if not isinstance(source, dict) or not all(k in ("repository", "commit", "builtAt") and isinstance(v, str) and 0 < len(v.encode("utf-16-le")) // 2 <= 200
+        if not isinstance(source, dict) or not all(k in SHAPE["manifestSource"] and isinstance(v, str) and 0 < len(v.encode("utf-16-le")) // 2 <= 200
                                                    for k, v in source.items()):
             raise Refused("pack.json has a malformed 'source'")
         if "builtAt" in source and instant(source["builtAt"]) is None:
@@ -602,11 +603,11 @@ def composite_checks(manifest, content):
     lock = profile(lock_bytes, integers_only=True)
     if canonical(lock).encode("utf-8") != lock_bytes:
         raise Refused("META/lock.json is not canonical")
-    if not isinstance(lock, dict) or set(lock) != {"format", "members"} or lock["format"] != LOCK_FORMAT or not isinstance(lock["members"], list):
+    if not isinstance(lock, dict) or set(lock) != SHAPE["familyFile"] or lock["format"] != LOCK_FORMAT or not isinstance(lock["members"], list):
         raise Refused("META/lock.json is not a lock: format and members, nothing else")
     pinned = []
     for m in lock["members"]:
-        if not isinstance(m, dict) or set(m) != {"id", "version", "digest"} or not valid_id(m["id"]) \
+        if not isinstance(m, dict) or set(m) != SHAPE["familyMember"] or not valid_id(m["id"]) \
                 or not isinstance(m["version"], str) or not valid_version(m["version"]) \
                 or not isinstance(m["digest"], str) or not m["digest"].startswith("sha256:") or len(m["digest"]) != 71:
             raise Refused("META/lock.json has a malformed member")
@@ -803,7 +804,7 @@ def verify(files, policy, now):
     if not isinstance(listing["files"], list):
         raise Refused("META/files.json has no files array")
     for entry in listing["files"]:
-        if not isinstance(entry, dict) or set(entry) != {"path", "length", "sha256"} or not isinstance(entry["path"], str) \
+        if not isinstance(entry, dict) or set(entry) != SHAPE["filesEntry"] or not isinstance(entry["path"], str) \
                 or isinstance(entry["length"], bool) or not isinstance(entry["length"], int) or entry["length"] < 0 \
                 or not isinstance(entry["sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", entry["sha256"]):
             raise Refused("META/files.json has a malformed entry")
@@ -849,7 +850,7 @@ def verify(files, policy, now):
             raise Refused(f"{path} holds no signature")
         # Review 2, L7 (as .NET): closed shapes. The envelope holds its three fields; each entry a key id (64 lowercase hex) and
         # a signature (strict base64, 1 to 72 bytes), and nothing else.
-        if set(env) != {"payloadType", "payload", "signatures"}:
+        if set(env) != SHAPE["envelope"]:
             raise Refused(f"{path} holds a field a DSSE envelope does not have")
         if not all(entry_shaped(s) for s in env["signatures"]):
             raise Refused(f"{path} has a signature entry that is not a key id and a signature")
@@ -862,9 +863,9 @@ def verify(files, policy, now):
             pred = st["predicate"]
             role = pred["role"]
             # Closed, as .NET reads them (review 2, L7).
-            if set(st) != {"_type", "subject", "predicateType", "predicate"} or set(pred) != {"role", "id", "version", "signedAt"} \
+            if set(st) != SHAPE["statement"] or set(pred) != SHAPE["signaturePredicate"] \
                     or not isinstance(st["subject"], list) or not st["subject"] or not isinstance(st["subject"][0], dict) \
-                    or set(st["subject"][0]) != {"name", "digest"} or not isinstance(st["subject"][0]["digest"], dict) \
+                    or set(st["subject"][0]) != SHAPE["subject"] or not isinstance(st["subject"][0]["digest"], dict) \
                     or set(st["subject"][0]["digest"]) != {"sha256"}:
                 raise Refused(f"{path} does not sign this pack")
             ok = (st["_type"] == STATEMENT and len(st["subject"]) == 1 and st["subject"][0]["name"] == FILES
@@ -1024,7 +1025,7 @@ def read_federation(extensions):
     f = extensions["federation"]
     if not isinstance(f, dict):
         raise Refused("pack.json has a malformed 'federation' extension")
-    if set(f) - {"format", "publisher", "audience", "purpose"}:
+    if set(f) - SHAPE["federation"]:
         raise Refused("the 'federation' extension has an unknown field")
     if f.get("format") != FEDERATION_FORMAT:
         raise Refused(f"the 'federation' extension must name format '{FEDERATION_FORMAT}'")
@@ -1067,7 +1068,7 @@ def verify_receipt(envelope_bytes, pid, version, digest, federation, archive, lo
     if len(envelope_bytes) > MAX_ENVELOPE:
         raise Refused("the receipt is larger than 64 KiB")
     env = profile(envelope_bytes)
-    if not isinstance(env, dict) or set(env) != {"payloadType", "payload", "signatures"} or env["payloadType"] != PAYLOAD_TYPE \
+    if not isinstance(env, dict) or set(env) != SHAPE["envelope"] or env["payloadType"] != PAYLOAD_TYPE \
             or not isinstance(env["payload"], str) or not isinstance(env["signatures"], list) or not 1 <= len(env["signatures"]) <= MAX_SIGNATURES \
             or not all(entry_shaped(e) for e in env["signatures"]):
         raise Refused("the receipt is not a DSSE envelope of an in-toto statement with 1 to 16 signatures")
@@ -1076,16 +1077,16 @@ def verify_receipt(envelope_bytes, pid, version, digest, federation, archive, lo
     except (ValueError, binascii.Error):
         raise Refused("the receipt's payload is not base64")
     st = profile(payload)
-    if not isinstance(st, dict) or set(st) != {"_type", "subject", "predicateType", "predicate"} or st["_type"] != STATEMENT \
+    if not isinstance(st, dict) or set(st) != SHAPE["statement"] or st["_type"] != STATEMENT \
             or st["predicateType"] != PUBLICATION:
         raise Refused("the receipt is not a publication statement")
     subject = st["subject"]
-    if not isinstance(subject, list) or len(subject) != 1 or not isinstance(subject[0], dict) or set(subject[0]) != {"name", "digest"} \
+    if not isinstance(subject, list) or len(subject) != 1 or not isinstance(subject[0], dict) or set(subject[0]) != SHAPE["subject"] \
             or subject[0]["name"] != FILES or not isinstance(subject[0]["digest"], dict) or set(subject[0]["digest"]) != {"sha256"} \
             or not isinstance(subject[0]["digest"]["sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", subject[0]["digest"]["sha256"]):
         raise Refused("the receipt must name exactly one subject: META/files.json and its SHA-256")
     pred = st["predicate"]
-    fields = {"id", "version", "location", "archiveSha256", "audience", "access", "checked", "publishedAt"}
+    fields = SHAPE["receiptPredicate"]
     if not isinstance(pred, dict) or set(pred) - fields:
         raise Refused("the receipt's predicate holds other fields than this format defines")
     if not (isinstance(pred.get("id"), str) and ID.fullmatch(pred["id"]) and len(pred["id"]) <= 64 and valid_version(pred.get("version"))):
@@ -1100,7 +1101,7 @@ def verify_receipt(envelope_bytes, pid, version, digest, federation, archive, lo
     if not isinstance(pred.get("access"), str):
         raise Refused("the receipt names no access kind")
     checked = pred.get("checked")
-    if not isinstance(checked, dict) or set(checked) != {"denied", "allowed"}:
+    if not isinstance(checked, dict) or set(checked) != SHAPE["receiptCheck"]:
         raise Refused("the receipt's 'checked' is an object of 'denied' and 'allowed'")
     for name, anonymous in (("denied", True), ("allowed", False)):
         probes = checked[name]
@@ -1181,13 +1182,13 @@ def is_line(text, maximum):
 def read_card(data):
     """The pack card (v1.2 §15), strictly: exactly its fields, each of its type and length."""
     card = profile(data)
-    fields = {"format", "owner", "intendedUse", "limitations", "boundaries", "risks", "provenance", "audience", "domain", "references"}
+    fields = SHAPE["card"]
     if not isinstance(card, dict) or set(card) - fields:
         raise Refused("card.json holds other fields than a pack card")
     if card.get("format") != CARD_FORMAT:
         raise Refused("card.json must name format 'agentmemory.pack.card/1'")
     owner = card.get("owner")
-    if not isinstance(owner, dict) or set(owner) - {"name", "contact"} or not is_text(owner.get("name"), 200) \
+    if not isinstance(owner, dict) or set(owner) - SHAPE["cardOwner"] or not is_text(owner.get("name"), 200) \
             or ("contact" in owner and not is_text(owner["contact"], 200)):
         raise Refused("card.json names its owner as 'name' and, optionally, 'contact'")
     for name, maximum, required in (("intendedUse", 2000, True), ("limitations", 2000, True), ("provenance", 2000, False),
@@ -1267,7 +1268,7 @@ CERTIFICATE_MAX_SPACING = 2000   # every how many eligible commits a task was dr
 def read_arm(arm):
     """An arm with its evidence (review 5, root RB): counts, each task's [offered, correct] within the arm's cap, summing to the
     counts, with a right item on exactly its hits."""
-    fields = {"tasks", "hits", "offered", "correct", "p95Micros", "maximumOffered", "spacing"}
+    fields = SHAPE["certificateArm"] - {"perTask"}
     if not isinstance(arm, dict) or set(arm) != fields | {"perTask"} or any(as_int(arm[k]) is None for k in fields):
         return None
     t, h, o, c, p95, cap = arm["tasks"], arm["hits"], arm["offered"], arm["correct"], arm["p95Micros"], arm["maximumOffered"]
@@ -1289,16 +1290,16 @@ def read_arm(arm):
 def read_certificate(payload):
     """An evaluation certificate's statement (v1.2 §16), strictly, as .NET's PackCertificate.Read."""
     st = profile(payload)
-    if not isinstance(st, dict) or set(st) != {"_type", "subject", "predicateType", "predicate"} or st["_type"] != STATEMENT \
+    if not isinstance(st, dict) or set(st) != SHAPE["statement"] or st["_type"] != STATEMENT \
             or st["predicateType"] != CERTIFICATE:
         raise Refused("the certificate is not an evaluation statement")
     subject = st["subject"]
-    if not isinstance(subject, list) or len(subject) != 1 or not isinstance(subject[0], dict) or set(subject[0]) != {"name", "digest"} \
+    if not isinstance(subject, list) or len(subject) != 1 or not isinstance(subject[0], dict) or set(subject[0]) != SHAPE["subject"] \
             or subject[0]["name"] != FILES or not isinstance(subject[0]["digest"], dict) or set(subject[0]["digest"]) != {"sha256"} \
             or not isinstance(subject[0]["digest"]["sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", subject[0]["digest"]["sha256"]):
         raise Refused("the certificate must name exactly one subject: META/files.json and its SHA-256")
     pred = st["predicate"]
-    fields = {"id", "version", "evaluator", "tool", "evaluatedAt", "trial", "statistic", "checks", "with", "without", "passed", "aef"}
+    fields = SHAPE["certificatePredicate"]
     if not isinstance(pred, dict) or set(pred) - fields:
         raise Refused("the certificate's predicate holds other fields than this format defines")
     if not (isinstance(pred.get("id"), str) and ID.fullmatch(pred["id"]) and len(pred["id"]) <= 64 and valid_version(pred.get("version"))):
@@ -1306,7 +1307,7 @@ def read_certificate(payload):
     if not is_line(pred.get("evaluator"), 200):
         raise Refused("the certificate names its evaluator as one line of 1 to 200 characters")
     tool = pred.get("tool")
-    if not isinstance(tool, dict) or set(tool) != {"name", "version"} or not is_line(tool["name"], 100) or not is_line(tool["version"], 64):
+    if not isinstance(tool, dict) or set(tool) != SHAPE["certificateTool"] or not is_line(tool["name"], 100) or not is_line(tool["version"], 64):
         raise Refused("the certificate names its tool and version")
     if not isinstance(pred.get("evaluatedAt"), str) or not SIGNED_AT.fullmatch(pred["evaluatedAt"]):
         raise Refused("the certificate has no evaluation time in UTC")
@@ -1315,7 +1316,7 @@ def read_certificate(payload):
     except ValueError:
         raise Refused("the certificate has no evaluation time in UTC")
     trial = pred.get("trial")
-    if not isinstance(trial, dict) or set(trial) - {"measure", "baseline", "confidenceMilli", "taskSource"} \
+    if not isinstance(trial, dict) or set(trial) - SHAPE["certificateTrial"] \
             or not one_of(trial.get("measure"), MEASURES) or not one_of(trial.get("baseline"), BASELINES) or not is_line(trial.get("taskSource"), 500):
         raise Refused("the certificate's trial names its measure, baseline and task source")
     if not is_line(pred.get("statistic"), 100):
@@ -1326,7 +1327,7 @@ def read_certificate(payload):
     if not isinstance(checks, list) or not 1 <= len(checks) <= 16:
         raise Refused("the certificate lists 1 to 16 checks")
     for c in checks:
-        if not isinstance(c, dict) or set(c) - {"target", "requiredMilli", "observedMilli", "met", "estimateMilli"} \
+        if not isinstance(c, dict) or set(c) - SHAPE["certificateCheck"] \
                 or not one_of(c.get("target"), TARGETS) or as_int(c.get("requiredMilli")) is None or as_int(c.get("observedMilli")) is None \
                 or not isinstance(c.get("met"), bool) or ("estimateMilli" in c and as_int(c["estimateMilli"]) is None):
             raise Refused("a certificate check names a known target, requiredMilli and observedMilli as integers, and met")
@@ -1342,7 +1343,7 @@ def read_certificate(payload):
         raise Refused("the certificate says whether every target was met ('passed')")
     if "aef" in pred:
         aef = pred["aef"]
-        if not isinstance(aef, dict) or set(aef) != {"runId", "runHash"} or not isinstance(aef["runId"], str) or not RUN_ID.fullmatch(aef["runId"]) \
+        if not isinstance(aef, dict) or set(aef) != SHAPE["certificateAef"] or not isinstance(aef["runId"], str) or not RUN_ID.fullmatch(aef["runId"]) \
                 or not isinstance(aef["runHash"], str) or not re.fullmatch(r"[0-9a-f]{64}", aef["runHash"]):
             raise Refused("the certificate's 'aef' names an AEF runId and its runHash")
     # The verdict agrees with the record: passed exactly when every check held on enough tasks.
@@ -1377,7 +1378,7 @@ def verify_certificate(envelope_bytes, pid, version, digest, policy, now, run=No
     if len(envelope_bytes) > MAX_ENVELOPE:
         raise Refused("the certificate is larger than 64 KiB")
     env = profile(envelope_bytes)
-    if not isinstance(env, dict) or set(env) != {"payloadType", "payload", "signatures"} or env["payloadType"] != PAYLOAD_TYPE \
+    if not isinstance(env, dict) or set(env) != SHAPE["envelope"] or env["payloadType"] != PAYLOAD_TYPE \
             or not isinstance(env["payload"], str) or not isinstance(env["signatures"], list) or not 1 <= len(env["signatures"]) <= MAX_SIGNATURES \
             or not all(entry_shaped(e) for e in env["signatures"]):
         raise Refused("the certificate is not a DSSE envelope of an in-toto statement with 1 to 16 signatures")
@@ -1458,14 +1459,14 @@ def load_policy(raw):
         text = text[1:]
     policy = profile(text.replace("\r\n", "\n").encode("utf-8"))
     # Review 1, H3: every level is closed, as .NET reads it; a misspelt field is refused, never ignored.
-    closed(policy, {"format", "keys", "revoked", "requireRoles", "host"}, "the trust policy")
+    closed(policy, SHAPE["trustPolicy"], "the trust policy")
     if policy.get("format") != "agentmemory.pack.trust/1.1":
         raise Refused("the trust policy must name format 'agentmemory.pack.trust/1.1'")
     seen = set()
     for key in policy.get("keys", []) if isinstance(policy.get("keys", []), list) else [None]:
         if not isinstance(key, dict) or not isinstance(key.get("keyId"), str) or not isinstance(key.get("publicKey"), str):
             raise Refused("the trust policy has a malformed key")
-        closed(key, {"keyId", "publicKey", "idPrefixes", "roles", "notBefore", "notAfter", "webId"}, "a trusted key")
+        closed(key, SHAPE["trustKey"], "a trusted key")
         prefixes, roles = key.get("idPrefixes", []), key.get("roles", [])
         if not isinstance(prefixes, list) or not prefixes or not all(isinstance(p, str) for p in prefixes):
             raise Refused("a trusted key names no pack id prefixes")
@@ -1504,7 +1505,7 @@ def load_policy(raw):
     revoked = policy.get("revoked", {})
     if not isinstance(revoked, dict):
         raise Refused("the trust policy has a malformed revoked section")
-    closed(revoked, {"digests", "keys", "expires"}, "'revoked'")
+    closed(revoked, SHAPE["trustRevoked"], "'revoked'")
     if not isinstance(revoked.get("digests", []), list) or not all(isinstance(d, str) for d in revoked.get("digests", [])):
         raise Refused("the trust policy has a malformed revoked digest list")
     if not all(DIGEST.fullmatch(d) for d in revoked.get("digests", [])):
@@ -1512,7 +1513,7 @@ def load_policy(raw):
     for r in revoked.get("keys", []) if isinstance(revoked.get("keys", []), list) else [None]:
         if not isinstance(r, dict) or not isinstance(r.get("keyId"), str):
             raise Refused("the trust policy has a malformed revoked key")
-        closed(r, {"keyId", "compromisedAt"}, "a revoked key")
+        closed(r, SHAPE["revokedKey"], "a revoked key")
         if not KEY_ID.fullmatch(r["keyId"]):
             raise Refused("a revoked key id is not 64 lowercase hexadecimal digits")
         present_time(r, "compromisedAt")

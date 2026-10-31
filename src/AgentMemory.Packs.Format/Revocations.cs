@@ -216,7 +216,7 @@ internal static partial class Revocations
                 || type.GetString() != PayloadType || !root.TryGetProperty("payload", out var text) || text.ValueKind != JsonValueKind.String
                 || !root.TryGetProperty("signatures", out var sigs) || sigs.ValueKind != JsonValueKind.Array
                 // One shape for every envelope of the format (review 3): its three fields, each entry a key id and a signature.
-                || root.EnumerateObject().Any(p => p.Name is not ("payloadType" or "payload" or "signatures")) || sigs.EnumerateArray().Any(e => !Dsse.IsEntry(e)))
+                || root.EnumerateObject().Any(p => !PackRegistry.Shape("envelope").Contains(p.Name)) || sigs.EnumerateArray().Any(e => !Dsse.IsEntry(e)))
                 throw Bad("is not a DSSE envelope of a revocation document (its three fields; each entry a key id and a signature)");
             payload = Dsse.FromBase64(text.GetString()) ?? throw Bad("has a payload that is not base64");
             signatures = sigs.Clone();
@@ -230,7 +230,7 @@ internal static partial class Revocations
         if (PackJson.Check(payload) is { } payloadProblem) throw Bad($"has a payload that {payloadProblem}");
         using var document = JsonDocument.Parse(payload);
         var d = document.RootElement;
-        if (d.ValueKind != JsonValueKind.Object || d.EnumerateObject().Any(p => p.Name is not ("format" or "issuedAt" or "expires" or "digests" or "keys"))
+        if (d.ValueKind != JsonValueKind.Object || d.EnumerateObject().Any(p => !PackRegistry.Shape("revocations").Contains(p.Name))
             || !d.TryGetProperty("format", out var format) || format.ValueKind != JsonValueKind.String || format.GetString() != Format)
             throw Bad($"is not a '{Format}' document: format, issuedAt, expires, digests and keys, nothing else");
         if (!d.TryGetProperty("issuedAt", out var issuedText) || !PackTime.TryParse(issuedText.ValueKind == JsonValueKind.String ? issuedText.GetString() : null, out var issuedAt)
@@ -250,7 +250,7 @@ internal static partial class Revocations
         if (!d.TryGetProperty("keys", out var keyArray) || keyArray.ValueKind != JsonValueKind.Array) throw Bad("needs a keys list");
         foreach (var key in keyArray.EnumerateArray())
         {
-            if (key.ValueKind != JsonValueKind.Object || key.EnumerateObject().Any(p => p.Name is not ("keyId" or "compromisedAt"))
+            if (key.ValueKind != JsonValueKind.Object || key.EnumerateObject().Any(p => !PackRegistry.Shape("revokedKey").Contains(p.Name))
                 || !key.TryGetProperty("keyId", out var keyId) || keyId.ValueKind != JsonValueKind.String || !KeyIdPattern().IsMatch(keyId.GetString()!))
                 throw Bad("has a key that is not {keyId, compromisedAt?} with a 64-hex key id");
             DateTimeOffset? compromisedAt = null;

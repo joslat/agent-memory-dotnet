@@ -130,7 +130,7 @@ internal sealed class HostLedger
         if (!document.RootElement.TryGetProperty("format", out var format) || format.GetString() != Format)
             throw new InvalidDataException($"The ledger at {path} is not a '{Format}' file.");
         // A field this reader does not know (an older mark's spelling, say) refuses the ledger: dropping it would forget history.
-        if (document.RootElement.EnumerateObject().Select(p => p.Name).FirstOrDefault(n => n is not ("format" or "packs" or "revoked" or "freshness" or "retired")) is { } unknown)
+        if (document.RootElement.EnumerateObject().Select(p => p.Name).FirstOrDefault(n => !PackRegistry.Shape("ledger").Contains(n)) is { } unknown)
             throw new InvalidDataException(unknown == "revocations"
                 ? $"The ledger at {path} holds revocation marks from an earlier preview build; delete its 'revocations' field and apply the current lists again."
                 : $"The ledger at {path} has a field this host does not know ('{unknown}'); it is not read rather than half read.");

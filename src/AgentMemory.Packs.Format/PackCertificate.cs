@@ -121,7 +121,7 @@ internal sealed partial record PackCertificate(string Id, string Version, string
         if (PackJson.Check(envelopeBytes) is { } malformed) return (null, null, [$"The certificate {malformed}."]);
         using var document = JsonDocument.Parse(envelopeBytes.ToArray());
         var envelope = document.RootElement;
-        if (envelope.ValueKind != JsonValueKind.Object || envelope.EnumerateObject().Any(p => p.Name is not ("payloadType" or "payload" or "signatures"))
+        if (envelope.ValueKind != JsonValueKind.Object || envelope.EnumerateObject().Any(p => !PackRegistry.Shape("envelope").Contains(p.Name))
             || Str(envelope, "payloadType") != Dsse.PayloadType || Str(envelope, "payload") is not { } payloadText
             || !envelope.TryGetProperty("signatures", out var signatures) || signatures.ValueKind != JsonValueKind.Array
             || signatures.GetArrayLength() is 0 or > Dsse.MaximumSignatures || signatures.EnumerateArray().Any(e => !Dsse.IsEntry(e)))
@@ -187,7 +187,7 @@ internal sealed partial record PackCertificate(string Id, string Version, string
         if (PackJson.Check(payload) is { } malformed) return (null, $"The certificate's statement {malformed}.");
         using var document = JsonDocument.Parse(payload);
         var statement = document.RootElement;
-        if (statement.ValueKind != JsonValueKind.Object || statement.EnumerateObject().Any(p => p.Name is not ("_type" or "subject" or "predicateType" or "predicate")))
+        if (statement.ValueKind != JsonValueKind.Object || statement.EnumerateObject().Any(p => !PackRegistry.Shape("statement").Contains(p.Name)))
             return (null, "The certificate's statement holds other fields than an in-toto Statement v1.");
         if (Str(statement, "_type") != Dsse.StatementType) return (null, "The certificate does not carry an in-toto Statement v1.");
         if (Str(statement, "predicateType") != PredicateType) return (null, $"The certificate's predicate type is not {PredicateType}.");
@@ -198,20 +198,20 @@ internal sealed partial record PackCertificate(string Id, string Version, string
             || subjects[0].EnumerateObject().Count() != 2)
             return (null, $"The certificate must name exactly one subject: {PackPaths.FilesList} and its SHA-256.");
         if (!statement.TryGetProperty("predicate", out var p) || p.ValueKind != JsonValueKind.Object
-            || p.EnumerateObject().Any(f => f.Name is not ("id" or "version" or "evaluator" or "tool" or "evaluatedAt" or "trial" or "statistic" or "checks" or "with" or "without" or "passed" or "aef")))
+            || p.EnumerateObject().Any(f => !PackRegistry.Shape("certificatePredicate").Contains(f.Name)))
             return (null, "The certificate's predicate holds other fields than this format defines.");
         if (Str(p, "id") is not { } id || !PackManifest.IsValidId(id) || Str(p, "version") is not { } version || !SemVer.TryParse(version, out _))
             return (null, "The certificate names no valid pack id and version.");
         if (Str(p, "evaluator") is not { } evaluator || !PackCard.IsText(evaluator, 200) || evaluator.Contains('\n') || evaluator.Contains('\t'))
             return (null, "The certificate names its evaluator as one line of 1 to 200 characters.");
-        if (!p.TryGetProperty("tool", out var tool) || tool.ValueKind != JsonValueKind.Object || tool.EnumerateObject().Any(f => f.Name is not ("name" or "version"))
+        if (!p.TryGetProperty("tool", out var tool) || tool.ValueKind != JsonValueKind.Object || tool.EnumerateObject().Any(f => !PackRegistry.Shape("certificateTool").Contains(f.Name))
             || Str(tool, "name") is not { } toolName || !IsLine(toolName, 100) || Str(tool, "version") is not { } toolVersion || !IsLine(toolVersion, 64))
             return (null, "The certificate names its tool as 'name' (1 to 100 characters) and 'version' (1 to 64).");
         if (Str(p, "evaluatedAt") is not { } evaluatedText
             || !DateTimeOffset.TryParseExact(evaluatedText, "yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var evaluatedAt))
             return (null, "The certificate has no evaluation time in UTC (yyyy-MM-ddTHH:mm:ssZ).");
         if (!p.TryGetProperty("trial", out var trial) || trial.ValueKind != JsonValueKind.Object
-            || trial.EnumerateObject().Any(f => f.Name is not ("measure" or "baseline" or "confidenceMilli" or "taskSource"))
+            || trial.EnumerateObject().Any(f => !PackRegistry.Shape("certificateTrial").Contains(f.Name))
             || Str(trial, "measure") is not { } measure || !Measures.Contains(measure)
             || Str(trial, "baseline") is not { } baseline || !Baselines.Contains(baseline)
             || Str(trial, "taskSource") is not { } taskSource || !IsLine(taskSource, 500))
@@ -230,7 +230,7 @@ internal sealed partial record PackCertificate(string Id, string Version, string
         var checks = new List<CertificateCheck>();
         foreach (var c in checksValue.EnumerateArray())
         {
-            if (c.ValueKind != JsonValueKind.Object || c.EnumerateObject().Any(f => f.Name is not ("target" or "requiredMilli" or "observedMilli" or "met" or "estimateMilli"))
+            if (c.ValueKind != JsonValueKind.Object || c.EnumerateObject().Any(f => !PackRegistry.Shape("certificateCheck").Contains(f.Name))
                 || Str(c, "target") is not { } target || !Targets.Contains(target)
                 || Long(c, "requiredMilli") is not { } required || Long(c, "observedMilli") is not { } observed
                 || !c.TryGetProperty("met", out var met) || met.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
@@ -255,7 +255,7 @@ internal sealed partial record PackCertificate(string Id, string Version, string
         string? runId = null, runHash = null;
         if (p.TryGetProperty("aef", out var aef))
         {
-            if (aef.ValueKind != JsonValueKind.Object || aef.EnumerateObject().Any(f => f.Name is not ("runId" or "runHash"))
+            if (aef.ValueKind != JsonValueKind.Object || aef.EnumerateObject().Any(f => !PackRegistry.Shape("certificateAef").Contains(f.Name))
                 || Str(aef, "runId") is not { } id2 || !RunIdPattern().IsMatch(id2) || Str(aef, "runHash") is not { Length: 64 } h || !h.All(char.IsAsciiHexDigitLower))
                 return (null, "The certificate's 'aef' names an AEF runId and its runHash (64 lowercase hexadecimal characters).");
             (runId, runHash) = (id2, h);
@@ -291,7 +291,7 @@ internal sealed partial record PackCertificate(string Id, string Version, string
     private static CertificateArm? ReadArm(JsonElement predicate, string name)
     {
         if (!predicate.TryGetProperty(name, out var arm) || arm.ValueKind != JsonValueKind.Object
-            || arm.EnumerateObject().Any(f => f.Name is not ("tasks" or "hits" or "offered" or "correct" or "p95Micros" or "maximumOffered" or "spacing" or "perTask"))
+            || arm.EnumerateObject().Any(f => !PackRegistry.Shape("certificateArm").Contains(f.Name))
             || Long(arm, "tasks") is not { } tasks || Long(arm, "hits") is not { } hits || Long(arm, "offered") is not { } offered
             || Long(arm, "correct") is not { } correct || Long(arm, "p95Micros") is not { } p95 || Long(arm, "maximumOffered") is not { } cap
             || Long(arm, "spacing") is not { } spacing
@@ -395,7 +395,7 @@ internal static partial class PackAttestations
     internal static string RunHash(IReadOnlyDictionary<string, byte[]> run)
     {
         var manifest = new StringBuilder();
-        foreach (var (path, bytes) in run.Where(f => f.Key is not ("seal.json" or "attestation.dsse.json") && !f.Key.StartsWith("overlays/", StringComparison.Ordinal))
+        foreach (var (path, bytes) in run.Where(f => !PackRegistry.Shape("aefRunUnhashed").Contains(f.Key) && !f.Key.StartsWith("overlays/", StringComparison.Ordinal))
                      .OrderBy(f => f.Key, StringComparer.Ordinal))
             manifest.Append(FilesList.Hex(bytes)).Append("  ").Append(bytes.LongLength.ToString(CultureInfo.InvariantCulture)).Append("  ").Append(path).Append('\n');
         return FilesList.Hex(Encoding.UTF8.GetBytes(manifest.ToString()));

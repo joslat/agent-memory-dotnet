@@ -87,7 +87,7 @@ internal sealed record PublicationReceipt(string Id, string Version, string Pack
         if (PackJson.Check(envelopeBytes) is { } malformed) return (null, null, [$"The receipt {malformed}."]);
         using var document = JsonDocument.Parse(envelopeBytes.ToArray());
         var envelope = document.RootElement;
-        if (envelope.ValueKind != JsonValueKind.Object || envelope.EnumerateObject().Any(p => p.Name is not ("payloadType" or "payload" or "signatures"))
+        if (envelope.ValueKind != JsonValueKind.Object || envelope.EnumerateObject().Any(p => !PackRegistry.Shape("envelope").Contains(p.Name))
             || Str(envelope, "payloadType") != Dsse.PayloadType || Str(envelope, "payload") is not { } payloadText
             || !envelope.TryGetProperty("signatures", out var signatures) || signatures.ValueKind != JsonValueKind.Array
             || signatures.GetArrayLength() is 0 or > Dsse.MaximumSignatures || signatures.EnumerateArray().Any(e => !Dsse.IsEntry(e)))
@@ -134,7 +134,7 @@ internal sealed record PublicationReceipt(string Id, string Version, string Pack
         if (PackJson.Check(payload) is { } malformed) return (null, $"The receipt's statement {malformed}.");
         using var document = JsonDocument.Parse(payload);
         var statement = document.RootElement;
-        if (statement.ValueKind != JsonValueKind.Object || statement.EnumerateObject().Any(p => p.Name is not ("_type" or "subject" or "predicateType" or "predicate")))
+        if (statement.ValueKind != JsonValueKind.Object || statement.EnumerateObject().Any(p => !PackRegistry.Shape("statement").Contains(p.Name)))
             return (null, "The receipt's statement holds other fields than an in-toto Statement v1.");
         if (Str(statement, "_type") != Dsse.StatementType) return (null, "The receipt does not carry an in-toto Statement v1.");
         if (Str(statement, "predicateType") != PredicateType) return (null, $"The receipt's predicate type is not {PredicateType}.");
@@ -145,7 +145,7 @@ internal sealed record PublicationReceipt(string Id, string Version, string Pack
             || subjects[0].EnumerateObject().Count() != 2)
             return (null, $"The receipt must name exactly one subject: {PackPaths.FilesList} and its SHA-256.");
         if (!statement.TryGetProperty("predicate", out var predicate) || predicate.ValueKind != JsonValueKind.Object
-            || predicate.EnumerateObject().Any(p => p.Name is not ("id" or "version" or "location" or "archiveSha256" or "audience" or "access" or "checked" or "publishedAt")))
+            || predicate.EnumerateObject().Any(p => !PackRegistry.Shape("receiptPredicate").Contains(p.Name)))
             return (null, "The receipt's predicate holds other fields than this format defines.");
         if (Str(predicate, "id") is not { } id || !PackManifest.IsValidId(id) || Str(predicate, "version") is not { } version || !SemVer.TryParse(version, out _))
             return (null, "The receipt names no valid pack id and version.");
@@ -157,7 +157,7 @@ internal sealed record PublicationReceipt(string Id, string Version, string Pack
         if (audienceProblem is not null) return (null, audienceProblem);
         if (Str(predicate, "access") is not { } access) return (null, "The receipt names no access kind.");
         if (!predicate.TryGetProperty("checked", out var check) || check.ValueKind != JsonValueKind.Object
-            || check.EnumerateObject().Any(p => p.Name is not ("denied" or "allowed"))
+            || check.EnumerateObject().Any(p => !PackRegistry.Shape("receiptCheck").Contains(p.Name))
             || Probes(check, "denied", allowAnonymous: true) is not { } denied || Probes(check, "allowed", allowAnonymous: false) is not { } allowed)
             return (null, "The receipt's 'checked' is an object of 'denied' and 'allowed', each a list of at most 64 WebIDs ('anonymous' may be denied).");
         if (Str(predicate, "publishedAt") is not { } publishedText

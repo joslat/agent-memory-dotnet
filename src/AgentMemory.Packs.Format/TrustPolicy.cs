@@ -103,14 +103,14 @@ internal sealed partial record TrustPolicy
         var root = document.RootElement;
         // Review 1, H3: every level is closed, as every other document of the format is. A misspelt field (requiredRoles,
         // notafter, revoked.digest) would otherwise be ignored and the policy would silently trust more than its author meant.
-        Closed(root, "The trust policy", "format", "keys", "revoked", "requireRoles", "host");
+        Closed(root, "The trust policy", [.. PackRegistry.Shape("trustPolicy")]);
         if (!root.TryGetProperty("format", out var format) || format.GetString() != Format)
             throw new InvalidDataException($"The trust policy must name format '{Format}'.");
         var keys = new List<TrustedKey>();
         if (root.TryGetProperty("keys", out var keyArray))
             foreach (var k in keyArray.EnumerateArray())
             {
-                Closed(k, "A key in the trust policy", "keyId", "publicKey", "idPrefixes", "roles", "notBefore", "notAfter", "webId");
+                Closed(k, "A key in the trust policy", [.. PackRegistry.Shape("trustKey")]);
                 var pem = k.GetProperty("publicKey").GetString() ?? throw new FormatException("A key's publicKey is a string.");
                 var keyId = k.GetProperty("keyId").GetString() ?? throw new FormatException("A key's keyId is a string.");
                 if (keys.Any(known => known.KeyId == keyId)) throw new InvalidDataException($"Key {Dsse.Short(keyId)} is listed twice.");
@@ -154,7 +154,7 @@ internal sealed partial record TrustPolicy
         DateTimeOffset? expires = null;
         if (root.TryGetProperty("revoked", out var revoked))
         {
-            Closed(revoked, "'revoked'", "digests", "keys", "expires");
+            Closed(revoked, "'revoked'", [.. PackRegistry.Shape("trustRevoked")]);
             revokedDigests.AddRange(Strings(revoked, "digests"));
             // A revoked digest or key id that is not in its grammar would never match anything: refused, not ignored.
             if (revokedDigests.FirstOrDefault(d => !DigestPattern().IsMatch(d)) is { } badDigest)
@@ -162,7 +162,7 @@ internal sealed partial record TrustPolicy
             if (revoked.TryGetProperty("keys", out var rk))
                 foreach (var r in rk.EnumerateArray())
                 {
-                    Closed(r, "A revoked key", "keyId", "compromisedAt");
+                    Closed(r, "A revoked key", [.. PackRegistry.Shape("revokedKey")]);
                     var revokedId = r.GetProperty("keyId") is { ValueKind: JsonValueKind.String } id ? id.GetString()! : throw new FormatException("A revoked key's keyId is a string.");
                     if (!KeyIdPattern().IsMatch(revokedId)) throw new InvalidDataException($"The revoked key id '{revokedId}' is not 64 lowercase hexadecimal digits.");
                     revokedKeys.Add(new RevokedKey(revokedId, Time(r, "compromisedAt")));

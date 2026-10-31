@@ -33,7 +33,7 @@ internal sealed record PackFederation(string Publisher, IReadOnlyList<string>? A
             && names.EnumerateArray().Any(n => n.ValueKind == JsonValueKind.String && n.GetString() == ExtensionName);
         if (!critical) return (null, $"{PackManifest.FileName} carries the '{ExtensionName}' extension without marking it critical; a host that cannot enforce an audience must refuse the pack, not ignore it.");
         if (value.ValueKind != JsonValueKind.Object) return (null, $"{PackManifest.FileName} has a malformed '{ExtensionName}' extension: an object.");
-        if (value.EnumerateObject().Select(p => p.Name).FirstOrDefault(n => n is not ("format" or "publisher" or "audience" or "purpose")) is { } unknown)
+        if (value.EnumerateObject().Select(p => p.Name).FirstOrDefault(n => !PackRegistry.Shape("federation").Contains(n)) is { } unknown)
             return (null, $"The '{ExtensionName}' extension has an unknown field '{unknown}'.");
         if (!value.TryGetProperty("format", out var format) || format.ValueKind != JsonValueKind.String || format.GetString() != Format)
             return (null, $"The '{ExtensionName}' extension must name format '{Format}'.");

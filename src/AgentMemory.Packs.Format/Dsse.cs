@@ -140,7 +140,7 @@ internal static class Dsse
         if (signatures.GetArrayLength() > MaximumSignatures) return Refuses($"{file} holds more than {MaximumSignatures} signatures.");
         // Review 2, L7: closed shapes, so nothing unsigned rides in an envelope. The envelope holds its three fields; every entry
         // a key id (64 lowercase hex) and a signature (strict base64, at most 72 bytes: a P-256 DER signature), and nothing else.
-        if (envelope.EnumerateObject().Any(p => p.Name is not ("payloadType" or "payload" or "signatures")))
+        if (envelope.EnumerateObject().Any(p => !PackRegistry.Shape("envelope").Contains(p.Name)))
             return Refuses($"{file} holds a field a DSSE envelope does not have.");
         if (signatures.EnumerateArray().Any(e => !IsEntry(e))) return Refuses($"{file} has a signature entry that is not a key id and a signature.");
         // Review 1, L7: an envelope signs this pack or it does not belong here. One with no signature entries, or whose statement
@@ -173,18 +173,18 @@ internal static class Dsse
         var statement = document.RootElement;
         if (Str(statement, "_type") != StatementType) return (null, "does not carry an in-toto Statement v1.");
         // Closed, as the envelope (review 2, L7): the statement, its subject and the predicate hold what the format writes.
-        if (!Closed(statement, "_type", "subject", "predicateType", "predicate")) return (null, "holds a statement field the format does not define.");
+        if (!Closed(statement, [.. PackRegistry.Shape("statement")])) return (null, "holds a statement field the format does not define.");
         if (!statement.TryGetProperty("subject", out var subjects) || subjects.ValueKind != JsonValueKind.Array || subjects.GetArrayLength() != 1)
             return (null, "must name exactly one subject.");
         var subject = subjects[0];
         if (Str(subject, "name") != PackPaths.FilesList || !subject.TryGetProperty("digest", out var digest) || Str(digest, "sha256") != filesListHex)
             return (null, $"signs another {PackPaths.FilesList} than this pack's.");
-        if (!Closed(subject, "name", "digest") || !Closed(digest, "sha256")) return (null, "holds a subject field the format does not define.");
+        if (!Closed(subject, [.. PackRegistry.Shape("subject")]) || !Closed(digest, "sha256")) return (null, "holds a subject field the format does not define.");
         if (!statement.TryGetProperty("predicate", out var predicate) || Str(predicate, "role") is not { } roleName || !Roles.Contains(roleName))
             return (null, "names no known role.");
         if (Str(statement, "predicateType") != PredicateType(roleName))
             return (null, "has a predicate type that does not match its role.");
-        if (!Closed(predicate, "role", "id", "version", "signedAt")) return (null, "holds a predicate field the format does not define.");
+        if (!Closed(predicate, [.. PackRegistry.Shape("signaturePredicate")])) return (null, "holds a predicate field the format does not define.");
         if (Str(predicate, "id") != list.Id || Str(predicate, "version") != list.Version)
             return (null, "was made for another pack id or version.");
         if (Str(predicate, "signedAt") is not { } signedAtText

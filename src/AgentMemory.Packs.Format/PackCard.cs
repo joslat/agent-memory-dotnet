@@ -37,12 +37,11 @@ internal sealed record PackCard(string OwnerName, string? OwnerContact, string I
         using var document = JsonDocument.Parse(bytes);
         var root = document.RootElement;
         if (root.ValueKind != JsonValueKind.Object) return (null, $"{FileName} is not an object.");
-        if (root.EnumerateObject().Select(p => p.Name).FirstOrDefault(n => n is not ("format" or "owner" or "intendedUse" or "limitations" or "boundaries"
-                or "risks" or "provenance" or "audience" or "domain" or "references")) is { } unknown)
+        if (root.EnumerateObject().Select(p => p.Name).FirstOrDefault(n => !PackRegistry.Shape("card").Contains(n)) is { } unknown)
             return (null, $"{FileName} has an unknown field '{unknown}'.");
         if (Str(root, "format") != Format) return (null, $"{FileName} must name format '{Format}'.");
         if (!root.TryGetProperty("owner", out var owner) || owner.ValueKind != JsonValueKind.Object
-            || owner.EnumerateObject().Any(p => p.Name is not ("name" or "contact")))
+            || owner.EnumerateObject().Any(p => !PackRegistry.Shape("cardOwner").Contains(p.Name)))
             return (null, $"{FileName} names its owner as an object of 'name' and, optionally, 'contact'.");
         string? problem = null;
         var ownerName = Text(owner, "name", 200, required: true, ref problem, "owner.name");

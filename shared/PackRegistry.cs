@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 
 // One source compiled into both the pack format and the module host, each with its own copy of the one embedded registry file,
 // under its own namespace (as PackNamespace.cs: the two assemblies grant internals to the same test assemblies).
@@ -65,6 +65,13 @@ internal static class PackRegistry
             ? values.EnumerateObject().ToDictionary(v => v.Name, v => (IReadOnlySet<string>)new HashSet<string>(v.Value.EnumerateArray().Select(e => e.GetString()!), StringComparer.Ordinal), StringComparer.Ordinal)
             : new Dictionary<string, IReadOnlySet<string>>(StringComparer.Ordinal),
         p.Value.TryGetProperty("refusal", out var refusal) ? refusal.GetString() : null))];
+
+    private static readonly Dictionary<string, IReadOnlySet<string>> Shapes = Path("documents").EnumerateObject()
+        .ToDictionary(d => d.Name, d => (IReadOnlySet<string>)new HashSet<string>(d.Value.GetProperty("fields").EnumerateArray().Select(e => e.GetString()!), StringComparer.Ordinal), StringComparer.Ordinal);
+
+    /// <summary>The closed set of fields of a document the format defines, by its name in the registry's <c>documents</c>.</summary>
+    internal static IReadOnlySet<string> Shape(string name) =>
+        Shapes.TryGetValue(name, out var fields) ? fields : throw new InvalidOperationException($"The format registry has no document '{name}'.");
 
     private static IReadOnlyList<string> Optional(JsonElement element, string name) =>
         element.TryGetProperty(name, out var list) ? [.. list.EnumerateArray().Select(e => e.GetString()!)] : [];

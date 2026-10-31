@@ -17,6 +17,7 @@ public sealed class SpecRegistryTests
     [
         ("conformance/pack-v1.1/run_vectors.py", "test data: trust policies the kit builds on purpose"),
         ("demobrain/src/DemoBrain.App/PackComposerWindow.Build.cs", "a role picker in a private demo app; noted for feature 01 step 2"),
+        ("tools/Ampack/Program.cs", "the revoke command's option names, which mirror the revocation fields on purpose; no document is read with them"),
     ];
 
     [Fact]
@@ -61,6 +62,13 @@ public sealed class SpecRegistryTests
             var relative = Path.GetRelativePath(root, file).Replace(Path.DirectorySeparatorChar, '/');
             if (Allowed.Any(a => a.File == relative)) continue;
             var text = File.ReadAllText(file);
+            // The same list written as a pattern: n is not ("a" or "b" or "c").
+            foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(text, @"is not \((""[^""]+""(?:\s+or\s+""[^""]+""){2,})\)"))
+            {
+                var names = System.Text.RegularExpressions.Regex.Matches(m.Groups[1].Value, @"""([^""]+)""").Select(n => n.Groups[1].Value).ToHashSet(StringComparer.Ordinal);
+                if (lists.Any(l => l.ToHashSet(StringComparer.Ordinal).SetEquals(names)))
+                    found.Add($"{relative}: a hand copy of [{string.Join(", ", names)}] written as a pattern");
+            }
             foreach (var list in lists)
                 if (text.Contains(string.Join(", ", list.Take(4).Select(n => $"\"{n}\"")), StringComparison.Ordinal))
                     found.Add($"{relative}: a hand copy of [{string.Join(", ", list.Take(4))}, …]");

@@ -82,6 +82,228 @@
         "display",
         "members"
       ]
+    },
+    "envelope": {
+      "fields": [
+        "payloadType",
+        "payload",
+        "signatures"
+      ]
+    },
+    "signatureEntry": {
+      "fields": [
+        "keyid",
+        "sig"
+      ]
+    },
+    "statement": {
+      "fields": [
+        "_type",
+        "subject",
+        "predicateType",
+        "predicate"
+      ]
+    },
+    "subject": {
+      "fields": [
+        "name",
+        "digest"
+      ]
+    },
+    "signaturePredicate": {
+      "fields": [
+        "role",
+        "id",
+        "version",
+        "signedAt"
+      ]
+    },
+    "filesEntry": {
+      "fields": [
+        "path",
+        "length",
+        "sha256"
+      ]
+    },
+    "ledger": {
+      "fields": [
+        "format",
+        "packs",
+        "revoked",
+        "freshness",
+        "retired"
+      ]
+    },
+    "card": {
+      "fields": [
+        "format",
+        "owner",
+        "intendedUse",
+        "limitations",
+        "boundaries",
+        "risks",
+        "provenance",
+        "audience",
+        "domain",
+        "references"
+      ]
+    },
+    "cardOwner": {
+      "fields": [
+        "name",
+        "contact"
+      ]
+    },
+    "manifestSource": {
+      "fields": [
+        "repository",
+        "commit",
+        "builtAt"
+      ]
+    },
+    "familyFile": {
+      "fields": [
+        "format",
+        "members"
+      ]
+    },
+    "familyMember": {
+      "fields": [
+        "id",
+        "version",
+        "digest"
+      ]
+    },
+    "federation": {
+      "fields": [
+        "format",
+        "publisher",
+        "audience",
+        "purpose"
+      ]
+    },
+    "receiptPredicate": {
+      "fields": [
+        "id",
+        "version",
+        "location",
+        "archiveSha256",
+        "audience",
+        "access",
+        "checked",
+        "publishedAt"
+      ]
+    },
+    "receiptCheck": {
+      "fields": [
+        "denied",
+        "allowed"
+      ]
+    },
+    "certificatePredicate": {
+      "fields": [
+        "id",
+        "version",
+        "evaluator",
+        "tool",
+        "evaluatedAt",
+        "trial",
+        "statistic",
+        "checks",
+        "with",
+        "without",
+        "passed",
+        "aef"
+      ]
+    },
+    "certificateTool": {
+      "fields": [
+        "name",
+        "version"
+      ]
+    },
+    "certificateTrial": {
+      "fields": [
+        "measure",
+        "baseline",
+        "confidenceMilli",
+        "taskSource"
+      ]
+    },
+    "certificateCheck": {
+      "fields": [
+        "target",
+        "requiredMilli",
+        "observedMilli",
+        "met",
+        "estimateMilli"
+      ]
+    },
+    "certificateAef": {
+      "fields": [
+        "runId",
+        "runHash"
+      ]
+    },
+    "certificateArm": {
+      "fields": [
+        "tasks",
+        "hits",
+        "offered",
+        "correct",
+        "p95Micros",
+        "maximumOffered",
+        "spacing",
+        "perTask"
+      ]
+    },
+    "aefRunUnhashed": {
+      "fields": [
+        "seal.json",
+        "attestation.dsse.json"
+      ]
+    },
+    "revocations": {
+      "fields": [
+        "format",
+        "issuedAt",
+        "expires",
+        "digests",
+        "keys"
+      ]
+    },
+    "revokedKey": {
+      "fields": [
+        "keyId",
+        "compromisedAt"
+      ]
+    },
+    "trustPolicy": {
+      "fields": [
+        "format",
+        "keys",
+        "revoked",
+        "requireRoles",
+        "host"
+      ]
+    },
+    "trustKey": {
+      "fields": [
+        "keyId",
+        "publicKey",
+        "idPrefixes",
+        "roles",
+        "notBefore",
+        "notAfter",
+        "webId"
+      ]
+    },
+    "trustRevoked": {
+      "fields": [
+        "digests",
+        "keys",
+        "expires"
+      ]
     }
   },
   "members": {

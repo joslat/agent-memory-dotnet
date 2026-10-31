@@ -1361,6 +1361,18 @@ def main():
                         "dotnetSays": dn_text.splitlines()[0] if dn_text else "", "pythonSays": pr.stdout.strip().splitlines()[-1] if pr.stdout.strip() else pr.stderr.strip()[-200:],
                         "sha256": hashlib.sha256(pack_bytes + (external or b"")).hexdigest()})
         print(f"{'ok  ' if agree else 'FAIL'} {name:34} expected {expected:8} dotnet {dotnet:8} python {python}")
+    # Feature 01: every vector names the spec requirements it tests (spec/vectors.json); one the spec does not map fails here.
+    vector_map_path = HERE.parent.parent / "spec" / "vectors.json"
+    if vector_map_path.exists():
+        mapped = json.loads(vector_map_path.read_text(encoding="utf-8"))["vectors"]
+        unmapped = [r["vector"] for r in results if not mapped.get(r["vector"])]
+        for name_ in unmapped:
+            print(f"FAIL {name_:34} is not mapped to a requirement in spec/vectors.json")
+        failures += len(unmapped)
+        print(f"requirements covered by the kit: {len({req for r in results for req in mapped.get(r['vector'], [])})}")
+    else:
+        print("FAIL spec/vectors.json is missing: every vector must name the requirements it tests")
+        failures += 1
     (OUT / "results.json").write_text(json.dumps({"format": "agentmemory.pack.conformance/1.2", "vectors": results,
                                                   "agreed": len(results) - failures, "total": len(results)}, indent=1) + "\n", encoding="utf-8")
     shutil.rmtree(work, ignore_errors=True)

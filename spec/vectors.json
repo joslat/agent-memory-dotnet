@@ -1,0 +1,1795 @@
+{
+ "format": "ampack.vector-map/1",
+ "vectors": {
+  "valid-python-built": [
+   "R-CORE-008",
+   "R-CORE-042",
+   "R-CORE-038",
+   "R-CORE-039",
+   "R-CORE-045",
+   "R-CORE-046",
+   "R-CORE-047",
+   "R-CORE-049",
+   "R-CORE-061",
+   "R-CORE-051",
+   "R-CORE-070",
+   "R-CORE-004",
+   "R-CORE-075",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "valid-python-stored-from-dotnet": [
+   "R-CORE-008",
+   "R-CORE-015",
+   "R-CORE-042",
+   "R-CORE-004",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "tampered-record": [
+   "R-CORE-041",
+   "R-CORE-002"
+  ],
+  "extra-file": [
+   "R-CORE-040",
+   "R-CORE-002"
+  ],
+  "missing-file": [
+   "R-CORE-040",
+   "R-CORE-002"
+  ],
+  "relisted-with-old-signature": [
+   "R-CORE-046",
+   "R-CORE-051",
+   "R-CORE-002"
+  ],
+  "non-canonical-list": [
+   "R-CORE-032",
+   "R-CORE-042",
+   "R-CORE-002"
+  ],
+  "key-scoped-elsewhere": [
+   "R-CORE-058",
+   "R-CORE-061",
+   "R-CORE-080",
+   "R-CORE-002"
+  ],
+  "crlf-record": [
+   "R-CORE-025",
+   "R-CORE-002"
+  ],
+  "bom-manifest": [
+   "R-CORE-025",
+   "R-CORE-002"
+  ],
+  "duplicate-key-record": [
+   "R-CORE-026",
+   "R-CORE-002"
+  ],
+  "device-name-path": [
+   "R-CORE-023",
+   "R-CORE-017",
+   "R-CORE-002"
+  ],
+  "pack-json-names-other-id": [
+   "R-CORE-043",
+   "R-CORE-002"
+  ],
+  "json-file-at-1-mib": [
+   "R-CORE-031",
+   "R-CORE-006",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "json-file-over-1-mib": [
+   "R-CORE-031",
+   "R-CORE-072",
+   "R-CORE-006",
+   "R-CORE-002"
+  ],
+  "jsonl-line-at-1-mib": [
+   "R-CORE-031",
+   "R-CORE-006",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "jsonl-line-over-1-mib": [
+   "R-CORE-031",
+   "R-CORE-006",
+   "R-CORE-002"
+  ],
+  "files-list-over-2-mib": [
+   "R-CORE-037",
+   "R-CORE-072",
+   "R-CORE-006",
+   "R-CORE-002"
+  ],
+  "unsigned-with-wide-json": [
+   "R-CORE-071",
+   "R-CORE-051",
+   "R-CORE-070",
+   "R-CORE-002"
+  ],
+  "unknown-kind": [
+   "R-CORE-099",
+   "R-CORE-077",
+   "R-CORE-002"
+  ],
+  "unknown-tier": [
+   "R-CORE-077",
+   "R-CORE-002"
+  ],
+  "unknown-code-tier": [
+   "R-CORE-077",
+   "R-CORE-002"
+  ],
+  "valid-until-passed": [
+   "R-CORE-068",
+   "R-CORE-002"
+  ],
+  "valid-until-ahead": [
+   "R-CORE-068",
+   "R-CORE-083",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "valid-until-not-rfc3339": [
+   "R-CORE-083",
+   "R-CORE-034",
+   "R-CORE-002"
+  ],
+  "source-commit-not-hex": [
+   "R-CORE-082",
+   "R-CORE-002"
+  ],
+  "source-valid": [
+   "R-CORE-082",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "containable-by-not-an-id": [
+   "R-CORE-078",
+   "R-CORE-079",
+   "R-CORE-002"
+  ],
+  "knowledge-without-records": [
+   "R-CORE-100",
+   "R-CORE-002"
+  ],
+  "definition-with-records": [
+   "R-CORE-100",
+   "R-WALK-014",
+   "R-CORE-002"
+  ],
+  "protected-without-seal": [
+   "R-PROT-002",
+   "R-CORE-002"
+  ],
+  "key-expired": [
+   "R-CORE-061",
+   "R-CORE-059",
+   "R-CORE-002"
+  ],
+  "key-not-yet-valid": [
+   "R-CORE-061",
+   "R-CORE-059",
+   "R-CORE-002"
+  ],
+  "key-window-open": [
+   "R-CORE-061",
+   "R-CORE-059",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "revocations-stale": [
+   "R-CORE-065",
+   "R-HOST-017",
+   "R-CORE-002"
+  ],
+  "revocations-none": [
+   "R-CORE-064",
+   "R-HOST-019",
+   "R-HOST-020",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "revocations-digest": [
+   "R-CORE-063",
+   "R-HOST-020",
+   "R-CORE-002"
+  ],
+  "revocations-key": [
+   "R-CORE-063",
+   "R-CORE-061",
+   "R-CORE-002"
+  ],
+  "revocations-expired": [
+   "R-CORE-065",
+   "R-HOST-026",
+   "R-CORE-002"
+  ],
+  "revocations-issued-in-the-future": [
+   "R-HOST-022",
+   "R-CORE-002"
+  ],
+  "revocations-by-a-publisher-key": [
+   "R-CORE-064",
+   "R-HOST-021",
+   "R-CORE-002"
+  ],
+  "revocations-tampered": [
+   "R-HOST-021",
+   "R-CORE-002"
+  ],
+  "revocations-python-signed": [
+   "R-CORE-063",
+   "R-HOST-019",
+   "R-CORE-002"
+  ],
+  "revocations-padded-integer": [
+   "R-CORE-049",
+   "R-HOST-019",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "revocations-negative-integer": [
+   "R-CORE-049",
+   "R-HOST-021",
+   "R-CORE-002"
+  ],
+  "revocations-by-a-revoked-revoker-revoking-nothing": [
+   "R-HOST-023",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "revocations-by-a-revoked-revoker-revoking-the-pack": [
+   "R-HOST-023",
+   "R-CORE-002"
+  ],
+  "revocations-non-live-list-revoking-a-live-revoker": [
+   "R-HOST-027",
+   "R-HOST-024",
+   "R-CORE-002"
+  ],
+  "policy-with-a-revoker-that-also-publishes": [
+   "R-CORE-060",
+   "R-HOST-012",
+   "R-HOST-004",
+   "R-CORE-002"
+  ],
+  "run-rotated-revoker-not-carried-forward": [
+   "R-HOST-027",
+   "R-CORE-002"
+  ],
+  "run-rotated-revoker-carried-forward": [
+   "R-HOST-027",
+   "R-HOST-024",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "run-revoked-revoker-revoking-itself-to-dodge": [
+   "R-HOST-027",
+   "R-CORE-002"
+  ],
+  "run-two-revokers-in-a-circle": [
+   "R-HOST-028",
+   "R-CORE-002"
+  ],
+  "run-the-same-list-twice": [
+   "R-HOST-025",
+   "R-HOST-028",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "run-one-list-signed-by-both-revokers-in-two-envelopes": [
+   "R-HOST-025",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "run-merged-signers-live-envelope-second": [
+   "R-HOST-025",
+   "R-HOST-030",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "run-merged-signers-live-envelope-first": [
+   "R-HOST-025",
+   "R-HOST-030",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "run-merged-signers-control-rotated-out-alone": [
+   "R-HOST-027",
+   "R-CORE-002"
+  ],
+  "run-live-list-revoking-the-pack-beside-others": [
+   "R-HOST-024",
+   "R-CORE-063",
+   "R-CORE-002"
+  ],
+  "run-non-live-list-revoking-a-successor-not-yet-valid": [
+   "R-HOST-027",
+   "R-CORE-002"
+  ],
+  "files-entry-extra-field": [
+   "R-CORE-039",
+   "R-CORE-002"
+  ],
+  "files-entry-length-true": [
+   "R-CORE-039",
+   "R-CORE-002"
+  ],
+  "signature-outside-the-alphabet": [
+   "R-CORE-035",
+   "R-CORE-045",
+   "R-CORE-002"
+  ],
+  "payload-base64-with-a-line-break": [
+   "R-CORE-035",
+   "R-CORE-045",
+   "R-CORE-002"
+  ],
+  "second-signature-entry-not-base64": [
+   "R-CORE-045",
+   "R-CORE-002"
+  ],
+  "second-signature-entry-without-sig": [
+   "R-CORE-045",
+   "R-CORE-002"
+  ],
+  "signed-at-without-leading-zero": [
+   "R-CORE-047",
+   "R-CORE-002"
+  ],
+  "signed-at-lowercase": [
+   "R-CORE-047",
+   "R-CORE-002"
+  ],
+  "valid-until-offset-beyond-14-hours": [
+   "R-CORE-034",
+   "R-CORE-083",
+   "R-CORE-002"
+  ],
+  "valid-until-as-a-number": [
+   "R-CORE-078",
+   "R-CORE-002"
+  ],
+  "protection-null": [
+   "R-CORE-078",
+   "R-CORE-002"
+  ],
+  "code-as-a-list": [
+   "R-CORE-078",
+   "R-CORE-002"
+  ],
+  "sdk-as-a-number": [
+   "R-CORE-078",
+   "R-CORE-002"
+  ],
+  "display-as-a-string": [
+   "R-CORE-078",
+   "R-CORE-002"
+  ],
+  "number-beyond-double": [
+   "R-CORE-029",
+   "R-CORE-002"
+  ],
+  "integer-int64-min": [
+   "R-CORE-029",
+   "R-CORE-002"
+  ],
+  "nesting-64-deep": [
+   "R-CORE-030",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "nesting-65-deep": [
+   "R-CORE-030",
+   "R-CORE-002"
+  ],
+  "combining-marks-30-in-a-row": [
+   "R-CORE-028",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "combining-marks-31-in-a-row": [
+   "R-CORE-028",
+   "R-CORE-002"
+  ],
+  "source-100-astral-characters": [
+   "R-CORE-082",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "source-101-astral-characters": [
+   "R-CORE-082",
+   "R-CORE-002"
+  ],
+  "version-with-an-arabic-digit": [
+   "R-CORE-036",
+   "R-CORE-002"
+  ],
+  "extra-envelope-of-wrong-types": [
+   "R-CORE-044",
+   "R-CORE-045",
+   "R-CORE-002"
+  ],
+  "envelope-signing-another-list": [
+   "R-CORE-048",
+   "R-CORE-002"
+  ],
+  "envelope-with-no-signature": [
+   "R-CORE-045",
+   "R-CORE-002"
+  ],
+  "countersignature-by-a-key-not-trusted-ignored": [
+   "R-CORE-050",
+   "R-CORE-052",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "unsigned-pack-with-no-required-roles": [
+   "R-HOST-006",
+   "R-HOST-004",
+   "R-CORE-002"
+  ],
+  "policy-with-a-key-listed-twice": [
+   "R-HOST-008",
+   "R-HOST-004",
+   "R-CORE-002"
+  ],
+  "policy-with-a-null-prefix": [
+   "R-HOST-011",
+   "R-HOST-004",
+   "R-CORE-002"
+  ],
+  "policy-with-a-time-not-rfc3339": [
+   "R-HOST-013",
+   "R-CORE-034",
+   "R-HOST-004",
+   "R-CORE-002"
+  ],
+  "stream-safe-nfkd-30": [
+   "R-CORE-028",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "stream-safe-nfkd-31": [
+   "R-CORE-028",
+   "R-CORE-002"
+  ],
+  "stream-safe-expanding-starters": [
+   "R-CORE-028",
+   "R-CORE-002"
+  ],
+  "object-key-30-marks": [
+   "R-CORE-028",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "object-key-31-marks": [
+   "R-CORE-028",
+   "R-CORE-002"
+  ],
+  "nesting-100000-deep": [
+   "R-CORE-030",
+   "R-CORE-002"
+  ],
+  "valid-until-offset-minutes-60": [
+   "R-CORE-034",
+   "R-CORE-002"
+  ],
+  "version-prerelease-leading-zero": [
+   "R-CORE-036",
+   "R-CORE-002"
+  ],
+  "files-list-a-number": [
+   "R-CORE-038",
+   "R-CORE-002"
+  ],
+  "files-list-an-array": [
+   "R-CORE-038",
+   "R-CORE-002"
+  ],
+  "signature-entry-keyid-a-list": [
+   "R-CORE-045",
+   "R-CORE-002"
+  ],
+  "policy-with-a-null-time": [
+   "R-HOST-013",
+   "R-HOST-004",
+   "R-CORE-002"
+  ],
+  "policy-with-revocations-expiring-null": [
+   "R-HOST-017",
+   "R-HOST-004",
+   "R-CORE-002"
+  ],
+  "policy-with-a-null-revoked-key": [
+   "R-HOST-016",
+   "R-HOST-004",
+   "R-CORE-002"
+  ],
+  "policy-prefix-with-two-dots": [
+   "R-HOST-011",
+   "R-HOST-004",
+   "R-CORE-002"
+  ],
+  "policy-with-an-rsa-key": [
+   "R-HOST-010",
+   "R-HOST-004",
+   "R-CORE-002"
+  ],
+  "policy-with-two-boms": [
+   "R-HOST-002",
+   "R-HOST-004",
+   "R-CORE-002"
+  ],
+  "policy-with-one-bom": [
+   "R-HOST-002",
+   "R-HOST-004",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "policy-misspelt-require-roles": [
+   "R-HOST-003",
+   "R-HOST-004",
+   "R-CORE-002"
+  ],
+  "policy-key-misspelt-not-after": [
+   "R-HOST-003",
+   "R-HOST-004",
+   "R-CORE-002"
+  ],
+  "policy-revoked-misspelt-digests": [
+   "R-HOST-003",
+   "R-HOST-004",
+   "R-CORE-002"
+  ],
+  "policy-revoked-digest-uppercase": [
+   "R-HOST-015",
+   "R-HOST-004",
+   "R-CORE-002"
+  ],
+  "policy-revoked-key-id-short": [
+   "R-HOST-016",
+   "R-HOST-004",
+   "R-CORE-002"
+  ],
+  "policy-revoked-key-extra-field": [
+   "R-HOST-003",
+   "R-HOST-016",
+   "R-HOST-004",
+   "R-CORE-002"
+  ],
+  "policy-prefix-uppercase": [
+   "R-HOST-011",
+   "R-HOST-004",
+   "R-CORE-002"
+  ],
+  "policy-prefix-trailing-dot": [
+   "R-HOST-011",
+   "R-CORE-058",
+   "R-HOST-004",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "policy-root-extra-field": [
+   "R-HOST-003",
+   "R-HOST-004",
+   "R-CORE-002"
+  ],
+  "policy-not-utf8": [
+   "R-HOST-001",
+   "R-HOST-004",
+   "R-CORE-002"
+  ],
+  "policy-with-a-p384-key": [
+   "R-HOST-010",
+   "R-HOST-004",
+   "R-CORE-002"
+  ],
+  "version-5000-digits": [
+   "R-CORE-036",
+   "R-CORE-002"
+  ],
+  "version-256-characters": [
+   "R-CORE-036",
+   "R-CORE-006",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "version-257-characters": [
+   "R-CORE-036",
+   "R-CORE-006",
+   "R-CORE-002"
+  ],
+  "envelope-16-signatures": [
+   "R-CORE-053",
+   "R-CORE-006",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "envelope-17-signatures": [
+   "R-CORE-053",
+   "R-CORE-006",
+   "R-CORE-002"
+  ],
+  "sixteen-envelopes": [
+   "R-CORE-053",
+   "R-CORE-006",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "seventeen-envelopes": [
+   "R-CORE-053",
+   "R-CORE-006",
+   "R-CORE-002"
+  ],
+  "signature-integer-without-sign-pad": [
+   "R-CORE-049",
+   "R-CORE-002"
+  ],
+  "envelope-over-64-kib": [
+   "R-CORE-053",
+   "R-CORE-072",
+   "R-CORE-006",
+   "R-CORE-002"
+  ],
+  "envelope-at-60-kib": [
+   "R-CORE-053",
+   "R-CORE-006",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "key-expired-after-signing": [
+   "R-CORE-061",
+   "R-CORE-002"
+  ],
+  "signature-in-the-future": [
+   "R-CORE-061",
+   "R-CORE-002"
+  ],
+  "junk-signature-file": [
+   "R-CORE-044",
+   "R-CORE-002"
+  ],
+  "integer-beyond-2-53": [
+   "R-CORE-029",
+   "R-CORE-002"
+  ],
+  "nfd-string": [
+   "R-CORE-027",
+   "R-CORE-002"
+  ],
+  "empty-line-record": [
+   "R-CORE-107",
+   "R-CORE-002"
+  ],
+  "no-final-line-feed": [
+   "R-CORE-107",
+   "R-CORE-002"
+  ],
+  "case-collision": [
+   "R-CORE-024",
+   "R-CORE-002"
+  ],
+  "composite-valid": [
+   "R-COMPOSE-002",
+   "R-COMPOSE-005",
+   "R-COMPOSE-006",
+   "R-COMPOSE-009",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "composite-lock-pins-other": [
+   "R-COMPOSE-006",
+   "R-COMPOSE-011",
+   "R-CORE-002"
+  ],
+  "composite-members-not-strings": [
+   "R-COMPOSE-005",
+   "R-CORE-002"
+  ],
+  "composite-lock-not-canonical": [
+   "R-COMPOSE-009",
+   "R-CORE-032",
+   "R-CORE-002"
+  ],
+  "composite-lock-extra-field": [
+   "R-COMPOSE-009",
+   "R-CORE-002"
+  ],
+  "composite-members-differ": [
+   "R-COMPOSE-006",
+   "R-CORE-002"
+  ],
+  "composite-lock-id-a-number": [
+   "R-COMPOSE-009",
+   "R-CORE-002"
+  ],
+  "set-valid": [
+   "R-CORE-103",
+   "R-CORE-104",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "set-member-tampered": [
+   "R-CORE-104",
+   "R-CORE-002"
+  ],
+  "set-member-misnamed": [
+   "R-CORE-105",
+   "R-CORE-002"
+  ],
+  "set-file-outside-member": [
+   "R-CORE-103",
+   "R-CORE-002"
+  ],
+  "unknown-field": [
+   "R-CORE-076",
+   "R-CORE-087",
+   "R-CORE-075",
+   "R-CORE-002"
+  ],
+  "extension-ignored": [
+   "R-CORE-084",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "critical-extension": [
+   "R-CORE-085",
+   "R-CORE-002"
+  ],
+  "critical-names-nothing": [
+   "R-CORE-085",
+   "R-CORE-002"
+  ],
+  "minor-later-known-fields": [
+   "R-CORE-088",
+   "R-CORE-086",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "minor-later-unknown-field-ignored": [
+   "R-CORE-088",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "minor-later-unknown-field-critical": [
+   "R-CORE-088",
+   "R-CORE-089",
+   "R-CORE-002"
+  ],
+  "minor-own-unknown-field-critical": [
+   "R-CORE-087",
+   "R-CORE-089",
+   "R-CORE-002"
+  ],
+  "minor-later-unknown-kind": [
+   "R-CORE-090",
+   "R-CORE-077",
+   "R-CORE-002"
+  ],
+  "minor-earlier": [
+   "R-CORE-086",
+   "R-CORE-002"
+  ],
+  "minor-leading-zero": [
+   "R-CORE-086",
+   "R-CORE-002"
+  ],
+  "minor-major-two": [
+   "R-CORE-086",
+   "R-CORE-002"
+  ],
+  "minor-four-digits": [
+   "R-CORE-086",
+   "R-CORE-002"
+  ],
+  "critical-known-field": [
+   "R-CORE-089",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "critical-names-absent-field": [
+   "R-CORE-089",
+   "R-CORE-002"
+  ],
+  "critical-names-itself": [
+   "R-CORE-089",
+   "R-CORE-002"
+  ],
+  "critical-twice": [
+   "R-CORE-089",
+   "R-CORE-002"
+  ],
+  "critical-empty": [
+   "R-CORE-089",
+   "R-CORE-002"
+  ],
+  "critical-not-a-list": [
+   "R-CORE-089",
+   "R-CORE-002"
+  ],
+  "timestamp-token-beside-envelope": [
+   "R-CORE-054",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "timestamp-token-beside-nothing": [
+   "R-CORE-055",
+   "R-CORE-002"
+  ],
+  "timestamp-token-over-64-kib": [
+   "R-CORE-055",
+   "R-CORE-002"
+  ],
+  "federated-valid": [
+   "R-FED-004",
+   "R-FED-003",
+   "R-FED-010",
+   "R-FED-012",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "federated-host-outside-audience": [
+   "R-FED-012",
+   "R-CORE-002"
+  ],
+  "federated-host-names-no-webid": [
+   "R-FED-012",
+   "R-CORE-002"
+  ],
+  "federated-public-host-names-no-webid": [
+   "R-FED-012",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "federated-key-unbound": [
+   "R-FED-010",
+   "R-CORE-002"
+  ],
+  "federated-key-bound-elsewhere": [
+   "R-FED-011",
+   "R-CORE-002"
+  ],
+  "federated-not-critical": [
+   "R-FED-003",
+   "R-FED-002",
+   "R-CORE-002"
+  ],
+  "federated-purpose-300": [
+   "R-FED-006",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "federated-two-readers": [
+   "R-FED-005",
+   "R-FED-012",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "federated-purpose-150-astral": [
+   "R-FED-006",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "federated-purpose-151-astral": [
+   "R-FED-006",
+   "R-CORE-002"
+  ],
+  "set-federated-valid": [
+   "R-FED-013",
+   "R-FED-015",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "set-federated-member-not-federated": [
+   "R-FED-013",
+   "R-CORE-002"
+  ],
+  "set-federated-member-wider": [
+   "R-FED-013",
+   "R-CORE-002"
+  ],
+  "set-federated-member-untrusted": [
+   "R-FED-015",
+   "R-CORE-104",
+   "R-CORE-002"
+  ],
+  "federated-audience-empty": [
+   "R-FED-005",
+   "R-CORE-002"
+  ],
+  "federated-audience-everyone": [
+   "R-FED-005",
+   "R-CORE-002"
+  ],
+  "federated-audience-http": [
+   "R-FED-007",
+   "R-CORE-002"
+  ],
+  "federated-audience-turtle-breaker": [
+   "R-FED-007",
+   "R-CORE-002"
+  ],
+  "federated-audience-two-fragments": [
+   "R-FED-007",
+   "R-CORE-002"
+  ],
+  "federated-audience-twice": [
+   "R-FED-005",
+   "R-CORE-002"
+  ],
+  "federated-audience-65": [
+   "R-FED-005",
+   "R-CORE-002"
+  ],
+  "federated-unknown-field": [
+   "R-FED-004",
+   "R-CORE-002"
+  ],
+  "federated-other-format": [
+   "R-FED-004",
+   "R-CORE-002"
+  ],
+  "federated-no-audience": [
+   "R-FED-004",
+   "R-CORE-002"
+  ],
+  "federated-publisher-not-webid": [
+   "R-FED-004",
+   "R-FED-007",
+   "R-CORE-002"
+  ],
+  "federated-purpose-301": [
+   "R-FED-006",
+   "R-CORE-002"
+  ],
+  "policy-federated-host-empty": [
+   "R-HOST-007",
+   "R-FED-009",
+   "R-HOST-004",
+   "R-CORE-002"
+  ],
+  "policy-federated-host-extra": [
+   "R-HOST-007",
+   "R-HOST-004",
+   "R-CORE-002"
+  ],
+  "policy-federated-webid-http": [
+   "R-HOST-014",
+   "R-FED-007",
+   "R-HOST-004",
+   "R-CORE-002"
+  ],
+  "policy-federated-revoker-webid": [
+   "R-HOST-014",
+   "R-FED-008",
+   "R-HOST-004",
+   "R-CORE-002"
+  ],
+  "card-valid-full": [
+   "R-CORE-111",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "card-absent": [
+   "R-CORE-111",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "card-unknown-field": [
+   "R-CORE-111",
+   "R-CORE-002"
+  ],
+  "card-without-intended-use": [
+   "R-CORE-111",
+   "R-CORE-002"
+  ],
+  "card-other-format": [
+   "R-CORE-111",
+   "R-CORE-002"
+  ],
+  "card-terminal-escape": [
+   "R-CORE-112",
+   "R-CORE-002"
+  ],
+  "card-c1-control": [
+   "R-CORE-112",
+   "R-CORE-002"
+  ],
+  "card-astral-at-limit": [
+   "R-CORE-112",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "card-astral-over-limit": [
+   "R-CORE-112",
+   "R-CORE-002"
+  ],
+  "card-boundary-repeated": [
+   "R-CORE-111",
+   "R-CORE-002"
+  ],
+  "card-owner-empty": [
+   "R-CORE-111",
+   "R-CORE-002"
+  ],
+  "folders-differ-only-by-case": [
+   "R-CORE-024",
+   "R-CORE-002"
+  ],
+  "file-named-like-a-folder": [
+   "R-CORE-024",
+   "R-CORE-002"
+  ],
+  "set-inside-a-set": [
+   "R-CORE-105",
+   "R-CORE-002"
+  ],
+  "set-member-with-the-set-id": [
+   "R-CORE-105",
+   "R-CORE-002"
+  ],
+  "composite-with-records": [
+   "R-COMPOSE-003",
+   "R-CORE-002"
+  ],
+  "composite-declares-sdk": [
+   "R-CORE-101",
+   "R-CORE-002"
+  ],
+  "composite-declares-containable-by": [
+   "R-CORE-101",
+   "R-CORE-002"
+  ],
+  "set-declares-requires": [
+   "R-CORE-101",
+   "R-CORE-002"
+  ],
+  "composite-member-extra-field": [
+   "R-COMPOSE-005",
+   "R-CORE-002"
+  ],
+  "composite-member-without-version": [
+   "R-COMPOSE-005",
+   "R-CORE-002"
+  ],
+  "composite-member-priority-text": [
+   "R-COMPOSE-005",
+   "R-CORE-002"
+  ],
+  "composite-member-enabled-text": [
+   "R-COMPOSE-005",
+   "R-CORE-002"
+  ],
+  "composite-member-contains-a-number": [
+   "R-COMPOSE-005",
+   "R-CORE-002"
+  ],
+  "valid-until-fraction-with-offset": [
+   "R-CORE-034",
+   "R-CORE-083",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "valid-until-seven-digit-fraction": [
+   "R-CORE-034",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "key-window-fraction-with-offset": [
+   "R-CORE-034",
+   "R-CORE-059",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "policy-with-a-private-key": [
+   "R-HOST-009",
+   "R-HOST-004",
+   "R-CORE-002"
+  ],
+  "policy-with-two-key-blocks": [
+   "R-HOST-009",
+   "R-HOST-004",
+   "R-CORE-002"
+  ],
+  "policy-key-compressed-point": [
+   "R-HOST-010",
+   "R-HOST-004",
+   "R-CORE-002"
+  ],
+  "policy-key-hybrid-point": [
+   "R-HOST-010",
+   "R-HOST-004",
+   "R-CORE-002"
+  ],
+  "policy-key-stray-base64-bits": [
+   "R-HOST-010",
+   "R-HOST-004",
+   "R-CORE-002"
+  ],
+  "policy-second-key-off-curve": [
+   "R-HOST-010",
+   "R-HOST-004",
+   "R-CORE-002"
+  ],
+  "policy-second-key-x-not-reduced": [
+   "R-HOST-010",
+   "R-HOST-004",
+   "R-CORE-002"
+  ],
+  "revocations-empty-list-in-two-envelopes": [
+   "R-HOST-025",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "revocations-one-list-in-two-envelopes": [
+   "R-HOST-025",
+   "R-CORE-002"
+  ],
+  "revocations-65-lists": [
+   "R-HOST-025",
+   "R-CORE-002"
+  ],
+  "revocations-shape-envelope-extra-field": [
+   "R-HOST-019",
+   "R-CORE-045",
+   "R-CORE-002"
+  ],
+  "revocations-shape-entry-extra-key": [
+   "R-HOST-019",
+   "R-CORE-045",
+   "R-CORE-002"
+  ],
+  "revocations-shape-entry-without-sig": [
+   "R-HOST-019",
+   "R-CORE-045",
+   "R-CORE-002"
+  ],
+  "revocations-shape-keyid-uppercase": [
+   "R-HOST-019",
+   "R-CORE-045",
+   "R-CORE-002"
+  ],
+  "envelope-closed-shapes-hold": [
+   "R-CORE-045",
+   "R-CORE-046",
+   "R-CORE-047",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "envelope-extra-field": [
+   "R-CORE-045",
+   "R-CORE-002"
+  ],
+  "statement-extra-field": [
+   "R-CORE-046",
+   "R-CORE-002"
+  ],
+  "predicate-extra-field": [
+   "R-CORE-047",
+   "R-CORE-002"
+  ],
+  "federated-valid-dotnet": [
+   "R-FED-004",
+   "R-FED-010",
+   "R-CORE-004",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "prefix-bytes": [
+   "R-CORE-013",
+   "R-CORE-002"
+  ],
+  "trailing-bytes": [
+   "R-CORE-013",
+   "R-CORE-002"
+  ],
+  "archive-comment": [
+   "R-CORE-013",
+   "R-CORE-002"
+  ],
+  "unsorted-entries": [
+   "R-CORE-016",
+   "R-CORE-002"
+  ],
+  "data-descriptor-flag": [
+   "R-CORE-015",
+   "R-CORE-002"
+  ],
+  "local-name-differs": [
+   "R-CORE-014",
+   "R-CORE-002"
+  ],
+  "deflate-valid": [
+   "R-CORE-018",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "deflate-trailing-bytes": [
+   "R-CORE-018",
+   "R-CORE-002"
+  ],
+  "deflate-without-its-final-block": [
+   "R-CORE-018",
+   "R-CORE-002"
+  ],
+  "deflate-damaged": [
+   "R-CORE-018",
+   "R-CORE-002"
+  ],
+  "archive-ratio-over-250": [
+   "R-CORE-019",
+   "R-CORE-002"
+  ],
+  "archive-ratio-control-stored": [
+   "R-CORE-019",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "archive-deflate-empty-declares-content": [
+   "R-CORE-019",
+   "R-CORE-002"
+  ],
+  "archive-4096-files": [
+   "R-CORE-020",
+   "R-CORE-006",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "archive-4097-files": [
+   "R-CORE-020",
+   "R-CORE-006",
+   "R-CORE-002"
+  ],
+  "attestation-certificate-content-unchecked": [
+   "R-CORE-116",
+   "R-CERTIFY-018",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "attestation-stray-file": [
+   "R-CORE-114",
+   "R-CORE-002"
+  ],
+  "attestation-run-without-certificate": [
+   "R-CORE-115",
+   "R-CERTIFY-021",
+   "R-CORE-002"
+  ],
+  "attestation-certificate-too-large": [
+   "R-CORE-115",
+   "R-CORE-002"
+  ],
+  "attestation-nine-certificates": [
+   "R-CORE-115",
+   "R-CORE-002"
+  ],
+  "attestation-uppercase-stem": [
+   "R-CORE-114",
+   "R-CORE-002"
+  ],
+  "receipt-valid-python": [
+   "R-FED-016",
+   "R-FED-017",
+   "R-FED-022",
+   "R-FED-024",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "receipt-shape-envelope-extra-field": [
+   "R-FED-016",
+   "R-CORE-045",
+   "R-CORE-002"
+  ],
+  "receipt-shape-entry-extra-key": [
+   "R-FED-016",
+   "R-CORE-045",
+   "R-CORE-002"
+  ],
+  "receipt-shape-entry-without-sig": [
+   "R-FED-016",
+   "R-CORE-045",
+   "R-CORE-002"
+  ],
+  "receipt-shape-keyid-uppercase": [
+   "R-FED-016",
+   "R-CORE-045",
+   "R-CORE-002"
+  ],
+  "receipt-valid-dotnet": [
+   "R-FED-016",
+   "R-FED-022",
+   "R-FED-024",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "receipt-narrower-placement": [
+   "R-FED-023",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "receipt-other-location": [
+   "R-FED-022",
+   "R-CORE-002"
+  ],
+  "receipt-other-bytes": [
+   "R-FED-022",
+   "R-CORE-002"
+  ],
+  "receipt-wider-audience": [
+   "R-FED-023",
+   "R-CORE-002"
+  ],
+  "receipt-public-placement-of-named-pack": [
+   "R-FED-023",
+   "R-CORE-002"
+  ],
+  "receipt-host-outside-placement": [
+   "R-FED-022",
+   "R-CORE-002"
+  ],
+  "receipt-named-without-anonymous-refused": [
+   "R-FED-020",
+   "R-CORE-002"
+  ],
+  "receipt-allowed-outside-audience": [
+   "R-FED-020",
+   "R-CORE-002"
+  ],
+  "receipt-audience-member-refused": [
+   "R-FED-020",
+   "R-CORE-002"
+  ],
+  "receipt-public-valid": [
+   "R-FED-019",
+   "R-FED-020",
+   "R-FED-023",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "receipt-public-anonymous-refused": [
+   "R-FED-020",
+   "R-CORE-002"
+  ],
+  "receipt-public-webid-refused": [
+   "R-FED-020",
+   "R-CORE-002"
+  ],
+  "receipt-signed-by-second-bound-key": [
+   "R-FED-024",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "receipt-signer-curator-only": [
+   "R-FED-024",
+   "R-CORE-062",
+   "R-CORE-002"
+  ],
+  "receipt-signer-revoked": [
+   "R-FED-024",
+   "R-CORE-062",
+   "R-CORE-002"
+  ],
+  "receipt-signer-expired": [
+   "R-FED-024",
+   "R-CORE-062",
+   "R-CORE-002"
+  ],
+  "receipt-subject-other-digest": [
+   "R-FED-022",
+   "R-CORE-002"
+  ],
+  "receipt-set-valid": [
+   "R-FED-025",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "receipt-set-member-untrusted": [
+   "R-FED-025",
+   "R-FED-015",
+   "R-CORE-002"
+  ],
+  "receipt-signer-bound-elsewhere": [
+   "R-FED-024",
+   "R-CORE-002"
+  ],
+  "receipt-signer-untrusted": [
+   "R-FED-024",
+   "R-CORE-002"
+  ],
+  "receipt-edited-after-signing": [
+   "R-FED-024",
+   "R-CORE-049",
+   "R-CORE-002"
+  ],
+  "receipt-extra-field": [
+   "R-FED-017",
+   "R-CORE-002"
+  ],
+  "receipt-access-public-with-names": [
+   "R-FED-019",
+   "R-CORE-002"
+  ],
+  "receipt-access-unknown": [
+   "R-FED-019",
+   "R-CORE-002"
+  ],
+  "receipt-in-the-future": [
+   "R-FED-024",
+   "R-CORE-062",
+   "R-CORE-002"
+  ],
+  "receipt-time-not-utc": [
+   "R-FED-017",
+   "R-CORE-002"
+  ],
+  "receipt-location-fragment": [
+   "R-FED-018",
+   "R-CORE-002"
+  ],
+  "receipt-two-subjects": [
+   "R-FED-016",
+   "R-CORE-002"
+  ],
+  "receipt-probe-not-webid": [
+   "R-FED-020",
+   "R-CORE-002"
+  ],
+  "receipt-for-unfederated-pack": [
+   "R-FED-021",
+   "R-CORE-002"
+  ],
+  "certificate-valid-python": [
+   "R-CERTIFY-003",
+   "R-CERTIFY-004",
+   "R-CERTIFY-005",
+   "R-CERTIFY-006",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "certificate-valid-dotnet": [
+   "R-CERTIFY-003",
+   "R-CERTIFY-004",
+   "R-CERTIFY-025",
+   "R-CERTIFY-016",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "certificate-as-a-separate-file": [
+   "R-CERTIFY-019",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "certificate-shape-envelope-extra-field": [
+   "R-CERTIFY-003",
+   "R-CORE-045",
+   "R-CORE-002"
+  ],
+  "certificate-shape-entry-extra-key": [
+   "R-CERTIFY-003",
+   "R-CORE-045",
+   "R-CORE-002"
+  ],
+  "certificate-shape-entry-without-sig": [
+   "R-CERTIFY-003",
+   "R-CORE-045",
+   "R-CORE-002"
+  ],
+  "certificate-shape-keyid-uppercase": [
+   "R-CERTIFY-003",
+   "R-CORE-045",
+   "R-CORE-002"
+  ],
+  "certificate-honest-failure": [
+   "R-CERTIFY-014",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "certificate-with-host-baseline": [
+   "R-CERTIFY-013",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "certificate-aef-run-matches": [
+   "R-CERTIFY-022",
+   "R-CERTIFY-023",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "certificate-aef-run-named-elsewhere": [
+   "R-CERTIFY-021",
+   "R-CERTIFY-015",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "certificate-aef-run-tampered": [
+   "R-CERTIFY-022",
+   "R-CORE-002"
+  ],
+  "certificate-aef-run-not-named": [
+   "R-CERTIFY-022",
+   "R-CORE-002"
+  ],
+  "certificate-aef-run-json-outside-profile": [
+   "R-CERTIFY-023",
+   "R-CORE-002"
+  ],
+  "certificate-aef-run-of-another-pack": [
+   "R-CERTIFY-023",
+   "R-CORE-002"
+  ],
+  "certificate-aef-run-other-id": [
+   "R-CERTIFY-023",
+   "R-CORE-002"
+  ],
+  "certificate-key-not-trusted": [
+   "R-CERTIFY-004",
+   "R-CORE-002"
+  ],
+  "certificate-key-other-prefix": [
+   "R-CERTIFY-004",
+   "R-CORE-062",
+   "R-CORE-002"
+  ],
+  "certificate-key-expired": [
+   "R-CERTIFY-004",
+   "R-CORE-062",
+   "R-CORE-002"
+  ],
+  "certificate-key-revoked": [
+   "R-CERTIFY-004",
+   "R-CORE-062",
+   "R-CORE-002"
+  ],
+  "certificate-key-assurer-not-evaluator": [
+   "R-CERTIFY-004",
+   "R-CORE-002"
+  ],
+  "certificate-set-valid": [
+   "R-CERTIFY-020",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "certificate-set-member-untrusted": [
+   "R-CERTIFY-020",
+   "R-CORE-002"
+  ],
+  "certificate-path-of-a-run-file": [
+   "R-CERTIFY-024",
+   "R-CORE-002"
+  ],
+  "certificate-policy-evaluator-also-publisher": [
+   "R-CORE-060",
+   "R-HOST-012",
+   "R-HOST-004",
+   "R-CORE-002"
+  ],
+  "certificate-by-the-publisher": [
+   "R-CERTIFY-004",
+   "R-CORE-002"
+  ],
+  "certificate-in-the-future": [
+   "R-CERTIFY-008",
+   "R-CORE-062",
+   "R-CORE-002"
+  ],
+  "certificate-under-another-stem": [
+   "R-CERTIFY-016",
+   "R-CORE-002"
+  ],
+  "certificate-for-another-pack": [
+   "R-CERTIFY-006",
+   "R-CORE-002"
+  ],
+  "certificate-other-version": [
+   "R-CERTIFY-006",
+   "R-CORE-002"
+  ],
+  "certificate-two-subjects": [
+   "R-CERTIFY-003",
+   "R-CORE-002"
+  ],
+  "certificate-edited-after-signing": [
+   "R-CERTIFY-004",
+   "R-CORE-049",
+   "R-CORE-002"
+  ],
+  "certificate-passed-with-a-missed-check": [
+   "R-CERTIFY-014",
+   "R-CORE-002"
+  ],
+  "certificate-passed-on-nine-tasks": [
+   "R-CERTIFY-014",
+   "R-CORE-002"
+  ],
+  "certificate-arms-differ": [
+   "R-CERTIFY-012",
+   "R-CORE-002"
+  ],
+  "certificate-host-baseline-without-arm": [
+   "R-CERTIFY-013",
+   "R-CORE-002"
+  ],
+  "certificate-hits-above-tasks": [
+   "R-CERTIFY-011",
+   "R-CORE-002"
+  ],
+  "certificate-without-per-task": [
+   "R-CERTIFY-011",
+   "R-CORE-002"
+  ],
+  "certificate-per-task-sums-disagree": [
+   "R-CERTIFY-011",
+   "R-CORE-002"
+  ],
+  "certificate-per-task-hits-disagree": [
+   "R-CERTIFY-011",
+   "R-CORE-002"
+  ],
+  "certificate-per-task-above-cap": [
+   "R-CERTIFY-011",
+   "R-CORE-002"
+  ],
+  "certificate-cap-above-sixteen": [
+   "R-CERTIFY-011",
+   "R-CORE-002"
+  ],
+  "certificate-baseline-cap-zero": [
+   "R-CERTIFY-011",
+   "R-CERTIFY-013",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "certificate-baseline-cap-zero-offering": [
+   "R-CERTIFY-011",
+   "R-CORE-002"
+  ],
+  "certificate-spacing-zero": [
+   "R-CERTIFY-011",
+   "R-CORE-002"
+  ],
+  "certificate-spacing-absent": [
+   "R-CERTIFY-011",
+   "R-CORE-002"
+  ],
+  "certificate-spacing-one": [
+   "R-CERTIFY-011",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "certificate-arms-spaced-differently": [
+   "R-CERTIFY-012",
+   "R-CORE-002"
+  ],
+  "certificate-spacing-at-window": [
+   "R-CERTIFY-012",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "certificate-spacing-past-window": [
+   "R-CERTIFY-012",
+   "R-CORE-002"
+  ],
+  "certificate-none-baseline-offers": [
+   "R-CERTIFY-013",
+   "R-CORE-002"
+  ],
+  "certificate-host-baseline-cap-zero": [
+   "R-CERTIFY-013",
+   "R-CORE-002"
+  ],
+  "certificate-more-than-200-tasks": [
+   "R-CERTIFY-011",
+   "R-CORE-002"
+  ],
+  "certificate-two-hundred-tasks": [
+   "R-CERTIFY-011",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "certificate-without-statistic": [
+   "R-CERTIFY-007",
+   "R-CORE-002"
+  ],
+  "certificate-fraction-not-integer": [
+   "R-CERTIFY-005",
+   "R-CERTIFY-010",
+   "R-CORE-002"
+  ],
+  "certificate-extra-field": [
+   "R-CERTIFY-005",
+   "R-CORE-002"
+  ],
+  "certificate-unknown-target": [
+   "R-CERTIFY-010",
+   "R-CORE-002"
+  ],
+  "certificate-no-regression-target": [
+   "R-CERTIFY-010",
+   "R-CORE-002"
+  ],
+  "certificate-confidence-unknown": [
+   "R-CERTIFY-009",
+   "R-CORE-002"
+  ],
+  "certificate-evaluator-two-lines": [
+   "R-CERTIFY-007",
+   "R-CORE-002"
+  ]
+ }
+}
