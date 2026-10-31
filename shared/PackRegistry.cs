@@ -49,6 +49,26 @@ internal static class PackRegistry
     /// <summary>Reserved device names, compared without case, as the path grammar refuses them.</summary>
     internal static readonly IReadOnlySet<string> DeviceNames = new HashSet<string>(Strings("paths", "deviceNames"), StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// A profile: an optional part of the format a pack uses when it holds one of the profile's files (a name, or a folder ending
+    /// in <c>/</c>), names one of its <c>pack.json</c> fields, is one of its kinds, carries one of its extensions, or gives a field
+    /// one of its values. Core is every pack and is not listed. A host refuses a pack that uses a profile it does not implement.
+    /// </summary>
+    internal sealed record Profile(string Name, bool Implemented, IReadOnlyList<string> Files, IReadOnlyList<string> Fields,
+        IReadOnlyList<string> Kinds, IReadOnlyList<string> Extensions, IReadOnlyDictionary<string, IReadOnlySet<string>> Values, string? Refusal);
+
+    /// <summary>The profiles, in the registry's order: derived from what a pack holds, never declared by it (feature 01, step 2).</summary>
+    internal static readonly IReadOnlyList<Profile> Profiles = [.. Path("profiles").EnumerateObject().Select(p => new Profile(
+        p.Name, p.Value.GetProperty("implemented").GetBoolean(), Optional(p.Value, "files"), Optional(p.Value, "fields"), Optional(p.Value, "kinds"),
+        Optional(p.Value, "extensions"),
+        p.Value.TryGetProperty("values", out var values)
+            ? values.EnumerateObject().ToDictionary(v => v.Name, v => (IReadOnlySet<string>)new HashSet<string>(v.Value.EnumerateArray().Select(e => e.GetString()!), StringComparer.Ordinal), StringComparer.Ordinal)
+            : new Dictionary<string, IReadOnlySet<string>>(StringComparer.Ordinal),
+        p.Value.TryGetProperty("refusal", out var refusal) ? refusal.GetString() : null))];
+
+    private static IReadOnlyList<string> Optional(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var list) ? [.. list.EnumerateArray().Select(e => e.GetString()!)] : [];
+
     private static JsonElement Load()
     {
         using var stream = typeof(PackRegistry).Assembly.GetManifestResourceStream(Resource)

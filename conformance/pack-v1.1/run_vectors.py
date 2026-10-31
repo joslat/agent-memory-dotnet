@@ -1019,6 +1019,11 @@ def main():
         dotnet = {0: "verified", 1: "refused"}.get(dn_code, f"error ({dn_code})")
         python = {0: "verified", 1: "refused"}.get(pr.returncode, f"error ({pr.returncode})")
         agree = dotnet == python == expected and refused_for(name, dn_text, pr.stdout + pr.stderr)
+        # Feature 01: on a verified pack both verifiers derive the same profiles from the registry's map.
+        if agree and expected == "verified":
+            dn_profiles = next((line.strip()[len("profiles "):] for line in dn_text.splitlines() if line.strip().startswith("profiles ")), None)
+            py_profiles = next((line[len("profiles "):] for line in pr.stdout.splitlines() if line.startswith("profiles ")), None)
+            agree = dn_profiles is not None and dn_profiles == py_profiles
         failures += not agree
         results.append({"vector": name, "expected": expected, "dotnet": dotnet, "python": python, "agree": agree,
                         "dotnetSays": dn_text.splitlines()[0] if dn_text else "", "pythonSays": pr.stdout.strip().splitlines()[0] if pr.stdout.strip() else pr.stderr.strip()[-200:],

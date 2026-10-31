@@ -582,6 +582,20 @@ def manifest_checks(manifest, content, now):
         raise Refused("a protected pack carries META/seal.json")
 
 
+def profiles_used(manifest, files):
+    """The profiles a pack uses, in the registry's order, derived from what it holds (as .NET's PackProfiles.Used)."""
+    used = []
+    for name, p in REGISTRY["profiles"].items():
+        if (any(path.startswith(f) if f.endswith("/") else path == f for f in p.get("files", []) for path in files)
+                or any(field in manifest for field in p.get("fields", []))
+                or manifest.get("kind") in p.get("kinds", [])
+                or any(isinstance(manifest.get("extensions"), dict) and e in manifest["extensions"] for e in p.get("extensions", []))
+                or any(manifest.get(field, {"protection": "open", "code": "E0", "tier": "open"}.get(field)) in values
+                       for field, values in p.get("values", {}).items())):
+            used.append(name)
+    return used
+
+
 def composite_checks(manifest, content):
     """The lock is canonical and strict; members.json, pack.json and the lock name the same members."""
     lock_bytes = content[LOCK]
@@ -1593,6 +1607,8 @@ def main(argv):
         print(f"error: {type(e).__name__}: {shown(e)}")
         return 2
     print(f"verified {shown(pid)} {shown(version)} {digest}")
+    used = profiles_used(json.loads(files["pack.json"]), [p for p in files if not p.startswith("META/signatures/") and not p.startswith(ATTESTATIONS)])
+    print(f"profiles {', '.join(used) if used else 'core'}")
     return 0
 
 

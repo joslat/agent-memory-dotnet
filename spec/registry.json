@@ -174,5 +174,77 @@
       "LPT8",
       "LPT9"
     ]
+  },
+  "profiles": {
+    "walk": {
+      "implemented": true,
+      "files": [
+        "traversal.json"
+      ]
+    },
+    "trial": {
+      "implemented": true,
+      "files": [
+        "evals/trial.json",
+        "evals/tests.json"
+      ]
+    },
+    "compose": {
+      "implemented": true,
+      "files": [
+        "members.json",
+        "META/lock.json"
+      ],
+      "fields": [
+        "contains"
+      ],
+      "kinds": [
+        "composite"
+      ]
+    },
+    "federation": {
+      "implemented": true,
+      "extensions": [
+        "federation"
+      ]
+    },
+    "protection": {
+      "implemented": false,
+      "files": [
+        "META/seal.json"
+      ],
+      "values": {
+        "protection": [
+          "audience",
+          "licensed",
+          "attested",
+          "hosted"
+        ]
+      },
+      "refusal": "{id} is protected as '{protection}'; this host opens 'open' packs only."
+    },
+    "code": {
+      "implemented": false,
+      "files": [
+        "queries.json",
+        "queries/",
+        "components.json",
+        "components/"
+      ],
+      "values": {
+        "code": [
+          "E1",
+          "E2"
+        ]
+      },
+      "refusal": "{id} carries code (tier {code}); this host runs declarative (E0) packs only."
+    },
+    "permissions": {
+      "implemented": false,
+      "files": [
+        "policy.json"
+      ],
+      "refusal": "{id} carries a usage policy (policy.json); this host cannot enforce one yet, so it does not load the pack."
+    }
   }
 }

@@ -340,20 +340,11 @@ public static class PackLoader
         return earliest;
     }
 
-    // What a pack declares that this host cannot enforce yet refuses it, rather than loading it as if it were open (PACK-review
-    // 4.8): sealed content, code tiers above E0, and usage policies. Each is accepted once it is enforced.
-    private static List<string> Unenforceable(VerifiedPack pack)
-    {
-        var problems = new List<string>();
-        if (pack.Manifest.Protection != "open")
-            problems.Add($"{pack.Id} is protected as '{pack.Manifest.Protection}'; this host opens 'open' packs only.");
-        if (pack.Manifest.Code != "E0" || pack.Files.Keys.Any(f => f is "queries.json" or "components.json"
-                || f.StartsWith("queries/", StringComparison.Ordinal) || f.StartsWith("components/", StringComparison.Ordinal)))
-            problems.Add($"{pack.Id} carries code (tier {pack.Manifest.Code}); this host runs declarative (E0) packs only.");
-        if (pack.Files.ContainsKey("policy.json"))
-            problems.Add($"{pack.Id} carries a usage policy (policy.json); this host cannot enforce one yet, so it does not load the pack.");
-        return problems;
-    }
+    // What a pack uses that this host cannot enforce yet refuses it, rather than loading it as if it were open (PACK-review
+    // 4.8): every profile the registry marks not implemented (protection, code, permissions), each accepted once it is built.
+    // One map decides it, the one both verifiers derive a pack's profiles from (feature 01, step 2).
+    private static List<string> Unenforceable(VerifiedPack pack) =>
+        [.. PackProfiles.Used(pack.Files.Keys, pack.Manifest).Where(p => !p.Implemented).Select(p => PackProfiles.Refusal(p, pack.Manifest))];
 
     /// <summary>
     /// Composes a loaded pack: a knowledge pack with a search contributor per view (its records import with

@@ -558,6 +558,10 @@ internal static partial class Program
         return 0;
     }
 
+    // A pack's profiles as verify, inspect and the kit show them: names in the registry's order, or "core" for none.
+    private static string Profiles(VerifiedPack pack) => PackProfiles.Used(pack.Files.Keys, pack.Manifest) is { Count: > 0 } used
+        ? string.Join(", ", used.Select(u => u.Name)) : "core";
+
     private static int Verify(Options o)
     {
         var target = o.Positional(0, "folder or file");
@@ -580,6 +584,7 @@ internal static partial class Program
             var refused = members.Where(m => !m.Value.IsVerified).SelectMany(m => m.Value.Problems.Select(p => $"packs/{m.Key}/: {p}")).ToList();
             if (refused.Count > 0) return Report(refused, "");
             Console.WriteLine($"Verified set {pack.Id} {pack.Version}\n  digest  {pack.Digest}");
+            Console.WriteLine($"  profiles {Profiles(pack)}");
             foreach (var (id, member) in members.OrderBy(m => m.Key, StringComparer.Ordinal))
                 Console.WriteLine($"  member  {id} {member.Pack!.Version} ({member.Pack.Manifest.Kind}) {member.Pack.Digest}");
             if (o.Flag("record") && ledger is not null && ledgerPath is not null)
@@ -592,6 +597,8 @@ internal static partial class Program
             return 0;
         }
         Console.WriteLine($"Verified {pack.Id} {pack.Version}\n  digest  {pack.Digest}\n  kind    {pack.Manifest.Kind}, tier {pack.Manifest.Tier}");
+        // The profiles it uses, by the registry's map (feature 01): a host must implement each to load it.
+        Console.WriteLine($"  profiles {Profiles(pack)}");
         foreach (var s in pack.Signatures) Console.WriteLine($"  signed  {s.Role} by {Dsse.Short(s.KeyId)} at {s.SignedAt:u}");
         // What a trial decision (and a certificate issued from one) binds besides the digest: the declarations it ran.
         if (pack.Manifest.Kind is "knowledge" or "definition")
