@@ -155,9 +155,8 @@ public static class PackCertificates
             if (decision.Checks.FirstOrDefault(c => c.Target == target) is not { } check || Micro(check.Required) != Micro(value))
                 problems.Add($"The decision does not check {target} at the declared {value.ToString(CultureInfo.InvariantCulture)}: it is not the gate's decision for this pack's trial.");
         // A target a certificate cannot state is not dropped from it (feature 04 review, M4: a decision that failed only on safety
-        // was certified as passed): only each host's own probes decide safety, and cost checks are not yet certified.
+        // was certified as passed): only each host's own probes decide safety.
         if (trial.Safety is not null) problems.Add("The trial declares a safety target, which only each host's own probes decide: no certificate states it.");
-        if (trial.Cost is not null) problems.Add("The trial declares a cost target, which a certificate does not yet state: each host trials it.");
         // The evidence travels with the verdict (review 5, root RB): each arm's per-task results and cap, so every host derives
         // the verdict again under its own statistic; the checks are derived here under this one, never copied.
         if (new[] { decision.With, decision.Without }.OfType<PackTrialMeasurement>().Any(arm => arm.PerTask is null))
@@ -255,7 +254,7 @@ public static class PackCertificates
         {
             ModuleId = pack.Manifest.Id, Version = pack.Manifest.Version.ToString(), ManifestDigest = PackTrialGate.DigestOf(pack.Manifest),
             PackDigest = pack.Digest, Active = true, DecidedAt = decidedAt, Checks = certificate.Checks, With = certificate.With, Without = certificate.Without,
-            Upgrade = trial.Upgrade,
+            Upgrade = trial.Upgrade, FixedBytes = trial.Cost is null ? null : PackTrialRender.FixedBytes(pack.Manifest),
             Reason = $"certified by {certificate.Evaluator} on {certificate.EvaluatedAt:yyyy-MM-dd}: every target met on {certificate.With!.Tasks} tasks",
             Basis = new PackDecisionBasis
             {
@@ -291,7 +290,13 @@ public static class PackCertificates
     }
 
     // The targets a trial declares, by the names the gate checks them under.
-    private static IEnumerable<(string Target, double Value)> Declared(ModuleTrial trial) => trial.Targets.Checked();
+    private static IEnumerable<(string Target, double Value)> Declared(ModuleTrial trial)
+    {
+        foreach (var target in trial.Targets.Checked()) yield return target;
+        // The cost targets (feature 05), under the names the gate checks them: whole bytes, and a share in millionths.
+        if (trial.Cost?.SavingBytesMedian is { } bytes) yield return ("savingBytes", bytes);
+        if (trial.Cost?.SavingRatioMicro is { } ratio) yield return ("savingRatio", PackNumbers.Fraction(ratio));
+    }
 
     /// <summary>
     /// Every certificate a verified pack carries, as this host reads it, trusted or not: one per statement, however many copies
@@ -363,11 +368,11 @@ public static class PackCertificates
     private static PackTrialMeasurement Measurement(CertificateArm arm) => new()
     {
         Tasks = arm.Tasks, Hits = arm.Hits, Offered = arm.Offered, Correct = arm.Correct, P95Ms = arm.P95Micros / 1000.0,
-        MaximumOffered = arm.MaximumOffered, Spacing = arm.Spacing, PerTask = [.. arm.PerTask.Select(t => new PackTrialTask(t.Offered, t.Correct))],
+        MaximumOffered = arm.MaximumOffered, Spacing = arm.Spacing, PerTask = [.. arm.PerTask.Select(t => new PackTrialTask(t.Offered, t.Correct) { OfferedBytes = t.Bytes })],
     };
 
     private static CertificateArm Arm(PackTrialMeasurement m) => new(m.Tasks, m.Hits, m.Offered, m.Correct, (long)Math.Round(m.P95Ms * 1000, MidpointRounding.AwayFromZero),
-        m.MaximumOffered ?? ModuleTraversal.MaximumOffered, m.Spacing ?? 1, [.. m.PerTask!.Select(t => new CertificateTask(t.Offered, t.Correct))]);
+        m.MaximumOffered ?? ModuleTraversal.MaximumOffered, m.Spacing ?? 1, [.. m.PerTask!.Select(t => new CertificateTask(t.Offered, t.Correct, t.OfferedBytes))]);
 
     // A certificate's numbers are millionths of the target's own unit (feature 02): a rate's are the trial's own integers.
     private const long One = AgentMemory.Packs.Format.PackNumbers.One;

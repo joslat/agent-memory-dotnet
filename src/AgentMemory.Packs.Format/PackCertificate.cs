@@ -13,8 +13,8 @@ namespace AgentMemory.Packs.Format;
 /// </summary>
 internal sealed record CertificateArm(int Tasks, int Hits, int Offered, int Correct, long P95Micros, int MaximumOffered, int Spacing, IReadOnlyList<CertificateTask> PerTask);
 
-/// <summary>One task of an arm: the items offered, and how many were right.</summary>
-internal sealed record CertificateTask(int Offered, int Correct);
+/// <summary>One task of an arm: the items offered, how many were right, and the bytes it offered when measured (feature 05).</summary>
+internal sealed record CertificateTask(int Offered, int Correct, long? Bytes = null);
 
 /// <summary>
 /// One target an evaluation checked, in millionths of the target's unit (feature 02: a rate of 0.304 is 304,000, the trial's own
@@ -47,7 +47,11 @@ internal sealed partial record PackCertificate(string Id, string Version, string
     /// passed on that host, which a certificate carries no arm for, so a certificate never states it (review 7, G3: one issued
     /// from an upgrade trial carried those checks and could never be admitted).
     /// </summary>
-    internal static readonly IReadOnlySet<string> Targets = PackRegistry.Targets;
+    internal static readonly IReadOnlySet<string> Targets = PackRegistry.Targets.Concat(PackRegistry.CostFields.Keys).ToHashSet(StringComparer.Ordinal);
+    /// <summary>The cost targets (feature 05), whose checks show an exact bound: met exactly when it reaches the target.</summary>
+    internal static readonly IReadOnlySet<string> CostTargets = PackRegistry.CostFields.Keys.ToHashSet(StringComparer.Ordinal);
+    /// <summary>The most bytes one task may record offering.</summary>
+    internal const long MaximumTaskBytes = 1_000_000_000;
 
     /// <summary>The history a trial's tasks come from, as the host's gate holds it: the most recent 2,000 eligible commits.</summary>
     internal const int HistoryWindow = 2000;
@@ -103,7 +107,7 @@ internal sealed partial record PackCertificate(string Id, string Version, string
     {
         ["tasks"] = arm.Tasks, ["hits"] = arm.Hits, ["offered"] = arm.Offered, ["correct"] = arm.Correct, ["p95Micros"] = arm.P95Micros,
         ["maximumOffered"] = arm.MaximumOffered, ["spacing"] = arm.Spacing,
-        ["perTask"] = new JsonArray([.. arm.PerTask.Select(t => (JsonNode)new JsonArray(t.Offered, t.Correct))]),
+        ["perTask"] = new JsonArray([.. arm.PerTask.Select(t => (JsonNode)(t.Bytes is { } b ? new JsonArray(t.Offered, t.Correct, b) : new JsonArray(t.Offered, t.Correct)))]),
     };
 
     /// <summary>
@@ -244,7 +248,7 @@ internal sealed partial record PackCertificate(string Id, string Version, string
             checks.Add(new CertificateCheck(target, required, observed, met.ValueKind == JsonValueKind.True, estimate));
         }
         if (checks.Select(c => c.Target).Distinct(StringComparer.Ordinal).Count() != checks.Count) return (null, "The certificate checks one target twice.");
-        const string ArmShape = "arm is tasks (at most 200), hits, offered, correct, p95Micros, maximumOffered (0 to 16), spacing (1 to 2000) and perTask, one [offered, correct] a task "
+        const string ArmShape = "arm is tasks (at most 200), hits, offered, correct, p95Micros, maximumOffered (0 to 16), spacing (1 to 2000) and perTask, one [offered, correct] or [offered, correct, bytes] a task "
             + "within the cap, summing to offered and correct, with a right item on exactly its hits.";
         if (ReadArm(p, "with") is not { } with) return (null, "The certificate's 'with' " + ArmShape);
         CertificateArm? without = null;
@@ -268,6 +272,15 @@ internal sealed partial record PackCertificate(string Id, string Version, string
     // What signing and reading both require of a certificate's values.
     private static string? ShapeProblem(PackCertificate c)
     {
+        // Each task's bytes (feature 05): on every task of both arms or on none, and present for a cost check, whose met is its
+        // exact bound at or above its target (R-TRIAL-056), so no statistic is needed to check it.
+        var tasks = c.With.PerTask.Concat(c.Without?.PerTask ?? []).ToList();
+        if (tasks.Any(t => t.Bytes is null) && tasks.Any(t => t.Bytes is not null))
+            return "The certificate records the bytes of some tasks and not others: every task of both arms, or none.";
+        if (c.Checks.Any(k => CostTargets.Contains(k.Target)) && (c.Without is null || tasks.Any(t => t.Bytes is null)))
+            return "A cost check needs both arms and each task's bytes.";
+        if (c.Checks.FirstOrDefault(k => CostTargets.Contains(k.Target) && k.Met != (k.ObservedMicro >= k.RequiredMicro)) is { } wrong)
+            return $"The certificate's {wrong.Target} check says {(wrong.Met ? "met" : "not met")}, but its bound is {(wrong.Met ? "below" : "at or above")} its target.";
         // The verdict agrees with the record: passed exactly when every check held on enough tasks.
         var holds = c.Checks.All(k => k.Met) && c.With.Tasks >= MinimumTasks;
         if (c.Passed != holds)
@@ -305,10 +318,16 @@ internal sealed partial record PackCertificate(string Id, string Version, string
         var perTask = new List<CertificateTask>((int)tasks);
         foreach (var entry in perTaskValue.EnumerateArray())
         {
-            if (entry.ValueKind != JsonValueKind.Array || entry.GetArrayLength() != 2 || entry[0].ValueKind != JsonValueKind.Number || entry[1].ValueKind != JsonValueKind.Number
+            if (entry.ValueKind != JsonValueKind.Array || entry.GetArrayLength() is not (2 or 3) || entry[0].ValueKind != JsonValueKind.Number || entry[1].ValueKind != JsonValueKind.Number
                 || !entry[0].TryGetInt64(out var o) || !entry[1].TryGetInt64(out var c) || c < 0 || c > o || o > cap)
                 return null;
-            perTask.Add(new CertificateTask((int)o, (int)c));
+            long? bytes = null;
+            if (entry.GetArrayLength() == 3)
+            {
+                if (entry[2].ValueKind != JsonValueKind.Number || !entry[2].TryGetInt64(out var b) || b is < 0 or > MaximumTaskBytes) return null;
+                bytes = b;
+            }
+            perTask.Add(new CertificateTask((int)o, (int)c, bytes));
         }
         // The totals are the evidence's own: a hit is a task with a right item (review 5, L9).
         return perTask.Sum(t => (long)t.Offered) != offered || perTask.Sum(t => (long)t.Correct) != correct || perTask.Count(t => t.Correct > 0) != hits

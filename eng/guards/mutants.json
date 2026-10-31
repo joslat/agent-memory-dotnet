@@ -1269,13 +1269,13 @@
    "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
    "edits": [
     {
-     "old": "MeetsRate(positive, nonzero, (int)Math.Round(c * 1000), Q.Of(1, 2)), shown);",
-     "new": "true, shown);"
+     "old": "return new(target, required, Shown(bound), bound >= least, confidence is null ? null : Shown(estimate));",
+     "new": "return new(target, required, Shown(bound), true, confidence is null ? null : Shown(estimate));"
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
    "filter": "FullyQualifiedName~TrialGateTests.A_cost_target",
-   "sha256": "b3a0909e04fd4f89558b016e034c9b088dd049a6ac99f8c59bbfe70227826460"
+   "sha256": "1d2da35b955d65e6107299c234ea863c2063f468cb6dcd2996f72f9ad1a40247"
   },
   {
    "id": "cost-fixed-left-out",
@@ -1284,13 +1284,13 @@
    "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
    "edits": [
     {
-     "old": "savings[i] = b[i].OfferedBytes!.Value - a[i].OfferedBytes!.Value - fixedBytes;",
-     "new": "savings[i] = b[i].OfferedBytes!.Value - a[i].OfferedBytes!.Value;"
+     "old": "var saving = b[i].OfferedBytes!.Value - a[i].OfferedBytes!.Value - fixedBytes;",
+     "new": "var saving = b[i].OfferedBytes!.Value - a[i].OfferedBytes!.Value;"
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
    "filter": "FullyQualifiedName~TrialGateTests.A_cost_target",
-   "sha256": "b8a69c86c405bcccbb862e5742248e5c6ee6ab175af99de4047d4008c27abbf6"
+   "sha256": "7e508fe7a139bdd030b97266ae538596667ef088a3747dffe074b688c4a8bfca"
   },
   {
    "id": "cost-unclustered",
@@ -1299,13 +1299,58 @@
    "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
    "edits": [
     {
-     "old": "var units = m == 1 ? shifted : [.. shifted.Chunk(m).Select(LowerMedian)];",
-     "new": "var units = shifted;"
+     "old": "var sorted = (m == 1 ? values : [.. values.Chunk(m).Select(LowerMedian)]).Order().ToArray();",
+     "new": "var sorted = values.Order().ToArray();"
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
    "filter": "FullyQualifiedName~TrialGateTests.A_cost_target",
-   "sha256": "9c08ed1242d75c3640fd8a71139c3ea7ac63372fc65e9b753ed7005a19c5766e"
+   "sha256": "02c7ad169496a560c249ef03e1554ff036d9bf6096c880e33877ad3f588221a0"
+  },
+  {
+   "id": "cost-met-unchecked",
+   "rule": "EXACT-VERDICT",
+   "door": "certificate",
+   "file": "src/AgentMemory.Packs.Format/PackCertificate.cs",
+   "edits": [
+    {
+     "old": "CostTargets.Contains(k.Target) && k.Met != (k.ObservedMicro >= k.RequiredMicro)) is { } wrong)",
+     "new": "CostTargets.Contains(k.Target) && false) is { } wrong)"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "1020b605a5c4dbf57fa06ec945aab1d7f78571e94e71c87849a2cbb705fdc857"
+  },
+  {
+   "id": "python-cost-met-unchecked",
+   "rule": "EXACT-VERDICT",
+   "door": "certificate",
+   "file": "conformance/pack-v1.1/python/ampack_verify.py",
+   "edits": [
+    {
+     "old": "if any(c[\"target\"] in COST_TARGETS and c[\"met\"] != (c[\"observedMicro\"] >= c[\"requiredMicro\"]) for c in checks):",
+     "new": "if False:"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "40371bde7c89a9d9dd0ea8ed9b8eada24fa3d9107bb21b0be4deb65da7599493"
+  },
+  {
+   "id": "certificate-bytes-dropped",
+   "rule": "CERTIFICATE-STATES-ALL",
+   "door": "certify",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackCertificates.cs",
+   "edits": [
+    {
+     "old": "new CertificateTask(t.Offered, t.Correct, t.OfferedBytes)",
+     "new": "new CertificateTask(t.Offered, t.Correct)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackCertificateTests.A_cost_target",
+   "sha256": "fcc7af5c4c64e572011124a864eea725d02fa75e49dcc0f88ce43535a1bb5dee"
   },
   {
    "id": "length-by-utf16",

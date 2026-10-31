@@ -1968,6 +1968,31 @@
   "card-variation-selector-emoji": [
    "R-CORE-126",
    "R-CORE-112"
+  ],
+  "certificate-cost-check": [
+   "R-CERTIFY-010",
+   "R-CORE-002",
+   "R-TRIAL-057"
+  ],
+  "certificate-cost-met-below-its-target": [
+   "R-CERTIFY-010",
+   "R-CORE-002",
+   "R-TRIAL-057"
+  ],
+  "certificate-cost-unmet-at-its-target": [
+   "R-CERTIFY-010",
+   "R-CORE-002",
+   "R-TRIAL-057"
+  ],
+  "certificate-cost-without-bytes": [
+   "R-CERTIFY-010",
+   "R-CORE-002",
+   "R-TRIAL-057"
+  ],
+  "certificate-bytes-on-some-tasks": [
+   "R-CERTIFY-010",
+   "R-CORE-002",
+   "R-TRIAL-057"
   ]
  }
 }

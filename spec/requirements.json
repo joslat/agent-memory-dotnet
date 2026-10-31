@@ -2766,9 +2766,21 @@
    "doc": "profiles/trial.md",
    "section": "5",
    "level": "MUST",
-   "summary": "A task's saving is the baseline's bytes less the pack's and less the pack's fixed cost per turn (what it adds to every turn whatever the task). Each task's saving is shifted by the target (for a ratio, the saving times 1,000,000 less the target times the baseline's bytes, in integers); tasks closer than a burst are clustered, each cluster counting its lower median. The target MUST be met only when, without a `confidencePermille`, the lower median of the shifts is at least 0, and otherwise when the exact one-sided sign test passes: among the n shifts not zero, k positive, Clopper-Pearson's lower bound of k/n is at least one half, decided exactly (R-TRIAL-051). The decision MUST keep the fixed cost it counted, so a recheck reaches the same verdict.",
+   "summary": "A task's saving is the baseline's bytes less the pack's and less the pack's fixed cost per turn (what it adds to every turn whatever the task), in the target's unit: whole bytes, or millionths of the baseline's bytes rounded down (a baseline of no bytes counting one). Tasks closer than a burst are clustered, each cluster counting its lower median. The check MUST show a bound and be met exactly when the bound is at or above the target: without a `confidencePermille` the lower median of the n savings; with one, the exact one-sided sign test's lower bound of the median, the k-th largest saving, k the fewest of n whose Clopper-Pearson lower bound at that confidence is at least one half (R-TRIAL-051), and when no k is, one unit under the target. The decision MUST keep the fixed cost it counted, so a recheck reaches the same verdict.",
    "verifiedBy": [
     "unit:TrialGateTests.A_cost_target_is_met_only_when_the_pack_saves_its_target_on_enough_tasks"
+   ]
+  },
+  {
+   "id": "R-TRIAL-057",
+   "doc": "profiles/trial.md",
+   "section": "5",
+   "level": "MUST",
+   "summary": "A certificate MAY state cost checks. Each task of its arms MAY then record its offered bytes as a third number (`[offered, correct, bytes]`, 0 to 1,000,000,000): every task of both arms or none MUST, a cost check MUST have both arms and the bytes, and a verifier MUST refuse a cost check whose `met` is not exactly `observedMicro` at or above `requiredMicro`.",
+   "verifiedBy": [
+    "kit:certificate-cost-check",
+    "kit:certificate-cost-met-below-its-target",
+    "unit:PackCertificateTests.A_cost_target_is_certified_and_admitted_with_each_task_s_bytes"
    ]
   },
   {

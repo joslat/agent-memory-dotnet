@@ -779,31 +779,49 @@ public static partial class PackTrialGate
         return new(target, required, Math.Floor(lower * PackNumbers.One) / PackNumbers.One, meets((int)Math.Round(level * 1000), t), Math.Round(estimate, 6));
     }
 
-    // A cost target (feature 05, R-TRIAL-056): each task's saving, the baseline's framed bytes less the pack's and its fixed cost,
-    // shifted by the target (for a ratio, saving x 10^6 less the target's millionths x the baseline's bytes: integers). Tasks drawn
-    // closer than a burst are clustered, each cluster its lower median. Without a confidence the lower median of the shifts is at
-    // least 0; with one, the exact sign test: among the k positive of the n not zero, Clopper-Pearson's bound of k/n reaches one half.
+    // A cost target (feature 05, R-TRIAL-056): each task's saving in the target's unit, the baseline's framed bytes less the
+    // pack's and its fixed cost (whole bytes, or millionths of the baseline's bytes rounded down, a baseline of nothing counting
+    // one byte). Tasks drawn closer than a burst are clustered, each cluster its lower median. Without a confidence the bound is
+    // the lower median; with one, the exact sign test's: the k-th largest saving, k the fewest of n that Clopper-Pearson's bound
+    // carries to one half (none: one unit under the target). Met exactly when the bound reaches the target, so a verifier checks
+    // the shown value against the target with no statistics of its own.
     private static PackTrialCheck CostCheck(string target, double required, double? confidence, PackTrialMeasurement with, PackTrialMeasurement without, long fixedBytes)
     {
         var (a, b) = Paired(with, without);
         if (a.Any(t => t.OfferedBytes is null) || b.Any(t => t.OfferedBytes is null))
             throw new ArgumentException($"{target} needs each task's offered bytes on both arms (PerTask.OfferedBytes).");
-        var ratio = target == "savingRatio" ? checked((long)Math.Round(required * PackNumbers.One)) : 0;
-        var savings = new long[a.Count];
-        var shifted = new long[a.Count];
+        var bytes = target == "savingBytes";
+        var values = new long[a.Count];
         for (var i = 0; i < a.Count; i++)
         {
-            savings[i] = b[i].OfferedBytes!.Value - a[i].OfferedBytes!.Value - fixedBytes;
-            shifted[i] = target == "savingBytes" ? savings[i] - (long)required : checked(savings[i] * PackNumbers.One - ratio * b[i].OfferedBytes!.Value);
+            var saving = b[i].OfferedBytes!.Value - a[i].OfferedBytes!.Value - fixedBytes;
+            values[i] = bytes ? saving : FloorDivide(checked(saving * PackNumbers.One), Math.Max(1, b[i].OfferedBytes!.Value));
         }
         var m = Math.Max(ClusterSize(with), ClusterSize(without));
-        var units = m == 1 ? shifted : [.. shifted.Chunk(m).Select(LowerMedian)];
-        var shown = target == "savingBytes" ? LowerMedian(savings)
-            : Math.Round(LowerMedian([.. Enumerable.Range(0, a.Count).Select(i => b[i].OfferedBytes!.Value == 0 ? 0 : savings[i] * PackNumbers.One / b[i].OfferedBytes!.Value)]) / (double)PackNumbers.One, 6);
-        if (confidence is not { } c) return new(target, required, shown, LowerMedian(units) >= 0);
-        var (positive, nonzero) = (units.Count(u => u > 0), units.Count(u => u != 0));
-        return new(target, required, shown, MeetsRate(positive, nonzero, (int)Math.Round(c * 1000), Q.Of(1, 2)), shown);
+        var sorted = (m == 1 ? values : [.. values.Chunk(m).Select(LowerMedian)]).Order().ToArray();
+        var least = bytes ? checked((long)required) : checked((long)Math.Round(required * PackNumbers.One));
+        var estimate = sorted[(sorted.Length - 1) / 2];
+        var bound = confidence is { } c ? SignBound(sorted, (int)Math.Round(c * 1000), least) : estimate;
+        double Shown(long v) => bytes ? v : v / (double)PackNumbers.One;
+        return new(target, required, Shown(bound), bound >= least, confidence is null ? null : Shown(estimate));
     }
+
+    // The exact sign test's lower bound of the median (R-TRIAL-056): the k-th largest of the sorted values, k the fewest whose
+    // count among n meets one half at the confidence; one under the target when no k does.
+    private static long SignBound(long[] sorted, int permille, long least)
+    {
+        var n = sorted.Length;
+        if (!MeetsRate(n, n, permille, Q.Of(1, 2))) return least - 1;
+        var (lo, hi) = (1, n);
+        while (lo < hi)
+        {
+            var mid = (lo + hi) / 2;
+            if (MeetsRate(mid, n, permille, Q.Of(1, 2))) hi = mid; else lo = mid + 1;
+        }
+        return sorted[n - lo];
+    }
+
+    private static long FloorDivide(long a, long b) => a / b - (a % b != 0 && (a < 0) != (b < 0) ? 1 : 0);
 
     private static long LowerMedian(long[] values)
     {

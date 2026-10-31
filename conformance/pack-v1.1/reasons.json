@@ -901,6 +901,22 @@
    "predicate holds other fields than this format defines",
    "predicate holds other fields than this format defines"
   ],
+  "certificate-cost-met-below-its-target": [
+   "savingBytes check says met, but its bound is below its target",
+   "met disagrees with its bound and target"
+  ],
+  "certificate-cost-unmet-at-its-target": [
+   "savingRatio check says not met, but its bound is at or above its target",
+   "met disagrees with its bound and target"
+  ],
+  "certificate-cost-without-bytes": [
+   "A cost check needs both arms and each",
+   "a cost check needs both arms and each"
+  ],
+  "certificate-bytes-on-some-tasks": [
+   "The certificate records the bytes of some tasks and not",
+   "the certificate records the bytes of some tasks and not others"
+  ],
   "certificate-unknown-target": [
    "A certificate check names a known target, requiredMicro and observedMicro as integers, and met",
    "a certificate check names a known target, requiredMicro and observedMicro as integers, and met"

@@ -70,6 +70,10 @@ MEASURES = set(REGISTRY["certificate"]["measures"])
 BASELINES = set(REGISTRY["certificate"]["baselines"])
 # A certificate states the declared targets; no regression is a host's comparison it carries no arm for (review 7, G3).
 TARGETS = set(REGISTRY["trial"]["targets"])
+# The cost targets (feature 05), whose certificate checks show an exact bound: met exactly when it reaches the target.
+COST_TARGETS = set(REGISTRY["trial"]["costTargets"])
+CERTIFICATE_TARGETS = TARGETS | COST_TARGETS
+CERTIFICATE_MAX_TASK_BYTES = 1_000_000_000
 HISTORY_WINDOW = 2000  # the most recent eligible commits a trial draws its tasks from (review 7, G5)
 CONFIDENCES = set(REGISTRY["units"]["fields"]["confidencePermille"]["values"])
 RUN_ID = re.compile(r"[A-Za-z0-9._:-]{1,128}", re.ASCII)
@@ -1423,7 +1427,8 @@ def read_arm(arm):
     if not isinstance(per, list) or len(per) != t:
         return None
     for entry in per:
-        if not isinstance(entry, list) or len(entry) != 2 or any(as_int(x) is None for x in entry) or not 0 <= entry[1] <= entry[0] <= cap:
+        if not isinstance(entry, list) or len(entry) not in (2, 3) or any(as_int(x) is None for x in entry) or not 0 <= entry[1] <= entry[0] <= cap \
+                or len(entry) == 3 and not 0 <= entry[2] <= CERTIFICATE_MAX_TASK_BYTES:
             return None
     if sum(e[0] for e in per) != o or sum(e[1] for e in per) != c or sum(1 for e in per if e[1] > 0) != h:
         return None
@@ -1471,7 +1476,7 @@ def read_certificate(payload):
         raise Refused("the certificate lists 1 to 16 checks")
     for c in checks:
         if not isinstance(c, dict) or set(c) - SHAPE["certificateCheck"] \
-                or not one_of(c.get("target"), TARGETS) or as_int(c.get("requiredMicro")) is None or as_int(c.get("observedMicro")) is None \
+                or not one_of(c.get("target"), CERTIFICATE_TARGETS) or as_int(c.get("requiredMicro")) is None or as_int(c.get("observedMicro")) is None \
                 or not isinstance(c.get("met"), bool) or ("estimateMicro" in c and as_int(c["estimateMicro"]) is None):
             raise Refused("a certificate check names a known target, requiredMicro and observedMicro as integers, and met")
     if len({c["target"] for c in checks}) != len(checks):
@@ -1489,6 +1494,15 @@ def read_certificate(payload):
         if not isinstance(aef, dict) or set(aef) != SHAPE["certificateAef"] or not isinstance(aef["runId"], str) or not RUN_ID.fullmatch(aef["runId"]) \
                 or not isinstance(aef["runHash"], str) or not re.fullmatch(r"[0-9a-f]{64}", aef["runHash"]):
             raise Refused("the certificate's 'aef' names an AEF runId and its runHash")
+    # Each task's bytes (feature 05), as .NET's: on every task of both arms or none, present for a cost check, whose met is its
+    # exact bound at or above its target.
+    entries = with_arm["perTask"] + (without["perTask"] if without is not None else [])
+    if any(len(e) == 3 for e in entries) and any(len(e) == 2 for e in entries):
+        raise Refused("the certificate records the bytes of some tasks and not others")
+    if any(c["target"] in COST_TARGETS for c in checks) and (without is None or any(len(e) == 2 for e in entries)):
+        raise Refused("a cost check needs both arms and each task's bytes")
+    if any(c["target"] in COST_TARGETS and c["met"] != (c["observedMicro"] >= c["requiredMicro"]) for c in checks):
+        raise Refused("a cost check's met disagrees with its bound and target")
     # The verdict agrees with the record: passed exactly when every check held on enough tasks.
     if pred["passed"] != (all(c["met"] for c in checks) and with_arm["tasks"] >= MINIMUM_TASKS):
         raise Refused("the certificate's verdict disagrees with its checks")

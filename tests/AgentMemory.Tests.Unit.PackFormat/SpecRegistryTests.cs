@@ -30,7 +30,8 @@ public sealed class SpecRegistryTests
         PackManifest.Tiers.Should().BeEquivalentTo(List(r.GetProperty("manifest").GetProperty("values").GetProperty("tier")));
         Dsse.Roles.Should().BeEquivalentTo(List(r.GetProperty("roles").GetProperty("signing")));
         TrustPolicy.KeyRoles.Should().BeEquivalentTo(List(r.GetProperty("roles").GetProperty("keys")));
-        PackCertificate.Targets.Should().BeEquivalentTo(r.GetProperty("trial").GetProperty("targets").EnumerateObject().Select(p => p.Name));
+        PackCertificate.Targets.Should().BeEquivalentTo(r.GetProperty("trial").GetProperty("targets").EnumerateObject()
+            .Concat(r.GetProperty("trial").GetProperty("costTargets").EnumerateObject()).Select(p => p.Name), "a certificate states the cost targets too (feature 05)");
     }
 
     [Fact]

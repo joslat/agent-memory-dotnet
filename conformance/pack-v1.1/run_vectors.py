@@ -173,6 +173,11 @@ def refused_for(name, dotnet_text, python_text):
     return re.search(dn, dotnet_text, re.I) is not None and re.search(pyn, python_text, re.I) is not None
 
 
+def with_bytes(arm, each):
+    """An arm whose every task also records the bytes it offered (feature 05): [offered, correct, bytes]."""
+    return {**arm, "perTask": [[*e, each] for e in arm["perTask"]]}
+
+
 def arm_(tasks, hits, offered, correct, p95, cap=None, spacing=8):
     """A certificate arm with consistent per-task evidence (review 5): items spread evenly, one right item on each of the first
     `hits` tasks and the rest of the right items on them too; the cap is the most any task offers unless given."""
@@ -1421,6 +1426,21 @@ def main():
         "certificate-fraction-not-integer": (carrying(certificate(certified, payload_override=lambda st: json.dumps(st, separators=(",", ":")).replace(
             '"requiredMicro":500000', '"requiredMicro":0.5').encode())), certificate_path, None, "trust-evaluator.json", "refused"),
         "certificate-extra-field": (carrying(certificate(certified, extra={"note": "x"})), certificate_path, None, "trust-evaluator.json", "refused"),
+        # Feature 05: a cost check's bound is exact, so its met is that bound at or above its target; it needs each task's bytes.
+        "certificate-cost-check": (carrying(certificate(certified, checks=[{"target": "hitRate", "requiredMicro": 500000, "observedMicro": 600000, "met": True}, {"target": "savingBytes", "requiredMicro": 300_000_000, "observedMicro": 400_000_000, "met": True}],
+                                                        with_arm=with_bytes(arm_(40, 24, 120, 30, 12500), 600), without=with_bytes(arm_(40, 0, 0, 0, 9000, cap=0), 1000))),
+                                   certificate_path, None, "trust-evaluator.json", "verified"),
+        "certificate-cost-met-below-its-target": (carrying(certificate(certified, checks=[{"target": "hitRate", "requiredMicro": 500000, "observedMicro": 600000, "met": True}, {"target": "savingBytes", "requiredMicro": 300_000_000, "observedMicro": 200_000_000, "met": True}],
+                                                                       with_arm=with_bytes(arm_(40, 24, 120, 30, 12500), 600), without=with_bytes(arm_(40, 0, 0, 0, 9000, cap=0), 1000))),
+                                                  certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-cost-unmet-at-its-target": (carrying(certificate(certified, checks=[{"target": "hitRate", "requiredMicro": 500000, "observedMicro": 600000, "met": True}, {"target": "savingRatio", "requiredMicro": 300_000, "observedMicro": 300_000, "met": False}],
+                                                                      passed=False, with_arm=with_bytes(arm_(40, 24, 120, 30, 12500), 600), without=with_bytes(arm_(40, 0, 0, 0, 9000, cap=0), 1000))),
+                                                 certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-cost-without-bytes": (carrying(certificate(certified, checks=[{"target": "hitRate", "requiredMicro": 500000, "observedMicro": 600000, "met": True}, {"target": "savingBytes", "requiredMicro": 300_000_000, "observedMicro": 400_000_000, "met": True}],
+                                                                without=arm_(40, 0, 0, 0, 9000, cap=0))),
+                                           certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-bytes-on-some-tasks": (carrying(certificate(certified, with_arm=with_bytes(arm_(40, 24, 120, 30, 12500), 600), without=arm_(40, 0, 0, 0, 9000, cap=0))),
+                                            certificate_path, None, "trust-evaluator.json", "refused"),
         "certificate-unknown-target": (carrying(certificate(certified, checks=[{"target": "recall", "requiredMicro": 500000, "observedMicro": 600000, "met": True}])),
                                        certificate_path, None, "trust-evaluator.json", "refused"),
         # Review 7, G3: no regression is a host's own comparison; a certificate carries no arm for it.

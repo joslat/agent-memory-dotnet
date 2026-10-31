@@ -590,6 +590,24 @@ public sealed class PackCertificateTests : IDisposable
             .Should().Contain(p => p.Contains("safety target"));
     }
 
+    [Fact]
+    public void A_cost_target_is_certified_and_admitted_with_each_task_s_bytes()
+    {
+        // Feature 05 (R-TRIAL-057): each task's bytes travel on the certificate, so a host derives the cost check again, and its
+        // met is the exact bound at or above the target, which both verifiers check.
+        var (built, pack) = Built("""{ "measure": "test-impact", "baseline": "host", "tasks": 40, "targets": { "hitRateMicro": 500000 }, "cost": { "savingBytesMedian": 300 } }""");
+        static PackTrialMeasurement Bytes(PackTrialMeasurement arm, long each) => arm with { PerTask = [.. arm.PerTask!.Select(t => t with { OfferedBytes = each })] };
+        var decision = PackTrialGate.Decide(pack.Manifest, Bytes(Arm(24), 600), Bytes(Arm(12), 1000), Earlier, pack.Digest) with { History = "parent" };
+        decision.Checks.Single(c => c.Target == "savingBytes").Met.Should().BeTrue();
+
+        var loaded = PackLoader.Load(Certify(built, pack, decision), Trust());
+        var (admitted, reason) = PackCertificates.Admit(loaded, Now);
+
+        admitted.Should().NotBeNull(reason);
+        admitted!.Checks.Single(c => c.Target == "savingBytes").Observed.Should().Be(400);
+        PackTrialGate.Unmet(admitted).Should().BeNull("a host derives the cost check again from the bytes the certificate carries");
+    }
+
     private static IReadOnlyList<string> Refused(Func<object> act) => FluentActions.Invoking(act).Should().Throw<PackLoadException>().Which.Problems;
 
     private (byte[] Built, LoadedPack Pack) Built(string? trial = Trial, string? version = null)
