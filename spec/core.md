@@ -829,7 +829,8 @@ still the template or when a knowledge or definition pack carries no card.
 `META/attestations/` lies outside the files list, so attestations can be added after release without changing the
 digest. The Certify profile gives its content meaning.
 
-**R-CORE-114.** `META/attestations/` MUST hold only `<stem>.certificate.dsse.json` files and `<stem>.aef/…` runs,
+**R-CORE-114.** `META/attestations/` MUST hold only `<stem>.certificate.dsse.json` and `<stem>.erasure.dsse.json` files and
+`<stem>.aef/…` runs,
 where a stem matches `[a-z0-9][a-z0-9-]{0,63}`; any other file there MUST refuse the pack.
 
 **R-CORE-115.** The slot MUST hold at most 8 certificates, each at most 64 KiB; a run MUST travel beside its
@@ -839,6 +840,23 @@ certificate's stem, with at most 256 files and 8 MiB.
 untrusted or malformed certificate MUST NOT refuse the pack.
 
 **R-CORE-117.** A writer that rebuilds a pack with changed content MUST drop its attestations.
+
+## 17a. Erasures
+
+A publisher who shared a record can withdraw it from every host that imported it (feature 08).
+
+**R-CORE-131.** An erasure MUST be a DSSE envelope of an in-toto statement of predicate type `urn:agentmemory:pack:erasure:v1`
+whose predicate holds exactly `id` (the pack id, all its versions), `issuedAt` (an instant in UTC to the second), `reason`
+(`withdrawn`, `incorrect`, `harmful` or `legal`), `salt` (32 lowercase hexadecimal characters) and `records`, 1 to 256 distinct
+objects of `type` and exactly one of `key` (1 to 1,024 characters) or `keyHash` (64 lowercase hexadecimal characters, the
+SHA-256 of the salt, a colon and the key in UTF-8), so a notice need not reveal what it erases. It travels in a pack's
+attestations as `<stem>.erasure.dsse.json`, the stem its signer's key and issue time, or on its own.
+
+**R-CORE-132.** A verifier MUST hold an erasure only when a signature verifies by a key the trust policy names as `publisher` or
+`revoker` for the pack's id, valid at `issuedAt` and now, and the erasure names that pack.
+
+> Why: tombstones are known; a signed erasure bound to the pack's identity, held to the trust policy's roles, and read alike
+> by both verifiers, is what a host can act on without trusting the channel it came through.
 
 ## 18. Limits
 

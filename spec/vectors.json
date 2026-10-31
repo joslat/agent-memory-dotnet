@@ -2028,6 +2028,62 @@
    "R-CERTIFY-010",
    "R-CORE-002",
    "R-TRIAL-057"
+  ],
+  "erasure-by-the-publisher": [
+   "R-CORE-131",
+   "R-CORE-132"
+  ],
+  "erasure-by-a-revoker": [
+   "R-CORE-131",
+   "R-CORE-132"
+  ],
+  "erasure-by-salted-hash": [
+   "R-CORE-131",
+   "R-CORE-132"
+  ],
+  "erasure-carried-in-the-pack": [
+   "R-CORE-131",
+   "R-CORE-132"
+  ],
+  "erasure-by-an-evaluator": [
+   "R-CORE-131",
+   "R-CORE-132"
+  ],
+  "erasure-by-a-stranger": [
+   "R-CORE-131",
+   "R-CORE-132"
+  ],
+  "erasure-for-another-pack": [
+   "R-CORE-131",
+   "R-CORE-132"
+  ],
+  "erasure-key-and-hash": [
+   "R-CORE-131",
+   "R-CORE-132"
+  ],
+  "erasure-hash-uppercase": [
+   "R-CORE-131",
+   "R-CORE-132"
+  ],
+  "erasure-reason-unknown": [
+   "R-CORE-131",
+   "R-CORE-132"
+  ],
+  "erasure-salt-short": [
+   "R-CORE-131",
+   "R-CORE-132"
+  ],
+  "erasure-extra-field": [
+   "R-CORE-131",
+   "R-CORE-132"
+  ],
+  "erasure-record-twice": [
+   "R-CORE-131",
+   "R-CORE-132"
+  ],
+  "erasure-issued-with-an-offset": [
+   "R-CORE-131",
+   "R-CORE-132"
   ]
  }
 }

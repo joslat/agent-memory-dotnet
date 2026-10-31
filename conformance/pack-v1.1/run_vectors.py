@@ -1487,6 +1487,57 @@ def main():
                         "dotnetSays": dn_text.splitlines()[0] if dn_text else "", "pythonSays": pr.stdout.strip().splitlines()[-1] if pr.stdout.strip() else pr.stderr.strip()[-200:],
                         "sha256": hashlib.sha256(pack_bytes + (external or b"")).hexdigest()})
         print(f"{'ok  ' if agree else 'FAIL'} {name:34} expected {expected:8} dotnet {dotnet:8} python {python}")
+    # Feature 08: erasures, signed by a key trusted as publisher or revoker for the pack's id, verified by both.
+    def erasure(signer, pid_=pid, records=None, reason="withdrawn", salt="0123456789abcdef0123456789abcdef", extra=None, issued="2026-10-31T12:00:00Z"):
+        pred = {"id": pid_, "issuedAt": issued, "reason": reason, "salt": salt,
+                "records": records if records is not None else [{"type": "NotesNote", "key": "note-1"}], **(extra or {})}
+        statement = {"_type": py.STATEMENT, "predicateType": "urn:agentmemory:pack:erasure:v1", "predicate": pred,
+                     "subject": [{"name": pid_, "digest": {"sha256": hashlib.sha256(pid_.encode()).hexdigest()}}]}
+        payload = py.canonical(statement).encode()
+        spki = signer.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+        sig = signer.sign(py.pae(payload), ec.ECDSA(hashes.SHA256()))
+        return py.canonical({"payloadType": py.PAYLOAD_TYPE, "payload": base64.b64encode(payload).decode(),
+                             "signatures": [{"keyid": hashlib.sha256(spki).hexdigest(), "sig": base64.b64encode(sig).decode()}]}).encode()
+
+    salt_ = "0123456789abcdef0123456789abcdef"
+    hashed = hashlib.sha256((salt_ + ":note-1").encode()).hexdigest()
+    erased_pack = write_zip(signed(content))
+    erasure_stem = py.stem_for(entry["keyId"], datetime(2026, 10, 31, 12, 0, 0, tzinfo=timezone.utc))
+    erasure_path = f"META/attestations/{erasure_stem}.erasure.dsse.json"
+    erasures = {  # name -> (pack bytes, erasure inside the pack or None, erasure file or None, policy, expected)
+        "erasure-by-the-publisher": (erased_pack, None, erasure(key), "trust.json", "verified"),
+        "erasure-by-a-revoker": (erased_pack, None, erasure(revoker_key), "trust-with-revoker.json", "verified"),
+        "erasure-by-salted-hash": (erased_pack, None, erasure(key, records=[{"type": "NotesNote", "keyHash": hashed}]), "trust.json", "verified"),
+        "erasure-carried-in-the-pack": (write_zip({**signed(content), erasure_path: erasure(key)}), erasure_path, None, "trust.json", "verified"),
+        "erasure-by-an-evaluator": (erased_pack, None, erasure(evaluator), "trust-evaluator.json", "refused"),
+        "erasure-by-a-stranger": (erased_pack, None, erasure(stranger_key), "trust.json", "refused"),
+        "erasure-for-another-pack": (erased_pack, None, erasure(key, pid_="io.example.other"), "trust.json", "refused"),
+        "erasure-key-and-hash": (erased_pack, None, erasure(key, records=[{"type": "NotesNote", "key": "note-1", "keyHash": hashed}]), "trust.json", "refused"),
+        "erasure-hash-uppercase": (erased_pack, None, erasure(key, records=[{"type": "NotesNote", "keyHash": hashed.upper()}]), "trust.json", "refused"),
+        "erasure-reason-unknown": (erased_pack, None, erasure(key, reason="bored"), "trust.json", "refused"),
+        "erasure-salt-short": (erased_pack, None, erasure(key, salt="0123"), "trust.json", "refused"),
+        "erasure-extra-field": (erased_pack, None, erasure(key, extra={"note": "x"}), "trust.json", "refused"),
+        "erasure-record-twice": (erased_pack, None, erasure(key, records=[{"type": "NotesNote", "key": "note-1"}, {"type": "NotesNote", "key": "note-1"}]), "trust.json", "refused"),
+        "erasure-issued-with-an-offset": (erased_pack, None, erasure(key, issued="2026-10-31T12:00:00+01:00"), "trust.json", "refused"),
+    }
+    for name, (pack_bytes, inside, external, policy_file, expected) in erasures.items():
+        pack_path = VECTORS / f"{name}.ampack"
+        pack_path.write_bytes(pack_bytes)
+        target = inside
+        if external is not None:
+            target = str(VECTORS / f"{name}.erasure.dsse.json")
+            Path(target).write_bytes(external)
+        dn_code, dn_text = ampack("erasure", "verify", str(pack_path), "--policy", str(OUT / policy_file), "--erasure", target)
+        pr = subprocess.run([sys.executable, "-I", str(HERE / "python" / "ampack_verify.py"), str(pack_path), str(OUT / policy_file), "--erasure", target],
+                            capture_output=True, text=True, encoding="utf-8", errors="replace")
+        dotnet = {0: "verified", 1: "refused"}.get(dn_code, f"error ({dn_code})")
+        python = {0: "verified", 1: "refused"}.get(pr.returncode, f"error ({pr.returncode})")
+        agree = dotnet == python == expected and refused_for(name, dn_text, pr.stdout + pr.stderr)
+        failures += not agree
+        results.append({"vector": name, "expected": expected, "dotnet": dotnet, "python": python, "agree": agree,
+                        "dotnetSays": dn_text.splitlines()[0] if dn_text else "", "pythonSays": pr.stdout.strip().splitlines()[-1] if pr.stdout.strip() else pr.stderr.strip()[-200:],
+                        "sha256": hashlib.sha256(pack_bytes + (external or b"")).hexdigest()})
+        print(f"{'ok  ' if agree else 'FAIL'} {name:34} expected {expected:8} dotnet {dotnet:8} python {python}")
     # Feature 01: every vector names the spec requirements it tests (spec/vectors.json); one the spec does not map fails here.
     vector_map_path = HERE.parent.parent / "spec" / "vectors.json"
     if vector_map_path.exists():

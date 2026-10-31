@@ -673,9 +673,17 @@
    "has a deflate stream without its final block",
    "does not inflate to its declared size"
   ],
+  "attestation-stray-file": [
+   "holds <stem>.certificate.dsse.json, <stem>.erasure.dsse.json and",
+   "is not an attestation"
+  ],
   "attestation-run-without-certificate": [
    "travels without its certificate",
    "travels without its certificate"
+  ],
+  "attestation-uppercase-stem": [
+   "holds <stem>.certificate.dsse.json, <stem>.erasure.dsse.json and",
+   "is not an attestation"
   ],
   "receipt-shape-envelope-extra-field": [
    "The receipt is not a DSSE envelope of an in-toto statement with",
@@ -928,6 +936,38 @@
   "certificate-evaluator-two-lines": [
    "The certificate names its evaluator as one line of",
    "the certificate names its evaluator as one line of"
+  ],
+  "erasure-by-an-evaluator": [
+   "may not sign as publisher",
+   "the erasure carries no signature by a key this host trusts as publisher or revoker for the pack"
+  ],
+  "erasure-by-a-stranger": [
+   "that signed the erasure is not in the trust policy",
+   "the erasure carries no signature by a key this host trusts as publisher or revoker for the pack"
+  ],
+  "erasure-for-another-pack": [
+   "The erasure is for io.example.other, not io.example.notes",
+   "the erasure is for another pack"
+  ],
+  "erasure-key-and-hash": [
+   "An erased record is its type and exactly one of key and keyHash",
+   "an erased record is its type and exactly one of key and keyHash"
+  ],
+  "erasure-reason-unknown": [
+   "reason is harmful, incorrect, legal, withdrawn",
+   "reason is one the registry names"
+  ],
+  "erasure-extra-field": [
+   "predicate holds exactly id, issuedAt, reason, salt and records",
+   "predicate holds exactly id, issuedAt, reason, salt and records"
+  ],
+  "erasure-record-twice": [
+   "The erasure names one record twice",
+   "the erasure names one record twice"
+  ],
+  "erasure-issued-with-an-offset": [
+   "issuedAt is an instant in UTC to the second",
+   "issuedAt is an instant in UTC to the second"
   ]
  }
 }

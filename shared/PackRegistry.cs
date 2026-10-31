@@ -54,6 +54,10 @@ internal static class PackRegistry
         .ToDictionary(p => p.Name, p => p.Value.GetProperty("field").GetString()!, StringComparer.Ordinal);
     internal static readonly IReadOnlySet<string> UpgradeFields = Set("trial", "upgradeFields");
     internal static readonly IReadOnlySet<string> SafetyFields = Set("trial", "safetyFields");
+    /// <summary>Why a record is erased (feature 08).</summary>
+    internal static readonly IReadOnlySet<string> ErasureReasons = Set("erasure", "reasons");
+    /// <summary>The roles whose key may erase a pack's records (feature 08): publisher or revoker for its id.</summary>
+    internal static readonly IReadOnlySet<string> ErasureRoles = Set("erasure", "roles");
     /// <summary>A record line's life members (feature 07), beside type, key, properties and links.</summary>
     internal static readonly IReadOnlySet<string> LifeFields = Set("records", "lifeFields");
     /// <summary>The lifecycles a type may declare (feature 07): pinned never ages, refreshes ends ttlDays after validFrom.</summary>

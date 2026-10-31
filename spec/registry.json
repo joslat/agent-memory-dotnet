@@ -322,6 +322,22 @@
         "distance",
         "rows"
       ]
+    },
+    "erasurePredicate": {
+      "fields": [
+        "id",
+        "issuedAt",
+        "reason",
+        "salt",
+        "records"
+      ]
+    },
+    "erasureRecord": {
+      "fields": [
+        "type",
+        "key",
+        "keyHash"
+      ]
     }
   },
   "members": {
@@ -1070,6 +1086,19 @@
         "100000",
         "10FFFD"
       ]
+    ]
+  },
+  "erasure": {
+    "about": "Feature 08: a signed erasure of records, by key or salted key hash.",
+    "reasons": [
+      "withdrawn",
+      "incorrect",
+      "harmful",
+      "legal"
+    ],
+    "roles": [
+      "publisher",
+      "revoker"
     ]
   }
 }

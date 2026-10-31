@@ -1351,11 +1351,16 @@ def read_card(data):
 
 def attestation_checks(files):
     """What travels in META/attestations/: certificates and the AEF runs beside them, shaped and bounded (v1.2 §16)."""
-    stems, runs = set(), {}
+    stems, runs, erasures = set(), {}, 0
     for path in sorted(p for p in files if p.startswith(ATTESTATIONS)):
         match = CERT_FILE.fullmatch(path)
         if match:
             stems.add(match.group(1))
+            if len(files[path]) > MAX_ENVELOPE:
+                raise Refused(f"'{path}' is larger than 64 KiB")
+            continue
+        if ERASURE_FILE.fullmatch(path):  # feature 08: erasures travel here too
+            erasures += 1
             if len(files[path]) > MAX_ENVELOPE:
                 raise Refused(f"'{path}' is larger than 64 KiB")
             continue
@@ -1365,6 +1370,8 @@ def attestation_checks(files):
         runs.setdefault(run.group(1), []).append(len(files[path]))
     if len(stems) > MAX_CERTIFICATES:
         raise Refused(f"the pack carries {len(stems)} certificates; at most {MAX_CERTIFICATES}")
+    if erasures > MAX_CERTIFICATES:
+        raise Refused(f"the pack carries {erasures} erasures; at most {MAX_CERTIFICATES}")
     for stem, sizes in runs.items():
         if stem not in stems:
             raise Refused(f"the AEF run {stem}.aef/ travels without its certificate")
@@ -1585,6 +1592,93 @@ def verify_certificate(envelope_bytes, pid, version, digest, policy, now, run=No
     return pred
 
 
+ERASURE = "urn:agentmemory:pack:erasure:v1"
+ERASURE_FILE = re.compile(r"META/attestations/([a-z0-9][a-z0-9-]{0,63})\.erasure\.dsse\.json")
+ERASURE_REASONS = set(REGISTRY["erasure"]["reasons"])
+ERASURE_ROLES = sorted(REGISTRY["erasure"]["roles"])
+MAX_ERASED = 256
+
+
+def erasure_hash(salt, key):
+    """The salted hash of a key, as .NET's PackErasure.HashOf: SHA-256 of salt, a colon and the key, lowercase hexadecimal."""
+    return hashlib.sha256((salt + ":" + key).encode("utf-8")).hexdigest()
+
+
+def read_erasure(payload):
+    """An erasure's statement (feature 08), strictly, as .NET's PackErasure.Read."""
+    st = profile(payload)
+    if not isinstance(st, dict) or set(st) - SHAPE["statement"] or st.get("_type") != STATEMENT or st.get("predicateType") != ERASURE:
+        raise Refused("the erasure is not an in-toto statement of " + ERASURE)
+    pred = st.get("predicate")
+    if not isinstance(pred, dict) or set(pred) - SHAPE["erasurePredicate"]:
+        raise Refused("the erasure's predicate holds exactly id, issuedAt, reason, salt and records")
+    if not isinstance(pred.get("id"), str) or not valid_id(pred["id"]):
+        raise Refused("the erasure names no valid pack id")
+    issued = pred.get("issuedAt")
+    if not isinstance(issued, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", issued):
+        raise Refused("the erasure's issuedAt is an instant in UTC to the second")
+    try:
+        issued_at = datetime.strptime(issued, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        raise Refused("the erasure's issuedAt is an instant in UTC to the second")
+    if pred.get("reason") not in ERASURE_REASONS or not isinstance(pred.get("reason"), str):
+        raise Refused("the erasure's reason is one the registry names")
+    salt = pred.get("salt")
+    if not isinstance(salt, str) or not re.fullmatch(r"[0-9a-f]{32}", salt):
+        raise Refused("the erasure's salt is 32 lowercase hexadecimal characters")
+    records = pred.get("records")
+    if not isinstance(records, list) or not 1 <= len(records) <= MAX_ERASED:
+        raise Refused("the erasure lists 1 to 256 records")
+    seen = set()
+    for r in records:
+        if not isinstance(r, dict) or set(r) - SHAPE["erasureRecord"] or not isinstance(r.get("type"), str) or not 1 <= text_length(r["type"]) <= 256 \
+                or (("key" in r) == ("keyHash" in r)):
+            raise Refused("an erased record is its type and exactly one of key and keyHash")
+        if "key" in r and (not isinstance(r["key"], str) or not 1 <= text_length(r["key"]) <= 1024):
+            raise Refused("an erased record's key is 1 to 1,024 characters")
+        if "keyHash" in r and (not isinstance(r["keyHash"], str) or not re.fullmatch(r"[0-9a-f]{64}", r["keyHash"])):
+            raise Refused("an erased record's keyHash is 64 lowercase hexadecimal characters")
+        named = (r["type"], r.get("key", r.get("keyHash")))
+        if named in seen:
+            raise Refused("the erasure names one record twice")
+        seen.add(named)
+    return pred, issued_at
+
+
+def verify_erasure(envelope_bytes, pid, policy, now):
+    """An erasure for the pack pid (feature 08): signed by a key the host trusts as publisher or revoker for its id."""
+    if len(envelope_bytes) > MAX_ENVELOPE:
+        raise Refused("the erasure is larger than 64 KiB")
+    env = profile(envelope_bytes)
+    if not isinstance(env, dict) or set(env) != SHAPE["envelope"] or env["payloadType"] != PAYLOAD_TYPE \
+            or not isinstance(env["payload"], str) or not isinstance(env["signatures"], list) or not 1 <= len(env["signatures"]) <= MAX_SIGNATURES \
+            or not all(entry_shaped(e) for e in env["signatures"]):
+        raise Refused("the erasure is not a DSSE envelope of an in-toto statement with 1 to 16 signatures")
+    try:
+        payload = base64.b64decode(env["payload"], validate=True)
+    except (ValueError, binascii.Error):
+        raise Refused("the erasure's payload is not base64")
+    pred, issued_at = read_erasure(payload)
+    if pred["id"] != pid:
+        raise Refused("the erasure is for another pack")
+    keys = {k["keyId"]: k for k in policy.get("keys", [])}
+    revoked_keys = {r["keyId"] for r in policy.get("revoked", {}).get("keys", [])}
+    digest_of_pae = hashlib.sha256(pae(payload)).digest()
+    for entry in env["signatures"]:
+        key = keys.get(entry.get("keyid")) if isinstance(entry, dict) else None
+        if key is None or not isinstance(entry.get("sig"), str):
+            continue
+        try:
+            sig = base64.b64decode(entry["sig"], validate=True)
+            public = serialization.load_pem_public_key(key["publicKey"].encode())
+            public.verify(sig, digest_of_pae, ec.ECDSA(utils.Prehashed(hashes.SHA256())))
+        except (InvalidSignature, ValueError, binascii.Error):
+            continue
+        if any(key_refusal(key, role, pid, issued_at, now, revoked_keys) is None for role in ERASURE_ROLES):
+            return pred
+    raise Refused("the erasure carries no signature by a key this host trusts as publisher or revoker for the pack")
+
+
 def valid_version(text):
     if not isinstance(text, str) or len(text) > MAX_VERSION:
         return False
@@ -1706,7 +1800,7 @@ def main(argv):
         print(f"error: this verifier decides with Unicode {UNICODE_VERSION} data; this Python has {unicodedata.unidata_version} (use Python 3.12)")
         return 2
     args = list(argv[1:])
-    usage = "usage: python ampack_verify.py <pack.ampack> <trust.json> [<revocations.json>...] [--receipt <file> --location <url>] [--certificate <path>]"
+    usage = "usage: python ampack_verify.py <pack.ampack> <trust.json> [<revocations.json>...] [--receipt <file> --location <url>] [--certificate <path>] [--erasure <path>]"
 
     def option(name):
         if name not in args:
@@ -1719,7 +1813,7 @@ def main(argv):
         return value
     # A usage error is exit 2, never 1, which reads as a refusal (review 1, L11).
     try:
-        receipt_path, location, certificate_path = option("--receipt"), option("--location"), option("--certificate")
+        receipt_path, location, certificate_path, erasure_path = option("--receipt"), option("--location"), option("--certificate"), option("--erasure")
     except IndexError as missing:
         print(f"error: {missing} needs a value\n{usage}")
         return 2
@@ -1760,6 +1854,15 @@ def main(argv):
                 run, envelope, stem = None, read_file(certificate_path, "the certificate"), None
             pred = verify_certificate(envelope, pid, version, digest, policy, now, run, stem)
             print(f"verified the certificate of {shown(pid)} {shown(version)} by {shown(pred['evaluator'])}")
+        if erasure_path is not None:
+            if erasure_path.startswith(ATTESTATIONS):
+                if ERASURE_FILE.fullmatch(erasure_path) is None or erasure_path not in files:
+                    raise Refused(f"the pack carries no {erasure_path}")
+                envelope = files[erasure_path]
+            else:
+                envelope = read_file(erasure_path, "the erasure")
+            pred = verify_erasure(envelope, pid, policy, now)
+            print(f"verified the erasure of {len(pred['records'])} record(s) of {shown(pid)} ({pred['reason']})")
     except Refused as e:
         print(f"refused: {shown(e)}")
         return 1

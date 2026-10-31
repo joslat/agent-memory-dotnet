@@ -387,6 +387,7 @@ internal static partial class PackAttestations
     {
         var attestations = files.Keys.Where(PackPaths.IsAttestation).Order(StringComparer.Ordinal).ToList();
         var stems = new HashSet<string>(StringComparer.Ordinal);
+        var erasures = 0;
         foreach (var path in attestations)
         {
             if (CertificateFile().Match(path) is { Success: true } certificate)
@@ -394,10 +395,16 @@ internal static partial class PackAttestations
                 stems.Add(certificate.Groups[1].Value);
                 if (files[path].LongLength > Dsse.MaximumEnvelopeBytes) yield return $"'{path}' is larger than {Dsse.MaximumEnvelopeBytes / 1024} KiB.";
             }
+            else if (PackErasure.File().IsMatch(path))
+            {
+                erasures++;
+                if (files[path].LongLength > Dsse.MaximumEnvelopeBytes) yield return $"'{path}' is larger than {Dsse.MaximumEnvelopeBytes / 1024} KiB.";
+            }
             else if (!RunFile().IsMatch(path))
-                yield return $"'{path}' is not an attestation: {PackPaths.AttestationsFolder} holds <stem>{CertificateSuffix} and <stem>{RunSuffix}… only.";
+                yield return $"'{path}' is not an attestation: {PackPaths.AttestationsFolder} holds <stem>{CertificateSuffix}, <stem>{PackErasure.Suffix} and <stem>{RunSuffix}… only.";
         }
         if (stems.Count > MaximumCertificates) yield return $"The pack carries {stems.Count} certificates; at most {MaximumCertificates}.";
+        if (erasures > MaximumCertificates) yield return $"The pack carries {erasures} erasures; at most {MaximumCertificates}.";
         foreach (var group in attestations.Select(p => RunFile().Match(p)).Where(m => m.Success).GroupBy(m => m.Groups[1].Value, StringComparer.Ordinal))
         {
             if (!stems.Contains(group.Key)) yield return $"The AEF run {group.Key}{RunSuffix} travels without its certificate.";
