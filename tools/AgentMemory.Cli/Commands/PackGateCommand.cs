@@ -231,8 +231,8 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
             await restore().ConfigureAwait(false);
         }
 
-        output.WriteLine($"  with     hit {withArm.HitRate:0.000} ({withArm.Hits}/{withArm.Tasks}), precision {withArm.Precision:0.000} ({withArm.Correct}/{withArm.Offered}), p95 {withArm.P95Ms:0.0} ms");
-        output.WriteLine($"  without  {(trial.Baseline == "host" ? "grep" : "nothing")}: hit {withoutArm.HitRate:0.000} ({withoutArm.Hits}/{withoutArm.Tasks}), precision {withoutArm.Precision:0.000} ({withoutArm.Correct}/{withoutArm.Offered}), p95 {withoutArm.P95Ms:0.0} ms");
+        output.WriteLine($"  with     hit {withArm.HitRate:0.000} ({withArm.Hits}/{withArm.Tasks}), precision {withArm.Precision:0.000} ({withArm.Correct}/{withArm.Offered}), p95 {withArm.P95Ms:0.0} ms{Bytes(withArm)}");
+        output.WriteLine($"  without  {(trial.Baseline == "host" ? "grep" : "nothing")}: hit {withoutArm.HitRate:0.000} ({withoutArm.Hits}/{withoutArm.Tasks}), precision {withoutArm.Precision:0.000} ({withoutArm.Correct}/{withoutArm.Offered}), p95 {withoutArm.P95Ms:0.0} ms{Bytes(withoutArm)}");
         foreach (var check in decision.Checks)
             output.WriteLine($"  {(check.Met ? "met " : "MISS")}  {check.Target} {check.Observed}{(check.Estimate is { } e ? $" (lower bound; estimate {e})" : "")} (target {(PackRegistry.AtMost.Contains(check.Target) ? "≤" : "≥")} {check.Required})");
         output.WriteLine($"  decision {(decision.Active ? "ON" : "OFF")}: {decision.Reason}");
@@ -262,6 +262,16 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
     {
         Traversal = manifest.Traversal! with { Hops = hops, Relations = [.. manifest.Traversal.Relations.Select(r => r with { FanOut = fanOut(r.FanOut) })] },
     };
+
+    // What an arm put into the context (feature 05): the median bytes a task, framed as the model reads them, and the context
+    // efficiency, correct items per 1,000 bytes (a display value, never a target: a ratio of sums).
+    private static string Bytes(PackTrialMeasurement arm)
+    {
+        if (arm.PerTask is not { Count: > 0 } tasks || tasks.Any(t => t.OfferedBytes is null)) return "";
+        var sorted = tasks.Select(t => t.OfferedBytes!.Value).Order().ToArray();
+        var total = sorted.Sum();
+        return $", median {sorted[(sorted.Length - 1) / 2]} bytes a task, {(total == 0 ? 0 : arm.Correct * 1000.0 / total):0.00} correct per 1,000 bytes";
+    }
 
     /// <summary>
     /// The host's own retrieval for code, as the P6 analysis defined it: the types the changed files declare, their
@@ -332,12 +342,19 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
             .Select(i => TestFile().Match(i.Text)).Where(m => m.Success).Select(m => m.Groups[1].Value)
             .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         // Everything the pack put into the context this task, framed as the model reads it (feature 05).
-        var bytes = envelope.Sections.SelectMany(s => s.Items.Select(i => (Section: s, Item: i))).Where(x => x.Item.Provenance?.RecordModuleId == CodeMapPack.Id)
-            .Sum(x => PackTrialRender.Bytes(x.Section, x.Item));
-        return new TaskOutcome(task, files, files.Count(f => task.Tests.Contains(f, StringComparer.OrdinalIgnoreCase)), ms, ms, bytes);
+        var items = envelope.Sections.SelectMany(s => s.Items.Select(i => (Section: s, Item: i))).Where(x => x.Item.Provenance?.RecordModuleId == CodeMapPack.Id).ToList();
+        var bytes = items.Sum(x => PackTrialRender.Bytes(x.Section, x.Item));
+        // Where those bytes go, by record type and whether the walk reached the record or it is an anchor's own (feature 05).
+        var parts = items.GroupBy(x => $"{x.Item.Provenance!.RecordType}{(x.Item.Provenance.Via is null ? " (anchor)" : "")}")
+            .ToDictionary(g => g.Key, g => new { items = g.Count(), bytes = g.Sum(x => PackTrialRender.Bytes(x.Section, x.Item)),
+                textBytes = g.Sum(x => (long)System.Text.Encoding.UTF8.GetByteCount(x.Item.Text)) });
+        return new TaskOutcome(task, files, files.Count(f => task.Tests.Contains(f, StringComparer.OrdinalIgnoreCase)), ms, ms, bytes) { Parts = parts };
     }
 
-    private sealed record TaskOutcome(HistoryTask Task, IReadOnlyList<string> Offered, int Right, double Milliseconds, double? Timed, long Bytes);
+    private sealed record TaskOutcome(HistoryTask Task, IReadOnlyList<string> Offered, int Right, double Milliseconds, double? Timed, long Bytes)
+    {
+        public object? Parts { get; init; }
+    }
 
     // The outcomes of one arm, task by task, and the measurement they make.
     private sealed class ArmRun
@@ -360,7 +377,7 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
                 P95Ms = Math.Round(p95, 1), PerTask = [.. _outcomes.Select(o => new PackTrialTask(o.Offered.Count, o.Right) { OfferedBytes = o.Bytes })],
             }, [.. _outcomes.Select(o => (object)new
             {
-                o.Task.Commit, parent = o.Task.Parent[..10], o.Task.Subject, o.Task.Anchors, o.Task.Tests, offered = o.Offered, hit = o.Right > 0,
+                o.Task.Commit, parent = o.Task.Parent[..10], o.Task.Subject, o.Task.Anchors, o.Task.Tests, offered = o.Offered, hit = o.Right > 0, bytes = o.Bytes, parts = o.Parts,
             })]);
         }
     }
