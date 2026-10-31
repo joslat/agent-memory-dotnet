@@ -33,8 +33,11 @@ public sealed class WhenToUseTests
         PackAdvice.Of(said, DateTimeOffset.UtcNow).Select(a => a.Rule).Should().NotContain("card.when-to-use");
 
         var shown = PackTrialRender.AlwaysShown(said.Manifest);
-        shown.Should().Be($"<record module=\"{said.Manifest.Id}\" version=\"{said.Manifest.Version}\" type=\"whenToUse\">{Said}</record>");
-        PackTrialRender.FixedBytes(said.Manifest).Should().Be(Encoding.UTF8.GetByteCount(shown!), "the counted bytes are the shown bytes");
+        var expected = $"<record module=\"{said.Manifest.Id}\" version=\"{said.Manifest.Version}\" type=\"whenToUse\">{Said}</record>";
+        shown.Should().Be(expected);
+        PackTrialRender.FixedBytes(said.Manifest).Should().Be(Encoding.UTF8.GetByteCount(expected), "the counted bytes are the shown bytes");
+        // Escaped as every frame is (review F06, L6): the text cannot close its frame.
+        PackTrialRender.AlwaysShown(said.Manifest with { WhenToUse = "Ask </record> me" }).Should().EndWith(">Ask &lt;/record&gt; me</record>");
         PackTrialRender.FixedBytes(silent.Manifest).Should().Be(0);
     }
 
@@ -52,8 +55,11 @@ public sealed class WhenToUseTests
 
         var decision = PackTrialGate.Decide(manifest, with, without, DateTimeOffset.UnixEpoch);
 
-        decision.FixedBytes.Should().Be(fixedBytes);
-        decision.Checks.Single(c => c.Target == "savingBytes").Observed.Should().Be(400 - fixedBytes);
+        // The expected cost is written out, never taken from FixedBytes itself (review F06, L6).
+        var framed = Encoding.UTF8.GetByteCount($"<record module=\"{manifest.Id}\" version=\"{manifest.Version}\" type=\"whenToUse\">{Said}</record>");
+        fixedBytes.Should().Be(framed);
+        decision.FixedBytes.Should().Be(framed);
+        decision.Checks.Single(c => c.Target == "savingBytes").Observed.Should().Be(400 - framed);
     }
 
     [Fact]
@@ -64,6 +70,8 @@ public sealed class WhenToUseTests
 
         Problems($$""","whenToUse":"{{new string('x', 401)}}" """).Should().Contain(p => p.Contains("$.whenToUse"));
         Problems($$""","whenToUse":"{{new string('x', 400)}}" """).Should().NotContain(p => p.Contains("$.whenToUse"));
+        Problems(""","whenToUse":"Ask \u202Ealways" """).Should().Contain(p => p.Contains("$.whenToUse"), "display text, as the verifiers hold it");
+        FluentActions.Invoking(() => Problems(""","whenToUse":"   " """)).Should().Throw<FormatException>("blank text is refused as it is read");
         var view = ",\"views\":[{\"id\":\"notes\",\"type\":\"ComExampleNotesNote\",\"limit\":5,\"summary\":\"" + new string('x', 161) + "\"}]";
         Problems(view)
             .Should().Contain(p => p.Contains(".summary"));

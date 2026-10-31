@@ -784,6 +784,7 @@ and the zero-width space), private use and surrogates.
 | `risks` | The risks its publisher knows: at most 32 distinct texts of 1 to 500 |
 | `provenance`, `audience`, `domain` | Optional: where its content comes from (2,000), who it is meant for (500), its domain (100) |
 | `references` | Optional: at most 16 distinct texts of 1 to 500 |
+| `whenToUse` | Optional, written for the model: what the pack knows and when to ask it (1 to 400; R-CORE-127) |
 
 **R-CORE-111.** When present, `card.json` MUST be read strictly: `format` `agentmemory.pack.card/1`, the fields
 above only (an unknown field MUST refuse the pack), `owner.name`, `intendedUse` and `limitations` required, each of its
@@ -792,9 +793,12 @@ type and within its length.
 **R-CORE-112.** Card lengths MUST be counted in characters, and card text MUST be display-safe (R-CORE-126).
 
 **R-CORE-127.** A card MAY hold `whenToUse`, written for the model: what the pack knows and when to ask it, display text of
-at most 400 characters. A host MAY show it on every turn, in a frame naming the module, its version and the type
-`whenToUse` (R-HOST-053); a trial MUST count those framed bytes as the pack's fixed cost per turn (R-TRIAL-056), whether or
-not the host shows it, and it travels into the module the host composes, in its declarations.
+at most 400 characters. Only a knowledge or definition pack's travels into the module the host composes, in its
+declarations: a snapshot runs its definition's, and a composite or set composes its members'. A host MAY show it on every turn;
+one that does MUST pass it through its admission of untrusted content first (R-HOST-056) and put it in a frame naming the
+module, its version and the type `whenToUse` (R-HOST-053): it is the pack's own words, data, never an instruction. A trial
+MUST count those framed bytes as the pack's fixed cost per turn (R-TRIAL-056), whether or not the host shows or admits it. A
+listing that returns it as data (`pack_list`) MUST return the composed module's.
 
 **R-CORE-113.** A writer SHOULD write a template card when it creates a pack, and SHOULD advise while a card is
 still the template or when a knowledge or definition pack carries no card.

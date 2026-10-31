@@ -657,9 +657,13 @@ internal static partial class Program
             if (content.Files.TryGetValue(PackCard.FileName, out var cardBytes) && PackCard.Parse(cardBytes).Card is { } card)
             {
                 Console.WriteLine($"Card    {Shown(card.OwnerName, 200)}: {Shown(card.IntendedUse, 200)}  (not verified)");
-                // What every turn costs (feature 06): the text the model is shown, and its bytes as framed in context.
+                // What every turn costs (feature 06): the text the model is shown, and the bytes a trial counts, framed as the
+                // model reads it (review F06, L2: the count before the frame differed from the trial's).
                 if (card.WhenToUse is { } whenToUse)
-                    Console.WriteLine($"When    {Shown(whenToUse, 400)}  ({System.Text.Encoding.UTF8.GetByteCount(whenToUse):N0} bytes of text a turn, before its frame)");
+                {
+                    var framed = AgentMemory.Extensibility.Modules.PackTrialRender.AlwaysShown(list.Id, list.Version, whenToUse);
+                    Console.WriteLine($"When    {Shown(whenToUse, 1000)}  ({System.Text.Encoding.UTF8.GetByteCount(framed):N0} bytes a turn, framed)  (not verified)");
+                }
             }
             // Each set of vectors as its index states it (feature 03; review F03: inspect showed none).
             foreach (var set in PackEmbeddings.Read(content.Files).Sets)

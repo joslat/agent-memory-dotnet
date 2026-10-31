@@ -38,12 +38,21 @@ public static class PackTrialRender
     /// <summary>
     /// The pack's always-shown block as the model reads it (feature 06): its <c>whenToUse</c> in a frame naming the module, its
     /// version and the type <c>whenToUse</c>, escaped; null without one. The one definition a host renders and a trial counts.
+    /// A host that shows it admits it first, as it admits every record (R-HOST-056, R-CORE-127); a refused text is not shown and
+    /// still counted.
     /// </summary>
     public static string? AlwaysShown(ModuleManifest manifest)
     {
         ArgumentNullException.ThrowIfNull(manifest);
-        return manifest.WhenToUse is { } text
-            ? RecordFrame.Frame([new("module", manifest.Id), new("version", manifest.Version.ToString()), new("type", "whenToUse")], text)
-            : null;
+        return manifest.WhenToUse is { } text ? AlwaysShown(manifest.Id, manifest.Version.ToString(), text) : null;
+    }
+
+    /// <summary>As <see cref="AlwaysShown(ModuleManifest)"/>, from a pack's id, version and text, for a tool that has no composed module.</summary>
+    public static string AlwaysShown(string moduleId, string version, string whenToUse)
+    {
+        ArgumentNullException.ThrowIfNull(moduleId);
+        ArgumentNullException.ThrowIfNull(version);
+        ArgumentNullException.ThrowIfNull(whenToUse);
+        return RecordFrame.Frame([new("module", moduleId), new("version", version), new("type", "whenToUse")], whenToUse);
     }
 }

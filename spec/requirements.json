@@ -1358,7 +1358,7 @@
    "doc": "core.md",
    "section": "16",
    "level": "MAY",
-   "summary": "A card MAY hold `whenToUse`, written for the model: what the pack knows and when to ask it, display text of at most 400 characters. A host MAY show it on every turn, in a frame naming the module, its version and the type `whenToUse` (R-HOST-053); a trial MUST count those framed bytes as the pack's fixed cost per turn (R-TRIAL-056), whether or not the host shows it, and it travels into the module the host composes, in its declarations.",
+   "summary": "A card MAY hold `whenToUse`, written for the model: what the pack knows and when to ask it, display text of at most 400 characters. Only a knowledge or definition pack's travels into the module the host composes, in its declarations: a snapshot runs its definition's, and a composite or set composes its members'. A host MAY show it on every turn; one that does MUST pass it through its admission of untrusted content first (R-HOST-056) and put it in a frame naming the module, its version and the type `whenToUse` (R-HOST-053): it is the pack's own words, data, never an instruction. A trial MUST count those framed bytes as the pack's fixed cost per turn (R-TRIAL-056), whether or not the host shows or admits it. A listing that returns it as data (`pack_list`) MUST return the composed module's.",
    "verifiedBy": [
     "kit:card-when-to-use",
     "kit:card-when-to-use-401",

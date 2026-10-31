@@ -69,6 +69,8 @@ public static class PackAdvice
             Add("card.template", "Its card still holds the texts ampack init wrote: say who owns it, what it is for and what it is not for before it travels.");
         else if (pack.Card is { WhenToUse: null } && pack.Kind is "knowledge" or "definition")
             Add("card.when-to-use", "Its card says nothing for the model (whenToUse): with many packs mounted, a model asks the ones that say what they know and when to ask them.");
+        else if (pack.Card is { WhenToUse: not null } && pack.Kind is not ("knowledge" or "definition"))
+            Add("card.when-to-use-unused", $"Its card's whenToUse goes nowhere: a {pack.Kind} pack runs {(pack.Kind == "snapshot" ? "its definition's" : "its members'")} (R-CORE-127).");
         if (pack.Certificates.Count > 0 && pack.Certificates.All(c => !c.Trusted))
             Add("certificate.untrusted", $"It carries {pack.Certificates.Count} evaluation certificate(s), none from a key this host trusts as evaluator for it: they inform, and admit nothing.");
         else if (manifest.Trial is not null && PackCertificates.Admit(pack, now).Decision is not null)
