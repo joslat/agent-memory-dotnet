@@ -55,13 +55,13 @@ traversal relations, 16 and 17 anchors, a traversal with neither, trial tasks 9,
 |---|---|
 | `ontology.json` | `labelPrefix`, types (properties, render templates, scope), relations |
 | `views.json` | Search and graph views |
-| `traversal.json` | Anchors, walkable relations (direction, weight, fan-out), hubs, `maxItems`, `hops` |
+| `traversal.json` | Anchors, walkable relations (direction, `weightMicro`, fan-out), hubs, `maxItems`, `hops` |
 
 **R-WALK-008.** Where a field is absent, a host MUST use these defaults: traversal `maxItems` 4 and `hops` 2;
-anchor `match` `exact` and `kind` `path`; relation `direction` `out`, `weight` 0.8 and `fanOut` 8.
+anchor `match` `exact` and `kind` `path`; relation `direction` `out`, `weightMicro` 800,000 and `fanOut` 8.
 
 **R-WALK-009.** A traversal MUST declare at most 16 relations and at most 16 anchors; `maxItems` MUST be 1 to 16,
-`hops` 1 to 3, `fanOut` 1 to 32, and `weight` greater than 0 and at most 1.
+`hops` 1 to 3, `fanOut` 1 to 32, and `weightMicro` 1 to 1,000,000 (R-CORE-119).
 
 **R-WALK-010.** An anchor declaration's `kind` MUST be `path` or `symbol`; `key`, `entity` and `text` are
 reserved and MUST be refused.
@@ -120,7 +120,7 @@ character like any other); a digit MUST be `0`–`9`; anything else compares as 
 ### 4.2 The format's order
 
 **R-WALK-025.** Wherever records tie, they MUST be ordered by module id, then type, then key, each compared by
-UTF-16 code unit, then by version id. Every tie in §5 MUST be broken by this order.
+code point, then by version id. Every tie in §5 MUST be broken by this order.
 
 > Why: version ids are each store's own, so the order is the same in every store while (module, type, key) is unique
 > among the live records in scope; that holds unless an owner's record and a shared record share a key, or, read with no
@@ -136,10 +136,10 @@ An anchor is `{kind: path|symbol, value}`.
 remote operations, pack tests), in request order; an entry point MUST pass anchors as given and leave every step to the
 intake, and what it echoes, or asks a question about, MUST be the list the intake took.
 
-**R-WALK-027.** The intake MUST take each value in turn: (1) a value longer than 2,048 UTF-16 code units is
+**R-WALK-027.** The intake MUST take each value in turn: (1) a value longer than 2,048 characters is
 dropped before any work; (2) the value is normalized by its kind, a path as in R-WALK-037 and a symbol
 trimmed of ASCII white space; (3) it is put in NFC by the format's own Unicode 15.0 tables, the same ones the JSON profile
-checks with, whatever the host's globalization mode; (4) a value that is then empty, longer than 512 UTF-16 code units,
+checks with, whatever the host's globalization mode; (4) a value that is then empty, longer than 512 characters,
 or holds a lone surrogate is dropped; (5) the values are made distinct by (kind, value); (6) the first 32 are kept.
 
 **R-WALK-028.** The intake MUST be idempotent: what it takes, taken again, is the same list.
@@ -199,18 +199,18 @@ normalizes to nothing MUST match nothing.
 
 The quality of one pattern against one anchor:
 
-- **R-WALK-039.** `exact` MUST give 1.0 when the normalized value is not empty and equal to the normalized anchor,
+- **R-WALK-039.** Qualities and scores are integers in millionths. `exact` MUST give 1,000,000 when the normalized value is not empty and equal to the normalized anchor,
   else 0. Every `exact` declaration MUST normalize as a path and compare ASCII-folded, a symbol's included (so
   `removepackasync` seeds `RemovePackAsync`).
 - **R-WALK-040.** `prefix` MUST split the value on space, tab, CR, LF, `,` and `;`, take each pattern without its
-  trailing slashes, and give 1.0 when equal; when the anchor starts with `pattern/`, `0.5 + 0.3 × min(1, depth / total)`,
+  trailing slashes, and give 1,000,000 when equal; when the anchor starts with `pattern/`, 500,000 + ⌊300,000 × min(depth, total) / total⌋,
   where depth = slashes in the pattern + 1 and total = slashes in the anchor + 1; else 0.
 - **R-WALK-041.** `glob` MUST split as `prefix` does. Without `*` or `?`, a pattern MUST be a prefix match (a pattern
-  ending `/`) or an exact match. With them, `*` MUST match within a segment, `?` one UTF-16 code unit in a segment, `**/`
+  ending `/`) or an exact match. With them, `*` MUST match within a segment, `?` one character in a segment, `**/`
   zero or more folders and a bare `**` anything, matched over the ASCII-folded pattern and anchor, the whole anchor from
-  its first code unit to its last; a match MUST give 0.7.
+  its first character to its last; a match MUST give 700,000.
 - **R-WALK-042.** `name` MUST split on CR, LF, `,` and `;` only, trim each piece of ASCII white space, and compare
-  ordinally and case-sensitively: 1.0 when equal; 0.9 when the simple names are equal and not empty.
+  ordinally and case-sensitively: 1,000,000 when equal; 900,000 when the simple names are equal and not empty.
 
 **R-WALK-043.** A simple name MUST be found thus: the text after the last space; without trailing `#`, `.`,
 `/`, `:` and `!`; cut at the last `(` when it ends with `)`; then what follows the last `/`, `#`, `.` or `:` (so
@@ -262,7 +262,7 @@ for it the first piece of the value, MUST name the seed's reason.
 ### 5.6 Offering seeds
 
 **R-WALK-054.** A declaration's seeds MUST be offered at hop 0, best score first, then in the format's order, each
-with specificity 1, until 256 records are kept.
+shared by 1, until 256 records are kept.
 
 **R-WALK-055.** A seed's reason path MUST be the anchor (shortened as in R-WALK-067) and, when the
 matching pattern is not the anchor itself, ` matches <property> <pattern>`, with the pattern trimmed, in the strict
@@ -301,14 +301,14 @@ first, then fewest records sharing the link, then the format's order; the first 
 **R-WALK-063.** A neighbour's *degree*, counted up to 1,024, MUST be: for an `out` hop, the distinct live records in
 scope whose same relation leads to any version of it; for an `in` hop, the distinct live keys in scope its links of the
 relation lead to (a link to an older version of a live record counts once; one whose key has no live version does not).
-Specificity MUST be 1 / degree.
+A neighbour MUST count as shared by its degree; fewer is more specific.
 
 **R-WALK-064.** A store MAY return more than the first `fanOut` neighbours (every neighbour that ties the last one
 kept, for instance); the walk itself MUST then make the cut by the order of R-WALK-062, so two stores keep
 the same neighbours.
 
-**R-WALK-065.** Each neighbour's score MUST be the parent's score × `weight` (0 < weight ≤ 1, default 0.8); a
-neighbour below 0.1 MUST be dropped.
+**R-WALK-065.** Each neighbour's score MUST be ⌊the parent's score × `weightMicro` / 1,000,000⌋, in millionths
+(`weightMicro` 1 to 1,000,000, default 800,000); a neighbour below 100,000 MUST be dropped.
 
 **R-WALK-066.** A neighbour's reason path MUST be the parent's, then ` → ` and `<verb> <name>` (`out`) or
 `<name> <verb> it` (`in`), where the verb is the relation name without the module's prefix, in lower case, with `_` as
@@ -320,11 +320,11 @@ A value, trimmed of ASCII white space, is a symbol when it holds both a space an
 its simple name is not empty; otherwise it is a path, shortened only when something follows its last `/`.
 
 **R-WALK-068.** In every segment of a reason path (the anchor, a pattern, each name), characters outside ASCII
-letters, digits, `._-/:#*()<>,+@` and space MUST be replaced by `_` (each UTF-16 code unit on its own), and the segment
+letters, digits, `._-/:#*()<>,+@` and space MUST be replaced by `_` (each character on its own), and the segment
 MUST be at most 80 characters (77 and `...`). The cap applies to each segment, not to the whole path.
 
 **R-WALK-069.** The neighbours of one relation MUST be offered by score (descending), matches (descending),
-specificity (descending), then the format's order of the neighbour and of the record it was reached from.
+shared by (ascending), then the format's order of the neighbour and of the record it was reached from.
 
 **R-WALK-070.** An expansion MUST start from at most 256 records.
 
@@ -333,8 +333,8 @@ specificity (descending), then the format's order of the neighbour and of the re
 
 ### 5.9 Order and admission
 
-**R-WALK-071.** A record's rank MUST be score × (1 + matches). Records MUST be ordered by rank (descending), specificity
-(descending), hops (ascending), then the format's order.
+**R-WALK-071.** A record's rank MUST be score × (1 + matches). Records MUST be ordered by rank (descending), shared by
+(ascending), hops (ascending), then the format's order.
 
 **R-WALK-072.** Each module MUST then offer, in that order, its own records whose type is not a hub, at most its
 `maxItems` (1 to 16, default 4), each with its reason path, to the host's admission gate.

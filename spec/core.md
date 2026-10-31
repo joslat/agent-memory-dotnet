@@ -42,7 +42,9 @@ normative as the registry is.
 - **Pack digest:** `sha256:` followed by the lowercase hexadecimal SHA-256 of the exact bytes of `META/files.json` (§7).
 - **Refuse:** to reject a pack (or a document) as a whole, with a reason, before anything of it is used.
 - **Envelope:** a DSSE envelope (§8).
-- **UTF-16 code unit:** a text length is counted in UTF-16 code units wherever this specification bounds text.
+- **Character:** a Unicode code point. A text length is counted in characters wherever this specification bounds text, and
+  text is ordered by code point (which is UTF-8 byte order); the one exception is JCS (RFC 8785), which orders object keys
+  by UTF-16 code unit.
 - **Id:** a pack, set or composite id in the grammar of §11.3.
 
 ## 2. Conformance
@@ -210,6 +212,16 @@ in ASCII digits; two times MUST be compared to 100 ns.
 
 **R-CORE-036.** A version MUST be a SemVer 2.0 version in ASCII digits, at most 256 characters, each numeric
 part fitting 64 bits, with no leading zero in a numeric prerelease identifier.
+
+**R-CORE-119.** A unit-bearing field of a format document (the registry's `units.fields`) MUST be an integer written as one
+(digits only: no fraction and no exponent, so `800000.0` and `8e5` are not), within ±(2^53 − 1). Its name ends in its unit: `Micro`, millionths of one; `Permille`, thousandths
+from a closed set; `Ms`, whole milliseconds. It MUST be within the range, or among the values, the registry gives it.
+
+**R-CORE-120.** Wherever this specification bounds text, the length MUST be counted in characters (code points); wherever
+it orders text, the order MUST be by code point, except JCS's order of object keys (R-CORE-032).
+
+> Why: a number two languages round differently, or a length one counts in UTF-16 units and another in code points, gives
+> two verdicts on one pack. Integers in a named unit, and characters, read the same everywhere.
 
 > Why: a field two readers read differently is an attack. One profile for every file, with no repeated keys, one
 > normal form and bounded numbers and nesting, makes every reader in every language see the same values.
@@ -508,7 +520,7 @@ MUST be `#RRGGBB`; an icon MUST be a PNG under `assets/`, 16 to 512 pixels a sid
 on a knowledge pack.
 
 **R-CORE-082.** `source` MUST be an object whose members are among `repository`, `commit` and `builtAt` (each optional),
-each a string of 1 to 200 UTF-16 code units; `builtAt` MUST be a time (§6) and `commit` 7 to 64 lowercase hexadecimal digits.
+each a string of 1 to 200 characters; `builtAt` MUST be a time (§6) and `commit` 7 to 64 lowercase hexadecimal digits.
 
 **R-CORE-083.** `validUntil` MUST be a time (§6).
 
@@ -669,7 +681,7 @@ MUST refuse text that still is not in NFC.
 above only (an unknown field MUST refuse the pack), `owner.name`, `intendedUse` and `limitations` required, each of its
 type and within its length.
 
-**R-CORE-112.** Card lengths MUST be counted in UTF-16 code units, and card text MUST NOT hold a C0 or C1 control
+**R-CORE-112.** Card lengths MUST be counted in characters, and card text MUST NOT hold a C0 or C1 control
 character other than a line feed or a tab.
 
 **R-CORE-113.** A writer SHOULD write a template card when it creates a pack, and SHOULD advise while a card is
@@ -695,7 +707,7 @@ untrusted or malformed certificate MUST NOT refuse the pack.
 
 ## 18. Limits
 
-The limits of the standard class. Text lengths are UTF-16 code units.
+The limits of the standard class. Text lengths are characters (code points).
 
 | Where | Limit |
 |---|---|

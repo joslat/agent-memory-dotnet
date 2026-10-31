@@ -1197,7 +1197,7 @@
    "doc": "core.md",
    "section": "16",
    "level": "MUST",
-   "summary": "Card lengths MUST be counted in UTF-16 code units, and card text MUST NOT hold a C0 or C1 control character other than a line feed or a tab.",
+   "summary": "Card lengths MUST be counted in characters, and card text MUST NOT hold a C0 or C1 control character but a line feed or a tab.",
    "verifiedBy": [
     "kit"
    ]
@@ -1265,6 +1265,31 @@
     "unit:Review8GuardTests.A_file_one_byte_over_its_bound_is_refused_and_one_at_it_is_read",
     "unit:HardenArchiveTests.An_archive_file_larger_than_the_limit_is_refused_before_it_is_read",
     "unit:Review7GuardTests.H7_content_read_without_verifying_it_is_bounded_before_it_is_parsed"
+   ]
+  },
+  {
+   "id": "R-CORE-119",
+   "doc": "core.md",
+   "section": "6",
+   "level": "MUST",
+   "summary": "A unit-bearing field of a format document MUST be an integer written as one (no fraction, no exponent) within ±(2^53 − 1), in the unit its name ends in, within the range the registry gives it.",
+   "verifiedBy": [
+    "unit:PackNumbersTests.An_integer_is_written_as_one_within_the_safe_range",
+    "unit:PackNumbersTests.Each_unit_field_is_checked_by_the_registry_s_range",
+    "unit:ModuleEditorSchemaTests.TraversalAndTrialEdgesHaveTheSameEditorAndRuntimeContract",
+    "kit"
+   ]
+  },
+  {
+   "id": "R-CORE-120",
+   "doc": "core.md",
+   "section": "6",
+   "level": "MUST",
+   "summary": "Text lengths MUST be counted in characters (code points), and text MUST be ordered by code point, except JCS's key order.",
+   "verifiedBy": [
+    "kit",
+    "unit:PackTextTests.A_length_counts_characters_not_UTF16_units",
+    "unit:PackTextTests.The_order_is_UTF8_byte_order_on_every_generated_pair"
    ]
   },
   {
@@ -1931,7 +1956,7 @@
    "doc": "profiles/walk.md",
    "section": "5.8",
    "level": "MUST",
-   "summary": "Each neighbour's score MUST be the parent's score × `weight` (0 < weight ≤ 1, default 0.8); a neighbour below 0.1 MUST be dropped.",
+   "summary": "Each neighbour's score MUST be ⌊the parent's score × `weightMicro` / 1,000,000⌋, in millionths; a neighbour below 100,000 MUST be dropped.",
    "verifiedBy": [
     "review"
    ]
@@ -2134,7 +2159,7 @@
    "doc": "profiles/trial.md",
    "section": "2.1",
    "level": "MUST",
-   "summary": "`hitRate` and `precision` MUST be 0 to 1, `lift` and `precisionLift` −1 to 1, and `addedP95Ms` more than 0 and at most 60,000; every target given MUST be met for the trial to pass.",
+   "summary": "`hitRateMicro` and `precisionMicro` MUST be 0 to 1,000,000, `liftMicro` and `precisionLiftMicro` −1,000,000 to 1,000,000, and `addedP95Ms` 1 to 60,000, each an integer; every target given MUST be met for the trial to pass.",
    "verifiedBy": [
     "unit:TrialGateTests.A_pack_goes_on_only_when_every_target_is_met",
     "unit:TrialGateTests.A_trial_needs_a_measure_and_a_target_in_range"
@@ -2145,7 +2170,7 @@
    "doc": "profiles/trial.md",
    "section": "2.1",
    "level": "MUST",
-   "summary": "`confidence`, when present, MUST be 0.9, 0.95, 0.975 or 0.99; a target MUST then be met only by its lower confidence bound under the statistic of §5.",
+   "summary": "`confidencePermille`, when present, MUST be 900, 950, 975 or 990; a target MUST then be met only by its lower confidence bound under the statistic of §5.",
    "verifiedBy": [
     "unit:TrialGateTests.A_trial_names_a_known_baseline_and_confidence",
     "unit:TrialGateTests.With_confidence_a_rate_target_is_met_only_by_its_lower_bound",
@@ -2157,7 +2182,7 @@
    "doc": "profiles/trial.md",
    "section": "2.1",
    "level": "MUST",
-   "summary": "`upgrade.tolerance` MUST be 0 to 0.5 (default 0), with at most three decimals; with a `confidence`, a `noRegression` rule MUST have a tolerance above 0.",
+   "summary": "`upgrade.toleranceMicro` MUST be 0 to 500,000 (default 0); with a `confidencePermille`, a `noRegression` rule MUST have a tolerance above 0.",
    "verifiedBy": [
     "unit:PackUpgradeTests.A_trial_declares_its_upgrade_rule_and_a_tolerance_out_of_range_is_refused",
     "unit:TrialGateTests.Review6_with_a_confidence_no_regression_needs_a_tolerance_and_is_then_a_bound"
@@ -2261,7 +2286,7 @@
    "doc": "profiles/trial.md",
    "section": "5.1",
    "level": "MUST",
-   "summary": "Without a `confidence`, a target MUST be judged on its estimate.",
+   "summary": "Without a `confidencePermille`, a target MUST be judged on its estimate.",
    "verifiedBy": [
     "unit:TrialGateTests.A_pack_goes_on_only_when_every_target_is_met"
    ]
@@ -2517,7 +2542,7 @@
    "doc": "profiles/trial.md",
    "section": "8",
    "level": "MUST",
-   "summary": "With a `confidence`, the rule MUST be a non-inferiority test: the lower bound of each drop clears −tolerance; without one, the estimates MUST NOT drop by more than the tolerance.",
+   "summary": "With a `confidencePermille`, the rule MUST be a non-inferiority test: the lower bound of each drop clears −tolerance; without one, the estimates MUST NOT drop by more than the tolerance.",
    "verifiedBy": [
     "unit:TrialGateTests.Review6_with_a_confidence_no_regression_needs_a_tolerance_and_is_then_a_bound"
    ]
@@ -2618,6 +2643,18 @@
    "verifiedBy": [
     "unit:PackAdviceTests.A_knowledge_pack_without_a_trial_is_told_a_host_requiring_trials_refuses_it",
     "unit:PackAdviceTests.A_trial_without_an_upgrade_rule_or_with_few_tasks_is_advised"
+   ]
+  },
+  {
+   "id": "R-TRIAL-051",
+   "doc": "profiles/trial.md",
+   "section": "5",
+   "level": "MUST",
+   "summary": "Whether a target is met MUST be decided exactly, in rational arithmetic; floating point MAY show a bound but MUST NOT decide one.",
+   "verifiedBy": [
+    "unit:TrialStatisticsTests.Every_exact_verdict_is_the_reference_s",
+    "unit:TrialStatisticsTests.A_bound_exactly_at_its_target_is_decided_the_same_everywhere",
+    "unit:TrialGateTests.A_lift_exactly_at_its_target_is_met_exactly"
    ]
   },
   {
@@ -3368,7 +3405,7 @@
    "doc": "profiles/federation.md",
    "section": "2",
    "level": "MUST",
-   "summary": "`purpose`, when present, MUST be text of 1 to 300 UTF-16 code units.",
+   "summary": "`purpose`, when present, MUST be text of 1 to 300 characters.",
    "verifiedBy": [
     "kit",
     "unit:FederationTests.A_purpose_counts_characters_as_both_verifiers_do"

@@ -93,7 +93,8 @@ more than 5 minutes after the time of verification (the one clock allowance of R
 present, among the confidences above.
 
 **R-CERTIFY-010.** `checks` MUST hold 1 to 16 checks, each naming a known target of the Trial profile once, with
-`requiredMicro` and `observedMicro` integers, `met` a boolean, and `estimateMicro` an integer when present; a
+`requiredMicro` and `observedMicro` integers in millionths of the target's own unit (a rate's required value is the
+trial's own integer), `met` a boolean, and `estimateMicro` an integer when present; a
 no-regression comparison MUST NOT appear as a check, since it is a host's own.
 
 **R-CERTIFY-011.** An arm MUST hold exactly its fields: at most 200 tasks; `maximumOffered` 0 (nothing offered by design)

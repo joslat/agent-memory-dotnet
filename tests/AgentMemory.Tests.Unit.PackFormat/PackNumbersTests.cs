@@ -25,6 +25,8 @@ public sealed class PackNumbersTests
         Read("9007199254740991").Should().Be(PackNumbers.MaxSafe);
         Read("9007199254740992").Should().BeNull("2^53 is past what every JSON reader holds exactly");
         Read("0.8").Should().BeNull("a decimal is not an integer");
+        Read("800000.5").Should().BeNull();
+        // Written as an integer, as both verifiers read every integer: a JSON integer token, Python's int.
         Read("800000.0").Should().BeNull("an integer written with a fraction is not written as one");
         Read("8e5").Should().BeNull("nor with an exponent");
         Read("\"800000\"").Should().BeNull();

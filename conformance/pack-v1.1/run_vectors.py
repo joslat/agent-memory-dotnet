@@ -1347,6 +1347,9 @@ def main():
                                              certificate_path, None, "trust-evaluator.json", "refused"),
         "certificate-confidence-unknown": (carrying(certificate(certified, trial_={"measure": "test-impact", "baseline": "none", "confidencePermille": 800, "taskSource": "x"})),
                                            certificate_path, None, "trust-evaluator.json", "refused"),
+        # Feature 02: a unit field is an integer written as one; 950.0 is a known confidence written with a fraction.
+        "certificate-confidence-written-with-a-fraction": (carrying(certificate(certified, trial_={"measure": "test-impact", "baseline": "none", "confidencePermille": 950.0, "taskSource": "x"})),
+                                                           certificate_path, None, "trust-evaluator.json", "refused"),
         "certificate-evaluator-two-lines": (carrying(certificate(certified, extra={"evaluator": "Kit\nevaluator"})), certificate_path, None,
                                             "trust-evaluator.json", "refused"),
     }

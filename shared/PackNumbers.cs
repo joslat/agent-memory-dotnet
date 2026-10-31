@@ -21,7 +21,11 @@ internal static class PackNumbers
     /// <summary>The largest integer every JSON reader holds exactly: 2⁵³−1.</summary>
     internal const long MaxSafe = 9_007_199_254_740_991;
 
-    /// <summary>The integer a JSON value is, or null when it is not a number written as an integer within ±(2⁵³−1).</summary>
+    /// <summary>
+    /// The integer a JSON value is, or null when it is not written as an integer within ±(2⁵³−1): digits only, no fraction and no
+    /// exponent. As both verifiers read every integer of the format (a JSON library's integer token, Python's <c>int</c>), so
+    /// <c>800000.0</c> and <c>8e5</c> are not integers in any language.
+    /// </summary>
     internal static long? Integer(JsonElement value) =>
         value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var n) && n is >= -MaxSafe and <= MaxSafe ? n : null;
 

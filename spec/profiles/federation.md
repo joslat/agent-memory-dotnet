@@ -44,7 +44,7 @@ it MUST be refused.
 
 **R-FED-005.** `audience` MUST be `"public"` or a list of 1 to 64 distinct WebIDs.
 
-**R-FED-006.** `purpose`, when present, MUST be text of 1 to 300 UTF-16 code units.
+**R-FED-006.** `purpose`, when present, MUST be text of 1 to 300 characters.
 
 **R-FED-007.** A WebID MUST be `https://` and a DNS host, or `http://` to loopback, then a path starting with `/` of
 characters that need no escaping in Turtle, with at most one `#`, and at most 512 characters in all.

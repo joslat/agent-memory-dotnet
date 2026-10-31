@@ -43,8 +43,8 @@ this document.
 | `tasks` | How many tasks the host draws from its own history |
 | `baseline` | What "without the pack" means: `host` (the host's existing retrieval: search, or grep for code) or `none` |
 | `targets` | The targets, each of which must be met |
-| `confidence` | Optional: the confidence at which every target is judged by its lower bound |
-| `upgrade` | Optional: `{"noRegression": true, "tolerance": 0.02}`, the rule for a new version (§8) |
+| `confidencePermille` | Optional: the confidence, in thousandths, at which every target is judged by its lower bound |
+| `upgrade` | Optional: `{"noRegression": true, "toleranceMicro": 20000}`, the rule for a new version (§8) |
 
 The targets:
 
@@ -66,15 +66,15 @@ anything.
 
 **R-TRIAL-004.** `baseline` MUST be `host` or `none` (default `none`).
 
-**R-TRIAL-005.** `hitRate` and `precision` MUST be 0 to 1, `lift` and `precisionLift` −1 to 1, and `addedP95Ms` more
-than 0 and at most 60,000; every target given MUST be met for the trial to pass. Targets MUST have at most three
-decimals.
+**R-TRIAL-005.** `hitRateMicro` and `precisionMicro` MUST be 0 to 1,000,000, `liftMicro` and `precisionLiftMicro`
+−1,000,000 to 1,000,000, and `addedP95Ms` 1 to 60,000, each an integer (R-CORE-119); every target given MUST be met for the
+trial to pass.
 
-**R-TRIAL-006.** `confidence`, when present, MUST be 0.9, 0.95, 0.975 or 0.99; a target MUST then be met only by its
+**R-TRIAL-006.** `confidencePermille`, when present, MUST be 900, 950, 975 or 990; a target MUST then be met only by its
 lower confidence bound under the statistic of §5.
 
-**R-TRIAL-007.** `upgrade.tolerance` MUST be 0 to 0.5 (default 0), with at most three decimals; with a
-`confidence`, a `noRegression` rule MUST have a tolerance above 0.
+**R-TRIAL-007.** `upgrade.toleranceMicro` MUST be 0 to 500,000 (default 0); with a `confidencePermille`, a
+`noRegression` rule MUST have a tolerance above 0.
 
 **R-TRIAL-008.** A trial with no measure, or with a target out of range, MUST be refused.
 
@@ -116,9 +116,19 @@ for a difference; without them, a host MUST NOT take a precision or a difference
 
 The statistic `agentmemory.trial.hedged/4` turns the arms' evidence into lower bounds, one per target.
 
+**R-TRIAL-051.** Whether a target is met MUST be decided exactly, in rational arithmetic, never in floating point. An
+estimate is a ratio of counts. Clopper-Pearson's bound reaches t when P(X ≥ x) at rate t is at most 1 − confidence. A bound
+of the form mean − q·se (the hedged, paired and clustered bounds) reaches t when mean − t ≥ 0 and (mean − t)² ≥ q²·se².
+Fieller's lower root of a θ² + b θ + c (a > 0) reaches t when a t² + b t + c ≥ 0 and 2 a t ≤ −b. The quantiles are the
+decimals of the statistic's table, the hedge weights quarters, and every clamp of a bound is kept. Floating point MAY show
+a bound; it MUST NOT decide one.
+
+> Why: two implementations whose logarithms differ in the last bit can reach two verdicts at a boundary. A verdict never
+> needs the bound's value, only whether it reaches the target, and that is an inequality of rationals.
+
 ### 5.1 Without a confidence
 
-**R-TRIAL-017.** Without a `confidence`, a target MUST be judged on its estimate.
+**R-TRIAL-017.** Without a `confidencePermille`, a target MUST be judged on its estimate.
 
 ### 5.2 Hit rate
 
@@ -214,7 +224,7 @@ gate options, the floor among them, and decide by the same rule as the host.
 **R-TRIAL-040.** With `upgrade.noRegression`, a new version MUST switch on only if it does no worse than the
 version that passed on this host before it, on the same tasks.
 
-**R-TRIAL-041.** With a `confidence`, the rule MUST be a non-inferiority test: the lower bound of each drop
+**R-TRIAL-041.** With a `confidencePermille`, the rule MUST be a non-inferiority test: the lower bound of each drop
 clears −tolerance; without one, the estimates MUST NOT drop by more than the tolerance.
 
 **R-TRIAL-042.** The runner MUST measure the version that passed on this host on the same tasks in the same
