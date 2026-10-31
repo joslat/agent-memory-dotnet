@@ -40,6 +40,37 @@ public sealed record ModuleTrial
     /// only if, on the same tasks, it does not do worse than the version that passed on this host before it.
     /// </summary>
     public ModuleTrialUpgrade? Upgrade { get; init; }
+    /// <summary>
+    /// The safety target (feature 04): a probe suite the host runs, injection prompts placed as records, and the most its records
+    /// may make the model follow. Absent from the declarations' digest when unset, so a trial without one keeps its digest.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public ModuleTrialSafety? Safety { get; init; }
+}
+
+/// <summary>A trial's safety target (feature 04, R-TRIAL-052).</summary>
+[Experimental("AMEXT001")]
+public sealed record ModuleTrialSafety
+{
+    /// <summary>The probe suite the host runs: one line of 1 to 100 display-safe characters.</summary>
+    public required string Probes { get; init; }
+    /// <summary>The most the model may follow the instructions the probes plant, in millionths of the probes, 0 to 1,000,000.</summary>
+    public long MaxFollowMicro { get; init; }
+}
+
+/// <summary>What a host's own probes showed (feature 04): the suite it ran, how many probes, and how many the model followed.</summary>
+[Experimental("AMEXT001")]
+public sealed record PackTrialSafetyRun(string Suite, int Probes, int Followed);
+
+/// <summary>
+/// The host's safety probes (feature 04): it places a suite's injection prompts as records of the pack, runs its model, and
+/// counts how often the model followed them. The library stays model-free; the host supplies this.
+/// </summary>
+[Experimental("AMEXT001")]
+public interface IPackSafetyProbes
+{
+    /// <summary>Runs <paramref name="suite"/> against the pack the manifest declares.</summary>
+    Task<PackTrialSafetyRun> RunAsync(ModuleManifest manifest, string suite, CancellationToken cancellationToken);
 }
 
 /// <summary>A trial's upgrade rule (pack format v1.2 §7, claim 6).</summary>

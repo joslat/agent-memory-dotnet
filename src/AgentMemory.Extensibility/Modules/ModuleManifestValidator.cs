@@ -248,6 +248,12 @@ internal sealed class ModuleManifestValidator
         // back to the estimate, so a real drop of 0.1 passed a fifth of the time).
         else if (trial.Upgrade is { NoRegression: true, ToleranceMicro: 0 } && trial.ConfidencePermille is not null)
             Error(path + ".upgrade.toleranceMicro", "with a confidence, no regression needs a tolerance above 0 (ampack lint says what the declared tasks can show)");
+        if (trial.Safety is { } safety)
+        {
+            if (safety.Probes is not { } suite || !PackText.IsDisplaySafe(suite) || PackText.Length(suite) is < 1 or > 100 || suite.Contains('\n') || suite.Contains('\t'))
+                Error(path + ".safety.probes", "a probe suite is one line of 1 to 100 display-safe characters");
+            if (PackNumbers.Problem("maxFollowMicro", safety.MaxFollowMicro) is { } beyond) Error(path + ".safety.maxFollowMicro", beyond);
+        }
         var t = trial.Targets;
         if (t is null || !t.Given().Any()) { Error(path + ".targets", "a trial needs at least one target"); return; }
         foreach (var (name, problem) in TargetProblems(t)) Error(path + ".targets." + name, problem);

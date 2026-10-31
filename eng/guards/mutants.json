@@ -1143,6 +1143,21 @@
    "sha256": "6cad2228afc5f8188213f5796f483c84341648131115f824ed1a30e3277eb855"
   },
   {
+   "id": "safety-always-met",
+   "rule": "EXACT-VERDICT",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "MeetsRate(safety.Probes - safety.Followed, safety.Probes, (int)Math.Round(c * 1000), 1 - most), Math.Round(shown, 6));",
+     "new": "true, Math.Round(shown, 6));"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~TrialGateTests.A_safety_target",
+   "sha256": "5e14bf5f8f8b17051480db25249c3b7475de01dd8ab6e14fe33c1c6ea4a442ea"
+  },
+  {
    "id": "length-by-utf16",
    "rule": "TEXT-BY-CHARACTER",
    "door": "verify",

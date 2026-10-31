@@ -154,6 +154,9 @@ public sealed record PackActivation
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ModuleTrialUpgrade? Upgrade { get; init; }
+    /// <summary>What the host's safety probes showed, when the trial declares a safety target: kept so a recheck decides alike.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public PackTrialSafetyRun? Safety { get; init; }
 
     /// <summary>The confidence the trial declared, so the upgrade chain checks no regression with the same bounds (review 2).</summary>
     public double? Confidence { get; init; }
@@ -628,11 +631,13 @@ public static partial class PackTrialGate
     /// <param name="packDigest">For a pack, its digest; null for compiled code.</param>
     /// <param name="previous">For an upgrade, the version that passed on this host before, measured on the same tasks; with
     /// <c>upgrade.noRegression</c>, its hit rate and precision become two more targets.</param>
+    /// <param name="safety">What the host's own safety probes showed (<see cref="IPackSafetyProbes"/>), when the trial declares a
+    /// safety target; without it that target is not met.</param>
     /// <exception cref="ArgumentException">The manifest declares no trial, <paramref name="packDigest"/> is not <c>sha256:</c> and 64 hex
     /// digits, <paramref name="previous"/> is not an earlier version measured on as many tasks, or a target under a confidence needs
     /// per-task results an arm does not carry (precision and every difference do: items of one task are not independent).</exception>
     public static PackActivation Decide(ModuleManifest manifest, PackTrialMeasurement with, PackTrialMeasurement without, DateTimeOffset decidedAt,
-        string? packDigest = null, PackTrialPrevious? previous = null)
+        string? packDigest = null, PackTrialPrevious? previous = null, PackTrialSafetyRun? safety = null)
     {
         ArgumentNullException.ThrowIfNull(manifest);
         if (packDigest is not null && !PackDigestPattern.IsMatch(packDigest))
@@ -662,19 +667,26 @@ public static partial class PackTrialGate
             targets.Add(("noRegression.hitRate", floor));
             targets.Add(("noRegression.precision", floor));
         }
-        var checks = targets.Select(x => Check(x.Target, x.Required, Level(trial.ConfidencePermille), with, without, previous?.With)).ToList();
+        // The safety target (feature 04): the follow rate the host's own probes showed, at most the declared share.
+        if (trial.Safety is { } declared)
+        {
+            if (safety is not null && (safety.Suite != declared.Probes || safety.Probes < 1 || safety.Followed < 0 || safety.Followed > safety.Probes))
+                throw new ArgumentException($"The safety run is of suite '{safety.Suite}' with {safety.Followed} of {safety.Probes} followed; the trial declares '{declared.Probes}'.", nameof(safety));
+            targets.Add(("safety", PackNumbers.Fraction(declared.MaxFollowMicro)));
+        }
+        var checks = targets.Select(x => Check(x.Target, x.Required, Level(trial.ConfidencePermille), with, without, previous?.With, safety)).ToList();
         var enough = with.Tasks >= ModuleTrial.MinimumTasks;
         var failed = checks.Where(c => !c.Met).ToList();
         var reason = !enough ? $"only {with.Tasks} tasks in this host's history; a trial needs {ModuleTrial.MinimumTasks}"
             : failed.Count == 0 ? "every target met"
-            : string.Join("; ", failed.Select(c => c.Target == "addedP95Ms"
+            : string.Join("; ", failed.Select(c => c.Target is "addedP95Ms" or "safety"
                 ? $"{c.Target} {c.Observed.ToString(CultureInfo.InvariantCulture)} above {c.Required.ToString(CultureInfo.InvariantCulture)}"
                 : $"{c.Target} {c.Observed.ToString(CultureInfo.InvariantCulture)} below {c.Required.ToString(CultureInfo.InvariantCulture)}"));
         return new PackActivation
         {
             ModuleId = manifest.Id, Version = manifest.Version.ToString(), ManifestDigest = DigestOf(manifest), PackDigest = packDigest,
             Active = enough && failed.Count == 0, Reason = reason, DecidedAt = decidedAt, Checks = checks, With = with, Without = without,
-            Previous = previous, Upgrade = trial.Upgrade, Confidence = Level(trial.ConfidencePermille), Statistic = Statistic,
+            Previous = previous, Upgrade = trial.Upgrade, Confidence = Level(trial.ConfidencePermille), Statistic = Statistic, Safety = trial.Safety is null ? null : safety,
         };
     }
 
@@ -685,8 +697,21 @@ public static partial class PackTrialGate
     // measurement could show it, so the estimate must not drop (review 2), which a manifest may ask only without a confidence
     // (review 6: with one, it read as a bound it was not).
     private static PackTrialCheck Check(string target, double required, double? confidence, PackTrialMeasurement with,
-        PackTrialMeasurement? without, PackTrialMeasurement? previous)
+        PackTrialMeasurement? without, PackTrialMeasurement? previous, PackTrialSafetyRun? safety = null)
     {
+        if (target == "safety")
+        {
+            // Met when the follow rate is at most the target: its estimate, or under a confidence its upper bound, which is one
+            // less the lower bound of the probes not followed (Clopper-Pearson), decided exactly. No run, no pass.
+            if (safety is null) return new(target, required, 1, false);
+            var most = Q.Of(checked((long)Math.Round(required * PackNumbers.One)), PackNumbers.One);
+            var share = Q.Of(safety.Followed, safety.Probes);
+            var shown = (double)safety.Followed / safety.Probes;
+            if (confidence is not { } c) return new(target, required, Math.Round(shown, 6), share <= most);
+            var upper = 1 - RateLower(safety.Probes - safety.Followed, safety.Probes, c);
+            return new(target, required, Math.Ceiling(upper * PackNumbers.One) / PackNumbers.One,
+                MeetsRate(safety.Probes - safety.Followed, safety.Probes, (int)Math.Round(c * 1000), 1 - most), Math.Round(shown, 6));
+        }
         if (target == "addedP95Ms")
         {
             // In whole microseconds, as a certificate records latency (review 7, G9: 300.3 - 50.1 is 250.20000000000002 in binary,
@@ -846,7 +871,7 @@ public static partial class PackTrialGate
         ArgumentNullException.ThrowIfNull(decision);
         var with = decision.With ?? throw new ArgumentException("The record carries no measurement.", nameof(decision));
         if (Intake(with, decision.Without, decision.Previous?.With) is { } refused) throw new ArgumentException(refused.Problem, nameof(decision));
-        return [.. decision.Checks.Select(c => Check(c.Target, c.Required, decision.Confidence, with, decision.Without, decision.Previous?.With))];
+        return [.. decision.Checks.Select(c => Check(c.Target, c.Required, decision.Confidence, with, decision.Without, decision.Previous?.With, decision.Safety))];
     }
 
     /// <summary>

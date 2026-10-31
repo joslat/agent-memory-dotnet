@@ -53,6 +53,7 @@ internal static class PackRegistry
     internal static readonly IReadOnlyDictionary<string, string> TargetFields = Path("trial", "targets").EnumerateObject()
         .ToDictionary(p => p.Name, p => p.Value.GetProperty("field").GetString()!, StringComparer.Ordinal);
     internal static readonly IReadOnlySet<string> UpgradeFields = Set("trial", "upgradeFields");
+    internal static readonly IReadOnlySet<string> SafetyFields = Set("trial", "safetyFields");
     internal static readonly IReadOnlySet<string> RelationFields = Set("traversal", "relationFields");
     internal static readonly long DefaultWeightMicro = Path("traversal", "defaultWeightMicro").GetInt64();
     /// <summary>A unit-bearing field's unit and range (feature 02): an inclusive range, or a closed set of values.</summary>

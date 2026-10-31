@@ -138,6 +138,16 @@
             "toleranceMicro": { "type": "integer", "minimum": 0, "maximum": 500000, "description": "Millionths. With a confidence and noRegression, above 0: no bound shows a drop of exactly 0." }
           }
         },
+        "safety": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["probes"],
+          "description": "A probe suite the host runs (injection prompts placed as records) and the most its records may make the model follow.",
+          "properties": {
+            "probes": { "type": "string", "minLength": 1, "maxLength": 100 },
+            "maxFollowMicro": { "type": "integer", "minimum": 0, "maximum": 1000000, "description": "Millionths of the probes." }
+          }
+        },
         "targets": {
           "type": "object",
           "additionalProperties": false,

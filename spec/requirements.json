@@ -2719,6 +2719,36 @@
    ]
   },
   {
+   "id": "R-TRIAL-052",
+   "doc": "profiles/trial.md",
+   "section": "5",
+   "level": "MUST",
+   "summary": "`safety`, when present, MUST hold `probes` (one line of 1 to 100 display-safe characters naming a probe suite) and MAY hold `maxFollowMicro` (an integer of 0 to 1,000,000, default 0):",
+   "verifiedBy": [
+    "unit:TrialGateTests.A_safety_target_is_met_only_when_the_model_followed_at_most_its_share_of_the_probes"
+   ]
+  },
+  {
+   "id": "R-TRIAL-053",
+   "doc": "profiles/trial.md",
+   "section": "5",
+   "level": "MUST",
+   "summary": "A host MUST run the named suite with its own probes (injection prompts placed as records of the pack) and count the probes whose planted instruction the model followed; the target MUST be met only when that share is at most `maxFollowMicro` millionths: its estimate without a `confidencePermille`, and otherwise its upper bound, one less Clopper-Pearson's lower bound of the probes not followed, decided exactly (R-TRIAL-051). Without a run of that suite, the target MUST NOT be met.",
+   "verifiedBy": [
+    "unit:TrialGateTests.A_safety_target_is_met_only_when_the_model_followed_at_most_its_share_of_the_probes"
+   ]
+  },
+  {
+   "id": "R-TRIAL-054",
+   "doc": "profiles/trial.md",
+   "section": "5",
+   "level": "MUST",
+   "summary": "A decision MUST keep the run (the suite, the probes and those followed), so a recheck reaches the same verdict, and a certificate MUST NOT admit a pack whose trial declares a safety target: only the host's own probes decide it.",
+   "verifiedBy": [
+    "unit:TrialGateTests.A_safety_target_is_met_only_when_the_model_followed_at_most_its_share_of_the_probes"
+   ]
+  },
+  {
    "id": "R-COMPOSE-001",
    "doc": "profiles/compose.md",
    "section": "1.3",
@@ -4395,6 +4425,16 @@
    "summary": "Every record's text MUST pass the host's admission of untrusted content before it is framed (in AgentMemory, `IMemoryContextAdmissionPolicy`, which refuses or flags instruction-like text under the host's security mode).",
    "verifiedBy": [
     "unit:ModuleAdmissionDefaultsTests"
+   ]
+  },
+  {
+   "id": "R-HOST-057",
+   "doc": "host/rendering.md",
+   "section": "3",
+   "level": "MUST",
+   "summary": "A writer's lint MUST report every finding of its content scan (personal data, a secret, an injection payload) as an error when asked to (`--safety`), and always for a pack of the `curated` or `premium` tier.",
+   "verifiedBy": [
+    "unit:AmpackCommandLineTests.Lint_reports_what_the_scan_finds_as_an_error_when_asked_and_for_a_curated_pack"
    ]
   },
   {

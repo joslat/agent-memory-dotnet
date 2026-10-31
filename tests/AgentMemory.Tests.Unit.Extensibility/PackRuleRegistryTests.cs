@@ -78,6 +78,7 @@ public sealed class PackRuleRegistryTests
             ["gate", "admit", "certify"],
             ["TrialStatisticsTests.Every_exact_verdict_is_the_reference_s", "TrialStatisticsTests.A_bound_exactly_at_its_target_is_decided_the_same_everywhere",
              "TrialGateTests.A_lift_exactly_at_its_target_is_met_exactly", "TrialGateTests.A_bound_exactly_at_its_target_is_met_through_the_decision",
+             "TrialGateTests.A_safety_target_is_met_only_when_the_model_followed_at_most_its_share_of_the_probes",
              "StatisticsCoverageTests.Golden_json_is_the_reference_s_own_output"]),
         new("EMBEDDINGS-STRICT", "A pack's vectors are one tensor per set in the safetensors layout, exactly as their signed index states, naming the pack's records; a host reuses them only on an exact model match.",
             ["AgentMemory.Packs.Format.PackEmbeddings.Read", "AgentMemory.Packs.Format.PackEmbeddings.Reusable"], ["verify", "serve"],

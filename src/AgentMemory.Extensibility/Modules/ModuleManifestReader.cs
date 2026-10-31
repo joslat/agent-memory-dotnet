@@ -82,8 +82,15 @@ internal static class ModuleManifestReader
                 throw Error(path + ".upgrade.noRegression", "expected true or false");
             upgrade = new ModuleTrialUpgrade { NoRegression = no.GetBoolean(), ToleranceMicro = Integer(rule, "toleranceMicro", path + ".upgrade") ?? 0 };
         }
+        ModuleTrialSafety? safety = null;
+        if (value.TryGetProperty("safety", out var probes))
+        {
+            Object(probes, path + ".safety", [.. PackRegistry.SafetyFields]);
+            safety = new ModuleTrialSafety { Probes = Text(probes, "probes", path + ".safety"), MaxFollowMicro = Integer(probes, "maxFollowMicro", path + ".safety") ?? 0 };
+        }
         return new ModuleTrial
         {
+            Safety = safety,
             Measure = Text(value, "measure", path), Tasks = PositiveInteger(value, "tasks", path) ?? 40,
             Baseline = OptionalText(value, "baseline", path) ?? "none", ConfidencePermille = confidence is { } p
                 ? p is >= int.MinValue and <= int.MaxValue ? (int)p : throw Error(path + ".confidencePermille", PackNumbers.Problem("confidencePermille", p)!)

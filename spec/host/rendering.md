@@ -23,3 +23,8 @@ admission lets through is framed; one it refuses is left out.
 
 **R-HOST-056.** Every record's text MUST pass the host's admission of untrusted content before it is framed (in AgentMemory,
 `IMemoryContextAdmissionPolicy`, which refuses or flags instruction-like text under the host's security mode).
+
+## 3. Before a pack travels
+
+**R-HOST-057.** A writer's lint MUST report every finding of its content scan (personal data, a secret, an injection
+payload) as an error when asked to (`--safety`), and always for a pack of the `curated` or `premium` tier.

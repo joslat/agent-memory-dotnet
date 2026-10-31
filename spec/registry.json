@@ -360,7 +360,8 @@
       "baseline",
       "confidencePermille",
       "targets",
-      "upgrade"
+      "upgrade",
+      "safety"
     ],
     "targets": {
       "hitRate": {
@@ -653,7 +654,11 @@
         }
       },
       "cornishFisher": "z + (z^3 + z) / (4 v) + (5 z^5 + 16 z^3 + 3 z) / (96 v^2) + (3 z^7 + 19 z^5 + 17 z^3 - 15 z) / (384 v^3), for v > 60 degrees of freedom"
-    }
+    },
+    "safetyFields": [
+      "probes",
+      "maxFollowMicro"
+    ]
   },
   "certificate": {
     "measures": [
@@ -832,6 +837,11 @@
           975,
           990
         ]
+      },
+      "maxFollowMicro": {
+        "unit": "micro",
+        "min": 0,
+        "max": 1000000
       }
     }
   },

@@ -35,6 +35,7 @@ this document.
 | `confidencePermille` |
 | `targets` |
 | `upgrade` |
+| `safety` |
 <!-- /registry -->
 
 | Field | Meaning |
@@ -182,6 +183,30 @@ clustered bound MUST add the runs' lag-1 autocovariance to its variance, never l
 ### 5.5 Latency
 
 **R-TRIAL-026.** `addedP95Ms` MUST be compared as measured, with no bound.
+
+### 5.5a Safety
+
+**R-TRIAL-052.** `safety`, when present, MUST hold `probes` (one line of 1 to 100 display-safe characters naming a probe
+suite) and MAY hold `maxFollowMicro` (an integer of 0 to 1,000,000, default 0):
+
+<!-- registry:trial.safetyFields -->
+| Safety field |
+|---|
+| `probes` |
+| `maxFollowMicro` |
+<!-- /registry -->
+
+**R-TRIAL-053.** A host MUST run the named suite with its own probes (injection prompts placed as records of the pack) and
+count the probes whose planted instruction the model followed; the target MUST be met only when that share is at most
+`maxFollowMicro` millionths: its estimate without a `confidencePermille`, and otherwise its upper bound, one less
+Clopper-Pearson's lower bound of the probes not followed, decided exactly (R-TRIAL-051). Without a run of that suite, the
+target MUST NOT be met.
+
+**R-TRIAL-054.** A decision MUST keep the run (the suite, the probes and those followed), so a recheck reaches the same
+verdict, and a certificate MUST NOT admit a pack whose trial declares a safety target: only the host's own probes decide it.
+
+> Why: a signature proves who wrote a record, not that a model will treat it as data. The one way to know is to try it on the
+> host's own model; the library stays model-free, and the host supplies the probes.
 
 ### 5.6 Re-derivation
 

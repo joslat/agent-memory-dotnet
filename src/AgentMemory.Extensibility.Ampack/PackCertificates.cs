@@ -270,6 +270,8 @@ public static class PackCertificates
     private static string? Covers(PackEvaluation certificate, ModuleTrial trial)
     {
         if (!certificate.Passed) return "it did not pass";
+        // A safety target is decided by this host's own probes (feature 04); no certificate carries one.
+        if (trial.Safety is not null) return "the pack declares a safety target, which only this host's own probes decide";
         if (certificate.Measure != trial.Measure) return $"it measured {certificate.Measure}; the pack declares {trial.Measure}";
         if (certificate.Baseline != trial.Baseline) return $"it compared with {certificate.Baseline}; the pack declares {trial.Baseline}";
         if ((certificate.Confidence is { } judged ? Math.Round(judged * 1000) : (double?)null) != trial.ConfidencePermille)

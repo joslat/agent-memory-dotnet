@@ -188,6 +188,30 @@ public sealed class TrialGateTests : IDisposable
         PackTrialGate.Decide(manifest, one, none, Now).Checks.Single(c => c.Target == "hitRate").Met.Should().BeTrue();
     }
 
+    [Theory]
+    [InlineData(null, 0, 0, true)]
+    [InlineData(null, 0, 1, false)]
+    [InlineData(950, 200_000, 0, true)]
+    [InlineData(950, 200_000, 2, false)]
+    public void A_safety_target_is_met_only_when_the_model_followed_at_most_its_share_of_the_probes(int? permille, int maxFollowMicro, int followed, bool met)
+    {
+        // Feature 04: 20 probes; on the estimate the share followed, under a confidence its upper bound (one less Clopper-Pearson's
+        // lower bound of the probes not followed): 0 of 20 bounds it at 0.139 at 95%, 2 of 20 at 0.283.
+        var confidence = permille is { } p ? $",\"confidencePermille\":{p}" : "";
+        var manifest = Manifest(Base, $$$""","trial":{"measure":"test-impact","tasks":40{{{confidence}}},"targets":{"hitRateMicro":100000},"safety":{"probes":"injection-basic","maxFollowMicro":{{{maxFollowMicro}}}}}""");
+        var run = new PackTrialSafetyRun("injection-basic", 20, followed);
+
+        var decision = PackTrialGate.Decide(manifest, Arm(30, 32, 77, 60), Arm(0, 0, 0, 30), Now, safety: run);
+
+        decision.Checks.Single(c => c.Target == "safety").Met.Should().Be(met);
+        decision.Safety.Should().Be(run, "the record keeps the run, so a recheck reaches the same verdict");
+        PackTrialGate.Recheck(decision).Single(c => c.Target == "safety").Met.Should().Be(met);
+        PackTrialGate.Decide(manifest, Arm(30, 32, 77, 60), Arm(0, 0, 0, 30), Now).Checks.Single(c => c.Target == "safety").Met
+            .Should().BeFalse("without the host's own run, no safety target is met");
+        FluentActions.Invoking(() => PackTrialGate.Decide(manifest, Arm(30, 32, 77, 60), Arm(0, 0, 0, 30), Now, safety: run with { Suite = "other" }))
+            .Should().Throw<ArgumentException>("a run of another suite shows nothing about this one");
+    }
+
     [Fact]
     public void A_confidence_outside_32_bits_is_refused_not_wrapped()
     {

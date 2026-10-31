@@ -22,10 +22,11 @@ internal static partial class Program
                [--publisher <WebID> --audience public|<WebID,…> [--purpose <text>]]
                                  start a pack folder (pack.json, a pack card, an ontology, a view, .gitattributes, and
                                  for a knowledge pack one record); with --publisher, a federated pack for that audience
-          lint <folder|file> [--policy <trust.json>]
+          lint <folder|file> [--policy <trust.json>] [--safety]
                                  check paths, the JSON profile, pack.json and, once built, the files list; with
                                  --policy, load a .ampack as a host does and give advice on what a host will do with
-                                 it later (no trial, no upgrade rule, links that need consent, validity ending soon)
+                                 it later (no trial, no upgrade rule, links that need consent, validity ending soon);
+                                 with --safety, and always for a curated or premium pack, every scan finding is an error
           build <folder> [--out <file.ampack>] [--key <private.pem>] [--role publisher] [--stored]
                                  write META/files.json, optionally sign, and pack; prints the digest
           sign <folder> --key <private.pem> [--role publisher|curator|assurer]
@@ -233,7 +234,7 @@ internal static partial class Program
     private static readonly Dictionary<string, HashSet<string>> CommandOptions = new Dictionary<string, string[]>
     {
         ["init"] = ["id", "version", "kind", "owner", "publisher", "audience", "purpose"],
-        ["lint"] = [.. TrustOptions],
+        ["lint"] = ["safety", .. TrustOptions],
         ["build"] = ["out", "role", "stored", .. SignerOptions],
         ["sign"] = ["role", .. SignerOptions],
         ["verify"] = ["ledger", "record", "allow-downgrade", "explain", .. TrustOptions],
@@ -435,10 +436,12 @@ internal static partial class Program
                 : path.EndsWith(".json", StringComparison.Ordinal) ? PackJson.Check(bytes) : null;
             if (problem is not null) problems.Add($"'{path}' {problem}.");
         }
+        PackManifest? declared = null;
         if (content.Files.TryGetValue(PackManifest.FileName, out var manifest))
         {
             // What build would refuse, lint says (review 7, F2): the writer's own rules, beside the format's.
             var (parsed, problem) = PackManifest.Parse(manifest);
+            declared = parsed;
             if (problem is not null) problems.Add(problem);
             else if (PackBuilder.WriterProblem(parsed!) is { } refused) problems.Add(refused);
         }
@@ -446,6 +449,17 @@ internal static partial class Program
         problems.AddRange(PackPaths.SignatureFolderProblems(content.Files));
         if (content.Files.TryGetValue(PackCard.FileName, out var cardBytes) && PackCard.Parse(cardBytes).Problem is { } cardProblem) problems.Add(cardProblem);
         if (problems.Count == 0 && content.Files.ContainsKey(PackPaths.FilesList)) problems.AddRange(PackVerifier.CheckIntegrity(content).Problems);
+        // The content scan as an error level (feature 04, R-HOST-057): asked for, or for a curated or premium pack, every finding
+        // (personal data, a secret, an injection payload) stops it, before the pack travels.
+        if (problems.Count == 0 && (o.Flag("safety") || declared?.Tier is "curated" or "premium"))
+        {
+            try
+            {
+                foreach (var finding in AgentMemory.Extensibility.Ampack.PackScan.Scan(content.Files, verified: false).Findings)
+                    problems.Add(Shown($"safety: {finding.Rule} ({finding.Severity}) in {finding.File}{(finding.Line > 0 ? ":" + finding.Line : "")} {finding.Path}", 500));
+            }
+            catch (AgentMemory.Extensibility.Ampack.PackLoadException e) { problems.AddRange(e.Problems); }
+        }
         if (problems.Count > 0 || o.Value("policy") is null) return Report(problems, "Lint passed.");
         // Advice needs the pack as a host loads it: a built .ampack, against the host's trust.
         var target = o.Positional(0, "folder or file");
@@ -1204,7 +1218,7 @@ internal sealed class UsageException(string message) : Exception(message);
 /// <summary>Positional arguments, <c>--name value</c> options and <c>--flag</c> switches.</summary>
 internal sealed class Options
 {
-    private static readonly HashSet<string> Flags = new(StringComparer.Ordinal) { "stored", "record", "allow-downgrade", "explain", "json", "p1363", "allow-remote", "retire-revocations", "allow-loopback-http", "no-recheck", "help" };
+    private static readonly HashSet<string> Flags = new(StringComparer.Ordinal) { "stored", "safety", "record", "allow-downgrade", "explain", "json", "p1363", "allow-remote", "retire-revocations", "allow-loopback-http", "no-recheck", "help" };
     // The options that take several values, each given on its own.
     private static readonly HashSet<string> Repeatable = new(StringComparer.Ordinal) { "revocations" };
     private readonly List<string> _positional = [];
