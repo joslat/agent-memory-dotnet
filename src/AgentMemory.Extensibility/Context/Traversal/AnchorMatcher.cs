@@ -64,6 +64,8 @@ internal static class AnchorMatcher
     internal sealed record Anchor(string Raw, string Path, string FoldedPath, string Trimmed, string Simple)
     {
         internal int Slashes { get; } = Path.Count(c => c == '/');
+        /// <summary>The folded path's characters, counted once for every piece it is matched against.</summary>
+        internal int FoldedCharacters { get; } = PackText.Length(FoldedPath);
     }
 
     /// <summary>The best match of one stored value against the anchors: its quality (0 for none), the anchor and the pattern.</summary>
@@ -120,7 +122,7 @@ internal static class AnchorMatcher
             if (read >= value.Length) return false;
             var end = separators is null ? value.Length : value.IndexOfAny(separators, read);
             if (end < 0) end = value.Length;
-            work += end - read + 1;
+            work += PackText.Length(value.AsSpan(read, end - read)) + 1;
             var span = value.AsSpan(read, end - read).Trim(AsciiSpace);
             read = end + 1;
             if (work > MaximumWork) return false;
@@ -128,7 +130,7 @@ internal static class AnchorMatcher
             raw = span.ToString();
             break;
         }
-        work += PieceOverhead + (match == ModuleAnchorMatch.Glob ? 6L : 4L) * raw.Length;
+        work += PieceOverhead + (match == ModuleAnchorMatch.Glob ? 6L : 4L) * PackText.Length(raw);
         if (work > MaximumWork) return false;
         if (match == ModuleAnchorMatch.Name) { pieces.Add(new(raw, raw, raw, raw, null, SimpleName(raw))); return true; }
         var path = Path(raw);
@@ -149,7 +151,7 @@ internal static class AnchorMatcher
                 return PrefixQuality(piece.Folder, anchor, ref work);
             case ModuleAnchorMatch.Glob:
                 work++;
-                if (piece.Glob is { } glob) return anchor.Path.Length > 0 && glob.Matches(anchor.FoldedPath, ref work) ? Globbed : 0;
+                if (piece.Glob is { } glob) return anchor.Path.Length > 0 && glob.Matches(anchor.FoldedPath, anchor.FoldedCharacters, ref work) ? Globbed : 0;
                 if (piece.Folded.Length == 0 || anchor.Path.Length == 0) return 0;
                 return piece.Folded.EndsWith('/') ? PrefixQuality(piece.Folder, anchor, ref work) : Same(piece.Folded, anchor.FoldedPath, ref work) ? Exact : 0;
             case ModuleAnchorMatch.Name:
@@ -165,7 +167,7 @@ internal static class AnchorMatcher
     {
         work++;
         if (a.Length != b.Length) return false;
-        work += a.Length;
+        work += PackText.Length(a);
         return string.Equals(a, b, StringComparison.Ordinal);
     }
 
@@ -206,7 +208,7 @@ internal static class AnchorMatcher
         if (Same(foldedPrefix, anchor.FoldedPath, ref work)) return Exact;
         if (anchor.FoldedPath.Length <= foldedPrefix.Length || anchor.FoldedPath[foldedPrefix.Length] != '/') return 0;
         // The prefix read, then its folders counted.
-        work += 2L * foldedPrefix.Length;
+        work += 2L * PackText.Length(foldedPrefix);
         if (!anchor.FoldedPath.StartsWith(foldedPrefix, StringComparison.Ordinal)) return 0;
         // A deeper folder says more about the file: src/a/b/ beats src/ for src/a/b/c.cs.
         var depth = (double)foldedPrefix.Count(c => c == '/') + 1;
@@ -241,12 +243,12 @@ internal static class AnchorMatcher
     {
         private enum Kind : byte { Literal, One, Run, Any, Folders }
 
-        private readonly (Kind Kind, char Char)[] _tokens;
+        private readonly (Kind Kind, int Char)[] _tokens;
         private readonly int _needs;
         // The position sets, kept for every text this pattern is matched against (one Best call, one thread).
         private bool[] _at, _next, _inside, _insideNext;
 
-        private GlobPattern((Kind, char)[] tokens, int needs)
+        private GlobPattern((Kind, int)[] tokens, int needs)
         {
             (_tokens, _needs) = (tokens, needs);
             (_at, _next, _inside, _insideNext) = (new bool[tokens.Length + 1], new bool[tokens.Length + 1], new bool[tokens.Length], new bool[tokens.Length]);
@@ -254,39 +256,44 @@ internal static class AnchorMatcher
 
         internal static GlobPattern Of(string folded)
         {
-            var tokens = new List<(Kind Kind, char Char)>(Math.Min(folded.Length, 1024));
+            // By character (feature 02): '?' is one code point, a literal one code point.
+            var tokens = new List<(Kind Kind, int Char)>(Math.Min(folded.Length, 1024));
             var needs = 0;
-            void Add(Kind kind, char c)
+            void Add(Kind kind, int c)
             {
                 if (kind is Kind.Literal or Kind.One) { needs++; tokens.Add((kind, c)); return; }
                 if (tokens.Count > 0 && tokens[^1].Kind is var last and not (Kind.Literal or Kind.One))
                 {
                     // "**" swallows any wildcard beside it; two of one kind are one.
                     if (last == Kind.Any || last == kind) return;
-                    if (kind == Kind.Any) { tokens[^1] = (Kind.Any, '\0'); return; }
+                    if (kind == Kind.Any) { tokens[^1] = (Kind.Any, 0); return; }
                 }
-                tokens.Add((kind, '\0'));
+                tokens.Add((kind, 0));
             }
-            for (var i = 0; i < folded.Length; i++)
+            var chars = PackText.CodePoints(folded).ToArray();
+            for (var i = 0; i < chars.Length; i++)
             {
-                var c = folded[i];
-                if (c == '*' && i + 1 < folded.Length && folded[i + 1] == '*')
+                var c = chars[i];
+                if (c == '*' && i + 1 < chars.Length && chars[i + 1] == '*')
                 {
-                    var slash = i + 2 < folded.Length && folded[i + 2] == '/';
-                    Add(slash ? Kind.Folders : Kind.Any, '\0');
+                    var slash = i + 2 < chars.Length && chars[i + 2] == '/';
+                    Add(slash ? Kind.Folders : Kind.Any, 0);
                     i += slash ? 2 : 1;
                 }
-                else if (c == '*') Add(Kind.Run, '\0');
-                else if (c == '?') Add(Kind.One, '\0');
+                else if (c == '*') Add(Kind.Run, 0);
+                else if (c == '?') Add(Kind.One, 0);
                 else Add(Kind.Literal, c);
             }
             return new([.. tokens], needs);
         }
 
         /// <summary>Whether the folded text matches, charging the characters stepped times the positions held to <paramref name="work"/>.</summary>
-        internal bool Matches(string text, ref long work)
+        internal bool Matches(string text, ref long work) => Matches(text, PackText.Length(text), ref work);
+
+        /// <summary>As above, given the text's characters (the walk counts each anchor's once).</summary>
+        internal bool Matches(string text, int characters, ref long work)
         {
-            if (_needs > text.Length) return false;
+            if (_needs > characters) return false;
             var n = _tokens.Length;
             // at[k]: the text so far can be followed by tokens k..; inside[k]: within a "**/" at k, before its closing '/'.
             var (at, next, inside, insideNext) = (_at, _next, _inside, _insideNext);
@@ -294,8 +301,11 @@ internal static class AnchorMatcher
             Array.Clear(inside);
             at[0] = true;
             Close(at);
-            foreach (var c in text)
+            for (var i = 0; i < text.Length; i++)
             {
+                // One character a step (feature 02): a surrogate pair is read as its code point.
+                int c = text[i];
+                if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1])) c = char.ConvertToUtf32(text[i], text[++i]);
                 // Nothing is stepped past the cap (review 8, W1): the match ends there, unmatched.
                 if (work > MaximumWork) return Keep(at, next, inside, insideNext, false);
                 work += n + 1;

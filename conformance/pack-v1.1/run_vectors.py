@@ -483,8 +483,9 @@ def main():
     vectors["nesting-65-deep"] = (signed({**content, record: b'{"key":"a","n":' + nested(64) + b'}\n'}), "trust.json", "refused")
     vectors["combining-marks-30-in-a-row"] = (signed({**content, record: ('{"key":"q' + "\u0301" * 30 + '"}\n').encode("utf-8")}), "trust.json", "verified")
     vectors["combining-marks-31-in-a-row"] = (signed({**content, record: ('{"key":"q' + "\u0301" * 31 + '"}\n').encode("utf-8")}), "trust.json", "refused")
-    vectors["source-100-astral-characters"] = (signed(edited(source={"repository": "\U0001F600" * 100})), "trust.json", "verified")
-    vectors["source-101-astral-characters"] = (signed(edited(source={"repository": "\U0001F600" * 101})), "trust.json", "refused")
+    # Feature 02: 200 characters (code points), so 200 emoji are within the bound and 201 are not.
+    vectors["source-200-astral-characters"] = (signed(edited(source={"repository": "\U0001F600" * 200})), "trust.json", "verified")
+    vectors["source-201-astral-characters"] = (signed(edited(source={"repository": "\U0001F600" * 201})), "trust.json", "refused")
     arabic = "1\u0663.0.0"
     arabic_content = {**content, "pack.json": (json.dumps({**json.loads(content["pack.json"]), "version": arabic}, ensure_ascii=False) + chr(10)).encode("utf-8")}
     vectors["version-with-an-arabic-digit"] = (signed(arabic_content, version_=arabic), "trust.json", "refused")
@@ -765,9 +766,10 @@ def main():
     vectors["federated-purpose-300"] = (signed(manifest_with(extensions=federation(purpose="x" * 300))), "trust-federated-buyer.json", "verified")
     two_readers = signed(manifest_with(extensions=federation(audience=(buyer, stranger))))
     vectors["federated-two-readers"] = (two_readers, "trust-federated-buyer.json", "verified")
-    # FED-review H1: the purpose counts UTF-16 units in both verifiers.
-    vectors["federated-purpose-150-astral"] = (signed(manifest_with(extensions=federation(purpose="\U0001F600" * 150))), "trust-federated-buyer.json", "verified")
-    vectors["federated-purpose-151-astral"] = (signed(manifest_with(extensions=federation(purpose="\U0001F600" * 151))), "trust-federated-buyer.json", "refused")
+    # FED-review H1, feature 02: the purpose counts characters (code points) in both verifiers, so 300 emoji, 600 UTF-16 units,
+    # are within the bound and 301 are not.
+    vectors["federated-purpose-300-astral"] = (signed(manifest_with(extensions=federation(purpose="\U0001F600" * 300))), "trust-federated-buyer.json", "verified")
+    vectors["federated-purpose-301-astral"] = (signed(manifest_with(extensions=federation(purpose="\U0001F600" * 301))), "trust-federated-buyer.json", "refused")
 
     # FED-review M5 and H2: a federated set's members are federated, by its publisher, for no wider an audience; and every
     # member verifies.
@@ -888,9 +890,10 @@ def main():
     vectors["card-other-format"] = (with_card({**full_card, "format": "agentmemory.pack.card/2"}), "trust.json", "refused")
     vectors["card-terminal-escape"] = (with_card({**full_card, "owner": {"name": "Example\u001b[31m Supplier"}}), "trust.json", "refused")
     vectors["card-c1-control"] = (with_card({**full_card, "domain": "notes\u0085"}), "trust.json", "refused")
-    # Lengths in UTF-16 code units, as every text bound in the format: 1,000 astral characters are 2,000 units.
-    vectors["card-astral-at-limit"] = (with_card({**full_card, "intendedUse": "\U0001F600" * 1000}), "trust.json", "verified")
-    vectors["card-astral-over-limit"] = (with_card({**full_card, "intendedUse": "\U0001F600" * 1000 + "a"}), "trust.json", "refused")
+    # Lengths in characters (code points), as every text bound in the format since feature 02: 2,000 emoji are 4,000 UTF-16
+    # units and within the bound.
+    vectors["card-astral-at-limit"] = (with_card({**full_card, "intendedUse": "\U0001F600" * 2000}), "trust.json", "verified")
+    vectors["card-astral-over-limit"] = (with_card({**full_card, "intendedUse": "\U0001F600" * 2000 + "a"}), "trust.json", "refused")
     vectors["card-boundary-repeated"] = (with_card({**full_card, "boundaries": ["Same.", "Same."]}), "trust.json", "refused")
     vectors["card-owner-empty"] = (with_card({**full_card, "owner": {"name": ""}}), "trust.json", "refused")
 

@@ -413,16 +413,6 @@
    "R-CORE-028",
    "R-CORE-002"
   ],
-  "source-100-astral-characters": [
-   "R-CORE-082",
-   "R-CORE-002",
-   "R-CORE-095",
-   "R-CORE-097"
-  ],
-  "source-101-astral-characters": [
-   "R-CORE-082",
-   "R-CORE-002"
-  ],
   "version-with-an-arabic-digit": [
    "R-CORE-036",
    "R-CORE-002"
@@ -907,16 +897,6 @@
    "R-CORE-002",
    "R-CORE-095",
    "R-CORE-097"
-  ],
-  "federated-purpose-150-astral": [
-   "R-FED-006",
-   "R-CORE-002",
-   "R-CORE-095",
-   "R-CORE-097"
-  ],
-  "federated-purpose-151-astral": [
-   "R-FED-006",
-   "R-CORE-002"
   ],
   "set-federated-valid": [
    "R-FED-013",
@@ -1806,6 +1786,26 @@
    "R-CORE-095",
    "R-CORE-097",
    "R-CODE-001"
+  ],
+  "federated-purpose-300-astral": [
+   "R-FED-006",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "federated-purpose-301-astral": [
+   "R-FED-006",
+   "R-CORE-002"
+  ],
+  "source-200-astral-characters": [
+   "R-CORE-082",
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "source-201-astral-characters": [
+   "R-CORE-082",
+   "R-CORE-002"
   ]
  }
 }

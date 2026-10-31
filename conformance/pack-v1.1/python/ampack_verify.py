@@ -554,7 +554,7 @@ def manifest_checks(manifest, content, now):
             raise Refused("the pack's validUntil has passed")
     if "source" in manifest:
         source = manifest["source"]
-        if not isinstance(source, dict) or not all(k in SHAPE["manifestSource"] and isinstance(v, str) and 0 < len(v.encode("utf-16-le")) // 2 <= 200
+        if not isinstance(source, dict) or not all(k in SHAPE["manifestSource"] and isinstance(v, str) and 0 < len(v) <= 200
                                                    for k, v in source.items()):
             raise Refused("pack.json has a malformed 'source'")
         if "builtAt" in source and instant(source["builtAt"]) is None:
@@ -1034,7 +1034,7 @@ def read_federation(extensions):
     if "audience" not in f:
         raise Refused("the 'federation' extension names no audience")
     audience = read_audience(f["audience"], "the federation audience")
-    if "purpose" in f and (not isinstance(f["purpose"], str) or not 1 <= len(f["purpose"].encode("utf-16-le", "surrogatepass")) // 2 <= 300):
+    if "purpose" in f and (not isinstance(f["purpose"], str) or not 1 <= len(f["purpose"]) <= 300):
         raise Refused("the federation purpose is text of 1 to 300 characters")
     return {"publisher": f["publisher"], "audience": audience}
 
@@ -1165,13 +1165,14 @@ def verify_receipt(envelope_bytes, pid, version, digest, federation, archive, lo
     raise Refused("no valid receipt signature by a key bound to the pack's publisher")
 
 
-def utf16_length(text):
-    return len(text.encode("utf-16-le")) // 2
+def text_length(text):
+    """Characters, that is code points (feature 02): Python's own string length."""
+    return len(text)
 
 
 def is_text(text, maximum):
-    """1 to `maximum` UTF-16 code units, no C0 or C1 control character but a line feed or a tab (as .NET's PackCard.IsText)."""
-    return isinstance(text, str) and 1 <= utf16_length(text) <= maximum \
+    """1 to `maximum` characters (code points), no C0 or C1 control character but a line feed or a tab (as .NET's PackCard.IsText)."""
+    return isinstance(text, str) and 1 <= text_length(text) <= maximum \
         and not any(c not in "\n\t" and (c < " " or "\x7f" <= c <= "\x9f") for c in text)
 
 

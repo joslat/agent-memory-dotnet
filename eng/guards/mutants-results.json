@@ -1,6 +1,6 @@
 {
  "format": "agentmemory.guards.mutants-results/2",
- "commit": "6fe89c1b",
+ "commit": "59c9f5fb",
  "results": [
   {
    "id": "archive-ratio",
@@ -456,23 +456,23 @@
    "door": "definition",
    "mutant_sha256": "a99f5b81f6d6a3e2a7dbf16ba79dd21244830aba21a940f49264b28e71057e1f",
    "killed": true,
-   "file_sha256": "71de654deb838f0ae24fa1fd8bd9b57f394bff7d5f2b814efd96234c1bed7aab",
+   "file_sha256": "dac4258fd4cfbb579286cfd02e87128072c12bb453eb58f640671889329fbf99",
    "failed": [
     "AnchorMatcherWorkTests.Review8_W1_a_value_at_the_format_s_longest_line_is_bounded_in_memory_and_time_whatever_it_holds"
    ],
-   "seconds": 76
+   "seconds": 85
   },
   {
    "id": "walk-charged-by-length",
    "rule": "WALK-BOUNDED",
    "door": "definition",
-   "mutant_sha256": "4fe941832dfcf678ee449280dc97a8a28c56d5a63f9c3c16794945e542c38610",
+   "mutant_sha256": "b8fd5c484619c163a49ac522ccede65fa24cedf9c331c4cb5236a3a15e118a42",
    "killed": true,
-   "file_sha256": "71de654deb838f0ae24fa1fd8bd9b57f394bff7d5f2b814efd96234c1bed7aab",
+   "file_sha256": "dac4258fd4cfbb579286cfd02e87128072c12bb453eb58f640671889329fbf99",
    "failed": [
     "AnchorMatcherWorkTests.Review8_W1_ordinary_names_are_charged_what_they_compare_so_a_late_anchor_still_seeds"
    ],
-   "seconds": 11
+   "seconds": 10
   },
   {
    "id": "expand-rows-whole",
@@ -492,11 +492,11 @@
    "door": "walk",
    "mutant_sha256": "92932e25f6fdb7b35a18ff635723806be4061ae24b2681a8e7afddd032b65146",
    "killed": true,
-   "file_sha256": "937ed570819f6e449c4ad27cb451afa38ec0467bb80eb1cc972eb3e2e4e0c110",
+   "file_sha256": "91711438e65d3daa79a4316deb94a90e151ded1aa6929902f089c6c813a14934",
    "failed": [
     "TraversalBudgetTests.Review7_W2_one_module_s_failing_read_leaves_that_module_out_and_the_walk_goes_on"
    ],
-   "seconds": 7
+   "seconds": 11
   },
   {
    "id": "walk-server-deadline",
@@ -516,11 +516,11 @@
    "door": "definition",
    "mutant_sha256": "d416299a2818fd5805aa502c2ed6c449b469580c7609623fa5faa863bc82fce5",
    "killed": true,
-   "file_sha256": "71de654deb838f0ae24fa1fd8bd9b57f394bff7d5f2b814efd96234c1bed7aab",
+   "file_sha256": "dac4258fd4cfbb579286cfd02e87128072c12bb453eb58f640671889329fbf99",
    "failed": [
     "AnchorMatcherWorkTests.The_path_in_one_pass_equals_the_loop_the_format_defines_on_every_generated_value"
    ],
-   "seconds": 11
+   "seconds": 10
   },
   {
    "id": "glob-run",
@@ -528,11 +528,11 @@
    "door": "definition",
    "mutant_sha256": "2720d5106d1410bb636ea7e8d998967c195118d35b1f3867ea681162e812127f",
    "killed": true,
-   "file_sha256": "71de654deb838f0ae24fa1fd8bd9b57f394bff7d5f2b814efd96234c1bed7aab",
+   "file_sha256": "dac4258fd4cfbb579286cfd02e87128072c12bb453eb58f640671889329fbf99",
    "failed": [
     "AnchorMatcherWorkTests.The_glob_matcher_equals_the_regex_it_replaced_on_every_generated_pair"
    ],
-   "seconds": 11
+   "seconds": 10
   },
   {
    "id": "walk-fan-out-cut",
@@ -540,11 +540,11 @@
    "door": "walk",
    "mutant_sha256": "308d4f4971295a7909df861bd04f291f365e10749cc8108d284971eaf5d976fa",
    "killed": true,
-   "file_sha256": "937ed570819f6e449c4ad27cb451afa38ec0467bb80eb1cc972eb3e2e4e0c110",
+   "file_sha256": "91711438e65d3daa79a4316deb94a90e151ded1aa6929902f089c6c813a14934",
    "failed": [
     "WalkWorkBoundsTests.Review7_W7_the_walk_makes_the_fan_out_cut_whatever_a_store_returns_and_in_whatever_order"
    ],
-   "seconds": 7
+   "seconds": 10
   },
   {
    "id": "mount-plan-at-mount",
@@ -625,11 +625,11 @@
    "door": "certificate",
    "mutant_sha256": "7fbbd683b661342f8b85d8f7c3313892a91b984b82c23f6237fa7f44bf30f9c7",
    "killed": true,
-   "file_sha256": "788553472f825ae9d0467675b9b62f4736472fdacb947cbce85312c0fbaa6bd1",
+   "file_sha256": "ede3cac8ca1617bdf9a27c01849a65e69ebe50b426bd511f77b51d7ec3860764",
    "failed": [
     "kit"
    ],
-   "seconds": 133
+   "seconds": 137
   },
   {
    "id": "pooled-first-copy",
@@ -749,11 +749,60 @@
    "door": "verify",
    "mutant_sha256": "09c65367272920ce39b8f849db42c9273fc4a752a171d57fcaf4960ba0a090e6",
    "killed": true,
-   "file_sha256": "788553472f825ae9d0467675b9b62f4736472fdacb947cbce85312c0fbaa6bd1",
+   "file_sha256": "ede3cac8ca1617bdf9a27c01849a65e69ebe50b426bd511f77b51d7ec3860764",
    "failed": [
     "kit"
    ],
-   "seconds": 133
+   "seconds": 141
+  },
+  {
+   "id": "decimal-read-as-integer",
+   "rule": "INTEGER-UNITS",
+   "door": "definition",
+   "mutant_sha256": "3be705ae300a09b663db73d68943cf4109af7d67cf4610ce79b3a6778126811d",
+   "killed": true,
+   "file_sha256": "d8ff2b8d6127adf32552d305c74ea4801915d39b7403357ec7fee5d6bf464aec",
+   "failed": [
+    "ModuleEditorSchemaTests.TraversalAndTrialEdgesHaveTheSameEditorAndRuntimeContract",
+    "PackUpgradeTests.A_trial_declares_its_upgrade_rule_and_a_tolerance_out_of_range_is_refused"
+   ],
+   "seconds": 13
+  },
+  {
+   "id": "length-by-utf16",
+   "rule": "TEXT-BY-CHARACTER",
+   "door": "verify",
+   "mutant_sha256": "3fb6de0e0bf61fb0b406eab581c4245a69e57b812c4da6a218081a67edd8eb27",
+   "killed": true,
+   "file_sha256": "f445b854f36ec9fc065ba6bedfeaefd93a19161fd0c636d0e8761ca8412f5412",
+   "failed": [
+    "PackTextTests.A_length_counts_characters_not_UTF16_units"
+   ],
+   "seconds": 4
+  },
+  {
+   "id": "order-by-utf16",
+   "rule": "TEXT-BY-CHARACTER",
+   "door": "definition",
+   "mutant_sha256": "63e09e4ae8716aa79cdc1a5485ea51513f4a732938251257d921c90e2adcb511",
+   "killed": true,
+   "file_sha256": "f445b854f36ec9fc065ba6bedfeaefd93a19161fd0c636d0e8761ca8412f5412",
+   "failed": [
+    "WalkCharactersTests.Tied_records_are_in_the_format_s_order_by_code_point"
+   ],
+   "seconds": 12
+  },
+  {
+   "id": "python-length-by-utf16",
+   "rule": "TEXT-BY-CHARACTER",
+   "door": "verify",
+   "mutant_sha256": "e62a3bbc3fc7b6120fa1345277898ffa9d676c23bc338e3ecf2430bbea97a64b",
+   "killed": true,
+   "file_sha256": "ede3cac8ca1617bdf9a27c01849a65e69ebe50b426bd511f77b51d7ec3860764",
+   "failed": [
+    "kit"
+   ],
+   "seconds": 140
   },
   {
    "id": "links-before-dependency",
@@ -773,11 +822,11 @@
    "door": "definition",
    "mutant_sha256": "13014790f90d49e8a2247fb4e42e6b585d09a6468b4fbb8608449a88cb6517ec",
    "killed": true,
-   "file_sha256": "937ed570819f6e449c4ad27cb451afa38ec0467bb80eb1cc972eb3e2e4e0c110",
+   "file_sha256": "91711438e65d3daa79a4316deb94a90e151ded1aa6929902f089c6c813a14934",
    "failed": [
     "WalkWorkBoundsTests.Review7_W8_a_record_that_may_not_take_part_neither_seeds_nor_steers"
    ],
-   "seconds": 9
+   "seconds": 16
   },
   {
    "id": "live-in-pack-memory",
@@ -929,11 +978,11 @@
    "door": "python",
    "mutant_sha256": "35d98024f382d9d80e48c26719053c25fb591e1af16dbe9fddf45e3d9208180d",
    "killed": true,
-   "file_sha256": "788553472f825ae9d0467675b9b62f4736472fdacb947cbce85312c0fbaa6bd1",
+   "file_sha256": "ede3cac8ca1617bdf9a27c01849a65e69ebe50b426bd511f77b51d7ec3860764",
    "failed": [
     "kit"
    ],
-   "seconds": 132
+   "seconds": 142
   }
  ]
 }

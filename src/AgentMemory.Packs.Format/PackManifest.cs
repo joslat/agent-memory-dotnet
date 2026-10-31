@@ -159,7 +159,7 @@ internal sealed partial record PackManifest
         if (root.TryGetProperty("source", out var source))
         {
             if (source.ValueKind != JsonValueKind.Object || source.EnumerateObject().Any(p => !PackRegistry.Shape("manifestSource").Contains(p.Name)
-                    || p.Value.ValueKind != JsonValueKind.String || p.Value.GetString()!.Length is 0 or > 200))
+                    || p.Value.ValueKind != JsonValueKind.String || PackText.Length(p.Value.GetString()!) is 0 or > 200))
                 return (null, $"{FileName} has a malformed 'source': an object of repository, commit and builtAt, each a string of 1 to 200 characters.");
             string? Field(string name) => source.TryGetProperty(name, out var value) ? value.GetString() : null;
             DateTimeOffset? builtAt = null;

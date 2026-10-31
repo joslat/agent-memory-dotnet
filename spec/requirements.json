@@ -3371,7 +3371,7 @@
    "summary": "`purpose`, when present, MUST be text of 1 to 300 UTF-16 code units.",
    "verifiedBy": [
     "kit",
-    "unit:FederationTests.A_purpose_counts_UTF16_units_as_both_verifiers_do"
+    "unit:FederationTests.A_purpose_counts_characters_as_both_verifiers_do"
    ]
   },
   {

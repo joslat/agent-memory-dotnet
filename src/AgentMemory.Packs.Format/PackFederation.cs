@@ -47,7 +47,7 @@ internal sealed record PackFederation(string Publisher, IReadOnlyList<string>? A
         string? purpose = null;
         if (value.TryGetProperty("purpose", out var purposeValue))
         {
-            if (purposeValue.ValueKind != JsonValueKind.String || purposeValue.GetString()!.Length is 0 or > MaximumPurpose)
+            if (purposeValue.ValueKind != JsonValueKind.String || PackText.Length(purposeValue.GetString()!) is 0 or > MaximumPurpose)
                 return (null, $"The federation purpose is text of 1 to {MaximumPurpose} characters.");
             purpose = purposeValue.GetString();
         }

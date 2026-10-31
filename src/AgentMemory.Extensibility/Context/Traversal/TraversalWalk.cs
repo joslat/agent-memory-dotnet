@@ -81,12 +81,12 @@ internal static class TraversalWalk
         foreach (var anchor in anchors)
         {
             if (anchor?.Value is not { } raw) continue;
-            // Bound before the work (review 5: a long run of combining marks cost seconds to normalize): NFC shortens UTF-16
-            // text at most 4 to 1 under Unicode 15, so a value over 4 x 512 units cannot be 512 or fewer after it.
-            if (raw.Length > 4 * ContextAnchor.MaximumLength) continue;
+            // Bound before the work (review 5: a long run of combining marks cost seconds to normalize): a value over 4 x 512
+            // characters is dropped unread (feature 02: characters are code points).
+            if (PackText.Length(raw) > 4 * ContextAnchor.MaximumLength) continue;
             // Every step here, whichever entry point built the anchor (review 5: the factories normalized, the constructor did not).
             var value = ContextAnchor.Normalized(anchor.Kind, raw);
-            if (value.Length == 0 || Unicode.Nfc.Normalize(value) is not { } nfc || nfc.Length > ContextAnchor.MaximumLength) continue;
+            if (value.Length == 0 || Unicode.Nfc.Normalize(value) is not { } nfc || PackText.Length(nfc) > ContextAnchor.MaximumLength) continue;
             if (!seen.Add((anchor.Kind, nfc))) continue;
             taken.Add(nfc == anchor.Value ? anchor : anchor with { Value = nfc });
             if (taken.Count == ContextAnchor.MaximumPerRequest) break;
@@ -348,11 +348,8 @@ internal static class TraversalWalk
 
     /// <summary>Letters, digits, spaces and the punctuation of paths, symbols and globs; anything else becomes '_'.</summary>
     internal static string Strict(string text) =>
-        string.Create(text.Length, text, static (span, source) =>
-        {
-            for (var i = 0; i < source.Length; i++)
-                span[i] = char.IsAsciiLetterOrDigit(source[i]) || StrictPunctuation.Contains(source[i]) ? source[i] : '_';
-        });
+        // One '_' a character (feature 02: a surrogate pair is one character, so one '_').
+        string.Concat(PackText.CodePoints(text).Select(c => c < 128 && (char.IsAsciiLetterOrDigit((char)c) || StrictPunctuation.Contains((char)c)) ? (char)c : '_'));
 
     private const string StrictPunctuation = "._-/:#*()<>,+@ ";
 }
@@ -367,10 +364,11 @@ internal static class TraversalOrder
 {
     internal static readonly IComparer<ModuleRecord> Records = Comparer<ModuleRecord>.Create(static (a, b) =>
     {
-        var c = string.CompareOrdinal(a.ModuleId, b.ModuleId);
-        if (c == 0) c = string.CompareOrdinal(a.Type, b.Type);
-        if (c == 0) c = string.CompareOrdinal(a.Key, b.Key);
-        return c != 0 ? c : string.CompareOrdinal(a.Id, b.Id);
+        // Code-point order (feature 02): the same in every language; .NET's ordinal order is UTF-16's.
+        var c = PackText.Compare(a.ModuleId, b.ModuleId);
+        if (c == 0) c = PackText.Compare(a.Type, b.Type);
+        if (c == 0) c = PackText.Compare(a.Key, b.Key);
+        return c != 0 ? c : PackText.Compare(a.Id, b.Id);
     });
 }
 

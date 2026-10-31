@@ -37,7 +37,7 @@ public sealed record ContextAnchor(ContextAnchorKind Kind, string Value)
     /// </summary>
     /// A value past the bound the intake drops is left as given (review 6, L1: the factories normalized it first).
     internal static string Normalized(ContextAnchorKind kind, string value) =>
-        value.Length > 4 * MaximumLength ? value
+        PackText.Length(value) > 4 * MaximumLength ? value
         : kind == ContextAnchorKind.Path ? Traversal.AnchorMatcher.Normalized(value) : Traversal.AnchorMatcher.Trimmed(value);
 }
 

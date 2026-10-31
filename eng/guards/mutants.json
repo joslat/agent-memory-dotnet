@@ -594,13 +594,13 @@
    "file": "src/AgentMemory.Extensibility/Context/Traversal/AnchorMatcher.cs",
    "edits": [
     {
-     "old": "        work++;\n        if (a.Length != b.Length) return false;\n        work += a.Length;",
+     "old": "        work++;\n        if (a.Length != b.Length) return false;\n        work += PackText.Length(a);",
      "new": "        work += 1 + a.Length + b.Length;\n        if (a.Length != b.Length) return false;"
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
    "filter": "FullyQualifiedName~AnchorMatcherWorkTests.Review8_W1_ordinary",
-   "sha256": "4fe941832dfcf678ee449280dc97a8a28c56d5a63f9c3c16794945e542c38610"
+   "sha256": "b8fd5c484619c163a49ac522ccede65fa24cedf9c331c4cb5236a3a15e118a42"
   },
   {
    "id": "expand-rows-whole",
@@ -946,6 +946,66 @@
    "project": "kit",
    "filter": "",
    "sha256": "09c65367272920ce39b8f849db42c9273fc4a752a171d57fcaf4960ba0a090e6"
+  },
+  {
+   "id": "decimal-read-as-integer",
+   "rule": "INTEGER-UNITS",
+   "door": "definition",
+   "file": "shared/PackNumbers.cs",
+   "edits": [
+    {
+     "old": "value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var n) && n is >= -MaxSafe and <= MaxSafe ? n : null",
+     "new": "value.ValueKind == JsonValueKind.Number ? (long)Math.Round(value.GetDouble()) : null"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ModuleEditorSchemaTests|FullyQualifiedName~PackUpgradeTests",
+   "sha256": "3be705ae300a09b663db73d68943cf4109af7d67cf4610ce79b3a6778126811d"
+  },
+  {
+   "id": "length-by-utf16",
+   "rule": "TEXT-BY-CHARACTER",
+   "door": "verify",
+   "file": "shared/PackText.cs",
+   "edits": [
+    {
+     "old": "internal static int Length(string text) => Length(text.AsSpan());",
+     "new": "internal static int Length(string text) => text.Length;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.PackFormat",
+   "filter": "FullyQualifiedName~PackTextTests",
+   "sha256": "3fb6de0e0bf61fb0b406eab581c4245a69e57b812c4da6a218081a67edd8eb27"
+  },
+  {
+   "id": "order-by-utf16",
+   "rule": "TEXT-BY-CHARACTER",
+   "door": "definition",
+   "file": "shared/PackText.cs",
+   "edits": [
+    {
+     "old": "if (x >= 0xD800 && y >= 0xD800) (x, y) = (Fixed(x), Fixed(y));",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~WalkCharactersTests",
+   "sha256": "63e09e4ae8716aa79cdc1a5485ea51513f4a732938251257d921c90e2adcb511"
+  },
+  {
+   "id": "python-length-by-utf16",
+   "rule": "TEXT-BY-CHARACTER",
+   "door": "verify",
+   "file": "conformance/pack-v1.1/python/ampack_verify.py",
+   "edits": [
+    {
+     "old": "    return len(text)\n",
+     "new": "    return len(text.encode(\"utf-16-le\")) // 2\n"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "e62a3bbc3fc7b6120fa1345277898ffa9d676c23bc338e3ecf2430bbea97a64b"
   },
   {
    "id": "links-before-dependency",

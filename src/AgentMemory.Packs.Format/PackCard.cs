@@ -6,7 +6,7 @@ namespace AgentMemory.Packs.Format;
 /// The pack card (pack format v1.2 §15): who owns a pack, what it is for and what it is not for, where its content comes from,
 /// the boundaries a host must keep with it, and the risks its publisher knows. <c>card.json</c> at the pack root, signed with
 /// the pack like every listed file; optional, and read strictly by both verifiers when present: exactly these fields, each of
-/// its type and length (UTF-16 code units, as every text bound in the format counts), and no control character but a line
+/// its type and length (characters, that is code points, as every text bound in the format counts: feature 02), and no control character but a line
 /// feed or a tab, so a card shows the same everywhere and cannot drive a terminal.
 /// </summary>
 /// <param name="OwnerName">Who owns and answers for the pack.</param>
@@ -87,9 +87,9 @@ internal sealed record PackCard(string OwnerName, string? OwnerContact, string I
         return problem is null ? items : [];
     }
 
-    /// <summary>1 to <paramref name="maximum"/> UTF-16 code units, no C0 or C1 control character but a line feed or a tab.</summary>
+    /// <summary>1 to <paramref name="maximum"/> characters (code points), no C0 or C1 control character but a line feed or a tab.</summary>
     internal static bool IsText(string text, int maximum) =>
-        text.Length >= 1 && text.Length <= maximum && !text.Any(c => c is not ('\n' or '\t') && (c < ' ' || c is >= '\u007f' and <= '\u009f'));
+        PackText.Length(text) is var n && n >= 1 && n <= maximum && !text.Any(c => c is not ('\n' or '\t') && (c < ' ' || c is >= '\u007f' and <= '\u009f'));
 
     private static string? Str(JsonElement element, string name) =>
         element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;

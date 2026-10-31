@@ -34,6 +34,7 @@
     <!-- The one registry of the format's names (feature 01): both verifiers, the module host and the spec read it. -->
     <Compile Include="../../shared/PackRegistry.cs" Link="Shared/PackRegistry.cs" />
     <Compile Include="../../shared/PackNumbers.cs" Link="Shared/PackNumbers.cs" />
+    <Compile Include="../../shared/PackText.cs" Link="Shared/PackText.cs" />
     <EmbeddedResource Include="../../spec/registry.json" LogicalName="AgentMemory.Packs.Format.registry.json" />
   </ItemGroup>
 </Project>

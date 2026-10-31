@@ -408,9 +408,9 @@ public sealed class FederationTests
     }
 
     [Theory]
-    [InlineData(150, true)]
-    [InlineData(151, false)]
-    public void A_purpose_counts_UTF16_units_as_both_verifiers_do(int emoji, bool ok)
+    [InlineData(300, true)]
+    [InlineData(301, false)]
+    public void A_purpose_counts_characters_as_both_verifiers_do(int emoji, bool ok)
     {
         var purpose = string.Concat(Enumerable.Repeat("\U0001F600", emoji));
 
