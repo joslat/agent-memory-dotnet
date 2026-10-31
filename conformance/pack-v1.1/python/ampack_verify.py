@@ -942,7 +942,6 @@ def verify(files, policy, now):
     manifest_checks(manifest, content, now)
     if CARD in content:
         read_card(content[CARD])
-    read_embeddings(content)
     digest = "sha256:" + hashlib.sha256(list_bytes).hexdigest()
     if digest in policy.get("revoked", {}).get("digests", []):
         raise Refused("the pack is revoked")
@@ -975,6 +974,9 @@ def verify(files, policy, now):
                     raise Refused(f"'{p}' has a line longer than {MAX_JSON >> 20} MiB")
                 profile(b[start:stop])
                 start = stop + 1
+    # The Embeddings profile once every record line has passed the JSON profile, as .NET (review F03, H2: before them, a
+    # hostile line crashed this verifier instead of refusing).
+    read_embeddings(content)
     return pid, version, digest, manifest
 
 
@@ -1262,7 +1264,10 @@ def read_embeddings(content):
         length = int.from_bytes(st[:8], "little")
         if length == 0 or length > EMBEDDINGS_MAX_HEADER or len(st) < 8 + length:
             raise Refused("an embeddings tensor states a header past its bound or its end")
-        header = profile(st[8:8 + length].rstrip(b" "))
+        body = st[8:8 + length].rstrip(b" ")
+        if body[:1] != b"{" or body[-1:] != b"}":
+            raise Refused("an embeddings tensor's header is a JSON object from its first byte, padded with spaces only")
+        header = profile(body)
         if not isinstance(header, dict) or set(header) != {"vectors"}:
             raise Refused("an embeddings tensor's header holds exactly one tensor, 'vectors', and no metadata")
         tensor = header["vectors"]

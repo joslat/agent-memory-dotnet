@@ -1860,6 +1860,46 @@
   ],
   "embeddings-dtype-not-the-index-s": [
    "R-EMB-006"
+  ],
+  "embeddings-f16-nan": [
+   "R-EMB-007"
+  ],
+  "embeddings-header-at-64-kib": [
+   "R-EMB-005"
+  ],
+  "embeddings-header-past-64-kib": [
+   "R-EMB-005"
+  ],
+  "embeddings-header-leading-space": [
+   "R-EMB-005"
+  ],
+  "embeddings-header-trailing-line-feed": [
+   "R-EMB-005"
+  ],
+  "embeddings-dimension-zero": [
+   "R-EMB-003"
+  ],
+  "embeddings-dimension-past-4096": [
+   "R-EMB-003"
+  ],
+  "embeddings-row-twice": [
+   "R-EMB-004"
+  ],
+  "embeddings-index-without-its-tensor": [
+   "R-EMB-001"
+  ],
+  "embeddings-nine-sets": [
+   "R-EMB-001"
+  ],
+  "embeddings-eight-sets": [
+   "R-EMB-001"
+  ],
+  "embeddings-row-of-a-line-without-a-key": [
+   "R-EMB-004"
+  ],
+  "embeddings-beside-a-line-nested-too-deep": [
+   "R-EMB-004",
+   "R-CORE-030"
   ]
  }
 }

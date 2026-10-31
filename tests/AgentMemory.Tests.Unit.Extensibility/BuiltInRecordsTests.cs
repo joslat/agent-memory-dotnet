@@ -94,6 +94,33 @@ public sealed class BuiltInRecordsTests
         pack.Knowledge!.Proposals.Select(p => p.Type).Should().BeEquivalentTo(["LanternRule", "LanternNote"]);
     }
 
+    [Fact]
+    public void A_bound_built_in_must_be_the_registry_s_under_the_module_s_prefix()
+    {
+        // Review F03, M4: the validator's own check, which a hand-written module manifest meets.
+        var json = """{"format":"agentmemory.module/v1alpha1","id":"com.example.rules","version":"1.0.0","sdk":"[0.1,0.2)","ontology":{"labelPrefix":"Rules","types":[{"name":"RulesNote","scope":"shared","builtIn":"note","properties":{"text":{"type":"string","required":true},"colour":{"type":"string"}}}]}}""";
+
+        ModuleManifest.Parse(json).Validate().Should().Contain(e => e.Contains("is not the built-in type 'note'", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_module_carrying_the_host_s_binding_is_never_written_into_a_pack()
+    {
+        var module = """{"format":"agentmemory.module/v1alpha1","id":"com.example.rules","version":"1.0.0","sdk":"[0.1,0.2)","ontology":{"labelPrefix":"Rules","types":[{"name":"RulesNote","scope":"shared","builtIn":"note","properties":{"text":{"type":"string","required":true}}}]}}""";
+
+        FluentActions.Invoking(() => PackAuthoring.FromModuleBundle(new Dictionary<string, byte[]> { ["manifest.json"] = Encoding.UTF8.GetBytes(module) }))
+            .Should().Throw<InvalidDataException>().WithMessage("*builtIn*");
+    }
+
+    [Fact]
+    public void A_malformed_ontology_is_refused_not_taken_as_none()
+    {
+        // Review F03, M3: a non-object ontology.json was read as "no ontology" and the built-ins bound in its place.
+        FluentActions.Invoking(() => Load("""{"type":"note","key":"n1","properties":{"text":"x"}}""" + "\n", "[]")).Should().Throw<Exception>();
+        FluentActions.Invoking(() => Load("""{"type":"note","key":"n1","properties":{"text":"x"}}""" + "\n", """{"labelPrefix":"Lantern","types":{}}"""))
+            .Should().Throw<Exception>();
+    }
+
     [Theory]
     [InlineData(""","text":"rule","memoryKind":"declarative" """, "memoryKind")]
     [InlineData(""","text":"count" """, ".text")]

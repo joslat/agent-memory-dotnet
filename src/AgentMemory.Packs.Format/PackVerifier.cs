@@ -131,6 +131,9 @@ internal static class PackVerifier
         var (problems, manifest) = CheckContent(content, list, explain, records: false);
         if (manifest is null) return new(null, problems);
         var recordProblems = LineProblems(content).ToList();
+        // The Embeddings profile (feature 03), once every record line has passed the JSON profile, since a set's rows name the
+        // records those lines hold (review F03, H2 and M1: before them, a hostile line crashed a reader instead of refusing).
+        if (recordProblems.Count == 0 && PackEmbeddings.Read(content.Files).Problem is { } embeddingsProblem) recordProblems.Add(embeddingsProblem);
         problems.AddRange(recordProblems);
         explain?.Invoke(new("records", recordProblems.Count == 0, recordProblems.Count > 0 ? recordProblems
             : ["every JSONL file: UTF-8, LF, one JSON value per line of at most 1 MiB, no repeated key, NFC strings, integers within 2^53"]));
@@ -357,8 +360,6 @@ internal static class PackVerifier
             yield return $"A pack marked {manifest.Protection} must carry META/seal.json.";
         // The pack card is read strictly by every verifier, so it shows the same everywhere (§15).
         if (files.TryGetValue(PackCard.FileName, out var card) && PackCard.Parse(card).Problem is { } cardProblem) yield return cardProblem;
-        // The Embeddings profile (feature 03): every set read strictly, against its index and the pack's records.
-        if (PackEmbeddings.Read(files).Problem is { } embeddingsProblem) yield return embeddingsProblem;
     }
 
     /// <summary>A composite names the same members in pack.json, members.json and its lock (v1.2 §5).</summary>

@@ -59,7 +59,7 @@ internal static class PackLayout
             if (pack[name] is { } value && !(value is JsonArray { Count: 0 })) manifest[name] = value.DeepClone();
         // The AgentMemory binding of the built-in types (feature 03), here and only here, so every path that composes a pack
         // composes the same declarations and the same declarations digest.
-        if (PackBuiltIns.Bind(Node(files, Ontology) as JsonObject, manifest["id"]!.GetValue<string>(),
+        if (PackBuiltIns.Bind(Node(files, Ontology), manifest["id"]!.GetValue<string>(),
                 PackBuiltIns.Used(RecordFiles(files.Keys).Select(f => (ReadOnlyMemory<byte>)files[f]))) is { } ontology) manifest["ontology"] = ontology;
         if (Node(files, Views) is { } views) manifest["views"] = views;
         if (Node(files, Traversal) is { } traversal) manifest["traversal"] = traversal;

@@ -73,6 +73,9 @@ public sealed class SpecRegistryTests
                     wrong.Add($"{unit.Name}: {schemaName} is not {unit.Value.GetProperty(bound).GetInt64()}");
         }
         string.Join(Environment.NewLine, wrong).Should().BeEmpty("the schema's units come from spec/registry.json");
+        // Review F03 (low): the memory kinds, a third copy of the registry's list, held to it here.
+        declared["memoryKind"].GetProperty("enum").EnumerateArray().Select(e => e.GetString())
+            .Should().Equal(registry.RootElement.GetProperty("records").GetProperty("memoryKinds").EnumerateArray().Select(e => e.GetString()));
     }
 
     [Fact]

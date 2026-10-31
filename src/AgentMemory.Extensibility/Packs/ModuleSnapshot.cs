@@ -69,8 +69,9 @@ public sealed record ModuleSnapshot
         var problems = new List<string>();
         var records = new List<ModuleProposal>();
         foreach (var (file, bytes) in files)
-            records.AddRange(KnowledgePack.Lines(file, bytes,
-                line => new PackSource { Id = module.Id, Version = source, Digest = "", File = file, Line = line }, problems));
+            // Built-in names bound as a knowledge pack's are (review F03, M2: only knowledge packs bound them).
+            records.AddRange(KnowledgePack.Bound(module.Ontology, KnowledgePack.Lines(file, bytes,
+                line => new PackSource { Id = module.Id, Version = source, Digest = "", File = file, Line = line }, problems)));
         if (problems.Count > 0) throw new KnowledgePackException(problems.Count > 100 ? [.. problems.Take(100), $"... and {problems.Count - 100} more."] : problems);
         var snapshot = new ModuleSnapshot { Module = module, Dependencies = dependencies, Source = source, Records = records, ConsentGrants = grants ?? [] };
         if (snapshot.Problems() is { Count: > 0 } invalid) throw new KnowledgePackException(invalid);

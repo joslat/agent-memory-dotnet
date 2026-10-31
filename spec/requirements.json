@@ -4381,7 +4381,7 @@
    "doc": "profiles/embeddings.md",
    "section": "2",
    "level": "MUST",
-   "summary": "`rows` MUST list 1 to 5,000 rows, each `[type, key]` (two strings) naming a record the pack holds, by the names its record lines carry, each record at most once.",
+   "summary": "`rows` MUST list 1 to 5,000 rows, each `[type, key]` (two strings) naming a record the pack holds, each record at most once. A record line names a record when its `type` and `key` are both strings; the set is checked once every record line has passed the JSON profile.",
    "verifiedBy": [
     "kit"
    ]
@@ -4391,7 +4391,7 @@
    "doc": "profiles/embeddings.md",
    "section": "2",
    "level": "MUST",
-   "summary": "`embeddings/<name>.st` MUST be in the safetensors layout: an 8-byte little-endian header length of 1 to 65,536, a header of that length in the JSON profile (trailing spaces allowed), then the data, and nothing after it.",
+   "summary": "`embeddings/<name>.st` MUST be in the safetensors layout: an 8-byte little-endian header length of 1 to 65,536, a header of that length in the JSON profile, a JSON object from its first byte to its last but trailing spaces, then the data, and nothing after it.",
    "verifiedBy": [
     "kit"
    ]

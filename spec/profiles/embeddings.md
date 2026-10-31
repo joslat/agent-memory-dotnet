@@ -45,13 +45,15 @@ MUST be one of these, `dimension` an integer of 1 to 4,096, `normalized` a boole
 | `distances` | `cosine`, `dot`, `l2` |
 <!-- /registry -->
 
-**R-EMB-004.** `rows` MUST list 1 to 5,000 rows, each `[type, key]` (two strings) naming a record the pack holds, by the
-names its record lines carry, each record at most once.
+**R-EMB-004.** `rows` MUST list 1 to 5,000 rows, each `[type, key]` (two strings) naming a record the pack holds, each
+record at most once. A record line names a record when its `type` and `key` are both strings; the set is checked once every
+record line has passed the JSON profile.
 
 ### 2.2 The tensor
 
 **R-EMB-005.** `embeddings/<name>.st` MUST be in the safetensors layout: an 8-byte little-endian header length of 1 to
-65,536, a header of that length in the JSON profile (trailing spaces allowed), then the data, and nothing after it.
+65,536, a header of that length in the JSON profile, a JSON object from its first byte to its last but trailing spaces,
+then the data, and nothing after it.
 
 **R-EMB-006.** The header MUST hold exactly one tensor, `vectors`, and no other member (`__metadata__` included), of exactly
 `dtype`, `shape` and `data_offsets`; its `dtype` MUST be the index's, its `shape` `[rows, dimension]`, and its

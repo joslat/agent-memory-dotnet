@@ -58,8 +58,11 @@ internal static partial class PackBuiltIns
                 {
                     using var document = JsonDocument.Parse(line);
                     var root = document.RootElement;
-                    if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.String)
-                        named = (type.GetString()!, root.TryGetProperty("key", out var key) && key.ValueKind == JsonValueKind.String ? key.GetString()! : "");
+                    // A line names a record when its type and key are both strings (R-EMB-004; review F03, H1: a line without a
+                    // key named key "" here and nothing in Python).
+                    if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.String
+                        && root.TryGetProperty("key", out var key) && key.ValueKind == JsonValueKind.String)
+                        named = (type.GetString()!, key.GetString()!);
                 }
                 catch (JsonException) { }
                 if (named is { } record) yield return record;
@@ -71,10 +74,14 @@ internal static partial class PackBuiltIns
     /// as it is when it uses none. A pack without an ontology takes the implied prefix. A pack's own ontology may not carry the
     /// host's marker.
     /// </summary>
-    internal static JsonObject? Bind(JsonObject? ontology, string packId, IReadOnlySet<string> used)
+    internal static JsonNode? Bind(JsonNode? declared, string packId, IReadOnlySet<string> used)
     {
+        // A malformed ontology is passed on as it is, for the module reader to refuse (review F03, M3: it was taken as none).
+        if (declared is not null and not JsonObject) return declared;
+        var ontology = declared as JsonObject;
         if (ontology is not null && Marked(ontology)) throw new InvalidDataException($"ontology.json carries '{Marker}', which is the host's own: a pack names built-in types by their names.");
         if (used.Count == 0) return ontology;
+        if (ontology is not null && (ontology["types"] is not (null or JsonArray) || ontology["relations"] is not (null or JsonArray))) return ontology;
         var bound = (JsonObject?)ontology?.DeepClone() ?? new JsonObject { ["labelPrefix"] = ImpliedPrefix(packId) };
         var prefix = bound["labelPrefix"]?.GetValue<string>() ?? throw new InvalidDataException("ontology.json names no labelPrefix.");
         var types = bound["types"] as JsonArray ?? (JsonArray)(bound["types"] = new JsonArray());

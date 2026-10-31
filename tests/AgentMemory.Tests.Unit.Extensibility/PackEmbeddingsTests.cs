@@ -29,6 +29,10 @@ public sealed class PackEmbeddingsTests
                      new("example-embedder-4", "sha256:abc", 4, "F16", true), new("example-embedder-4", "sha256:abc", 4, "F32", false),
                  })
             PackEmbeddings.Reusable(Set, other).Should().BeFalse($"{other} differs from the set's model in one respect");
+        // Review F03, M4: a pack that gives no digest matches only a host that knows none.
+        var undigested = Set with { ModelDigest = null };
+        PackEmbeddings.Reusable(undigested, new("example-embedder-4", null, 4, "F32", true)).Should().BeTrue();
+        PackEmbeddings.Reusable(undigested, new("example-embedder-4", "sha256:abc", 4, "F32", true)).Should().BeFalse();
     }
 
     private static byte[] Tensor(int rows, int dim)

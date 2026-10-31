@@ -32,7 +32,7 @@ internal static partial class PackEmbeddings
     internal sealed record Embedder(string Model, string? ModelDigest, int Dimension, string DataType, bool Normalized);
 
     /// <summary>
-    /// Whether a host may use a set's vectors in its own retrieval: only on an exact match (R-EMB-010). Otherwise it embeds the
+    /// Whether a host may use a set's vectors in its own retrieval: only on an exact match (R-EMB-008). Otherwise it embeds the
     /// records' text with its own model, and never mixes two models' vectors in one index.
     /// </summary>
     internal static bool Reusable(Index set, Embedder host) =>
@@ -118,6 +118,8 @@ internal static partial class PackEmbeddings
         if (length is 0 or > MaximumHeaderBytes || (ulong)bytes.Length < 8 + length) return $"{at} states a header of {length} bytes, past its bound or its end.";
         var header = bytes.AsSpan(8, (int)length);
         var trimmed = header.TrimEnd((byte)' ');
+        // The layout's own header: an object from its first byte to its last, then spaces only (R-EMB-005).
+        if (trimmed.Length == 0 || trimmed[0] != (byte)'{' || trimmed[^1] != (byte)'}') return $"{at}'s header is a JSON object from its first byte, padded with spaces only.";
         if (PackJson.Check(trimmed.ToArray()) is { } json) return $"{at}'s header {json}.";
         using var document = JsonDocument.Parse(trimmed.ToArray());
         var root = document.RootElement;

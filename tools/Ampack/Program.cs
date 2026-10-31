@@ -641,6 +641,9 @@ internal static partial class Program
                 Console.WriteLine($"Federated: publisher {federation.Publisher}, for {PackFederation.Describe(federation.Audience)}  (not verified)");
             if (content.Files.TryGetValue(PackCard.FileName, out var cardBytes) && PackCard.Parse(cardBytes).Card is { } card)
                 Console.WriteLine($"Card    {Shown(card.OwnerName, 200)}: {Shown(card.IntendedUse, 200)}  (not verified)");
+            // Each set of vectors as its index states it (feature 03; review F03: inspect showed none).
+            foreach (var set in PackEmbeddings.Read(content.Files).Sets)
+                Console.WriteLine($"Vectors {set.Name}: {set.Rows.Count} rows of {set.Dimension} {set.DataType}, {Shown(set.Model, 200)}, {set.Distance}  (not verified)");
             foreach (var f in list.Files) Console.WriteLine($"  {f.Length,10:N0}  {f.Path}");
         }
         else Console.WriteLine("Not built: no valid META/files.json.");

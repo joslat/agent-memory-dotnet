@@ -344,6 +344,27 @@ def main():
     vectors["embeddings-trailing-bytes"] = (embedded(tensor(trailing=b"\x00\x00\x00\x00")), "trust.json", "refused")
     vectors["embeddings-without-its-index"] = (embedded(ix=False), "trust.json", "refused")
     vectors["embeddings-dtype-not-the-index-s"] = (embedded(ix=index(dtype="F16")), "trust.json", "refused")
+    # Review F03: the rest of each rule, one vector a rule (M4), and the two disagreements found (H1, H2).
+    vectors["embeddings-f16-nan"] = (embedded(tensor(dtype="F16", values=[0.5, float("nan"), 0.5, 0.5]), index(dtype="F16")), "trust.json", "refused")
+    vectors["embeddings-header-at-64-kib"] = (embedded(tensor(pad=65536 - len(tensor()[8:-16]))), "trust.json", "verified")
+    vectors["embeddings-header-past-64-kib"] = (embedded(tensor(pad=65537 - len(tensor()[8:-16]))), "trust.json", "refused")
+    head, data = tensor()[8:-16], tensor()[-16:]
+    vectors["embeddings-header-leading-space"] = (embedded(struct.pack("<Q", len(head) + 1) + b" " + head + data), "trust.json", "refused")
+    vectors["embeddings-header-trailing-line-feed"] = (embedded(struct.pack("<Q", len(head) + 1) + head + b"\n" + data), "trust.json", "refused")
+    vectors["embeddings-dimension-zero"] = (embedded(tensor(dim=0), index(dimension=0)), "trust.json", "refused")
+    vectors["embeddings-dimension-past-4096"] = (embedded(tensor(dim=4097), index(dimension=4097)), "trust.json", "refused")
+    vectors["embeddings-row-twice"] = (embedded(tensor(rows=2), index(rows=[row, row])), "trust.json", "refused")
+    vectors["embeddings-index-without-its-tensor"] = (embedded(st=False), "trust.json", "refused")
+    nine = {**content, **{f"embeddings/s{i}.st": tensor() for i in range(9)}, **{f"embeddings/s{i}.json": index() for i in range(9)}}
+    vectors["embeddings-nine-sets"] = (signed(nine), "trust.json", "refused")
+    eight = {**content, **{f"embeddings/s{i}.st": tensor() for i in range(8)}, **{f"embeddings/s{i}.json": index() for i in range(8)}}
+    vectors["embeddings-eight-sets"] = (signed(eight), "trust.json", "verified")
+    keyless = {**content, "records/keyless.jsonl": b'{"type":"NotesNote","properties":{"title":"t","text":"x"}}\n',
+               "embeddings/notes.st": tensor(), "embeddings/notes.json": index(rows=[["NotesNote", ""]])}
+    vectors["embeddings-row-of-a-line-without-a-key"] = (signed(keyless), "trust.json", "refused")
+    deep = {**content, "records/deep.jsonl": b'{"type":"NotesNote","key":"d","properties":' + b"[" * 5000 + b"]" * 5000 + b"}\n",
+            "embeddings/notes.st": tensor(), "embeddings/notes.json": index()}
+    vectors["embeddings-beside-a-line-nested-too-deep"] = (signed(deep), "trust.json", "refused")
     vectors["valid-until-not-rfc3339"] = (signed(edited(validUntil="2099-01-01")), "trust.json", "refused")
     vectors["source-commit-not-hex"] = (signed(edited(source={"commit": "main"})), "trust.json", "refused")
     vectors["source-valid"] = (signed(edited(source={"repository": "https://example.com/notes", "commit": "0a1b2c3",
