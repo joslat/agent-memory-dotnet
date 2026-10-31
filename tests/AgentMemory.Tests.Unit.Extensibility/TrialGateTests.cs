@@ -267,6 +267,35 @@ public sealed class TrialGateTests : IDisposable
     }
 
     [Fact]
+    public void The_cost_check_reaches_the_reference_s_verdicts()
+    {
+        // Feature 05 review, M3: the reference (eng/trial-statistics/exact.py, cost_bound) decides 240 sampled trials at targets
+        // around each bound; the gate reaches the same bound and verdict on every one (golden_cost.py writes the file).
+        using var golden = System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "TrialStatistics", "golden-cost.json")));
+        var checkedDecisions = 0;
+        foreach (var c in golden.RootElement.GetProperty("cases").EnumerateArray())
+        {
+            var spacing = c.GetProperty("spacing").GetInt32();
+            var confidence = c.GetProperty("confidence").ValueKind == System.Text.Json.JsonValueKind.Null ? "" : $",\"confidencePermille\":{(int)Math.Round(c.GetProperty("confidence").GetDouble() * 1000)}";
+            var ratio = c.GetProperty("kind").GetString() == "ratio";
+            var baseline = c.GetProperty("baseline").EnumerateArray().Select(x => x.GetInt64()).ToArray();
+            var pack = c.GetProperty("pack").EnumerateArray().Select(x => x.GetInt64()).ToArray();
+            PackTrialMeasurement Arm(long[] bytes) => Measured([.. bytes.Select(b => new PackTrialTask(1, 1) { OfferedBytes = b })], spacing: spacing);
+            foreach (var d in c.GetProperty("decisions").EnumerateArray())
+            {
+                var (target, shown, met) = (d[0].GetInt64(), d[1].GetInt64(), d[2].GetBoolean());
+                var field = ratio ? "savingRatioMicro" : "savingBytesMedian";
+                var manifest = Manifest(Base, $$$""","trial":{"measure":"test-impact","baseline":"host","tasks":{{{baseline.Length}}}{{{confidence}}},"targets":{"hitRateMicro":100000},"cost":{"{{{field}}}":{{{target}}}}}""");
+                var check = PackTrialGate.Decide(manifest, Arm(pack), Arm(baseline), Now).Checks.Single(k => k.Target == (ratio ? "savingRatio" : "savingBytes"));
+                check.Met.Should().Be(met, $"case {checkedDecisions}: target {target}, shown {shown}");
+                (ratio ? (long)Math.Round(check.Observed * 1_000_000) : (long)check.Observed).Should().Be(shown, $"case {checkedDecisions}");
+                checkedDecisions++;
+            }
+        }
+        checkedDecisions.Should().BeGreaterThan(500);
+    }
+
+    [Fact]
     public void A_cost_ratio_target_is_a_share_of_the_baseline_in_millionths()
     {
         // Feature 05: 400 of 1,000 bytes saved on every task is 40%: a target of 30% is met, 50% is not.

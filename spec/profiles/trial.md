@@ -216,21 +216,25 @@ it, MUST stay off, and so MUST a decision that kept no run of that suite.
 ### 5.5b Cost
 
 **R-TRIAL-055.** `cost`, when present, MUST hold at least one of `savingBytesMedian` (whole bytes, 0 to 1,000,000,000) and
-`savingRatioMicro` (millionths of the baseline's bytes, 0 to 1,000,000), and each arm MUST then record, for every task, the
-UTF-8 bytes of what it offered, each item in the frame the host renders it in (R-HOST-053), the baseline's items framed the
-same way: one renderer for both arms.
+`savingRatioMicro` (millionths of the baseline's bytes, 0 to 1,000,000), and the trial's `baseline` MUST be `host`: a saving is
+against what the host already has. Each arm MUST then record, for every task, the UTF-8 bytes of what it offered (0 to
+1,000,000,000), each item in the frame the host renders it in (R-HOST-053), the baseline's items framed the same way: one
+renderer for both arms. An arm that offers nothing by design records 0.
 
 **R-TRIAL-056.** A task's saving is the baseline's bytes less the pack's and less the pack's fixed cost per turn (what it adds
 to every turn whatever the task), in the target's unit: whole bytes, or millionths of the baseline's bytes rounded down (a
-baseline of no bytes counting one). Tasks closer than a burst are clustered, each cluster counting its lower median. The check
-MUST show a bound and be met exactly when the bound is at or above the target: without a `confidencePermille` the lower median
-of the n savings; with one, the exact one-sided sign test's lower bound of the median, the k-th largest saving, k the fewest of
-n whose Clopper-Pearson lower bound at that confidence is at least one half (R-TRIAL-051), and when no k is, one unit under the
-target. The decision MUST keep the fixed cost it counted, so a recheck reaches the same verdict.
+baseline of no bytes counting one). The check MUST show a bound and be met exactly when the bound is at or above the target.
+Without a `confidencePermille` the bound is the lower median of the tasks' savings. With one it is the exact one-sided sign
+test's lower bound of the median: of independent units, the k-th largest, k the fewest of n whose Clopper-Pearson lower bound at
+that confidence is at least one half (R-TRIAL-051). At a spacing of a burst (8) or more each task is a unit. Closer, each
+cluster of tasks within a burst counts its minimum saving, and the bound is the lesser of the even clusters' bound and the odd
+clusters' bound, each set a burst apart; when a set has too few units for any k, the bound is one unit under the target. The
+decision MUST keep the fixed cost it counted, so a recheck reaches the same verdict.
 
 **R-TRIAL-057.** A certificate MAY state cost checks. Each task of its arms MAY then record its offered bytes as a third number
-(`[offered, correct, bytes]`, 0 to 1,000,000,000): every task of both arms or none MUST, a cost check MUST have both arms and
-the bytes, and a verifier MUST refuse a cost check whose `met` is not exactly `observedMicro` at or above `requiredMicro`.
+(`[offered, correct, bytes]`, 0 to 1,000,000,000): every task of both arms or none MUST, an arm that offers nothing MUST record
+0, a cost check MUST have both arms and the bytes, and a verifier MUST refuse a cost check whose `met` is not exactly
+`observedMicro` at or above `requiredMicro`.
 
 > Why: a model reads bytes, not hit rates. The sign test on the median is exact, needs no distribution, and a few large tasks
 > cannot carry it; it is the rate bound already specified, at one half.

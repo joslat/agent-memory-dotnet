@@ -1299,13 +1299,103 @@
    "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
    "edits": [
     {
-     "old": "var sorted = (m == 1 ? values : [.. values.Chunk(m).Select(LowerMedian)]).Order().ToArray();",
-     "new": "var sorted = values.Order().ToArray();"
+     "old": "var units = m == 1 ? values : [.. values.Chunk(m).Select(cluster => cluster.Min())];",
+     "new": "var units = values;"
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~TrialGateTests.A_cost_target",
-   "sha256": "02c7ad169496a560c249ef03e1554ff036d9bf6096c880e33877ad3f588221a0"
+   "filter": "FullyQualifiedName~TrialGateTests.A_cost_target|FullyQualifiedName~TrialGateTests.The_cost_check",
+   "sha256": "a8a78b952185fbd816c15be6c8d123a4bcb020d39cbc00286612681b597e8297"
+  },
+  {
+   "id": "cost-halves-joined",
+   "rule": "EXACT-VERDICT",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "var halves = m == 1 ? [SignBound(units, permille)]",
+     "new": "var halves = true ? [SignBound(units, permille)]"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~TrialGateTests.A_cost_target|FullyQualifiedName~TrialGateTests.The_cost_check",
+   "sha256": "31f59d6483d9e193cf99c120128f95d7ba954b620b4ca3157a2215e43301fa50"
+  },
+  {
+   "id": "cost-cluster-median",
+   "rule": "EXACT-VERDICT",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "values.Chunk(m).Select(cluster => cluster.Min())",
+     "new": "values.Chunk(m).Select(cluster => LowerMedian(cluster))"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~TrialGateTests.A_cost_target|FullyQualifiedName~TrialGateTests.The_cost_check",
+   "sha256": "0a9687c8c6731b5ef5f63ca4b8b3598e04d70dee6b393dd2a4722bdf0239a537"
+  },
+  {
+   "id": "cost-no-bound-met",
+   "rule": "EXACT-VERDICT",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "bound = halves.Any(h => h is null) ? least - 1 : halves.Min(h => h!.Value);",
+     "new": "bound = halves.Any(h => h is null) ? least : halves.Min(h => h!.Value);"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~TrialGateTests.A_cost_target|FullyQualifiedName~TrialGateTests.The_cost_check",
+   "sha256": "cc42d6d85aef48ab333ad06abac2ccb6414a768076f8363cf2e85f36a05d0e36"
+  },
+  {
+   "id": "cost-ratio-truncated",
+   "rule": "EXACT-VERDICT",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "FloorDivide(checked(saving * PackNumbers.One), Math.Max(1, b[i].OfferedBytes!.Value))",
+     "new": "checked(saving * PackNumbers.One) / Math.Max(1, b[i].OfferedBytes!.Value)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~TrialGateTests.A_cost_target|FullyQualifiedName~TrialGateTests.The_cost_check",
+   "sha256": "23a7895d84de59c6eff41940ed25b7439f6fc9eb20ed55cd15538c83eb324ebc"
+  },
+  {
+   "id": "bytes-from-nothing",
+   "rule": "CERTIFICATE-STATES-ALL",
+   "door": "certificate",
+   "file": "src/AgentMemory.Packs.Format/PackCertificate.cs",
+   "edits": [
+    {
+     "old": "arm is { MaximumOffered: 0 } && arm.PerTask.Any(t => t.Bytes is > 0)",
+     "new": "arm is { MaximumOffered: -1 } && arm.PerTask.Any(t => t.Bytes is > 0)"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "b7d85525831b4804f1a8f18ea2956a2958b97fd5b6a19756e6bf2cf271ce123c"
+  },
+  {
+   "id": "python-bytes-unbounded",
+   "rule": "CERTIFICATE-STATES-ALL",
+   "door": "certificate",
+   "file": "conformance/pack-v1.1/python/ampack_verify.py",
+   "edits": [
+    {
+     "old": "or len(entry) == 3 and not 0 <= entry[2] <= CERTIFICATE_MAX_TASK_BYTES:",
+     "new": "or False:"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "b4923969347e1cb3edc91d268900bdfb4575863443d4a56d968d2f688b2118d3"
   },
   {
    "id": "cost-met-unchecked",

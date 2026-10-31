@@ -279,6 +279,8 @@ internal sealed partial record PackCertificate(string Id, string Version, string
             return "The certificate records the bytes of some tasks and not others: every task of both arms, or none.";
         if (c.Checks.Any(k => CostTargets.Contains(k.Target)) && (c.Without is null || tasks.Any(t => t.Bytes is null)))
             return "A cost check needs both arms and each task's bytes.";
+        if (new[] { c.With, c.Without }.Any(arm => arm is { MaximumOffered: 0 } && arm.PerTask.Any(t => t.Bytes is > 0)))
+            return "An arm that offers nothing records no bytes.";
         if (c.Checks.FirstOrDefault(k => CostTargets.Contains(k.Target) && k.Met != (k.ObservedMicro >= k.RequiredMicro)) is { } wrong)
             return $"The certificate's {wrong.Target} check says {(wrong.Met ? "met" : "not met")}, but its bound is {(wrong.Met ? "below" : "at or above")} its target.";
         // The verdict agrees with the record: passed exactly when every check held on enough tasks.

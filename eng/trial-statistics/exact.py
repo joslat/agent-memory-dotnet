@@ -145,6 +145,43 @@ def meets_hit_diff(t1, t2, conf, t):
     return _at_least(mean - t, q_of(conf, len(t1) - 1), variance)
 
 
+def sign_k(n, conf):
+    """The fewest of n independent units at or above a value that carry the exact sign test's lower bound to it: the k whose
+    Clopper-Pearson bound reaches one half (R-TRIAL-056). None when not even n of n does."""
+    if n <= 0 or not meets_rate(n, n, conf, Q(1, 2)):
+        return None
+    lo, hi = 1, n
+    while lo < hi:
+        mid = (lo + hi) // 2
+        if meets_rate(mid, n, conf, Q(1, 2)):
+            hi = mid
+        else:
+            lo = mid + 1
+    return lo
+
+
+def sign_bound(units, conf):
+    """The sign test's lower bound of the median of independent units: the k-th largest, k = sign_k. None without a k."""
+    k = sign_k(len(units), conf)
+    return None if k is None else sorted(units)[len(units) - k]
+
+
+def cost_bound(savings, spacing, conf):
+    """A cost target's bound (R-TRIAL-056, after review F05 H1): each task's saving in the target's unit, in drawn order.
+    Without a confidence, the lower median of the tasks. With one, at a spacing of a burst or more, the sign test's bound of
+    the tasks; closer, each cluster counts its minimum and the bound is the lesser of the even clusters' and the odd ones',
+    each set a burst apart. None when a set has too few units for any bound; the check is then not met."""
+    if conf is None:
+        ordered = sorted(savings)
+        return ordered[(len(ordered) - 1) // 2]
+    m = cluster_size(spacing)
+    if m == 1:
+        return sign_bound(savings, conf)
+    units = [min(savings[i:i + m]) for i in range(0, len(savings), m)]
+    halves = [sign_bound(units[0::2], conf), sign_bound(units[1::2], conf)]
+    return None if None in halves else min(halves)
+
+
 def cluster_size(spacing):
     s = min(max(spacing, 1), BURST)
     return (BURST + s - 1) // s

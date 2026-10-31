@@ -56,6 +56,7 @@
   <ItemGroup>
     <None Include="../../src/AgentMemory.Extensibility/Schemas/*.json" Link="ModuleSchemas/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../eng/trial-statistics/golden.json" Link="TrialStatistics/golden.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../eng/trial-statistics/golden-cost.json" Link="TrialStatistics/golden-cost.json" CopyToOutputDirectory="PreserveNewest" />
     <!-- The shipped martial-arts pack's unsigned content, signed in memory by its test. -->
     <None Include="../../packs/AgentMemory.Packs.MartialArts/agentmemory/manifest.json" Link="Packs/MartialArts/manifest.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../packs/AgentMemory.Packs.MartialArts/agentmemory/icon.png" Link="Packs/MartialArts/icon.png" CopyToOutputDirectory="PreserveNewest" />

@@ -254,6 +254,9 @@ public static partial class PackTrialGate
     /// </summary>
     public const int BurstLength = 8;
 
+    /// <summary>The most bytes one task of an arm may record offering (feature 05), as a certificate bounds them.</summary>
+    public const long MaximumTaskBytes = 1_000_000_000;
+
     /// <summary>
     /// The history a trial's tasks come from: the most recent 2,000 eligible commits, which the runner reads and no further.
     /// Every arm's tasks lie inside it, so the spacing times one fewer than the tasks stays below it (review 7, G5: 40 tasks at a
@@ -781,10 +784,11 @@ public static partial class PackTrialGate
 
     // A cost target (feature 05, R-TRIAL-056): each task's saving in the target's unit, the baseline's framed bytes less the
     // pack's and its fixed cost (whole bytes, or millionths of the baseline's bytes rounded down, a baseline of nothing counting
-    // one byte). Tasks drawn closer than a burst are clustered, each cluster its lower median. Without a confidence the bound is
-    // the lower median; with one, the exact sign test's: the k-th largest saving, k the fewest of n that Clopper-Pearson's bound
-    // carries to one half (none: one unit under the target). Met exactly when the bound reaches the target, so a verifier checks
-    // the shown value against the target with no statistics of its own.
+    // one byte). Without a confidence the bound is the lower median of the tasks. With one, the exact sign test's lower bound of
+    // the median: at a spacing of a burst or more, of the tasks; closer, each cluster counts its minimum, and the bound is the
+    // lesser of the even clusters' and the odd ones', each set a burst apart and so independent (review F05, H1: clusters'
+    // medians tested together passed 5.9% at 95%; eng/trial-statistics/cost_bursts.py holds the level). No bound: one unit under
+    // the target. Met exactly when the bound reaches the target, so a verifier checks the shown value with no statistics.
     private static PackTrialCheck CostCheck(string target, double required, double? confidence, PackTrialMeasurement with, PackTrialMeasurement without, long fixedBytes)
     {
         var (a, b) = Paired(with, without);
@@ -798,27 +802,34 @@ public static partial class PackTrialGate
             values[i] = bytes ? saving : FloorDivide(checked(saving * PackNumbers.One), Math.Max(1, b[i].OfferedBytes!.Value));
         }
         var m = Math.Max(ClusterSize(with), ClusterSize(without));
-        var sorted = (m == 1 ? values : [.. values.Chunk(m).Select(LowerMedian)]).Order().ToArray();
         var least = bytes ? checked((long)required) : checked((long)Math.Round(required * PackNumbers.One));
-        var estimate = sorted[(sorted.Length - 1) / 2];
-        var bound = confidence is { } c ? SignBound(sorted, (int)Math.Round(c * 1000), least) : estimate;
+        var estimate = LowerMedian(values);
+        var bound = estimate;
+        if (confidence is { } c)
+        {
+            var permille = (int)Math.Round(c * 1000);
+            var units = m == 1 ? values : [.. values.Chunk(m).Select(cluster => cluster.Min())];
+            var halves = m == 1 ? [SignBound(units, permille)]
+                : new[] { SignBound([.. units.Where((_, i) => i % 2 == 0)], permille), SignBound([.. units.Where((_, i) => i % 2 == 1)], permille) };
+            bound = halves.Any(h => h is null) ? least - 1 : halves.Min(h => h!.Value);
+        }
         double Shown(long v) => bytes ? v : v / (double)PackNumbers.One;
         return new(target, required, Shown(bound), bound >= least, confidence is null ? null : Shown(estimate));
     }
 
-    // The exact sign test's lower bound of the median (R-TRIAL-056): the k-th largest of the sorted values, k the fewest whose
-    // count among n meets one half at the confidence; one under the target when no k does.
-    private static long SignBound(long[] sorted, int permille, long least)
+    // The exact sign test's lower bound of the median of independent units (R-TRIAL-056, exact.sign_bound): the k-th largest, k
+    // the fewest of n whose Clopper-Pearson bound reaches one half at the confidence; null when not even n of n does.
+    private static long? SignBound(long[] units, int permille)
     {
-        var n = sorted.Length;
-        if (!MeetsRate(n, n, permille, Q.Of(1, 2))) return least - 1;
+        var n = units.Length;
+        if (n == 0 || !MeetsRate(n, n, permille, Q.Of(1, 2))) return null;
         var (lo, hi) = (1, n);
         while (lo < hi)
         {
             var mid = (lo + hi) / 2;
             if (MeetsRate(mid, n, permille, Q.Of(1, 2))) hi = mid; else lo = mid + 1;
         }
-        return sorted[n - lo];
+        return units.Order().ElementAt(n - lo);
     }
 
     private static long FloorDivide(long a, long b) => a / b - (a % b != 0 && (a < 0) != (b < 0) ? 1 : 0);
@@ -899,6 +910,11 @@ public static partial class PackTrialGate
             || arm.Hits > arm.Correct || (long)arm.Hits * most < arm.Correct || arm.Offered > (long)arm.Tasks * most)
             return "An arm hits at most its tasks, a hit is a task with a right item, a task offers at most the arm's cap, and an arm is right at most as often as it offered.";
         if (arm.PerTask is not { } tasks) return null;
+        // Each task's bytes (feature 05 review, M1 and L1): 0 to 10^9, on every task or none, and none offered by an arm that
+        // offers nothing by design.
+        if (tasks.Any(x => x?.OfferedBytes is < 0 or > MaximumTaskBytes) || tasks.Any(x => x?.OfferedBytes is null) && tasks.Any(x => x?.OfferedBytes is not null)
+            || arm.MaximumOffered == 0 && tasks.Any(x => x?.OfferedBytes is > 0))
+            return $"PerTask's OfferedBytes are 0 to {MaximumTaskBytes} on every task or none, and 0 on an arm that offers nothing.";
         return tasks.Count != arm.Tasks || tasks.Any(x => x is null || x.Correct < 0 || x.Correct > x.Offered || x.Offered > most)
             || tasks.Sum(x => x.Offered) != arm.Offered || tasks.Sum(x => x.Correct) != arm.Correct || tasks.Count(x => x.Correct > 0) != arm.Hits
             ? "PerTask holds one entry per task, 0 <= correct <= offered <= MaximumOffered, summing to Offered and Correct, with a correct item on exactly Hits tasks."

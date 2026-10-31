@@ -59,8 +59,10 @@ public sealed record ModuleTrial
 public sealed record ModuleTrialCost
 {
     /// <summary>The least median saving per task, in whole bytes: the baseline's framed bytes less the pack's and its fixed cost.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public long? SavingBytesMedian { get; init; }
     /// <summary>The least median saving per task as a share of the baseline's bytes, in millionths.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public long? SavingRatioMicro { get; init; }
 }
 

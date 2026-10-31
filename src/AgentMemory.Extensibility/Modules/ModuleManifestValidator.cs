@@ -265,6 +265,8 @@ internal sealed class ModuleManifestValidator
         if (trial.Cost is { } cost)
         {
             if (cost.SavingBytesMedian is null && cost.SavingRatioMicro is null) Error(path + ".cost", "cost names at least one target");
+            // A saving is against what the host already has (feature 05 review, M1): a baseline of none offers nothing to save on.
+            if (trial.Baseline != "host") Error(path + ".cost", "a cost target saves against the host's own retrieval: it needs baseline host");
             foreach (var (field, value) in new[] { ("savingBytesMedian", cost.SavingBytesMedian), ("savingRatioMicro", cost.SavingRatioMicro) })
                 if (value is { } v && PackNumbers.Problem(field, v) is { } outside) Error(path + ".cost." + field, outside);
         }

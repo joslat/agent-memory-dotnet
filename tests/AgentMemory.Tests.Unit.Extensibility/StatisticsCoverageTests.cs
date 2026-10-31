@@ -30,6 +30,10 @@ public sealed class StatisticsCoverageTests
     public void Golden_json_is_the_reference_s_own_output() =>
         Run("golden.py", @"golden\.json is reference\.py's output", "--check");
 
+    [Fact]
+    public void Golden_cost_json_is_the_reference_s_own_output() =>
+        Run("golden_cost.py", @"golden-cost\.json is exact\.py's output", "--check");
+
     private static void Run(string script, string expected, params string[] extra)
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

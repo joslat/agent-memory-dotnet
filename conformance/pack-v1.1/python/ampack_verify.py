@@ -1501,6 +1501,8 @@ def read_certificate(payload):
         raise Refused("the certificate records the bytes of some tasks and not others")
     if any(c["target"] in COST_TARGETS for c in checks) and (without is None or any(len(e) == 2 for e in entries)):
         raise Refused("a cost check needs both arms and each task's bytes")
+    if any(arm is not None and arm["maximumOffered"] == 0 and any(len(e) == 3 and e[2] > 0 for e in arm["perTask"]) for arm in (with_arm, without)):
+        raise Refused("an arm that offers nothing records no bytes")
     if any(c["target"] in COST_TARGETS and c["met"] != (c["observedMicro"] >= c["requiredMicro"]) for c in checks):
         raise Refused("a cost check's met disagrees with its bound and target")
     # The verdict agrees with the record: passed exactly when every check held on enough tasks.

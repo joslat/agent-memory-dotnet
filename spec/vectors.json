@@ -2013,6 +2013,21 @@
    "R-CORE-002",
    "R-CORE-111",
    "R-CORE-127"
+  ],
+  "certificate-bytes-from-an-arm-offering-nothing": [
+   "R-CERTIFY-010",
+   "R-CORE-002",
+   "R-TRIAL-057"
+  ],
+  "certificate-bytes-past-a-billion": [
+   "R-CERTIFY-010",
+   "R-CORE-002",
+   "R-TRIAL-057"
+  ],
+  "certificate-bytes-negative": [
+   "R-CERTIFY-010",
+   "R-CORE-002",
+   "R-TRIAL-057"
   ]
  }
 }

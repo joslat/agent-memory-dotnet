@@ -913,6 +913,10 @@
    "A cost check needs both arms and each",
    "a cost check needs both arms and each"
   ],
+  "certificate-bytes-from-an-arm-offering-nothing": [
+   "An arm that offers nothing records no bytes",
+   "an arm that offers nothing records no bytes"
+  ],
   "certificate-bytes-on-some-tasks": [
    "The certificate records the bytes of some tasks and not",
    "the certificate records the bytes of some tasks and not others"
