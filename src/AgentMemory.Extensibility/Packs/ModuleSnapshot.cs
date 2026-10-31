@@ -72,6 +72,8 @@ public sealed record ModuleSnapshot
             // Built-in names bound as a knowledge pack's are (review F03, M2: only knowledge packs bound them).
             records.AddRange(KnowledgePack.Bound(module.Ontology, KnowledgePack.Lines(file, bytes,
                 line => new PackSource { Id = module.Id, Version = source, Digest = "", File = file, Line = line }, problems)));
+        // Each record's effective life, as a knowledge pack resolves it (feature 07 review, H1: a snapshot skipped the rules).
+        if (problems.Count == 0) records = KnowledgePack.Lives(module.Ontology, records, problems);
         if (problems.Count > 0) throw new KnowledgePackException(problems.Count > 100 ? [.. problems.Take(100), $"... and {problems.Count - 100} more."] : problems);
         var snapshot = new ModuleSnapshot { Module = module, Dependencies = dependencies, Source = source, Records = records, ConsentGrants = grants ?? [] };
         if (snapshot.Problems() is { Count: > 0 } invalid) throw new KnowledgePackException(invalid);
@@ -155,6 +157,9 @@ public sealed record ModuleSnapshot
                 Properties = record.Properties.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => new[] { p.Key, p.Value.GetRawText() }),
                 Links = record.Links.Select(l => l.Relation + ">" + l.Target).Order(StringComparer.Ordinal),
             }));
+        // A record's life is part of what the snapshot says (feature 07 review, H1); absent, the digest is as it was.
+        foreach (var record in Records.Where(r => r.Life is not null).OrderBy(r => r.Type, StringComparer.Ordinal).ThenBy(r => r.Key, StringComparer.Ordinal))
+            hash.AppendData(JsonSerializer.SerializeToUtf8Bytes(new { record.Type, record.Key, record.Life }));
         return Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
     }
 

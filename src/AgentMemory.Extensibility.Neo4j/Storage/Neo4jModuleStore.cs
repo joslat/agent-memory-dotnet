@@ -254,6 +254,8 @@ public sealed class Neo4jModuleStore : IModuleStore
         Dictionary<(string Type, string Key), (Dictionary<string, object> Row, HashSet<(string, string)> Links)> state)
     {
         if (!state.TryGetValue((proposal.Type, proposal.Key), out var stored)) return false;
+        // A life, given or stored, goes the per-record path, which compares it as the store does (feature 07 review, H1).
+        if (proposal.Life is not null || ModuleRecordQueries.LifeProperties.Any(p => stored.Row.ContainsKey(p.Name))) return false;
         var type = module.Ontology!.Types.Single(t => t.Name == proposal.Type);
         foreach (var (name, property) in type.Properties)
         {

@@ -30,6 +30,10 @@ public sealed class Neo4jModuleTraversalReader : IModuleTraversalReader
     private readonly ModuleMigrator _migrator;
     private readonly ModuleRecordLinks _links;
 
+    // The valid time a traversal keeps records at (feature 07): the read's pin, else now; every statement names it.
+    private static Dictionary<string, object?> ValidAt(ModuleReadContext context) =>
+        new() { ["validAt"] = (context.ValidAsOfUtc ?? DateTimeOffset.UtcNow).ToUniversalTime().ToString("O", System.Globalization.CultureInfo.InvariantCulture) };
+
     /// <summary>Binds a reader without database work.</summary>
     public Neo4jModuleTraversalReader(INeo4jTransactionRunner runner, ModuleResolution resolution, IMemoryIsolationPolicy isolationPolicy,
         IReadOnlyList<ModuleMigrationStep>? scripts = null)
@@ -44,7 +48,7 @@ public sealed class Neo4jModuleTraversalReader : IModuleTraversalReader
     public async Task<ModuleReadResult> MatchAsync(ModuleAnchorQuery query, ModuleReadContext context, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(query); ArgumentNullException.ThrowIfNull(context); cancellationToken.ThrowIfCancellationRequested();
-        if (context.SystemAsOfUtc is not null || context.ValidAsOfUtc is not null) return NotApplicable();
+        if (context.SystemAsOfUtc is not null) return NotApplicable();
         var module = _resolution.Modules.SingleOrDefault(m => m.Id == query.ModuleId);
         var declared = module?.Traversal?.Anchors.Any(a => a.Type == query.Type && a.Property == query.Property && a.Match == query.Match) == true;
         if (!declared) return Refused("The anchor property is not declared for traversal.");
@@ -76,7 +80,7 @@ public sealed class Neo4jModuleTraversalReader : IModuleTraversalReader
                         : ModuleAnchorQuery.Order(a.Key, b.Key) is var k and not 0 ? k : ModuleAnchorQuery.Order(a.Id, b.Id));
                     if (kept.Count > limit) kept.RemoveRange(limit, kept.Count - limit);
                 }
-                await EachAsync(transaction, statement, new Dictionary<string, object?>
+                await EachAsync(transaction, statement, new Dictionary<string, object?>(ValidAt(context))
                 {
                     ["owner"] = scope.HasOwnerFilter ? scope.OwnerId : null, ["shared"] = scope.IncludeShared, ["values"] = values,
                     ["folders"] = folders, ["names"] = names,
@@ -90,7 +94,7 @@ public sealed class Neo4jModuleTraversalReader : IModuleTraversalReader
                 }, cancellationToken).ConfigureAwait(false);
                 Trim();
                 if (kept.Count == 0) return new ModuleReadResult { Status = ModuleReadStatus.Succeeded };
-                var rows = await RowsAsync(transaction, ModuleTraversalQueries.ByIds(type.Name), new Dictionary<string, object?> { ["ids"] = kept.Select(k => k.Id).ToArray() },
+                var rows = await RowsAsync(transaction, ModuleTraversalQueries.ByIds(type.Name), new Dictionary<string, object?>(ValidAt(context)) { ["ids"] = kept.Select(k => k.Id).ToArray() },
                     cancellationToken).ConfigureAwait(false);
                 var byId = rows.Select(r => Neo4jModuleReader.Record(module.Id, type, r["row"].As<Dictionary<string, object>>(), []))
                     .ToDictionary(r => r.Id, StringComparer.Ordinal);
@@ -108,8 +112,8 @@ public sealed class Neo4jModuleTraversalReader : IModuleTraversalReader
     public async Task<ModuleTraversalStep> ExpandAsync(ModuleExpandQuery query, ModuleReadContext context, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(query); ArgumentNullException.ThrowIfNull(context); cancellationToken.ThrowIfCancellationRequested();
-        if (context.SystemAsOfUtc is not null || context.ValidAsOfUtc is not null)
-            return new() { Status = ModuleReadStatus.NotApplicable, Errors = ["Traversal reads live records only."] };
+        if (context.SystemAsOfUtc is not null)
+            return new() { Status = ModuleReadStatus.NotApplicable, Errors = ["Traversal reads the store's current records only."] };
         var module = _resolution.Modules.SingleOrDefault(m => m.Id == query.ModuleId);
         var declared = module?.Traversal?.Relations.SingleOrDefault(r => r.Name == query.Relation && r.Direction == query.Direction);
         if (declared is null) return StepRefused("The link is not declared traversable in this direction.");
@@ -147,7 +151,7 @@ public sealed class Neo4jModuleTraversalReader : IModuleTraversalReader
                     list.Sort(Order);
                     if (list.Count > fanOut) list.RemoveRange(fanOut, list.Count - fanOut);
                 }
-                await EachAsync(transaction, statement, new Dictionary<string, object?>
+                await EachAsync(transaction, statement, new Dictionary<string, object?>(ValidAt(context))
                 {
                     ["owner"] = scope.HasOwnerFilter ? scope.OwnerId : null, ["shared"] = scope.IncludeShared, ["ids"] = ids,
                     ["maxLinks"] = ModuleExpandQuery.MaximumLinks, ["over"] = ModuleExpandQuery.MaximumLinks + 1,
@@ -166,7 +170,7 @@ public sealed class Neo4jModuleTraversalReader : IModuleTraversalReader
                 foreach (var list in best.Values) Trim(list);
                 var keep = best.Values.SelectMany(l => l.Select(e => e.Id)).Distinct(StringComparer.Ordinal).ToArray();
                 var label = query.Direction == ModuleTraversalDirection.Out ? targetLabel : relation.From;
-                var byId = (await RowsAsync(transaction, ModuleTraversalQueries.ByIds(label), new Dictionary<string, object?> { ["ids"] = keep },
+                var byId = (await RowsAsync(transaction, ModuleTraversalQueries.ByIds(label), new Dictionary<string, object?>(ValidAt(context)) { ["ids"] = keep },
                         cancellationToken).ConfigureAwait(false))
                     .Select(r => Neo4jModuleReader.Record(reached.Module, reached.Type, r["row"].As<Dictionary<string, object>>(), []))
                     .ToDictionary(r => r.Id, StringComparer.Ordinal);

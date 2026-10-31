@@ -28,8 +28,10 @@ public sealed partial class ModuleRecordWriteIntegrationTests
         historical.Records.Single().Source.MessageIds.Should().Equal("ReadHistory-m1");
         (await reader.FindAsync(query, ReadContext() with { SystemAsOfUtc = batch.AtUtc.AddSeconds(-1) })).Records.Should().BeEmpty();
         (await reader.FindAsync(query, ReadContext() with { SystemAsOfUtc = batch.AtUtc.AddSeconds(2) })).Records.Single().Id.Should().Be(second.RecordId);
-        var unsupported = await reader.FindAsync(query, ReadContext() with { ValidAsOfUtc = batch.AtUtc });
-        unsupported.Status.Should().Be(ModuleReadStatus.NotApplicable); unsupported.Records.Should().BeEmpty();
+        // A valid-time pin reads the current knowledge as of that world time (feature 07, R-HOST-059): records without a life
+        // are true at every time, so the current version answers it.
+        var atValidTime = await reader.FindAsync(query, ReadContext() with { ValidAsOfUtc = batch.AtUtc });
+        atValidTime.Status.Should().Be(ModuleReadStatus.Succeeded); atValidTime.Records.Should().ContainSingle();
     }
 
     [Fact]
@@ -144,7 +146,7 @@ public sealed partial class ModuleRecordWriteIntegrationTests
         result.Items.Select(x => x.Record.Key).Should().Equal("item3", "item2");
         result.Items.Select(x => x.Text).Should().Equal("{item3} 003 2026-10-14", "{item2} 002 2026-10-14");
         (await views.EvaluateAsync("due", context with { SessionId = "fresh" })).Items.Should().BeEmpty();
-        (await views.EvaluateAsync("due", context with { ValidAsOfUtc = context.SystemAsOfUtc })).Status.Should().Be(ModuleReadStatus.NotApplicable);
+        (await views.EvaluateAsync("due", context with { ValidAsOfUtc = context.SystemAsOfUtc })).Status.Should().Be(ModuleReadStatus.Succeeded, "a valid-time pin is read (feature 07)");
         var query = ReadQuery(r) with { Where = [Filter("count", ">=", 2), Filter("count", "!=", 4)], OrderBy = new() { Property = "count" } };
         (await reader.FindAsync(query, ReadContext())).Records.Select(x => x.Key).Should().Equal("item2", "item3");
         (await reader.FindAsync(query with { Where = [Filter("count", "=", (object?)null)] }, ReadContext())).Records.Should().BeEmpty();

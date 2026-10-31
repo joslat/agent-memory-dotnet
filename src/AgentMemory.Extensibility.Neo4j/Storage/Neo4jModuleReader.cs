@@ -84,7 +84,11 @@ public sealed class Neo4jModuleReader : IModuleReader
                         if (links is null) continue;
                         if (!await MatchesLinksAsync(transaction, module, type, admitted.Links, links, Text(data, "owner_id"),
                             scope, frozenContext.SystemAsOfUtc, targetCache, cancellationToken).ConfigureAwait(false)) continue;
-                        records.Add(Record(module.Id, type, data, links));
+                        // Only a record live at the read's valid time, else now, before the limit (feature 07, R-HOST-058); a history
+                        // view lists versions, whatever their life.
+                        var record = Record(module.Id, type, data, links);
+                        if (admitted.Selection != ModuleRecordSelection.History && !ModuleRecordLife.IsLive(record.Life, frozenContext.ValidAsOfUtc ?? _clock.GetUtcNow())) continue;
+                        records.Add(record);
                         if (records.Count == admitted.Limit) break;
                     }
                     if (rows.Count < 128) break;

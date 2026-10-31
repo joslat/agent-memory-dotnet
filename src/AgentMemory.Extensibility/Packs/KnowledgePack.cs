@@ -174,7 +174,7 @@ public sealed class KnowledgePack
             }
         }
         if (records.Count > MaximumRecords) problems.Add($"A pack holds at most {MaximumRecords} records; this one has {records.Count}.");
-        records = Lives(manifest.Ontology, records, problems);
+        if (records.Count <= MaximumRecords) records = Lives(manifest.Ontology, records, problems);
         foreach (var record in records)
             foreach (var link in record.Links)
             {

@@ -18,7 +18,6 @@ public static class ModuleQueryAdmission
         if (!resolution.Succeeded || caller is null || target is null
             || (caller.Id != target.Id && !caller.Modules.ContainsKey(target.Id)))
             return Refused("Read target must be the bound calling module or a declared direct dependency.");
-        if (context.ValidAsOfUtc is not null) return new() { Status = ModuleReadStatus.NotApplicable, Errors = ["as-of: valid time is unsupported for module records."] };
         if (query.Limit is <= 0 or > ModuleQuery.MaximumLimit || query.Key is not null && string.IsNullOrWhiteSpace(query.Key)
             || query.Where is null || query.Where.Count > 64 || query.Where.Any(f => f is null))
             return Refused("Query requires a positive bounded limit, nonempty optional key and at most 64 non-null filters.");

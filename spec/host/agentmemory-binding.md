@@ -32,9 +32,14 @@ be refused, as any prefix two modules claim is; its author then declares a `labe
 
 **R-HOST-058.** A store MUST keep a pack record's effective life (R-CORE-128 to 130) as its instants, `valid_from`, `valid_to`,
 `expires_at` and `review_by`, and a changed life MUST be a new version of the record, never left as it was. Every view and walk
-MUST offer only the records live at the request's valid time (`AsOf`), or now when it names none, by one definition of
-liveness, decided where the walk seeds, steers and offers and where a view's records leave the store; a store given a
-valid-time pin directly MAY refuse it.
+MUST offer only the records live at the request's valid time (`AsOf`), or the host's now when it names none, by one definition
+of liveness, applied where records leave the store, before any limit, anchor match or fan-out cut counts them, and again where
+the walk seeds, steers and offers. A history view lists versions and is not filtered.
 
-> As built, a view's limit is applied in the Neo4j store before the records not live are left out, so a view can return fewer
-> than its limit while records past their life fill it; the in-memory store filters first.
+**R-HOST-059.** A valid-time pin alone reads the store's current knowledge as of that world time: what the host now holds
+true then, including records it learned later; a record without a life is true at every time. To read what the host held
+then, a request names its transaction time too (`SystemAsOf`), which views read and a walk refuses. Core memory recall reads
+both clocks at the pin; module records keep their own lives, so the two may differ, by design.
+
+> Why: a pack states when its facts are true; the host decides when it learned them. Mixing the two clocks would hide a fact
+> learned yesterday about last year, which is exactly what a trial or an audit asks for.

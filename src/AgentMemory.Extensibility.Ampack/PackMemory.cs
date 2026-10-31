@@ -338,7 +338,7 @@ public sealed partial class PackMemory : IModuleTraversalReader
         public Task<ModuleReadResult> FindAsync(ModuleQuery query, ModuleReadContext context, CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(query); ArgumentNullException.ThrowIfNull(context); cancellationToken.ThrowIfCancellationRequested();
-            if (context.SystemAsOfUtc is not null || context.ValidAsOfUtc is not null)
+            if (context.SystemAsOfUtc is not null)
                 return Task.FromResult(new ModuleReadResult { Status = ModuleReadStatus.NotApplicable, Errors = ["A pack in memory holds its current records only."] });
             var admission = ModuleQueryAdmission.Admit(memory.Resolution, caller, query, context, DateTimeOffset.UtcNow);
             if (admission.Status != ModuleReadStatus.Succeeded) return Task.FromResult(new ModuleReadResult { Status = admission.Status, Errors = admission.Errors });
@@ -346,8 +346,8 @@ public sealed partial class PackMemory : IModuleTraversalReader
             var admitted = admission.Query!;
             var module = memory.Resolution.Modules.Single(m => m.Id == admitted.ModuleId);
             var type = module.Ontology!.Types.Single(t => t.Name == admitted.Type);
-            // Only the records true in the world now (feature 07), before the limit, through the one definition.
-            var now = DateTimeOffset.UtcNow;
+            // Only the records true in the world at the read's valid time, else now (feature 07), before the limit.
+            var now = context.ValidAsOfUtc ?? DateTimeOffset.UtcNow;
             var found = memory.OfType(module.Id, type.Name)
                 .Where(r => AgentMemory.Extensibility.Reading.ModuleRecordLife.IsLive(r.Life, now))
                 .Where(r => admitted.Key is null || r.Key == admitted.Key)
@@ -380,8 +380,9 @@ public sealed partial class PackMemory : IModuleTraversalReader
     public Task<ModuleReadResult> MatchAsync(ModuleAnchorQuery query, ModuleReadContext context, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(query); ArgumentNullException.ThrowIfNull(context); cancellationToken.ThrowIfCancellationRequested();
-        if (context.SystemAsOfUtc is not null || context.ValidAsOfUtc is not null)
-            return Task.FromResult(new ModuleReadResult { Status = ModuleReadStatus.NotApplicable, Errors = ["Traversal reads live records only."] });
+        if (context.SystemAsOfUtc is not null)
+            return Task.FromResult(new ModuleReadResult { Status = ModuleReadStatus.NotApplicable, Errors = ["Traversal reads the store's current records only."] });
+        var at = context.ValidAsOfUtc ?? DateTimeOffset.UtcNow;
         var module = Resolution.Modules.SingleOrDefault(m => m.Id == query.ModuleId);
         if (module?.Traversal?.Anchors.Any(a => a.Type == query.Type && a.Property == query.Property && a.Match == query.Match) != true)
             return Task.FromResult(new ModuleReadResult { Status = ModuleReadStatus.Refused, Errors = ["The anchor property is not declared for traversal."] });
@@ -395,6 +396,7 @@ public sealed partial class PackMemory : IModuleTraversalReader
         // and one record could cost seconds).
         var quality = (query with { Values = values }).Matcher();
         var found = OfType(module.Id, query.Type)
+            .Where(r => ModuleRecordLife.IsLive(r.Life, at))
             .Select(r => { cancellationToken.ThrowIfCancellationRequested(); return r; })
             .Select(r => (Record: r, Quality: Text(r, query.Property) is { } value ? quality(value) : 0))
             .Where(p => p.Quality > 0)
@@ -407,8 +409,9 @@ public sealed partial class PackMemory : IModuleTraversalReader
     public Task<ModuleTraversalStep> ExpandAsync(ModuleExpandQuery query, ModuleReadContext context, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(query); ArgumentNullException.ThrowIfNull(context); cancellationToken.ThrowIfCancellationRequested();
-        if (context.SystemAsOfUtc is not null || context.ValidAsOfUtc is not null)
-            return Task.FromResult(new ModuleTraversalStep { Status = ModuleReadStatus.NotApplicable, Errors = ["Traversal reads live records only."] });
+        if (context.SystemAsOfUtc is not null)
+            return Task.FromResult(new ModuleTraversalStep { Status = ModuleReadStatus.NotApplicable, Errors = ["Traversal reads the store's current records only."] });
+        var at = context.ValidAsOfUtc ?? DateTimeOffset.UtcNow;
         var module = Resolution.Modules.SingleOrDefault(m => m.Id == query.ModuleId);
         var declared = module?.Traversal?.Relations.SingleOrDefault(r => r.Name == query.Relation && r.Direction == query.Direction);
         if (declared is null) return Refused("The link is not declared traversable in this direction.");
@@ -439,7 +442,8 @@ public sealed partial class PackMemory : IModuleTraversalReader
                 skipped.Add($"{start.Key} has more than {ModuleExpandQuery.MaximumLinks} {relation.Name} links: not expanded.");
                 continue;
             }
-            IEnumerable<(ModuleRecord Record, int Degree)> reached = links.Select(r => (r, Degree(relation.Name, r, query.Direction)));
+            // Only neighbours live at the walk's valid time, before the fan-out cut (feature 07 review, M2).
+            IEnumerable<(ModuleRecord Record, int Degree)> reached = links.Where(r => ModuleRecordLife.IsLive(r.Life, at)).Select(r => (r, Degree(relation.Name, r, query.Direction)));
             var ranked = reached
                 .Select(p => (p.Record, p.Degree, Hits: Hits(p.Record, text, words)))
                 .OrderByDescending(p => p.Hits).ThenBy(p => p.Degree).ThenBy(p => p.Record, Context.Traversal.TraversalOrder.Records).Take(fanOut);

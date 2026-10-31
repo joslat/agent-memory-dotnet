@@ -1488,34 +1488,49 @@
    "sha256": "24b91fb39228e7f676261ede78300a02a2ced1f18695d10669859973ae77bf97"
   },
   {
-   "id": "walk-ignores-life",
-   "rule": "LIVE-IN-WORLD-TIME",
-   "door": "serve",
-   "file": "src/AgentMemory.Extensibility/Context/Traversal/TraversalWalk.cs",
-   "edits": [
-    {
-     "old": "            if (!ModuleRecordLife.IsLive(item.Record.Life, at)) return false;\n",
-     "new": ""
-    }
-   ],
-   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~RecordLifeTests",
-   "sha256": "9d51676804cd15c2d8e35768ec48bdce3a0101fd9dbc2642f91f7f56c27cf736"
-  },
-  {
    "id": "reader-ignores-life",
    "rule": "LIVE-IN-WORLD-TIME",
    "door": "serve",
    "file": "src/AgentMemory.Extensibility/Modules/ModuleSet.cs",
    "edits": [
     {
-     "old": "bool Keep(ModuleRecord r) => (live is null || live(r.ModuleId)) && ModuleRecordLife.IsLive(r.Life, at);",
+     "old": "bool Keep(ModuleRecord r) => (live is null || live(r.ModuleId)) && (query.Selection == ModuleRecordSelection.History || ModuleRecordLife.IsLive(r.Life, at));",
      "new": "bool Keep(ModuleRecord r) => live is null || live(r.ModuleId);"
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
    "filter": "FullyQualifiedName~RecordLifeTests",
-   "sha256": "88af2c4dd1db7bd7a413724053e55f6a1794cb95564ecad21f6ad81236e4b7f0"
+   "sha256": "e354865233cbd8ecb596bd0d0c751ba3e31327be9eddafc9d37ecf221a7900b4"
+  },
+  {
+   "id": "fan-out-before-life",
+   "rule": "LIVE-IN-WORLD-TIME",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackMemory.cs",
+   "edits": [
+    {
+     "old": "links.Where(r => ModuleRecordLife.IsLive(r.Life, at)).Select(",
+     "new": "links.Select("
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~RecordLifeTests",
+   "sha256": "4964182a26840a4119d9cea00045f233bc392fb3f6f196bf779e336e6b0281d9"
+  },
+  {
+   "id": "snapshot-life-skipped",
+   "rule": "LIVE-IN-WORLD-TIME",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Packs/ModuleSnapshot.cs",
+   "edits": [
+    {
+     "old": "if (problems.Count == 0) records = KnowledgePack.Lives(module.Ontology, records, problems);",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~RecordLifeTests",
+   "sha256": "f8288b6ba6cc32119a79cf9b058de6401dd527c525dc594e6426e6e0bb94a91e"
   },
   {
    "id": "supersession-ignored",

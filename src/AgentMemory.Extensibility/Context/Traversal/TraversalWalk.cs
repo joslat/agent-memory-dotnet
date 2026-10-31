@@ -102,18 +102,20 @@ internal static class TraversalWalk
     // liveRecord: whether one record may, decided by its carrier as well (review 7, W8: an expired snapshot's records belong to a
     // live definition's module, so they seeded and steered, and were hidden only after the walk).
     internal static async Task<TraversalResult> RunAsync(ModuleResolution resolution, IModuleTraversalReader reader, ContextRequest request,
-        CancellationToken cancellationToken, TimeSpan? timeBudget = null, Func<string, bool>? live = null, Func<ModuleRecord, bool>? liveRecord = null)
+        CancellationToken cancellationToken, TimeSpan? timeBudget = null, Func<string, bool>? live = null, Func<ModuleRecord, bool>? liveRecord = null,
+        TimeProvider? time = null)
     {
         var anchors = Anchors(request.Anchors);
         if (anchors.Count == 0) return TraversalResult.Empty;
+        // A record takes part only while true in the world at the request's valid time, else the host's now (feature 07; review
+        // M3: one clock), kept by the stores before their cuts and checked again where the walk seeds, steers and offers.
+        var at = request.AsOf ?? (time ?? TimeProvider.System).GetUtcNow();
         var context = new ModuleReadContext
         {
             Scope = request.ResolvedScope ?? (request.Owner is null ? null : MemoryScope.For(request.Owner)),
-            SessionId = request.SessionId, SystemAsOfUtc = request.SystemAsOf
+            SessionId = request.SessionId, SystemAsOfUtc = request.SystemAsOf, ValidAsOfUtc = at,
         };
         var modules = resolution.Modules.Where(m => m.Traversal is not null && m.Ontology is not null && (live?.Invoke(m.Id) ?? true)).ToList();
-        // A record takes part only while true in the world at the request's valid time (feature 07; now when it names none).
-        var at = request.AsOf ?? DateTimeOffset.UtcNow;
         var best = new Dictionary<string, TraversalItem>(StringComparer.Ordinal);
         var perModule = new Dictionary<string, int>(StringComparer.Ordinal);
         var problems = new List<string>();
@@ -378,7 +380,7 @@ internal static class TraversalOrder
 
 /// <summary>One walk per request, shared by every module's traversal contributor in it (CMP-1).</summary>
 [Experimental("AMEXT001")]
-internal sealed class TraversalService(ModuleResolution resolution, IModuleTraversalReader? reader, Func<string, bool>? live = null)
+internal sealed class TraversalService(ModuleResolution resolution, IModuleTraversalReader? reader, Func<string, bool>? live = null, TimeProvider? time = null)
 {
     private readonly ConditionalWeakTable<ContextRequest, Task<TraversalResult>> _walks = new();
 
@@ -388,7 +390,7 @@ internal sealed class TraversalService(ModuleResolution resolution, IModuleTrave
     internal Task<TraversalResult> WalkAsync(ContextRequest request, CancellationToken cancellationToken) =>
         reader is null || request.Anchors.Count == 0
             ? Task.FromResult(TraversalResult.Empty)
-            : _walks.GetValue(request, r => TraversalWalk.RunAsync(resolution, reader, r, cancellationToken, live: live));
+            : _walks.GetValue(request, r => TraversalWalk.RunAsync(resolution, reader, r, cancellationToken, live: live, time: time));
 }
 
 /// <summary>

@@ -530,7 +530,9 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
             if (tests.Count == 0 || code.Count is 0 or > 8) continue;
             tasks.Add(new HistoryTask(head[0][..10], head[1].Split(' ')[0], head.Length > 3 ? head[3] : "", code, tests)
             {
-                At = head.Length > 2 && DateTimeOffset.TryParse(head[2], System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var at) ? at : null,
+                // Fails closed (review F07, M4): a task whose time cannot be read is not read at now instead.
+                At = head.Length > 2 && DateTimeOffset.TryParse(head[2], System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var at)
+                    ? at : throw new InvalidOperationException($"git log gave no commit time for {head[0][..10]}: a trial reads each task as of its own time."),
             });
         }
         // Spread over the history, not the most recent run of commits (review 6: consecutive commits are not independent draws;

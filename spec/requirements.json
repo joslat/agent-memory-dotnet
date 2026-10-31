@@ -4533,10 +4533,22 @@
    "doc": "host/agentmemory-binding.md",
    "section": "3",
    "level": "MUST",
-   "summary": "A store MUST keep a pack record's effective life (R-CORE-128 to 130) as its instants, `valid_from`, `valid_to`, `expires_at` and `review_by`, and a changed life MUST be a new version of the record, never left as it was. Every view and walk MUST offer only the records live at the request's valid time (`AsOf`), or now when it names none, by one definition of liveness, decided where the walk seeds, steers and offers and where a view's records leave the store; a store given a valid-time pin directly MAY refuse it.",
+   "summary": "A store MUST keep a pack record's effective life (R-CORE-128 to 130) as its instants, `valid_from`, `valid_to`, `expires_at` and `review_by`, and a changed life MUST be a new version of the record, never left as it was. Every view and walk MUST offer only the records live at the request's valid time (`AsOf`), or the host's now when it names none, by one definition of liveness, applied where records leave the store, before any limit, anchor match or fan-out cut counts them, and again where the walk seeds, steers and offers. A history view lists versions and is not filtered.",
    "verifiedBy": [
     "unit:RecordLifeTests.A_walk_offers_a_record_only_while_it_is_true_in_the_world",
-    "unit:RecordLifeTests.The_module_set_s_reader_keeps_the_records_true_at_its_pin_and_asks_the_store_without_it",
+    "unit:RecordLifeTests.The_module_set_s_reader_keeps_the_records_true_at_its_pin_and_asks_the_store_at_it",
+    "integration:ModuleRecordWriteIntegrationTests.ARecordTrueOnlyUntilAnInstantAnswersAQuestionAsOfThenButNotNowInBothStores",
+    "unit:RecordLifeTests.A_record_past_its_life_never_takes_a_live_neighbour_s_place_in_the_fan_out"
+   ]
+  },
+  {
+   "id": "R-HOST-059",
+   "doc": "host/agentmemory-binding.md",
+   "section": "3",
+   "level": "MUST",
+   "summary": "A valid-time pin alone reads the store's current knowledge as of that world time: what the host now holds true then, including records it learned later; a record without a life is true at every time. To read what the host held then, a request names its transaction time too (`SystemAsOf`), which views read and a walk refuses. Core memory recall reads both clocks at the pin; module records keep their own lives, so the two may differ, by design.",
+   "verifiedBy": [
+    "unit:RecordLifeTests.The_module_set_s_reader_keeps_the_records_true_at_its_pin_and_asks_the_store_at_it",
     "integration:ModuleRecordWriteIntegrationTests.ARecordTrueOnlyUntilAnInstantAnswersAQuestionAsOfThenButNotNowInBothStores"
    ]
   },

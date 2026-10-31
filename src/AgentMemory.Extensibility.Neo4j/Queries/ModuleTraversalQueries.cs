@@ -44,13 +44,21 @@ internal static class ModuleTraversalQueries
         var slashed = match == Modules.ModuleAnchorMatch.Name ? "" : ", " + Slashed(p) + " AS s";
         // Narrow rows (review 6, M2: every candidate came back whole): the id, key and value are what matching needs.
         return "WITH [v IN $values | " + Lower("v") + "] AS values, [f IN $folders | " + Lower("f") + "] AS folders "
-            + "MATCH (n:`" + label + "`) WHERE n.invalidated_at IS NULL AND " + In("n") + " AND " + p + " IS NOT NULL "
+            + "MATCH (n:`" + label + "`) WHERE n.invalidated_at IS NULL AND " + LiveAt("n") + " AND " + In("n") + " AND " + p + " IS NOT NULL "
             + "WITH n, values, folders, " + p + " AS value" + slashed + " WHERE " + filter + " "
             + "RETURN n.id AS id, n.key AS key, value";
     }
     /// <summary>The live records with these ids, whole: the matches the walk keeps, read once they are chosen.</summary>
     internal static string ByIds(string label) =>
-        "UNWIND $ids AS rid MATCH (n:`" + label + "` {id:rid}) WHERE n.invalidated_at IS NULL RETURN properties(n) AS row";
+        "UNWIND $ids AS rid MATCH (n:`" + label + "` {id:rid}) WHERE n.invalidated_at IS NULL AND " + LiveAt("n") + " RETURN properties(n) AS row";
+
+    /// <summary>
+    /// A record live in world time at <c>$validAt</c> (feature 07, R-HOST-058): the Cypher twin of ModuleRecordLife.IsLive, held to
+    /// it by the store-agreement tests, applied before the store's own cuts.
+    /// </summary>
+    internal static string LiveAt(string n) =>
+        "(" + n + ".valid_from IS NULL OR " + n + ".valid_from <= datetime($validAt)) AND (" + n + ".valid_to IS NULL OR " + n + ".valid_to > datetime($validAt)) "
+        + "AND (" + n + ".expires_at IS NULL OR " + n + ".expires_at > datetime($validAt))";
 
     // The link count the limit is checked against, as the in-memory store counts it (review 2, 3): the store's degree first,
     // read without the links; only past the limit the distinct live records in scope at the other end, at most $over of them.
@@ -89,7 +97,7 @@ internal static class ModuleTraversalQueries
         "UNWIND $ids AS fid MATCH (s:`" + source + "` {id:fid}) WHERE s.invalidated_at IS NULL AND " + In("s") + " " + OutLinks(relation, target) + " "
         + "CALL { WITH fid, s, links WITH fid, s, links WHERE links <= $maxLinks "
         + "CALL { WITH s MATCH (s)-[:`" + relation + "`]->(old:`" + target + "`) " + Live("old", "t", target) + " "
-        + "WITH t WHERE " + In("t") + " RETURN DISTINCT t } "
+        + "WITH t WHERE " + In("t") + " AND " + LiveAt("t") + " RETURN DISTINCT t } "
         + "CALL { WITH t MATCH (:`" + target + "` {key_id:t.key_id})<-[:`" + relation + "`]-(o:`" + source + "`) "
         + "WHERE o.invalidated_at IS NULL AND " + In("o") + " WITH DISTINCT o LIMIT $scan RETURN count(o) AS degree } "
         + Ranked("t") + " "
@@ -122,7 +130,7 @@ internal static class ModuleTraversalQueries
         "UNWIND $ids AS fid MATCH (x:`" + target + "` {id:fid}) WHERE x.invalidated_at IS NULL AND " + In("x") + " " + InLinks(source, relation, target) + " "
         + "CALL { WITH fid, x, links WITH fid, x, links WHERE links <= $maxLinks "
         + "CALL { WITH x MATCH (v:`" + target + "` {key_id:x.key_id}) "
-        + "MATCH (s:`" + source + "`)-[:`" + relation + "`]->(v) WHERE s.invalidated_at IS NULL AND " + In("s") + " "
+        + "MATCH (s:`" + source + "`)-[:`" + relation + "`]->(v) WHERE s.invalidated_at IS NULL AND " + LiveAt("s") + " AND " + In("s") + " "
         + "RETURN DISTINCT s } "
         + "WITH fid, s, COUNT { (s)-[:`" + relation + "`]->(v) WHERE " + In("v") + " AND (v.invalidated_at IS NULL "
         + "OR EXISTS { MATCH (k:ModuleKey {id:v.key_id}) WHERE k.current_id IS NOT NULL }) } AS own "

@@ -69,6 +69,7 @@ public sealed partial class ModuleRecordWriteIntegrationTests
             var parameters = new Dictionary<string, object?>
             {
                 ["ids"] = new[] { hub.Id }, ["maxLinks"] = 100, ["over"] = 101, ["owner"] = null, ["shared"] = true, ["fanOut"] = 6,
+                ["validAt"] = DateTimeOffset.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
                 ["words"] = Array.Empty<string>(), ["text"] = text, ["scan"] = ModuleExpandQuery.MaximumScan, ["wide"] = ModuleTraversalQueries.WideKey,
                 ["fold"] = Enumerable.Range('A', 26).Select(c => new[] { ((char)c).ToString(), ((char)(c + 32)).ToString() }).ToArray(),
             };

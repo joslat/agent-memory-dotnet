@@ -124,15 +124,65 @@ public sealed class RecordLifeTests
     }
 
     [Fact]
-    public async Task The_module_set_s_reader_keeps_the_records_true_at_its_pin_and_asks_the_store_without_it()
+    public async Task The_module_set_s_reader_keeps_the_records_true_at_its_pin_and_asks_the_store_at_it()
     {
-        // Feature 07: the one place views read world time. The store keeps instants and is asked for current records only.
+        // Feature 07: views read world time at the pin, else the host's now. The store is asked at it, so it keeps the live
+        // records before its limit (review F07, M1); the wrapper keeps them too, for a store that does not.
         var inner = new Inner();
         var reader = new ModuleSet.LiveReader(inner, live: null, new Fixed(June.AddYears(1)));
 
         (await reader.FindAsync(new() { ModuleId = "m", Type = "T", Limit = 5 }, new())).Records.Select(r => r.Key).Should().Equal("always");
         (await reader.FindAsync(new() { ModuleId = "m", Type = "T", Limit = 5 }, new() { ValidAsOfUtc = June })).Records.Select(r => r.Key).Should().Equal("always", "until-july");
-        inner.Pins.Should().OnlyContain(pin => pin == null, "the store is never asked for a valid time it cannot read");
+        inner.Pins.Should().Equal([June.AddYears(1), June], "the store is asked at the pin, else the host's now");
+    }
+
+    [Fact]
+    public async Task A_record_past_its_life_never_takes_a_live_neighbour_s_place_in_the_fan_out()
+    {
+        // Feature 07 review, M2: with a fan-out of 1 the store kept its first neighbour by order, the one past its life, and the
+        // walk then dropped it, so nothing was offered. Records leave the store by their life, before its cut.
+        const string Code = """
+            {"format":"agentmemory.module/v1alpha1","id":"com.example.code","version":"1.0.0","sdk":"[0.1,0.2)",
+             "ontology":{"labelPrefix":"Code","types":[{"name":"CodeFile","scope":"shared","render":"{path}","properties":{"path":{"type":"string","required":true}}}],
+              "relations":[{"name":"CODE_USES","from":"CodeFile","to":"CodeFile"}]},
+             "traversal":{"anchors":[{"type":"CodeFile","property":"path","match":"exact"}],"relations":[{"name":"CODE_USES","direction":"out","weightMicro":500000,"fanOut":1}],"maxItems":3}}
+            """;
+        ModuleProposal File(string path, ModuleRecordLife? life = null, params string[] uses) => new()
+        {
+            Kind = ProposalKind.Assert, Type = "CodeFile", Key = path, Life = life,
+            Properties = new Dictionary<string, System.Text.Json.JsonElement>(StringComparer.Ordinal) { ["path"] = System.Text.Json.JsonSerializer.SerializeToElement(path) },
+            Links = [.. uses.Select(u => new ProposedLink { Relation = "CODE_USES", Target = u })], Source = new ProposalSource { Excerpt = path },
+        };
+        var memory = AgentMemory.Extensibility.Ampack.PackMemory.From([], [new ModuleSnapshot
+        {
+            Module = ModuleManifest.Parse(Code), Source = "git:abc",
+            Records = [File("src/a-old.cs", new() { ValidToUtc = June }), File("src/b-new.cs"), File("src/start.cs", null, "src/a-old.cs", "src/b-new.cs")],
+        }]);
+        var request = new AgentMemory.Extensibility.Context.ContextRequest
+        {
+            SessionId = "pack", Owner = "pack", Query = "", Anchors = [AgentMemory.Extensibility.Context.ContextAnchor.Path("src/start.cs")],
+        };
+
+        var walk = await AgentMemory.Extensibility.Context.Traversal.TraversalWalk.RunAsync(memory.Resolution, memory, request, CancellationToken.None, time: new Fixed(June.AddDays(1)));
+
+        walk.Items.Select(i => i.Record.Key).Should().Contain("src/b-new.cs", "the live neighbour takes the one place").And.NotContain("src/a-old.cs");
+    }
+
+    [Fact]
+    public void A_snapshot_resolves_its_records_lives_and_its_digest_names_them()
+    {
+        // Feature 07 review, H1: a snapshot from record files skipped supersession and refreshing, and its digest left lives out.
+        var module = ModuleManifest.Parse("""
+            {"format":"agentmemory.module/v1alpha1","id":"com.example.prices","version":"1.0.0","sdk":"[0.1,0.2)",
+             "ontology":{"labelPrefix":"ComExamplePrices","types":[{"name":"ComExamplePricesNote","scope":"shared","properties":{"text":{"type":"string"}}}]}}
+            """);
+        ModuleSnapshot Shot(string lines) => ModuleSnapshot.FromRecordFiles(module, [], "git:abc",
+            [new("records/r.jsonl", (ReadOnlyMemory<byte>)Encoding.UTF8.GetBytes(lines))]);
+
+        var shot = Shot("""{"type":"ComExamplePricesNote","key":"old"}""" + "\n" + """{"type":"ComExamplePricesNote","key":"new","validFrom":"2026-06-01T00:00:00Z","supersedes":["old"]}""" + "\n");
+        shot.Records.Single(r => r.Key == "old").Life!.ValidToUtc.Should().Be(June);
+        Shot("""{"type":"ComExamplePricesNote","key":"old"}""" + "\n").Digest
+            .Should().NotBe(Shot("""{"type":"ComExamplePricesNote","key":"old","validTo":"2026-06-01T00:00:00Z"}""" + "\n").Digest, "a life is part of what a snapshot says");
     }
 
     private sealed class Fixed(DateTimeOffset now) : TimeProvider

@@ -237,24 +237,26 @@ public sealed class ModuleSet
     }
 
     // Drops the records of modules that are not live now, and the records not live in world time at the read's valid-time pin
-    // (feature 07, R-CORE-128; now when it names none), whatever the store returned. The store is asked without the pin: it
-    // keeps instants, and the rule lives here and in the walk, through ModuleRecordLife.IsLive.
+    // (feature 07, R-CORE-128; the host's now when it names none), whatever the store returned.
     internal sealed class LiveReader(IModuleReader inner, Func<string, bool>? live, TimeProvider clock) : IModuleReader
     {
         public string CallerModuleId => inner.CallerModuleId;
 
         public async Task<ModuleReadResult> FindAsync(ModuleQuery query, ModuleReadContext context, CancellationToken cancellationToken = default)
         {
+            // The store is asked at the pin, else the host's now, so it keeps the live records before its limit; kept here too, for
+            // a store that does not (review F07, M1).
             var at = context.ValidAsOfUtc ?? clock.GetUtcNow();
-            var result = await inner.FindAsync(query, context with { ValidAsOfUtc = null }, cancellationToken).ConfigureAwait(false);
-            bool Keep(ModuleRecord r) => (live is null || live(r.ModuleId)) && ModuleRecordLife.IsLive(r.Life, at);
+            var result = await inner.FindAsync(query, context with { ValidAsOfUtc = at }, cancellationToken).ConfigureAwait(false);
+            bool Keep(ModuleRecord r) => (live is null || live(r.ModuleId)) && (query.Selection == ModuleRecordSelection.History || ModuleRecordLife.IsLive(r.Life, at));
             return result.Records.All(Keep) ? result : result with { Records = [.. result.Records.Where(Keep)] };
         }
     }
 
     /// <summary>The traversal walk shared by every module's traversal contributor in one service scope (CMP-1).</summary>
     internal Context.Traversal.TraversalService Traversal(IServiceProvider services) =>
-        _traversal.GetValue(services, s => new Context.Traversal.TraversalService(Resolution, Store?.CreateTraversalReader(s, Resolution), Live(s)));
+        _traversal.GetValue(services, s => new Context.Traversal.TraversalService(Resolution, Store?.CreateTraversalReader(s, Resolution), Live(s),
+            s.GetService<TimeProvider>() ?? TimeProvider.System));
 
     // Whether a module may take part in a walk now: a pack past its validUntil goes silent in the walk as its contributors
     // do (review 1, M2), so it neither spends the walk's budgets nor leads it to other modules' records.

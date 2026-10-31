@@ -57,9 +57,10 @@ public sealed class ModuleQueryAdmissionTests
     }
 
     [Fact]
-    public void UnsupportedValidTimeNeverReturnsCurrentDataAndSnapshotsSurviveDisposal()
+    public void AValidTimeIsAdmittedAndSnapshotsSurviveDisposal()
     {
-        Admit(Query(), new() { ValidAsOfUtc = Now }).Status.Should().Be(ModuleReadStatus.NotApplicable);
+        // Feature 07: module records have a life, so a read at a valid time is admitted; the store keeps the records live then.
+        Admit(Query(), new() { ValidAsOfUtc = Now }).Status.Should().Be(ModuleReadStatus.Succeeded);
         using var doc = JsonDocument.Parse("\"lesson\"");
         var admitted = Admit(Query() with { Where = [new() { Property = "title", Operator = "=", Value = doc.RootElement }] });
         doc.Dispose(); admitted.Query!.Where[0].Value.GetString().Should().Be("lesson");
