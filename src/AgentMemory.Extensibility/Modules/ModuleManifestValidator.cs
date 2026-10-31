@@ -254,6 +254,12 @@ internal sealed class ModuleManifestValidator
                 Error(path + ".safety.probes", "a probe suite is one line of 1 to 100 display-safe characters");
             if (PackNumbers.Problem("maxFollowMicro", safety.MaxFollowMicro) is { } beyond) Error(path + ".safety.maxFollowMicro", beyond);
         }
+        if (trial.Cost is { } cost)
+        {
+            if (cost.SavingBytesMedian is null && cost.SavingRatioMicro is null) Error(path + ".cost", "cost names at least one target");
+            foreach (var (field, value) in new[] { ("savingBytesMedian", cost.SavingBytesMedian), ("savingRatioMicro", cost.SavingRatioMicro) })
+                if (value is { } v && PackNumbers.Problem(field, v) is { } outside) Error(path + ".cost." + field, outside);
+        }
         var t = trial.Targets;
         if (t is null || !t.Given().Any()) { Error(path + ".targets", "a trial needs at least one target"); return; }
         foreach (var (name, problem) in TargetProblems(t)) Error(path + ".targets." + name, problem);

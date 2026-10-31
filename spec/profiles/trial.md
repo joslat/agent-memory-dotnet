@@ -36,6 +36,7 @@ this document.
 | `targets` |
 | `upgrade` |
 | `safety` |
+| `cost` |
 <!-- /registry -->
 
 | Field | Meaning |
@@ -207,6 +208,24 @@ verdict, and a certificate MUST NOT admit a pack whose trial declares a safety t
 
 > Why: a signature proves who wrote a record, not that a model will treat it as data. The one way to know is to try it on the
 > host's own model; the library stays model-free, and the host supplies the probes.
+
+### 5.5b Cost
+
+**R-TRIAL-055.** `cost`, when present, MUST hold at least one of `savingBytesMedian` (whole bytes, 0 to 1,000,000,000) and
+`savingRatioMicro` (millionths of the baseline's bytes, 0 to 1,000,000), and each arm MUST then record, for every task, the
+UTF-8 bytes of what it offered, each item in the frame the host renders it in (R-HOST-053), the baseline's items framed the
+same way: one renderer for both arms.
+
+**R-TRIAL-056.** A task's saving is the baseline's bytes less the pack's and less the pack's fixed cost per turn (what it adds
+to every turn whatever the task). Each task's saving is shifted by the target (for a ratio, the saving times 1,000,000 less the
+target times the baseline's bytes, in integers); tasks closer than a burst are clustered, each cluster counting its lower
+median. The target MUST be met only when, without a `confidencePermille`, the lower median of the shifts is at least 0, and
+otherwise when the exact one-sided sign test passes: among the n shifts not zero, k positive, Clopper-Pearson's lower bound of
+k/n is at least one half, decided exactly (R-TRIAL-051). The decision MUST keep the fixed cost it counted, so a recheck
+reaches the same verdict.
+
+> Why: a model reads bytes, not hit rates. The sign test on the median is exact, needs no distribution, and a few large tasks
+> cannot carry it; it is the rate bound already specified, at one half.
 
 ### 5.6 Re-derivation
 

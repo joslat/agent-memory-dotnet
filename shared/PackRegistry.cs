@@ -54,6 +54,9 @@ internal static class PackRegistry
         .ToDictionary(p => p.Name, p => p.Value.GetProperty("field").GetString()!, StringComparer.Ordinal);
     internal static readonly IReadOnlySet<string> UpgradeFields = Set("trial", "upgradeFields");
     internal static readonly IReadOnlySet<string> SafetyFields = Set("trial", "safetyFields");
+    /// <summary>The cost targets (feature 05), by name, each with its field in a trial's <c>cost</c>.</summary>
+    internal static readonly IReadOnlyDictionary<string, string> CostFields = Path("trial", "costTargets").EnumerateObject()
+        .ToDictionary(p => p.Name, p => p.Value.GetProperty("field").GetString()!, StringComparer.Ordinal);
     internal static readonly IReadOnlySet<string> RelationFields = Set("traversal", "relationFields");
     internal static readonly long DefaultWeightMicro = Path("traversal", "defaultWeightMicro").GetInt64();
     /// <summary>A unit-bearing field's unit and range (feature 02): an inclusive range, or a closed set of values.</summary>

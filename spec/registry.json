@@ -361,7 +361,8 @@
       "confidencePermille",
       "targets",
       "upgrade",
-      "safety"
+      "safety",
+      "cost"
     ],
     "targets": {
       "hitRate": {
@@ -658,7 +659,15 @@
     "safetyFields": [
       "probes",
       "maxFollowMicro"
-    ]
+    ],
+    "costTargets": {
+      "savingBytes": {
+        "field": "savingBytesMedian"
+      },
+      "savingRatio": {
+        "field": "savingRatioMicro"
+      }
+    }
   },
   "certificate": {
     "measures": [
@@ -791,6 +800,9 @@
       },
       "ms": {
         "means": "whole milliseconds"
+      },
+      "bytes": {
+        "means": "whole bytes"
       }
     },
     "fields": {
@@ -839,6 +851,16 @@
         ]
       },
       "maxFollowMicro": {
+        "unit": "micro",
+        "min": 0,
+        "max": 1000000
+      },
+      "savingBytesMedian": {
+        "unit": "bytes",
+        "min": 0,
+        "max": 1000000000
+      },
+      "savingRatioMicro": {
         "unit": "micro",
         "min": 0,
         "max": 1000000

@@ -212,6 +212,51 @@ public sealed class TrialGateTests : IDisposable
             .Should().Throw<ArgumentException>("a run of another suite shows nothing about this one");
     }
 
+    [Theory]
+    [InlineData(null, 25, true)]
+    [InlineData(950, 25, false)]
+    [InlineData(950, 28, true)]
+    [InlineData(950, 40, true)]
+    public void A_cost_target_is_met_only_when_the_pack_saves_its_target_on_enough_tasks(int? permille, int saving, bool met)
+    {
+        // Feature 05: 40 tasks, the baseline 1,000 bytes each; the pack 600 on `saving` of them (400 saved, 100 past the target of
+        // 300) and 900 on the rest. On the estimate the median shift is at least 0; at 95% the exact sign test: 25 of 40 is not
+        // enough (P = 0.077), 28 is (P = 0.008).
+        var confidence = permille is { } p ? $",\"confidencePermille\":{p}" : "";
+        var manifest = Manifest(Base, $$$""","trial":{"measure":"test-impact","baseline":"host","tasks":40{{{confidence}}},"targets":{"hitRateMicro":100000},"cost":{"savingBytesMedian":300}}""");
+        var with = Measured([.. Enumerable.Range(0, 40).Select(i => new PackTrialTask(2, 1) { OfferedBytes = i < saving ? 600 : 900 })]);
+        var without = Measured([.. Enumerable.Range(0, 40).Select(_ => new PackTrialTask(3, 1) { OfferedBytes = 1000 })]);
+
+        var decision = PackTrialGate.Decide(manifest, with, without, Now);
+
+        decision.Checks.Single(c => c.Target == "savingBytes").Met.Should().Be(met);
+        decision.FixedBytes.Should().Be(0, "nothing is always shown before feature 06");
+        PackTrialGate.Recheck(decision).Single(c => c.Target == "savingBytes").Met.Should().Be(met);
+        PackTrialGate.Recheck(decision with { FixedBytes = 500 }).Single(c => c.Target == "savingBytes").Met
+            .Should().BeFalse("a fixed cost of 500 bytes a turn eats the 400 saved");
+        if (saving == 28)
+            PackTrialGate.Decide(manifest, Measured(with.PerTask!, spacing: 1), Measured(without.PerTask!, spacing: 1), Now).Checks
+                .Single(c => c.Target == "savingBytes").Met.Should().BeFalse("drawn in bursts, 40 tasks are 5 clusters, and 3 of 5 shows nothing");
+        var unmeasured = without with { PerTask = [.. without.PerTask!.Select(t => t with { OfferedBytes = null })] };
+        FluentActions.Invoking(() => PackTrialGate.Decide(manifest, with, unmeasured, Now))
+            .Should().Throw<ArgumentException>("a saving needs the bytes of both arms");
+    }
+
+    [Fact]
+    public void A_cost_ratio_target_is_a_share_of_the_baseline_in_millionths()
+    {
+        // Feature 05: 400 of 1,000 bytes saved on every task is 40%: a target of 30% is met, 50% is not.
+        var with = Measured([.. Enumerable.Range(0, 40).Select(_ => new PackTrialTask(2, 1) { OfferedBytes = 600 })]);
+        var without = Measured([.. Enumerable.Range(0, 40).Select(_ => new PackTrialTask(3, 1) { OfferedBytes = 1000 })]);
+        foreach (var (ratio, met) in new[] { (300_000, true), (500_000, false) })
+        {
+            var manifest = Manifest(Base, $$$""","trial":{"measure":"test-impact","baseline":"host","tasks":40,"confidencePermille":950,"targets":{"hitRateMicro":100000},"cost":{"savingRatioMicro":{{{ratio}}}}}""");
+            var check = PackTrialGate.Decide(manifest, with, without, Now).Checks.Single(c => c.Target == "savingRatio");
+            check.Met.Should().Be(met);
+            check.Observed.Should().Be(0.4);
+        }
+    }
+
     [Fact]
     public void A_confidence_outside_32_bits_is_refused_not_wrapped()
     {

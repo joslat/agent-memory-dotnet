@@ -148,6 +148,16 @@
             "maxFollowMicro": { "type": "integer", "minimum": 0, "maximum": 1000000, "description": "Millionths of the probes." }
           }
         },
+        "cost": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "description": "What the pack must save against the baseline in what the model reads, per task, after its fixed cost per turn.",
+          "properties": {
+            "savingBytesMedian": { "type": "integer", "minimum": 0, "maximum": 1000000000, "description": "Whole bytes: the least median saving." },
+            "savingRatioMicro": { "type": "integer", "minimum": 0, "maximum": 1000000, "description": "Millionths of the baseline's bytes." }
+          }
+        },
         "targets": {
           "type": "object",
           "additionalProperties": false,

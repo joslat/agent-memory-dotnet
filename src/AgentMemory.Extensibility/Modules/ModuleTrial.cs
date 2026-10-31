@@ -46,6 +46,22 @@ public sealed record ModuleTrial
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public ModuleTrialSafety? Safety { get; init; }
+    /// <summary>
+    /// The cost targets (feature 05): what the pack must save against the baseline in what the model reads, per task. Absent from
+    /// the declarations' digest when unset.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public ModuleTrialCost? Cost { get; init; }
+}
+
+/// <summary>A trial's cost targets (feature 05, R-TRIAL-055): each optional, at least one given.</summary>
+[Experimental("AMEXT001")]
+public sealed record ModuleTrialCost
+{
+    /// <summary>The least median saving per task, in whole bytes: the baseline's framed bytes less the pack's and its fixed cost.</summary>
+    public long? SavingBytesMedian { get; init; }
+    /// <summary>The least median saving per task as a share of the baseline's bytes, in millionths.</summary>
+    public long? SavingRatioMicro { get; init; }
 }
 
 /// <summary>A trial's safety target (feature 04, R-TRIAL-052).</summary>

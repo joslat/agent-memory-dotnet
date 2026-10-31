@@ -71,7 +71,15 @@ public sealed record PackTrialPrevious
 
 /// <summary>What one task of a trial offered, and how many of those items were in its truth.</summary>
 [Experimental("AMEXT001")]
-public sealed record PackTrialTask(int Offered, int Correct);
+public sealed record PackTrialTask(int Offered, int Correct)
+{
+    /// <summary>
+    /// The UTF-8 bytes of what the arm offered this task, framed as the model reads it (feature 05, <see cref="PackTrialRender"/>);
+    /// absent from records written before it, and from the record when not measured.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public long? OfferedBytes { get; init; }
+}
 
 /// <summary>
 /// One target checked: what was required, what the decision used (a confidence lower bound when the trial asks for one),
@@ -157,6 +165,9 @@ public sealed record PackActivation
     /// <summary>What the host's safety probes showed, when the trial declares a safety target: kept so a recheck decides alike.</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public PackTrialSafetyRun? Safety { get; init; }
+    /// <summary>What the pack adds to every turn, in bytes, when the trial declares a cost target: kept so a recheck decides alike.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public long? FixedBytes { get; init; }
 
     /// <summary>The confidence the trial declared, so the upgrade chain checks no regression with the same bounds (review 2).</summary>
     public double? Confidence { get; init; }
@@ -674,7 +685,15 @@ public static partial class PackTrialGate
                 throw new ArgumentException($"The safety run is of suite '{safety.Suite}' with {safety.Followed} of {safety.Probes} followed; the trial declares '{declared.Probes}'.", nameof(safety));
             targets.Add(("safety", PackNumbers.Fraction(declared.MaxFollowMicro)));
         }
-        var checks = targets.Select(x => Check(x.Target, x.Required, Level(trial.ConfidencePermille), with, without, previous?.With, safety)).ToList();
+        // The cost targets (feature 05): a saving per task in what the model reads, after the pack's fixed cost.
+        long? fixedBytes = null;
+        if (trial.Cost is { } cost)
+        {
+            fixedBytes = PackTrialRender.FixedBytes(manifest);
+            if (cost.SavingBytesMedian is { } bytes) targets.Add(("savingBytes", bytes));
+            if (cost.SavingRatioMicro is { } ratio) targets.Add(("savingRatio", PackNumbers.Fraction(ratio)));
+        }
+        var checks = targets.Select(x => Check(x.Target, x.Required, Level(trial.ConfidencePermille), with, without, previous?.With, safety, fixedBytes)).ToList();
         var enough = with.Tasks >= ModuleTrial.MinimumTasks;
         var failed = checks.Where(c => !c.Met).ToList();
         var reason = !enough ? $"only {with.Tasks} tasks in this host's history; a trial needs {ModuleTrial.MinimumTasks}"
@@ -686,7 +705,7 @@ public static partial class PackTrialGate
         {
             ModuleId = manifest.Id, Version = manifest.Version.ToString(), ManifestDigest = DigestOf(manifest), PackDigest = packDigest,
             Active = enough && failed.Count == 0, Reason = reason, DecidedAt = decidedAt, Checks = checks, With = with, Without = without,
-            Previous = previous, Upgrade = trial.Upgrade, Confidence = Level(trial.ConfidencePermille), Statistic = Statistic, Safety = trial.Safety is null ? null : safety,
+            Previous = previous, Upgrade = trial.Upgrade, Confidence = Level(trial.ConfidencePermille), Statistic = Statistic, Safety = trial.Safety is null ? null : safety, FixedBytes = fixedBytes,
         };
     }
 
@@ -697,8 +716,9 @@ public static partial class PackTrialGate
     // measurement could show it, so the estimate must not drop (review 2), which a manifest may ask only without a confidence
     // (review 6: with one, it read as a bound it was not).
     private static PackTrialCheck Check(string target, double required, double? confidence, PackTrialMeasurement with,
-        PackTrialMeasurement? without, PackTrialMeasurement? previous, PackTrialSafetyRun? safety = null)
+        PackTrialMeasurement? without, PackTrialMeasurement? previous, PackTrialSafetyRun? safety = null, long? fixedBytes = null)
     {
+        if (target is "savingBytes" or "savingRatio") return CostCheck(target, required, confidence, with, Arm(without, target), fixedBytes ?? 0);
         if (target == "safety")
         {
             // Met when the follow rate is at most the target: its estimate, or under a confidence its upper bound, which is one
@@ -757,6 +777,39 @@ public static partial class PackTrialGate
             return new(target, required, Math.Round(estimate, 6), exact >= t);
         var lower = bound(level);
         return new(target, required, Math.Floor(lower * PackNumbers.One) / PackNumbers.One, meets((int)Math.Round(level * 1000), t), Math.Round(estimate, 6));
+    }
+
+    // A cost target (feature 05, R-TRIAL-056): each task's saving, the baseline's framed bytes less the pack's and its fixed cost,
+    // shifted by the target (for a ratio, saving x 10^6 less the target's millionths x the baseline's bytes: integers). Tasks drawn
+    // closer than a burst are clustered, each cluster its lower median. Without a confidence the lower median of the shifts is at
+    // least 0; with one, the exact sign test: among the k positive of the n not zero, Clopper-Pearson's bound of k/n reaches one half.
+    private static PackTrialCheck CostCheck(string target, double required, double? confidence, PackTrialMeasurement with, PackTrialMeasurement without, long fixedBytes)
+    {
+        var (a, b) = Paired(with, without);
+        if (a.Any(t => t.OfferedBytes is null) || b.Any(t => t.OfferedBytes is null))
+            throw new ArgumentException($"{target} needs each task's offered bytes on both arms (PerTask.OfferedBytes).");
+        var ratio = target == "savingRatio" ? checked((long)Math.Round(required * PackNumbers.One)) : 0;
+        var savings = new long[a.Count];
+        var shifted = new long[a.Count];
+        for (var i = 0; i < a.Count; i++)
+        {
+            savings[i] = b[i].OfferedBytes!.Value - a[i].OfferedBytes!.Value - fixedBytes;
+            shifted[i] = target == "savingBytes" ? savings[i] - (long)required : checked(savings[i] * PackNumbers.One - ratio * b[i].OfferedBytes!.Value);
+        }
+        var m = Math.Max(ClusterSize(with), ClusterSize(without));
+        var units = m == 1 ? shifted : [.. shifted.Chunk(m).Select(LowerMedian)];
+        var shown = target == "savingBytes" ? LowerMedian(savings)
+            : Math.Round(LowerMedian([.. Enumerable.Range(0, a.Count).Select(i => b[i].OfferedBytes!.Value == 0 ? 0 : savings[i] * PackNumbers.One / b[i].OfferedBytes!.Value)]) / (double)PackNumbers.One, 6);
+        if (confidence is not { } c) return new(target, required, shown, LowerMedian(units) >= 0);
+        var (positive, nonzero) = (units.Count(u => u > 0), units.Count(u => u != 0));
+        return new(target, required, shown, MeetsRate(positive, nonzero, (int)Math.Round(c * 1000), Q.Of(1, 2)), shown);
+    }
+
+    private static long LowerMedian(long[] values)
+    {
+        if (values.Length == 0) return 0;
+        var sorted = values.Order().ToArray();
+        return sorted[(sorted.Length - 1) / 2];
     }
 
     // An arm's hit rate and pooled precision as exact ratios of its counts (0 for none), as the estimates are defined.
@@ -871,7 +924,7 @@ public static partial class PackTrialGate
         ArgumentNullException.ThrowIfNull(decision);
         var with = decision.With ?? throw new ArgumentException("The record carries no measurement.", nameof(decision));
         if (Intake(with, decision.Without, decision.Previous?.With) is { } refused) throw new ArgumentException(refused.Problem, nameof(decision));
-        return [.. decision.Checks.Select(c => Check(c.Target, c.Required, decision.Confidence, with, decision.Without, decision.Previous?.With, decision.Safety))];
+        return [.. decision.Checks.Select(c => Check(c.Target, c.Required, decision.Confidence, with, decision.Without, decision.Previous?.With, decision.Safety, decision.FixedBytes))];
     }
 
     /// <summary>

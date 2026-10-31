@@ -27,8 +27,7 @@ internal static class RecalledMemoryDelimiter
     /// type="…" key="…"&gt;text&lt;/record&gt;</c>, every attribute and the text escaped, so a record can neither close its frame
     /// nor change what its header says. Frames stand inside one section's wrapper (<see cref="WrapEscaped"/>).
     /// </summary>
-    public static string Frame(IEnumerable<KeyValuePair<string, string>> attributes, string text) =>
-        "<record" + string.Concat(attributes.Select(a => $" {a.Key}=\"{EscapeAttribute(a.Value)}\"")) + ">" + Escape(text) + "</record>";
+    public static string Frame(IEnumerable<KeyValuePair<string, string>> attributes, string text) => RecordFrame.Frame(attributes, text);
 
     /// <summary>A text escaped as <see cref="Wrap"/> escapes its content: for a section that holds frames beside plain items.</summary>
     public static string EscapeText(string text) => Escape(text);
@@ -43,9 +42,7 @@ internal static class RecalledMemoryDelimiter
     // could then close the attribute and forge wrapper metadata around content that was itself
     // escaped correctly. Escaped here rather than at that one call site, because the precondition
     // "callers pass a trusted category" was never written down and the next caller will not know it.
-    private static string EscapeAttribute(string value) =>
-        Escape(value).Replace("\"", "&quot;");
+    private static string EscapeAttribute(string value) => RecordFrame.EscapeAttribute(value);
 
-    private static string Escape(string content) =>
-        content.Replace("<", "&lt;").Replace(">", "&gt;");
+    private static string Escape(string content) => RecordFrame.Escape(content);
 }

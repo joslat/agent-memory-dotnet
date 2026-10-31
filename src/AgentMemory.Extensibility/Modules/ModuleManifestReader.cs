@@ -88,9 +88,19 @@ internal static class ModuleManifestReader
             Object(probes, path + ".safety", [.. PackRegistry.SafetyFields]);
             safety = new ModuleTrialSafety { Probes = Text(probes, "probes", path + ".safety"), MaxFollowMicro = Integer(probes, "maxFollowMicro", path + ".safety") ?? 0 };
         }
+        ModuleTrialCost? cost = null;
+        if (value.TryGetProperty("cost", out var costs))
+        {
+            Object(costs, path + ".cost", [.. PackRegistry.CostFields.Values]);
+            cost = new ModuleTrialCost
+            {
+                SavingBytesMedian = Integer(costs, PackRegistry.CostFields["savingBytes"], path + ".cost"),
+                SavingRatioMicro = Integer(costs, PackRegistry.CostFields["savingRatio"], path + ".cost"),
+            };
+        }
         return new ModuleTrial
         {
-            Safety = safety,
+            Safety = safety, Cost = cost,
             Measure = Text(value, "measure", path), Tasks = PositiveInteger(value, "tasks", path) ?? 40,
             Baseline = OptionalText(value, "baseline", path) ?? "none", ConfidencePermille = confidence is { } p
                 ? p is >= int.MinValue and <= int.MaxValue ? (int)p : throw Error(path + ".confidencePermille", PackNumbers.Problem("confidencePermille", p)!)

@@ -1158,6 +1158,51 @@
    "sha256": "5e14bf5f8f8b17051480db25249c3b7475de01dd8ab6e14fe33c1c6ea4a442ea"
   },
   {
+   "id": "cost-sign-test-always-met",
+   "rule": "EXACT-VERDICT",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "MeetsRate(positive, nonzero, (int)Math.Round(c * 1000), Q.Of(1, 2)), shown);",
+     "new": "true, shown);"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~TrialGateTests.A_cost_target",
+   "sha256": "b3a0909e04fd4f89558b016e034c9b088dd049a6ac99f8c59bbfe70227826460"
+  },
+  {
+   "id": "cost-fixed-left-out",
+   "rule": "EXACT-VERDICT",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "savings[i] = b[i].OfferedBytes!.Value - a[i].OfferedBytes!.Value - fixedBytes;",
+     "new": "savings[i] = b[i].OfferedBytes!.Value - a[i].OfferedBytes!.Value;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~TrialGateTests.A_cost_target",
+   "sha256": "b8a69c86c405bcccbb862e5742248e5c6ee6ab175af99de4047d4008c27abbf6"
+  },
+  {
+   "id": "cost-unclustered",
+   "rule": "EXACT-VERDICT",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "var units = m == 1 ? shifted : [.. shifted.Chunk(m).Select(LowerMedian)];",
+     "new": "var units = shifted;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~TrialGateTests.A_cost_target",
+   "sha256": "9c08ed1242d75c3640fd8a71139c3ea7ac63372fc65e9b753ed7005a19c5766e"
+  },
+  {
    "id": "length-by-utf16",
    "rule": "TEXT-BY-CHARACTER",
    "door": "verify",

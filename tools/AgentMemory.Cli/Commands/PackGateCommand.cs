@@ -284,11 +284,14 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
         // An anchor the commit created does not exist before it: it declares nothing grep could search for.
         var types = task.Anchors.Where(a => File.Exists(Path.Combine(root, a)))
             .SelectMany(a => Declared().Matches(Text(a)).Select(m => m.Groups[1].Value)).ToHashSet(StringComparer.Ordinal);
-        if (types.Count == 0) return new TaskOutcome(task, [], 0, 0, null);
+        if (types.Count == 0) return new TaskOutcome(task, [], 0, 0, null, 0);
         var mention = new Regex(@"\b(" + string.Join("|", types.Order(StringComparer.Ordinal).Select(Regex.Escape)) + @")\b");
         var top = _grepTests.Select(t => (File: t, Count: mention.Matches(Text(t)).Count)).Where(x => x.Count > 0)
             .OrderByDescending(x => x.Count).ThenBy(x => x.File, StringComparer.Ordinal).Take(GrepTop).Select(x => x.File).ToList();
-        return new TaskOutcome(task, top, top.Count(f => task.Tests.Contains(f, StringComparer.OrdinalIgnoreCase)), 0, null);
+        // What the host's own retrieval shows the model of each file (feature 05): its path and the first line that mentions a
+        // declared type, framed as the provider frames a pack's records.
+        var bytes = top.Sum(f => PackTrialRender.Bytes("grep", f, Text(f).Split('\n').FirstOrDefault(l => mention.IsMatch(l))?.Trim() ?? ""));
+        return new TaskOutcome(task, top, top.Count(f => task.Tests.Contains(f, StringComparer.OrdinalIgnoreCase)), 0, null, bytes);
     }
 
     // How many test files the grep baseline offers a task: its cut, and its arm's cap for the bounds (review 5, root RB).
@@ -328,10 +331,12 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
             .Where(i => i.Provenance?.RecordModuleId == CodeMapPack.Id && i.Provenance.RecordType == CodeMapPack.TestType && i.Provenance.Via is not null)
             .Select(i => TestFile().Match(i.Text)).Where(m => m.Success).Select(m => m.Groups[1].Value)
             .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        return new TaskOutcome(task, files, files.Count(f => task.Tests.Contains(f, StringComparer.OrdinalIgnoreCase)), ms, ms);
+        // Everything the pack put into the context this task, framed as the model reads it (feature 05).
+        var bytes = envelope.Sections.SelectMany(s => s.Items).Where(i => i.Provenance?.RecordModuleId == CodeMapPack.Id).Sum(PackTrialRender.Bytes);
+        return new TaskOutcome(task, files, files.Count(f => task.Tests.Contains(f, StringComparer.OrdinalIgnoreCase)), ms, ms, bytes);
     }
 
-    private sealed record TaskOutcome(HistoryTask Task, IReadOnlyList<string> Offered, int Right, double Milliseconds, double? Timed);
+    private sealed record TaskOutcome(HistoryTask Task, IReadOnlyList<string> Offered, int Right, double Milliseconds, double? Timed, long Bytes);
 
     // The outcomes of one arm, task by task, and the measurement they make.
     private sealed class ArmRun
@@ -351,7 +356,7 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
             return (new PackTrialMeasurement
             {
                 Tasks = tasks, Hits = _outcomes.Count(o => o.Right > 0), Offered = _outcomes.Sum(o => o.Offered.Count), Correct = _outcomes.Sum(o => o.Right),
-                P95Ms = Math.Round(p95, 1), PerTask = [.. _outcomes.Select(o => new PackTrialTask(o.Offered.Count, o.Right))],
+                P95Ms = Math.Round(p95, 1), PerTask = [.. _outcomes.Select(o => new PackTrialTask(o.Offered.Count, o.Right) { OfferedBytes = o.Bytes })],
             }, [.. _outcomes.Select(o => (object)new
             {
                 o.Task.Commit, parent = o.Task.Parent[..10], o.Task.Subject, o.Task.Anchors, o.Task.Tests, offered = o.Offered, hit = o.Right > 0,
