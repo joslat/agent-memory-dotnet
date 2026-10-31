@@ -380,7 +380,8 @@ internal static class TraversalOrder
 
 /// <summary>One walk per request, shared by every module's traversal contributor in it (CMP-1).</summary>
 [Experimental("AMEXT001")]
-internal sealed class TraversalService(ModuleResolution resolution, IModuleTraversalReader? reader, Func<string, bool>? live = null, TimeProvider? time = null)
+internal sealed class TraversalService(ModuleResolution resolution, IModuleTraversalReader? reader, Func<string, bool>? live = null, TimeProvider? time = null,
+    Func<ModuleRecord, bool>? liveRecord = null)
 {
     private readonly ConditionalWeakTable<ContextRequest, Task<TraversalResult>> _walks = new();
 
@@ -390,7 +391,7 @@ internal sealed class TraversalService(ModuleResolution resolution, IModuleTrave
     internal Task<TraversalResult> WalkAsync(ContextRequest request, CancellationToken cancellationToken) =>
         reader is null || request.Anchors.Count == 0
             ? Task.FromResult(TraversalResult.Empty)
-            : _walks.GetValue(request, r => TraversalWalk.RunAsync(resolution, reader, r, cancellationToken, live: live, time: time));
+            : _walks.GetValue(request, r => TraversalWalk.RunAsync(resolution, reader, r, cancellationToken, live: live, liveRecord: liveRecord, time: time));
 }
 
 /// <summary>

@@ -366,6 +366,8 @@ public static class PackLoader
             throw new PackLoadException([$"{pack.Id} is a snapshot pack: compose its definition, and import the snapshot with ToSnapshot."]);
         var added = pack.Knowledge is { } knowledge ? builder.AddKnowledgePack(knowledge, priority, pack.ValidUntil)
             : builder.AddDefinitionPack(pack.Manifest, pack.Digest, string.Join(", ", pack.Signers), priority, pack.ValidUntil);
+        // The pack's verified erasures: no view or walk offers what they name (feature 08).
+        if (pack.Erasures.Count != 0) added.UseErasures(pack.Erasures);
         // The latest certificate this host trusts now, as it loaded the pack: a decision it made from a certificate counts only
         // while that certificate travels with the pack, is trusted, and no newer trusted one stands beside it (review 1, M1;
         // review 2, L3).

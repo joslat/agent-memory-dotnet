@@ -105,8 +105,12 @@ internal static partial class Program
           certificate verify <pack.ampack> --policy <trust.json> [--certificate META/attestations/<name> | <file>]
                                  verify the pack and its certificates as a host does: a key the policy names as
                                  evaluator for the pack's id, this exact pack, and the AEF run's hash when it travels with it
+          erase <pack id> --erased Type=key [--erased ...] [--reason withdrawn|incorrect|harmful|legal] [--plain-keys] --key <publisher.pem> --out <file>
+                                 build and sign an erasure (feature 08): each key as its salted hash unless --plain-keys
           erasure verify <pack.ampack> --policy <trust.json> [--erasure META/attestations/<name> | <file>]
                                  check an erasure (feature 08) for the pack: by a key trusted as publisher or revoker for its id
+          erasure receipt <erasure file> --key <host.pem> --out <file>
+                                 sign this host's receipt that it applied the erasure, naming nothing else
           admit <pack.ampack> --policy <trust.json> --host-signing-key <host.key.pem> --activations <folder>
                                  for a host that trusts certificates for this pack's namespace: record a decision from the
                                  latest trusted certificate covering the trial the pack declares, signed with the host's
@@ -191,6 +195,7 @@ internal static partial class Program
                 "certify" => Certify(options),
                 "certificate" => CertificateCommand(options),
                 "erasure" => ErasureCommand(options),
+                "erase" => Erase(options),
                 "admit" => Admit(options),
                 "gate" => Gate(options),
                 "solid" => Solid(options),
@@ -261,7 +266,8 @@ internal static partial class Program
         ["receipt"] = ["location", "audience", "access", "denied", "allowed", "out", .. SignerOptions, .. TrustOptions],
         ["certify"] = ["activations", "host-key", "evaluator", "task-source", "aef", "tool", "tool-version", "out", .. SignerOptions, .. TrustOptions],
         ["certificate"] = ["certificate", .. TrustOptions],
-        ["erasure"] = ["erasure", .. TrustOptions],
+        ["erasure"] = ["erasure", "out", "key", .. TrustOptions],
+        ["erase"] = ["erased", "reason", "plain-keys", "out", .. SignerOptions],
         ["admit"] = ["host-signing-key", "activations", .. TrustOptions],
         ["gate"] = [.. GateOptions, .. TrustOptions],
         ["solid"] = ["allow-loopback-http", "webid", "audience", "probe-as", "probe-stranger", "from", "id", "no-recheck", "store", "allow-downgrade", .. SignerOptions, .. TrustOptions],
@@ -274,7 +280,7 @@ internal static partial class Program
     {
         ["init"] = 1, ["lint"] = 1, ["build"] = 1, ["sign"] = 1, ["verify"] = 1, ["inspect"] = 1, ["diff"] = 2, ["keygen"] = 0,
         ["revoke"] = 1, ["ledger"] = 0, ["sign-bytes"] = 0, ["migrate"] = 1, ["evidence"] = 0, ["scan"] = 1, ["countersign"] = 1,
-        ["install"] = 1, ["uninstall"] = 1, ["list"] = 0, ["receipt"] = 3, ["certify"] = 1, ["certificate"] = 2, ["erasure"] = 2, ["admit"] = 1,
+        ["install"] = 1, ["uninstall"] = 1, ["list"] = 0, ["receipt"] = 3, ["certify"] = 1, ["certificate"] = 2, ["erasure"] = 2, ["erase"] = 1, ["admit"] = 1,
         ["solid"] = 2, ["trust"] = 2,
     };
 

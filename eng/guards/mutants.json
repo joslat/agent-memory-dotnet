@@ -1494,13 +1494,13 @@
    "file": "src/AgentMemory.Extensibility/Modules/ModuleSet.cs",
    "edits": [
     {
-     "old": "bool Keep(ModuleRecord r) => (live is null || live(r.ModuleId)) && (query.Selection == ModuleRecordSelection.History || ModuleRecordLife.IsLive(r.Life, at));",
-     "new": "bool Keep(ModuleRecord r) => live is null || live(r.ModuleId);"
+     "old": " && (query.Selection == ModuleRecordSelection.History || ModuleRecordLife.IsLive(r.Life, at))\n                && erased",
+     "new": "\n                && erased"
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
    "filter": "FullyQualifiedName~RecordLifeTests",
-   "sha256": "e354865233cbd8ecb596bd0d0c751ba3e31327be9eddafc9d37ecf221a7900b4"
+   "sha256": "fa3f623bf3d296eb4921e3288c4685d579c98ceaaa0fbdb6d50c36274b3ebf0f"
   },
   {
    "id": "fan-out-before-life",
@@ -1621,6 +1621,21 @@
    "project": "kit",
    "filter": "",
    "sha256": "d469ef496e0f0f6a060aaf3f8248eb58d51af1f5d90a4891c9d5eea68d5e3ce1"
+  },
+  {
+   "id": "offered-while-pending",
+   "rule": "ERASED-STAYS-GONE",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility/Modules/ModuleSet.cs",
+   "edits": [
+    {
+     "old": "                && erased?.Invoke(r) != true;",
+     "new": "                && erased?.Invoke(r) != null;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ErasureTests",
+   "sha256": "4485af6a35f62f75fe606d031ac4a86546259b49d32a46b0569ac3b363b7a166"
   },
   {
    "id": "hash-unsalted",

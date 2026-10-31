@@ -138,7 +138,7 @@ public sealed class ModuleSet
         var set = new ModuleSet(resolution, modules.AsReadOnly(), composition.CompositionFingerprint!, fingerprint, store,
             registrations, switchedOff)
         {
-            ChatClient = builder.ChatClient, Priorities = priorities.AsReadOnly(),
+            ChatClient = builder.ChatClient, Priorities = priorities.AsReadOnly(), Erasures = [.. builder.Erasures],
             Slots = [.. builder.Modules.SelectMany(m => Enumerable.Repeat(m.Manifest.Id, m.Contributors.Count))],
         };
         var log = services.GetService<ILoggerFactory>()?.CreateLogger<ModuleSet>();
@@ -233,12 +233,19 @@ public sealed class ModuleSet
             .CreateReader(services, Resolution, moduleId);
         // A view may read its dependencies' types: an expired dependency's records leave its answers too (review 2, M2's twin).
         // Every read also keeps only the records live in world time at its pin (feature 07).
-        return new LiveReader(reader, Live(services), services.GetService<TimeProvider>() ?? TimeProvider.System);
+        return new LiveReader(reader, Live(services), services.GetService<TimeProvider>() ?? TimeProvider.System, Erased);
     }
 
     // Drops the records of modules that are not live now, and the records not live in world time at the read's valid-time pin
     // (feature 07, R-CORE-128; the host's now when it names none), whatever the store returned.
-    internal sealed class LiveReader(IModuleReader inner, Func<string, bool>? live, TimeProvider clock) : IModuleReader
+    /// <summary>The verified erasures this host holds (feature 08): no view or walk offers a record they name.</summary>
+    internal IReadOnlyList<Packs.ModuleErasure> Erasures { get; init; } = [];
+
+    // Whether an erasure this host holds names the record (feature 08, R-CORE-134), whatever the store still holds.
+    internal bool Erased(ModuleRecord record) =>
+        Erasures.Count != 0 && Erasures.Any(e => (e.PackId == record.ModuleId || e.PackId == record.Source.Pack?.Id) && e.Erases(record.Type, record.Key));
+
+    internal sealed class LiveReader(IModuleReader inner, Func<string, bool>? live, TimeProvider clock, Func<ModuleRecord, bool>? erased = null) : IModuleReader
     {
         public string CallerModuleId => inner.CallerModuleId;
 
@@ -248,7 +255,8 @@ public sealed class ModuleSet
             // a store that does not (review F07, M1).
             var at = context.ValidAsOfUtc ?? clock.GetUtcNow();
             var result = await inner.FindAsync(query, context with { ValidAsOfUtc = at }, cancellationToken).ConfigureAwait(false);
-            bool Keep(ModuleRecord r) => (live is null || live(r.ModuleId)) && (query.Selection == ModuleRecordSelection.History || ModuleRecordLife.IsLive(r.Life, at));
+            bool Keep(ModuleRecord r) => (live is null || live(r.ModuleId)) && (query.Selection == ModuleRecordSelection.History || ModuleRecordLife.IsLive(r.Life, at))
+                && erased?.Invoke(r) != true;
             return result.Records.All(Keep) ? result : result with { Records = [.. result.Records.Where(Keep)] };
         }
     }
@@ -256,7 +264,7 @@ public sealed class ModuleSet
     /// <summary>The traversal walk shared by every module's traversal contributor in one service scope (CMP-1).</summary>
     internal Context.Traversal.TraversalService Traversal(IServiceProvider services) =>
         _traversal.GetValue(services, s => new Context.Traversal.TraversalService(Resolution, Store?.CreateTraversalReader(s, Resolution), Live(s),
-            s.GetService<TimeProvider>() ?? TimeProvider.System));
+            s.GetService<TimeProvider>() ?? TimeProvider.System, Erasures.Count == 0 ? null : r => !Erased(r)));
 
     // Whether a module may take part in a walk now: a pack past its validUntil goes silent in the walk as its contributors
     // do (review 1, M2), so it neither spends the walk's budgets nor leads it to other modules' records.

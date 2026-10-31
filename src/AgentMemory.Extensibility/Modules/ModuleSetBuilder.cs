@@ -34,6 +34,20 @@ public sealed class ModuleSetBuilder
     internal IPackActivations? Activations { get; private set; }
     internal IReadOnlyList<string> MandatoryTrials => _mandatoryTrials;
     internal PackTrialFloor? TrialFloor { get; private set; }
+
+    /// <summary>The verified erasures this host holds (feature 08): the records they name are never offered.</summary>
+    internal List<Packs.ModuleErasure> Erasures { get; } = [];
+
+    /// <summary>
+    /// Holds verified erasures (feature 08, R-CORE-134): every view and walk leaves out the records they name, whatever the store
+    /// holds, until and after an import applies them. A loaded pack's own verified erasures are added with the pack.
+    /// </summary>
+    public ModuleSetBuilder UseErasures(IEnumerable<Packs.ModuleErasure> erasures)
+    {
+        ArgumentNullException.ThrowIfNull(erasures);
+        Erasures.AddRange(erasures);
+        return this;
+    }
     internal IReadOnlyList<string> CertificateTrust => _certificateTrust;
     internal IReadOnlyList<ModuleConsentGrant> ConsentGrants => _consentGrants;
     private readonly List<ModuleConsentGrant> _consentGrants = [];

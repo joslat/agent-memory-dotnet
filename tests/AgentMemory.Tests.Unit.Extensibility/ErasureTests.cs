@@ -69,6 +69,65 @@ public sealed class ErasureTests
         store.Calls.Should().Equal("erase 1", "import");
     }
 
+    [Fact]
+    public void An_authored_erasure_verifies_names_no_key_and_its_receipt_names_nothing_else()
+    {
+        // Feature 08: ampack erase's library half; the notice carries salted hashes only, and the host's receipt only the
+        // erasure's identity and when it was applied.
+        var publisher = PackAuthoring.CreateKey();
+        var host = PackAuthoring.CreateKey();
+        var policy = PackTrust.Parse(System.Text.Encoding.UTF8.GetBytes(new System.Text.Json.Nodes.JsonObject
+        {
+            ["format"] = "agentmemory.pack.trust/1.1",
+            ["keys"] = new System.Text.Json.Nodes.JsonArray(new System.Text.Json.Nodes.JsonObject
+            {
+                ["keyId"] = publisher.KeyId, ["publicKey"] = publisher.PublicKeyPem, ["idPrefixes"] = new System.Text.Json.Nodes.JsonArray("io.example"), ["roles"] = new System.Text.Json.Nodes.JsonArray("publisher"),
+            }),
+        }.ToJsonString())).Policy;
+        using var signer = AgentMemory.Packs.Format.PackSigner.FromPem(publisher.PrivateKeyPem);
+
+        var envelope = AgentMemory.Packs.Format.PackErasure.Create("io.example.notes", [("NotesNote", "person/jose")], "legal", DateTimeOffset.UtcNow, signer);
+        var (erasure, signedBy, problems) = AgentMemory.Packs.Format.PackErasure.Verify(envelope, "io.example.notes", policy, DateTimeOffset.UtcNow);
+
+        problems.Should().BeEmpty();
+        signedBy.Should().Be(publisher.KeyId);
+        erasure!.Erases("NotesNote", "person/jose").Should().BeTrue();
+        var payload = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(System.Text.Json.JsonDocument.Parse(envelope).RootElement.GetProperty("payload").GetString()!));
+        payload.Should().NotContain("person/jose", "the notice names the record by its salted hash only");
+        AgentMemory.Packs.Format.PackErasure.Verify(envelope, "io.example.other", policy, DateTimeOffset.UtcNow).Erasure.Should().BeNull("an erasure is for its pack");
+
+        using var hostSigner = AgentMemory.Packs.Format.PackSigner.FromPem(host.PrivateKeyPem);
+        var receipt = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(System.Text.Json.JsonDocument.Parse(
+            AgentMemory.Packs.Format.PackErasure.Receipt(envelope, DateTimeOffset.UtcNow, hostSigner)).RootElement.GetProperty("payload").GetString()!));
+        receipt.Should().Contain(AgentMemory.Packs.Format.PackCertificate.IdentityOf(envelope)!).And.NotContain("NotesNote").And.Contain("erasure-receipt");
+    }
+
+    [Fact]
+    public async Task A_module_set_never_offers_a_record_an_erasure_it_holds_names_whatever_the_store_holds()
+    {
+        // Feature 08 (R-CORE-134): before an import applies it, and if a store still holds the record, a view leaves it out.
+        var erasure = Erasure(new ModuleErasedRecord("T", "gone", null)) with { PackId = "m" };
+        var set = new Inner();
+        bool Erased(ModuleRecord r) => erasure.PackId == r.ModuleId && erasure.Erases(r.Type, r.Key);
+        var reader = new ModuleSet.LiveReader(set, live: null, TimeProvider.System, Erased);
+
+        (await reader.FindAsync(new() { ModuleId = "m", Type = "T", Limit = 5 }, new())).Records.Select(r => r.Key).Should().Equal("kept");
+    }
+
+    private sealed class Inner : IModuleReader
+    {
+        public string CallerModuleId => "m";
+
+        public Task<ModuleReadResult> FindAsync(ModuleQuery query, ModuleReadContext context, CancellationToken cancellationToken = default)
+        {
+            ModuleRecord Record(string key) => new()
+            {
+                ModuleId = "m", Type = "T", Id = key, Key = key, CreatedAtUtc = DateTimeOffset.UnixEpoch, SourceSessionId = "pack", Source = new ProposalSource { Excerpt = key },
+            };
+            return Task.FromResult(new ModuleReadResult { Status = ModuleReadStatus.Succeeded, Records = [Record("gone"), Record("kept")] });
+        }
+    }
+
     private sealed class Store : IKnowledgePackStore
     {
         public List<string> Calls { get; } = [];

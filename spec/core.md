@@ -860,7 +860,11 @@ version: each erased record's every version, and its content, MUST leave the sto
 pack, the type, the salt and the key's hash, never the key.
 
 **R-CORE-134.** A host MUST NOT write, hold or offer a record a tombstone or an erasure it holds names, whichever version or copy
-brings it; a link into an erased record goes with it.
+brings it; a link into an erased record goes with it. A host that holds an erasure it has not yet applied to its store MUST
+still leave the records it names out of every read.
+
+**R-CORE-135.** On request, a host MAY sign a receipt that it applied an erasure: a DSSE envelope of an in-toto statement of
+predicate type `urn:agentmemory:pack:erasure-receipt:v1` naming only the erasure statement's identity and when it was applied.
 
 > Why: tombstones are known; a signed erasure bound to the pack's identity, held to the trust policy's roles, and read alike
 > by both verifiers, is what a host can act on without trusting the channel it came through.

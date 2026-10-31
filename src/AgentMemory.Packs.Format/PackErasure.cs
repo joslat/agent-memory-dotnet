@@ -115,6 +115,68 @@ internal sealed partial record PackErasure(string Id, DateTimeOffset IssuedAt, s
         return (new PackErasure(id, issuedAt, reason, salt, records), null);
     }
 
+    /// <summary>
+    /// Builds and signs an erasure of <paramref name="records"/> (type and key) of the pack <paramref name="id"/>: each key travels
+    /// as its salted hash unless <paramref name="plainKeys"/>, under a fresh salt, so the notice does not reveal what it erases.
+    /// </summary>
+    internal static byte[] Create(string id, IReadOnlyList<(string Type, string Key)> records, string reason, DateTimeOffset issuedAt, PackSigner signer, bool plainKeys = false)
+    {
+        var salt = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+        var statement = new System.Text.Json.Nodes.JsonObject
+        {
+            ["_type"] = Dsse.StatementType,
+            ["subject"] = new System.Text.Json.Nodes.JsonArray(new System.Text.Json.Nodes.JsonObject
+            {
+                ["name"] = id, ["digest"] = new System.Text.Json.Nodes.JsonObject { ["sha256"] = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(id))).ToLowerInvariant() },
+            }),
+            ["predicateType"] = PredicateType,
+            ["predicate"] = new System.Text.Json.Nodes.JsonObject
+            {
+                ["id"] = id, ["issuedAt"] = issuedAt.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture), ["reason"] = reason, ["salt"] = salt,
+                ["records"] = new System.Text.Json.Nodes.JsonArray([.. records.Select(r => (System.Text.Json.Nodes.JsonNode)(plainKeys
+                    ? new System.Text.Json.Nodes.JsonObject { ["type"] = r.Type, ["key"] = r.Key }
+                    : new System.Text.Json.Nodes.JsonObject { ["type"] = r.Type, ["keyHash"] = HashOf(salt, r.Key) }))]),
+            },
+        };
+        var payload = Jcs.Canonical(statement);
+        if (Read(payload).Problem is { } problem) throw new InvalidDataException(problem);
+        return Envelope(payload, signer);
+    }
+
+    /// <summary>The predicate type of a host's receipt that it applied an erasure (feature 08, R-CORE-135).</summary>
+    internal const string ReceiptPredicateType = "urn:agentmemory:pack:erasure-receipt:v1";
+
+    /// <summary>
+    /// A host's signed receipt that it applied an erasure (R-CORE-135): naming the erasure statement's identity and when it was
+    /// applied, and nothing else, so it reveals no record. Issued on request.
+    /// </summary>
+    internal static byte[] Receipt(byte[] erasureEnvelope, DateTimeOffset appliedAt, PackSigner host)
+    {
+        var identity = PackCertificate.IdentityOf(erasureEnvelope) ?? throw new InvalidDataException("The erasure is not an envelope.");
+        var statement = new System.Text.Json.Nodes.JsonObject
+        {
+            ["_type"] = Dsse.StatementType,
+            ["subject"] = new System.Text.Json.Nodes.JsonArray(new System.Text.Json.Nodes.JsonObject
+            {
+                ["name"] = "erasure", ["digest"] = new System.Text.Json.Nodes.JsonObject { ["sha256"] = identity[7..] },
+            }),
+            ["predicateType"] = ReceiptPredicateType,
+            ["predicate"] = new System.Text.Json.Nodes.JsonObject { ["erasure"] = identity, ["appliedAt"] = appliedAt.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture) },
+        };
+        return Envelope(Jcs.Canonical(statement), host);
+    }
+
+    private static byte[] Envelope(byte[] payload, PackSigner signer)
+    {
+        var signature = signer.Sign(Dsse.Pae(Dsse.PayloadType, payload));
+        return Jcs.Canonical(new System.Text.Json.Nodes.JsonObject
+        {
+            ["payloadType"] = Dsse.PayloadType,
+            ["payload"] = Convert.ToBase64String(payload),
+            ["signatures"] = new System.Text.Json.Nodes.JsonArray(new System.Text.Json.Nodes.JsonObject { ["keyid"] = signer.KeyId, ["sig"] = Convert.ToBase64String(signature) }),
+        });
+    }
+
     private static string? Str(JsonElement element, string name) =>
         element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 }

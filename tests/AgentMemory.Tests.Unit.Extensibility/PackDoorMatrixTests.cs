@@ -27,6 +27,7 @@ public sealed class PackDoorMatrixTests : IDisposable
     {
         ["init"] = "writes a new authoring folder; reads no pack",
         ["keygen"] = "writes a key pair; reads no pack",
+        ["erase"] = "writes and signs an erasure; reads no pack",
         ["ledger"] = "reads the host's own ledger",
         ["sign-bytes"] = "signs standard input for an external signer; reads no pack",
         ["uninstall"] = "removes a pack from the host's own store by id",
@@ -171,6 +172,7 @@ public sealed class PackDoorMatrixTests : IDisposable
             ["certify"] = [pack, "--policy", _policy, "--activations", _activations, "--host-key", _pubPem, "--key", _keyPem,
                 "--evaluator", "Lab", "--task-source", "tasks", "--out", out_ + ".ampack"],
             ["certificate"] = ["verify", pack, "--policy", _policy],
+            ["erasure"] = ["verify", pack, "--policy", _policy],
             ["admit"] = [pack, "--policy", _policy, "--host-signing-key", _keyPem, "--activations", _activations],
             ["gate"] = [pack, "--policy", _policy, "--activations", _activations, "--host-key", _pubPem],
         };

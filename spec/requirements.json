@@ -1413,10 +1413,21 @@
    "doc": "core.md",
    "section": "17a",
    "level": "MUST",
-   "summary": "A host MUST NOT write, hold or offer a record a tombstone or an erasure it holds names, whichever version or copy brings it; a link into an erased record goes with it.",
+   "summary": "A host MUST NOT write, hold or offer a record a tombstone or an erasure it holds names, whichever version or copy brings it; a link into an erased record goes with it. A host that holds an erasure it has not yet applied to its store MUST still leave the records it names out of every read.",
    "verifiedBy": [
     "unit:ErasureTests.Memory_never_holds_an_erased_record_and_links_into_it_are_left_out",
-    "integration:ModuleRecordWriteIntegrationTests.AnErasedRecordIsRemovedWithATombstoneThatNoReImportPassesInBothStores"
+    "integration:ModuleRecordWriteIntegrationTests.AnErasedRecordIsRemovedWithATombstoneThatNoReImportPassesInBothStores",
+    "unit:ErasureTests.A_module_set_never_offers_a_record_an_erasure_it_holds_names_whatever_the_store_holds"
+   ]
+  },
+  {
+   "id": "R-CORE-135",
+   "doc": "core.md",
+   "section": "17a",
+   "level": "MAY",
+   "summary": "On request, a host MAY sign a receipt that it applied an erasure: a DSSE envelope of an in-toto statement of predicate type `urn:agentmemory:pack:erasure-receipt:v1` naming only the erasure statement's identity and when it was applied.",
+   "verifiedBy": [
+    "unit:ErasureTests.An_authored_erasure_verifies_names_no_key_and_its_receipt_names_nothing_else"
    ]
   },
   {
