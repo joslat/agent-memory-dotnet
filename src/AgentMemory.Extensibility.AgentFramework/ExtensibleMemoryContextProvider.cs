@@ -314,6 +314,12 @@ public partial class ExtensibleMemoryContextProvider : Neo4jMemoryContextProvide
         }
     }
 
+    // The frame of an item a pack brought: its pack, version, type and key (R-HOST-053); none for a record of the host's own.
+    private static IReadOnlyList<KeyValuePair<string, string>>? Frame(ContextItem item) =>
+        item.Provenance is { SourcePack: { } pack } provenance
+            ? [new("pack", pack.Id), new("version", pack.Version), new("type", provenance.RecordType), new("key", provenance.RecordKey)]
+            : null;
+
     /// <summary>
     /// Renders module sections only. The core section is opaque and is never rendered here.
     /// </summary>
@@ -328,7 +334,8 @@ public partial class ExtensibleMemoryContextProvider : Neo4jMemoryContextProvide
             if (string.Equals(section.TypeId, CoreMemoryContextContributor.SectionType, StringComparison.Ordinal))
                 continue;
 
-            var block = RenderAdmittedBlock(section.TypeId, section.Items.Select(item => item.Text));
+            // A record a pack brought is framed with its source (feature 04): the model reads it as quoted data.
+            var block = RenderAdmittedRecords(section.TypeId, section.Items.Select(item => (item.Text, Frame(item))));
             if (block.Length == 0) continue;
             if (builder.Length > 0) builder.AppendLine().AppendLine();
             builder.Append(block);

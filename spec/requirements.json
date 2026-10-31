@@ -4358,6 +4358,46 @@
    ]
   },
   {
+   "id": "R-HOST-053",
+   "doc": "host/rendering.md",
+   "section": "1",
+   "level": "MUST",
+   "summary": "A host MUST put every record a pack brought into a model's context inside a frame, never as bare text: an element `record` with the attributes `pack` (the pack's id), `version` (the pack's version), `type` and `key`, then the record's text, then the closing tag. The frames of one section MUST stand inside the section's one `recalled_memory` element, which names its category.",
+   "verifiedBy": [
+    "unit:ModuleDelimitingTests.A_pack_record_is_framed_with_its_source_and_cannot_forge_another"
+   ]
+  },
+  {
+   "id": "R-HOST-054",
+   "doc": "host/rendering.md",
+   "section": "1",
+   "level": "MUST",
+   "summary": "Inside a frame, `<` and `>` MUST be written `&lt;` and `&gt;`, and inside an attribute the double quote too (`&quot;`), so no text can close its frame, open another, or change what a header says.",
+   "verifiedBy": [
+    "unit:ModuleDelimitingTests"
+   ]
+  },
+  {
+   "id": "R-HOST-055",
+   "doc": "host/rendering.md",
+   "section": "1",
+   "level": "MUST",
+   "summary": "A frame MUST be applied whatever the pack's trust, its tier or the host's admission decision: a record the admission lets through is framed; one it refuses is left out.",
+   "verifiedBy": [
+    "unit:ModuleDelimitingTests.A_pack_record_is_framed_with_its_source_and_cannot_forge_another"
+   ]
+  },
+  {
+   "id": "R-HOST-056",
+   "doc": "host/rendering.md",
+   "section": "2",
+   "level": "MUST",
+   "summary": "Every record's text MUST pass the host's admission of untrusted content before it is framed (in AgentMemory, `IMemoryContextAdmissionPolicy`, which refuses or flags instruction-like text under the host's security mode).",
+   "verifiedBy": [
+    "unit:ModuleAdmissionDefaultsTests"
+   ]
+  },
+  {
    "id": "R-EMB-001",
    "doc": "profiles/embeddings.md",
    "section": "2",

@@ -1128,6 +1128,21 @@
    "sha256": "9047ad98c9c7ef61a5e8413e3758a90a34e4085e22849576875765f215379cd9"
   },
   {
+   "id": "frame-skipped",
+   "rule": "FRAMED-RECORDS",
+   "door": "serve",
+   "file": "src/AgentMemory.AgentFramework/Neo4jMemoryContextProvider.Admission.cs",
+   "edits": [
+    {
+     "old": "admitted.Add(frame is { } source ? AgentMemory.Core.Security.RecalledMemoryDelimiter.Frame(source, text) : AgentMemory.Core.Security.RecalledMemoryDelimiter.EscapeText(text));",
+     "new": "admitted.Add(AgentMemory.Core.Security.RecalledMemoryDelimiter.EscapeText(text));"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ModuleDelimitingTests",
+   "sha256": "6cad2228afc5f8188213f5796f483c84341648131115f824ed1a30e3277eb855"
+  },
+  {
    "id": "length-by-utf16",
    "rule": "TEXT-BY-CHARACTER",
    "door": "verify",

@@ -1,6 +1,6 @@
 {
  "format": "agentmemory.guards.mutants-results/2",
- "commit": "c3557dd2",
+ "commit": "164b77c5",
  "results": [
   {
    "id": "archive-ratio",
@@ -899,6 +899,18 @@
     "kit"
    ],
    "seconds": 166
+  },
+  {
+   "id": "frame-skipped",
+   "rule": "FRAMED-RECORDS",
+   "door": "serve",
+   "mutant_sha256": "6cad2228afc5f8188213f5796f483c84341648131115f824ed1a30e3277eb855",
+   "killed": true,
+   "file_sha256": "d1b6fbc8abf7ece8ac81350f9dfd63fc17aa62eafab206dc09f8998327c18c3a",
+   "failed": [
+    "ModuleDelimitingTests.A_pack_record_is_framed_with_its_source_and_cannot_forge_another"
+   ],
+   "seconds": 10
   },
   {
    "id": "length-by-utf16",

@@ -72,6 +72,25 @@ public partial class Neo4jMemoryContextProvider
         return WrapAdmittedTexts(category, admitted);
     }
 
+    /// <summary>
+    /// As <see cref="RenderAdmittedBlock"/>, with each item that names its source framed (feature 04, R-HOST-053 to 056): every
+    /// text passes the admission of untrusted content first, whatever its source's trust, then an admitted record a pack brought
+    /// is framed with its pack, version, type and key; the section is wrapped once.
+    /// </summary>
+    protected string RenderAdmittedRecords(string category, IEnumerable<(string Text, IReadOnlyList<KeyValuePair<string, string>>? Frame)> items)
+    {
+        ArgumentNullException.ThrowIfNull(category);
+        ArgumentNullException.ThrowIfNull(items);
+        var admitted = new List<string>();
+        foreach (var (text, frame) in items)
+        {
+            ArgumentNullException.ThrowIfNull(text);
+            if (!AdmitUntrustedText(category, text)) continue;
+            admitted.Add(frame is { } source ? AgentMemory.Core.Security.RecalledMemoryDelimiter.Frame(source, text) : AgentMemory.Core.Security.RecalledMemoryDelimiter.EscapeText(text));
+        }
+        return admitted.Count == 0 ? string.Empty : AgentMemory.Core.Security.RecalledMemoryDelimiter.WrapEscaped(category, string.Join(Environment.NewLine, admitted));
+    }
+
     private bool AdmitUntrustedText(string category, string text) =>
         MafTypeMapper.AdmitItem(category, text, MemoryTrustLevel.Untrusted, _formatOptions, _admissionPolicy, _logger);
 
