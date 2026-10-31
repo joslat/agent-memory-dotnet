@@ -231,6 +231,9 @@ cluster of tasks within a burst counts its minimum saving, and the bound is the 
 clusters' bound, each set a burst apart; when a set has too few units for any k, the bound is one unit under the target. The
 decision MUST keep the fixed cost it counted, so a recheck reaches the same verdict.
 
+**R-TRIAL-058.** A trial MUST read each task as of its own time (its commit's time for a task drawn from history) in world
+time as well: a record true only later never answers it, in either arm.
+
 **R-TRIAL-057.** A certificate MAY state cost checks. Each task of its arms MAY then record its offered bytes as a third number
 (`[offered, correct, bytes]`, 0 to 1,000,000,000): every task of both arms or none MUST, an arm that offers nothing MUST record
 0, a cost check MUST have both arms and the bytes, and a verifier MUST refuse a cost check whose `met` is not exactly

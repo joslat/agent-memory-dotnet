@@ -232,18 +232,23 @@ public sealed class ModuleSet
         var reader = (Store ?? throw new InvalidOperationException($"Module '{moduleId}' reads, but no module store is bound (UseStore)."))
             .CreateReader(services, Resolution, moduleId);
         // A view may read its dependencies' types: an expired dependency's records leave its answers too (review 2, M2's twin).
-        return Live(services) is { } live ? new LiveReader(reader, live) : reader;
+        // Every read also keeps only the records live in world time at its pin (feature 07).
+        return new LiveReader(reader, Live(services), services.GetService<TimeProvider>() ?? TimeProvider.System);
     }
 
-    // Drops the records of modules that are not live now, whatever the store returned.
-    private sealed class LiveReader(IModuleReader inner, Func<string, bool> live) : IModuleReader
+    // Drops the records of modules that are not live now, and the records not live in world time at the read's valid-time pin
+    // (feature 07, R-CORE-128; now when it names none), whatever the store returned. The store is asked without the pin: it
+    // keeps instants, and the rule lives here and in the walk, through ModuleRecordLife.IsLive.
+    internal sealed class LiveReader(IModuleReader inner, Func<string, bool>? live, TimeProvider clock) : IModuleReader
     {
         public string CallerModuleId => inner.CallerModuleId;
 
         public async Task<ModuleReadResult> FindAsync(ModuleQuery query, ModuleReadContext context, CancellationToken cancellationToken = default)
         {
-            var result = await inner.FindAsync(query, context, cancellationToken).ConfigureAwait(false);
-            return result.Records.All(r => live(r.ModuleId)) ? result : result with { Records = [.. result.Records.Where(r => live(r.ModuleId))] };
+            var at = context.ValidAsOfUtc ?? clock.GetUtcNow();
+            var result = await inner.FindAsync(query, context with { ValidAsOfUtc = null }, cancellationToken).ConfigureAwait(false);
+            bool Keep(ModuleRecord r) => (live is null || live(r.ModuleId)) && ModuleRecordLife.IsLive(r.Life, at);
+            return result.Records.All(Keep) ? result : result with { Records = [.. result.Records.Where(Keep)] };
         }
     }
 

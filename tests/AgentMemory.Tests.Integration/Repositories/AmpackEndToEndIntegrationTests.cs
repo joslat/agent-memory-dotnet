@@ -212,6 +212,39 @@ public sealed partial class ModuleRecordWriteIntegrationTests
         finally { await importer.RemoveAsync(pack.Manifest); }
     }
 
+    [Fact]
+    public async Task ARecordTrueOnlyUntilAnInstantAnswersAQuestionAsOfThenButNotNowInBothStores()
+    {
+        // Feature 07 (R-CORE-128): the real martial arts pack with Heian Shodan true until 2020. Neo4j keeps the instant and a
+        // host's read as of 2019 offers it, a read now does not; the in-memory store (ampack serve) agrees for now.
+        var source = new Dictionary<string, byte[]>(PackAuthoring.FromModuleBundle(RealBundle("MartialArts")), StringComparer.Ordinal);
+        var kata = Encoding.UTF8.GetString(source["records/kata.jsonl"]);
+        const string Key = "\"key\":\"shotokan/heian-shodan\",";
+        kata.Should().Contain(Key);
+        source["records/kata.jsonl"] = Encoding.UTF8.GetBytes(kata.Replace(Key, Key + "\"validTo\":\"2020-01-01T00:00:00Z\",", StringComparison.Ordinal));
+        var pack = PackLoader.Load(PackAuthoring.Build(source, AmpackKey.PrivateKeyPem), AmpackTrust());
+        var importer = new KnowledgePackImporter(new Neo4jKnowledgePackStore(fixture.TransactionRunner));
+        await importer.ImportAsync(pack.Knowledge!);
+        try
+        {
+            await using var provider = Host(m => m.UseNeo4jStore().AddPack(pack));
+            var question = new ContextRequest { SessionId = "s", Owner = "lea", Query = "Which kata do I learn for 8th kyu in Shotokan? Heian Shodan" };
+            static bool Offers(ContextEnvelope envelope) =>
+                envelope.Sections.Any(s => s.Items.Any(i => i.Provenance?.RecordKey == "shotokan/heian-shodan"));
+
+            var then = await CompileAsync(provider, question with { AsOf = new DateTimeOffset(2019, 6, 1, 0, 0, 0, TimeSpan.Zero) });
+            Offers(then).Should().BeTrue("true then; omitted: " + string.Join(" | ", then.Omissions.Select(o => $"{o.ContributorId} {o.Reason} {o.Detail}"))
+                + "; sections: " + string.Join(", ", then.Sections.Select(x => x.TypeId + ":" + x.Items.Count)));
+            Offers(await CompileAsync(provider, question)).Should().BeFalse("no longer true now");
+
+            var memory = PackMemory.From([pack.Knowledge!]);
+            var held = new ModuleViews(memory.Resolution, memory.ReaderFor(pack.Id));
+            (await held.EvaluateWithArgumentsAsync("kata", new() { Key = "shotokan/heian-shodan" }, new ModuleReadContext { Scope = MemoryScope.For("lea") }))
+                .Items.Should().BeEmpty("the in-memory store reads now, through the same definition");
+        }
+        finally { await importer.RemoveAsync(pack.Manifest); }
+    }
+
     private static async Task<ContextEnvelope> CompileAsync(IServiceProvider provider, ContextRequest request)
     {
         await using var scope = provider.CreateAsyncScope();

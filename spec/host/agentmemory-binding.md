@@ -27,3 +27,14 @@ segment in PascalCase (`com.example.lantern-notes` as `LanternNotes`); when that
 be refused, as any prefix two modules claim is; its author then declares a `labelPrefix` in `ontology.json`.
 
 > Why: stored names stay one module's own, as every other type's are, and a minimal pack still needs no ontology.
+
+## 3. A record's life in the store
+
+**R-HOST-058.** A store MUST keep a pack record's effective life (R-CORE-128 to 130) as its instants, `valid_from`, `valid_to`,
+`expires_at` and `review_by`, and a changed life MUST be a new version of the record, never left as it was. Every view and walk
+MUST offer only the records live at the request's valid time (`AsOf`), or now when it names none, by one definition of
+liveness, decided where the walk seeds, steers and offers and where a view's records leave the store; a store given a
+valid-time pin directly MAY refuse it.
+
+> As built, a view's limit is applied in the Neo4j store before the records not live are left out, so a view can return fewer
+> than its limit while records past their life fill it; the in-memory store filters first.

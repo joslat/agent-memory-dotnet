@@ -461,11 +461,17 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
         var envelope = await compiler.CompileAsync(new ContextRequest
         {
             SessionId = "pack-trial", Owner = "pack-trial", Query = task.Subject, Anchors = [.. task.Anchors.Select(a => ContextAnchor.Path(a))],
+            // As of the task's own time (feature 07, R-TRIAL-058): a record true only later never answers it.
+            AsOf = task.At,
         }).ConfigureAwait(false);
         return (envelope, watch.Elapsed.TotalMilliseconds);
     }
 
-    private sealed record HistoryTask(string Commit, string Parent, string Subject, IReadOnlyList<string> Anchors, IReadOnlyList<string> Tests);
+    private sealed record HistoryTask(string Commit, string Parent, string Subject, IReadOnlyList<string> Anchors, IReadOnlyList<string> Tests)
+    {
+        /// <summary>When the change was made, its commit time: the world time the task is read at (feature 07).</summary>
+        public DateTimeOffset? At { get; init; }
+    }
 
     /// <summary>A test file: a folder on its path names tests, or the file name ends in Tests.cs or Test.cs; any repository layout.</summary>
     private static bool IsTest(string path)
@@ -496,7 +502,7 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
         var start = new ProcessStartInfo("git") { RedirectStandardOutput = true, UseShellExecute = false, StandardOutputEncoding = System.Text.Encoding.UTF8 };
         // The history window the gate's intake holds every trial to (review 7, G5): one constant for both.
         foreach (var arg in new[] { "-C", repo, "log", "--no-merges", "-n", PackTrialGate.HistoryWindow.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                     "--format=%x1e%H%x1f%P%x1f%s", "--name-status" }) start.ArgumentList.Add(arg);
+                     "--format=%x1e%H%x1f%P%x1f%cI%x1f%s", "--name-status" }) start.ArgumentList.Add(arg);
         using var git = Process.Start(start) ?? throw new InvalidOperationException("git did not start.");
         var log = git.StandardOutput.ReadToEnd();
         git.WaitForExit();
@@ -522,7 +528,10 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
                 code = [.. files.Where(IsCode)];
             }
             if (tests.Count == 0 || code.Count is 0 or > 8) continue;
-            tasks.Add(new HistoryTask(head[0][..10], head[1].Split(' ')[0], head.Length > 2 ? head[2] : "", code, tests));
+            tasks.Add(new HistoryTask(head[0][..10], head[1].Split(' ')[0], head.Length > 3 ? head[3] : "", code, tests)
+            {
+                At = head.Length > 2 && DateTimeOffset.TryParse(head[2], System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var at) ? at : null,
+            });
         }
         // Spread over the history, not the most recent run of commits (review 6: consecutive commits are not independent draws;
         // the code map's own forty had a lag-1 autocorrelation of 0.22 in hits, and bursts of related changes pass a bound far

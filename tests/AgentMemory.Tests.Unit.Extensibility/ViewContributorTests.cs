@@ -59,13 +59,15 @@ public sealed class ViewContributorTests
     }
 
     [Fact]
-    public async Task UnsupportedValidTimeDoesNotCallStorageAndEmptyReadIsDistinct()
+    public async Task AValidTimePinReachesTheReaderAndAnEmptyReadIsDistinct()
     {
+        // Feature 07: views read as of a valid time; the module set's reader keeps the records true then, and a bare store
+        // answers the pin itself (the in-memory and Neo4j readers refuse one given to them directly).
         var reader = new Reader(); var compiler = Compiler(reader);
         var historic = await compiler.CompileAsync(new() { SessionId = "s", Owner = "owner", AsOf = DateTimeOffset.UnixEpoch });
-        historic.Omissions.Single().Reason.Should().Be(ContextOmissionReason.NotApplicable); reader.Calls.Should().Be(0);
+        historic.Omissions.Single().Reason.Should().Be(ContextOmissionReason.SearchedAndEmpty); reader.Calls.Should().Be(1);
         var current = await compiler.CompileAsync(new() { SessionId = "s", Owner = "owner" });
-        current.Omissions.Single().Reason.Should().Be(ContextOmissionReason.SearchedAndEmpty); reader.Calls.Should().Be(1);
+        current.Omissions.Single().Reason.Should().Be(ContextOmissionReason.SearchedAndEmpty); reader.Calls.Should().Be(2);
     }
 
     [Fact]
@@ -94,11 +96,11 @@ public sealed class ViewContributorTests
     }
 
     [Fact]
-    public async Task UnsupportedClockNeverInvokesTheArgumentSelector()
+    public async Task AValidTimePinRunsTheArgumentSelectorOnce()
     {
         var reader = new Reader(); var calls = 0;
         await Compiler(reader, _ => { calls++; return new(); }).CompileAsync(new() { SessionId = "fresh", AsOf = DateTimeOffset.UnixEpoch });
-        calls.Should().Be(0); reader.Calls.Should().Be(0);
+        calls.Should().Be(1); reader.Calls.Should().Be(1);
     }
 
     private static ContextCompiler Compiler(Reader reader, Func<ContextRequest, ModuleViewArguments?>? arguments = null)

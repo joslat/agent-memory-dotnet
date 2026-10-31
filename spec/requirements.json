@@ -2829,6 +2829,16 @@
    ]
   },
   {
+   "id": "R-TRIAL-058",
+   "doc": "profiles/trial.md",
+   "section": "5",
+   "level": "MUST",
+   "summary": "A trial MUST read each task as of its own time (its commit's time for a task drawn from history) in world time as well: a record true only later never answers it, in either arm.",
+   "verifiedBy": [
+    "review"
+   ]
+  },
+  {
    "id": "R-COMPOSE-001",
    "doc": "profiles/compose.md",
    "section": "1.3",
@@ -4516,6 +4526,18 @@
    "summary": "A writer's lint MUST report every high-severity finding of its content scan (a secret, a payment card or account number, an injection payload) as an error when asked to (`--safety`), and always for a pack of the `curated` or `premium` tier.",
    "verifiedBy": [
     "unit:AmpackCommandLineTests.Lint_reports_what_the_scan_finds_as_an_error_when_asked_and_for_a_curated_pack"
+   ]
+  },
+  {
+   "id": "R-HOST-058",
+   "doc": "host/agentmemory-binding.md",
+   "section": "3",
+   "level": "MUST",
+   "summary": "A store MUST keep a pack record's effective life (R-CORE-128 to 130) as its instants, `valid_from`, `valid_to`, `expires_at` and `review_by`, and a changed life MUST be a new version of the record, never left as it was. Every view and walk MUST offer only the records live at the request's valid time (`AsOf`), or now when it names none, by one definition of liveness, decided where the walk seeds, steers and offers and where a view's records leave the store; a store given a valid-time pin directly MAY refuse it.",
+   "verifiedBy": [
+    "unit:RecordLifeTests.A_walk_offers_a_record_only_while_it_is_true_in_the_world",
+    "unit:RecordLifeTests.The_module_set_s_reader_keeps_the_records_true_at_its_pin_and_asks_the_store_without_it",
+    "integration:ModuleRecordWriteIntegrationTests.ARecordTrueOnlyUntilAnInstantAnswersAQuestionAsOfThenButNotNowInBothStores"
    ]
   },
   {

@@ -1488,6 +1488,66 @@
    "sha256": "24b91fb39228e7f676261ede78300a02a2ced1f18695d10669859973ae77bf97"
   },
   {
+   "id": "walk-ignores-life",
+   "rule": "LIVE-IN-WORLD-TIME",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility/Context/Traversal/TraversalWalk.cs",
+   "edits": [
+    {
+     "old": "            if (!ModuleRecordLife.IsLive(item.Record.Life, at)) return false;\n",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~RecordLifeTests",
+   "sha256": "9d51676804cd15c2d8e35768ec48bdce3a0101fd9dbc2642f91f7f56c27cf736"
+  },
+  {
+   "id": "reader-ignores-life",
+   "rule": "LIVE-IN-WORLD-TIME",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility/Modules/ModuleSet.cs",
+   "edits": [
+    {
+     "old": "bool Keep(ModuleRecord r) => (live is null || live(r.ModuleId)) && ModuleRecordLife.IsLive(r.Life, at);",
+     "new": "bool Keep(ModuleRecord r) => live is null || live(r.ModuleId);"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~RecordLifeTests",
+   "sha256": "88af2c4dd1db7bd7a413724053e55f6a1794cb95564ecad21f6ad81236e4b7f0"
+  },
+  {
+   "id": "supersession-ignored",
+   "rule": "LIVE-IN-WORLD-TIME",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Packs/KnowledgePack.cs",
+   "edits": [
+    {
+     "old": "resolved[target] = resolved[target] with { Life = life with { ValidToUtc = life.ValidToUtc is { } to && to < end ? to : end } };",
+     "new": "_ = end;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~RecordLifeTests",
+   "sha256": "46b997fff2debfefd00bd667a8089d01feeeef4b3f1c726ff794164c20b7d84f"
+  },
+  {
+   "id": "refresh-ignored",
+   "rule": "LIVE-IN-WORLD-TIME",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Packs/KnowledgePack.cs",
+   "edits": [
+    {
+     "old": "if (life.ValidToUtc is null) life = life with { ValidToUtc = from.AddDays(days) };",
+     "new": "_ = days;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~RecordLifeTests",
+   "sha256": "269571530c2e2ab18a2da32ac7db986b913ea646717d2d286ca0ab2428a06494"
+  },
+  {
    "id": "length-by-utf16",
    "rule": "TEXT-BY-CHARACTER",
    "door": "verify",

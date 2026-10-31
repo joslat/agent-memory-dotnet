@@ -97,6 +97,71 @@ public sealed class RecordLifeTests
     }
 
     [Fact]
+    public async Task A_walk_offers_a_record_only_while_it_is_true_in_the_world()
+    {
+        // Feature 07 (R-HOST-058): a record true until 2020 seeds and is offered by a walk as of 2019, never now.
+        const string Code = """
+            {"format":"agentmemory.module/v1alpha1","id":"com.example.code","version":"1.0.0","sdk":"[0.1,0.2)",
+             "ontology":{"labelPrefix":"Code","types":[{"name":"CodeFile","scope":"shared","render":"{path}","properties":{"path":{"type":"string","required":true}}}]},
+             "traversal":{"anchors":[{"type":"CodeFile","property":"path","match":"exact"}],"maxItems":3}}
+            """;
+        var record = new ModuleProposal
+        {
+            Kind = ProposalKind.Assert, Type = "CodeFile", Key = "src/a.cs",
+            Properties = new Dictionary<string, System.Text.Json.JsonElement>(StringComparer.Ordinal) { ["path"] = System.Text.Json.JsonSerializer.SerializeToElement("src/a.cs") },
+            Source = new ProposalSource { Excerpt = "src/a.cs" }, Life = new() { ValidToUtc = new DateTimeOffset(2020, 1, 1, 0, 0, 0, TimeSpan.Zero) },
+        };
+        var memory = AgentMemory.Extensibility.Ampack.PackMemory.From([], [new ModuleSnapshot { Module = ModuleManifest.Parse(Code), Source = "git:abc", Records = [record] }]);
+        var request = new AgentMemory.Extensibility.Context.ContextRequest
+        {
+            SessionId = "pack", Owner = "pack", Query = "", Anchors = [AgentMemory.Extensibility.Context.ContextAnchor.Path("src/a.cs")],
+        };
+
+        (await AgentMemory.Extensibility.Context.Traversal.TraversalWalk.RunAsync(memory.Resolution, memory, request with { AsOf = new DateTimeOffset(2019, 6, 1, 0, 0, 0, TimeSpan.Zero) }, CancellationToken.None))
+            .Items.Should().Contain(i => i.Record.Key == "src/a.cs", "true then");
+        (await AgentMemory.Extensibility.Context.Traversal.TraversalWalk.RunAsync(memory.Resolution, memory, request, CancellationToken.None))
+            .Items.Should().NotContain(i => i.Record.Key == "src/a.cs", "no longer true now");
+    }
+
+    [Fact]
+    public async Task The_module_set_s_reader_keeps_the_records_true_at_its_pin_and_asks_the_store_without_it()
+    {
+        // Feature 07: the one place views read world time. The store keeps instants and is asked for current records only.
+        var inner = new Inner();
+        var reader = new ModuleSet.LiveReader(inner, live: null, new Fixed(June.AddYears(1)));
+
+        (await reader.FindAsync(new() { ModuleId = "m", Type = "T", Limit = 5 }, new())).Records.Select(r => r.Key).Should().Equal("always");
+        (await reader.FindAsync(new() { ModuleId = "m", Type = "T", Limit = 5 }, new() { ValidAsOfUtc = June })).Records.Select(r => r.Key).Should().Equal("always", "until-july");
+        inner.Pins.Should().OnlyContain(pin => pin == null, "the store is never asked for a valid time it cannot read");
+    }
+
+    private sealed class Fixed(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
+    }
+
+    private sealed class Inner : IModuleReader
+    {
+        public List<DateTimeOffset?> Pins { get; } = [];
+        public string CallerModuleId => "m";
+
+        public Task<ModuleReadResult> FindAsync(ModuleQuery query, ModuleReadContext context, CancellationToken cancellationToken = default)
+        {
+            Pins.Add(context.ValidAsOfUtc);
+            ModuleRecord Record(string key, ModuleRecordLife? life) => new()
+            {
+                ModuleId = "m", Type = "T", Id = key, Key = key, CreatedAtUtc = DateTimeOffset.UnixEpoch, SourceSessionId = "pack",
+                Source = new ProposalSource { Excerpt = key }, Life = life,
+            };
+            return Task.FromResult(new ModuleReadResult
+            {
+                Status = ModuleReadStatus.Succeeded,
+                Records = [Record("always", null), Record("until-july", new() { ValidToUtc = June.AddMonths(1) })],
+            });
+        }
+    }
+
+    [Fact]
     public void The_host_validates_a_type_s_lifecycle()
     {
         static IReadOnlyList<string> Problems(string type) => ModuleManifest.Parse(

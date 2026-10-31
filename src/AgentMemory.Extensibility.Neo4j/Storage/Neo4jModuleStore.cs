@@ -373,7 +373,11 @@ public sealed class Neo4jModuleStore : IModuleStore
         var previousId = version == 0 ? null : keyId + ":" + version.ToString(CultureInfo.InvariantCulture);
         if (Text(key, "current_id") is { } current && current != previousId) throw new ModuleRecordRefusal("Module key current reference does not match its last version.");
         var properties = proposal.Properties.ToDictionary(p => p.Key, p => Scalar(p.Value), StringComparer.Ordinal);
-        var oldRows = previousId is null ? [] : await RowsAsync(runner, ModuleRecordQueries.Current(type), new { id = previousId, properties, now = atUtc.ToString("O") }, cancellationToken).ConfigureAwait(false);
+        var life = proposal.Life;
+        string? Instant(DateTimeOffset? value) => value?.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
+        var (validFrom, validTo, expiresAt, reviewBy) = (Instant(life?.ValidFromUtc), Instant(life?.ValidToUtc), Instant(life?.ExpiresAtUtc), Instant(life?.ReviewByUtc));
+        var oldRows = previousId is null ? [] : await RowsAsync(runner, ModuleRecordQueries.Current(type),
+            new { id = previousId, properties, now = atUtc.ToString("O"), validFrom, validTo, expiresAt, reviewBy }, cancellationToken).ConfigureAwait(false);
         if (previousId is not null && oldRows.Count != 1) throw new ModuleRecordRefusal("Module version history is incomplete.");
         var old = oldRows.SingleOrDefault();
         if (old is not null)
@@ -402,7 +406,7 @@ public sealed class Neo4jModuleStore : IModuleStore
             now = atUtc.ToString("O"), session = request.SessionId, sources = proposal.Source.MessageIds.ToArray(), excerpt = proposal.Source.Excerpt,
             pack = pack?.Id, packVersion = pack?.Version, packDigest = pack?.Digest, packFile = pack?.File, packLine = pack?.Line,
             carrier = pack?.Carrier?.Id, carrierVersion = pack?.Carrier?.Version, carrierDigest = pack?.Carrier?.Digest, carrierSigner = pack?.Carrier?.Signer,
-            properties }, cancellationToken).ConfigureAwait(false);
+            validFrom, validTo, expiresAt, reviewBy, properties }, cancellationToken).ConfigureAwait(false);
         foreach (var link in links.Links)
             await OneAsync(runner, ModuleRecordQueries.Link(type.Name, link.Relation, link.TargetLabel), new { id, target = link.TargetId, owner }, cancellationToken).ConfigureAwait(false);
         if (previousId is not null)

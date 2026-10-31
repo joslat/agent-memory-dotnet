@@ -112,6 +112,8 @@ internal static class TraversalWalk
             SessionId = request.SessionId, SystemAsOfUtc = request.SystemAsOf
         };
         var modules = resolution.Modules.Where(m => m.Traversal is not null && m.Ontology is not null && (live?.Invoke(m.Id) ?? true)).ToList();
+        // A record takes part only while true in the world at the request's valid time (feature 07; now when it names none).
+        var at = request.AsOf ?? DateTimeOffset.UtcNow;
         var best = new Dictionary<string, TraversalItem>(StringComparer.Ordinal);
         var perModule = new Dictionary<string, int>(StringComparer.Ordinal);
         var problems = new List<string>();
@@ -147,6 +149,7 @@ internal static class TraversalWalk
         {
             if (live is not null && !live(item.Record.ModuleId)) return false;
             if (liveRecord is not null && !liveRecord(item.Record)) return false;
+            if (!ModuleRecordLife.IsLive(item.Record.Life, at)) return false;
             if (best.TryGetValue(item.Record.Id, out var known))
             {
                 if (known.Score >= item.Score) return false;

@@ -59,7 +59,8 @@ public sealed class ViewContributor : IContextContributor
     public ValueTask<bool> AppliesAsync(ContextRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request); cancellationToken.ThrowIfCancellationRequested();
-        return ValueTask.FromResult(request.AsOf is null);
+        // A valid-time pin applies (feature 07): the read keeps the records true then.
+        return ValueTask.FromResult(true);
     }
 
     /// <inheritdoc/>
@@ -71,7 +72,7 @@ public sealed class ViewContributor : IContextContributor
     public async Task<ContextContributionResult> ContributeResultAsync(ContextRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request); cancellationToken.ThrowIfCancellationRequested();
-        if (request.AsOf is not null) return new() { OmissionReason = ContextOmissionReason.NotApplicable, Detail = "Module views do not support valid time." };
+        // A valid-time pin reads records as true then (feature 07): the module set's reader keeps the records live at it.
         var arguments = _arguments?.Invoke(request);
         if (_arguments is not null && arguments is null)
             return new() { OmissionReason = ContextOmissionReason.NotApplicable, Detail = "No view arguments selected for this request." };
@@ -86,7 +87,7 @@ public sealed class ViewContributor : IContextContributor
         var context = new ModuleReadContext
         {
             Scope = request.ResolvedScope ?? (request.Owner is null ? null : MemoryScope.For(request.Owner)),
-            SessionId = request.SessionId, SystemAsOfUtc = request.SystemAsOf
+            SessionId = request.SessionId, SystemAsOfUtc = request.SystemAsOf, ValidAsOfUtc = request.AsOf,
         };
         var result = arguments is null
             ? await _views.EvaluateAsync(_viewId, context, cancellationToken).ConfigureAwait(false)

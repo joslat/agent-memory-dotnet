@@ -37,7 +37,8 @@ public sealed class TraversalContributor : IContextContributor
     public ValueTask<bool> AppliesAsync(ContextRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request); cancellationToken.ThrowIfCancellationRequested();
-        return ValueTask.FromResult(request.AsOf is null && request.SystemAsOf is null && request.Anchors.Count > 0 && _walks.Available);
+        // A valid-time pin walks the records true then (feature 07); a transaction-time pin it cannot read.
+        return ValueTask.FromResult(request.SystemAsOf is null && request.Anchors.Count > 0 && _walks.Available);
     }
 
     /// <inheritdoc/>
@@ -48,8 +49,9 @@ public sealed class TraversalContributor : IContextContributor
     public async Task<ContextContributionResult> ContributeResultAsync(ContextRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request); cancellationToken.ThrowIfCancellationRequested();
-        if (request.AsOf is not null || request.SystemAsOf is not null)
-            return new() { OmissionReason = ContextOmissionReason.NotApplicable, Detail = "Traversal reads live records only." };
+        // A valid-time pin walks the records true then (feature 07); what the store believed then it cannot read.
+        if (request.SystemAsOf is not null)
+            return new() { OmissionReason = ContextOmissionReason.NotApplicable, Detail = "Traversal reads the store's current records only." };
         if (request.Anchors.Count == 0) return new() { OmissionReason = ContextOmissionReason.NotApplicable, Detail = "No anchors to start from." };
         if (!_walks.Available) return new() { OmissionReason = ContextOmissionReason.NotApplicable, Detail = "The module store cannot walk." };
         var walk = await _walks.WalkAsync(request, cancellationToken).ConfigureAwait(false);

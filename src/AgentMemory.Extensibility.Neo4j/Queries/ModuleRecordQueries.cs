@@ -27,12 +27,19 @@ internal static class ModuleRecordQueries
     internal static string Current(ModuleType type) => "MATCH (n:`" + type.Name + "` {id:$id}) RETURN properties(n) AS row, n.invalidated_at IS NULL AS live, "
         + (type.Properties.Count == 0 ? "true" : string.Join(" AND ", type.Properties.Select(p => "coalesce(n.`" + p.Key + "`=" + Value(p.Key, p.Value.Type)
             + ", n.`" + p.Key + "` IS NULL AND $properties.`" + p.Key + "` IS NULL)")))
+        // A changed life is a changed record (feature 07): its instants compare as its properties do.
+        + string.Concat(LifeProperties.Select(p => " AND coalesce(n." + p.Name + "=datetime($" + p.Parameter + "), n." + p.Name + " IS NULL AND $" + p.Parameter + " IS NULL)"))
         + " AS equal, coalesce(coalesce(n.invalidated_at,n.created_at) > datetime($now),false) AS newer";
+
+    // A record's life in world time (feature 07): stored property, query parameter.
+    internal static readonly (string Name, string Parameter)[] LifeProperties =
+        [("valid_from", "validFrom"), ("valid_to", "validTo"), ("expires_at", "expiresAt"), ("review_by", "reviewBy")];
     internal static string Create(ModuleType type) => "CREATE (n:`" + type.Name + "`) SET n=$properties "
         + "SET n.id=$id, n.key_id=$keyId, n.key=$key, n.owner_id=$owner, n.created_at=datetime($now), "
         + "n.source_session_id=$session, n.source_message_ids=$sources, n.source_excerpt=$excerpt, "
         + "n.source_pack=$pack, n.source_pack_version=$packVersion, n.source_pack_digest=$packDigest, n.source_pack_file=$packFile, n.source_pack_line=$packLine, "
-        + "n.source_carrier=$carrier, n.source_carrier_version=$carrierVersion, n.source_carrier_digest=$carrierDigest, n.source_carrier_signer=$carrierSigner "
+        + "n.source_carrier=$carrier, n.source_carrier_version=$carrierVersion, n.source_carrier_digest=$carrierDigest, n.source_carrier_signer=$carrierSigner, "
+        + string.Join(", ", LifeProperties.Select(p => "n." + p.Name + "=CASE WHEN $" + p.Parameter + " IS NULL THEN null ELSE datetime($" + p.Parameter + ") END")) + " "
         + string.Join(" ", type.Properties.Where(p => p.Value.Type is "date" or "datetime").Select(p => "SET n.`" + p.Key + "`=" + Value(p.Key, p.Value.Type)))
         + " RETURN n.id AS id";
     // A knowledge pack's live records (Extensibility 0.13 §K3): what an import may close, and what its state reports.

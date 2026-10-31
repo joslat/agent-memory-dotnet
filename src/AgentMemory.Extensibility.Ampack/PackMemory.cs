@@ -96,7 +96,7 @@ public sealed partial class PackMemory : IModuleTraversalReader
                 var stored = new ModuleRecord
                 {
                     ModuleId = manifest.Id, Type = record.Type, Id = IdOf(manifest.Id, record.Type, record.Key), Key = record.Key,
-                    CreatedAtUtc = loadedAt, Properties = record.Properties, SourceSessionId = "pack", Source = record.Source,
+                    CreatedAtUtc = loadedAt, Properties = record.Properties, SourceSessionId = "pack", Source = record.Source, Life = record.Life,
                 };
                 memory._byId[stored.Id] = stored;
             }
@@ -346,7 +346,10 @@ public sealed partial class PackMemory : IModuleTraversalReader
             var admitted = admission.Query!;
             var module = memory.Resolution.Modules.Single(m => m.Id == admitted.ModuleId);
             var type = module.Ontology!.Types.Single(t => t.Name == admitted.Type);
+            // Only the records true in the world now (feature 07), before the limit, through the one definition.
+            var now = DateTimeOffset.UtcNow;
             var found = memory.OfType(module.Id, type.Name)
+                .Where(r => AgentMemory.Extensibility.Reading.ModuleRecordLife.IsLive(r.Life, now))
                 .Where(r => admitted.Key is null || r.Key == admitted.Key)
                 .Where(r => admitted.Where.All(f => Holds(r, f, type.Properties[f.Property].Type)))
                 .Where(r => admitted.Links.All(l => r.Links.Any(x => x.Relation == l.Relation && x.TargetId == l.TargetId)));

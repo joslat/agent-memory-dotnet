@@ -138,12 +138,17 @@ public sealed class Neo4jModuleReader : IModuleReader
         return links.OrderBy(l => l.Relation, StringComparer.Ordinal).ThenBy(l => l.TargetId, StringComparer.Ordinal).ToList().AsReadOnly();
     }
 
+    // A record's life as stored (feature 07): null when it has none, as it was written.
+    private static ModuleRecordLife? Life(IReadOnlyDictionary<string, object> row) =>
+        (Timestamp(row, "valid_from"), Timestamp(row, "valid_to"), Timestamp(row, "expires_at"), Timestamp(row, "review_by")) is var (from, to, expires, review)
+        && (from ?? to ?? expires ?? review) is null ? null : new() { ValidFromUtc = from, ValidToUtc = to, ExpiresAtUtc = expires, ReviewByUtc = review };
+
     internal static ModuleRecord Record(string moduleId, ModuleType type, IReadOnlyDictionary<string, object> row, IReadOnlyList<ModuleRecordLink> links) => new()
     {
         ModuleId = moduleId, Type = type.Name, Id = Text(row, "id") ?? throw new ModuleRecordRefusal("Stored record has no identity."),
         Key = Text(row, "key") ?? throw new ModuleRecordRefusal("Stored record has no logical key."), OwnerId = Text(row, "owner_id"),
         CreatedAtUtc = Timestamp(row, "created_at") ?? throw new ModuleRecordRefusal("Stored record has no creation time."),
-        InvalidatedAtUtc = Timestamp(row, "invalidated_at"), Links = links,
+        InvalidatedAtUtc = Timestamp(row, "invalidated_at"), Links = links, Life = Life(row),
         SourceSessionId = Text(row, "source_session_id") ?? throw new ModuleRecordRefusal("Stored record has no source session."),
         Source = new()
         {

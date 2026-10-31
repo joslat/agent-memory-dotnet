@@ -23,6 +23,7 @@ internal static class ModuleReservedNames
     internal static readonly FrozenSet<string> Properties = new[]
     {
         "id", "key", "key_id", "owner_id", "created_at", "invalidated_at", "superseded_by",
+        "valid_from", "valid_to", "expires_at", "review_by",
         "source_session_id", "source_message_ids", "source_excerpt",
         "source_pack", "source_pack_version", "source_pack_digest", "source_pack_file", "source_pack_line",
         "source_carrier", "source_carrier_version", "source_carrier_digest", "source_carrier_signer"
