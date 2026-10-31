@@ -21,6 +21,13 @@ public interface IKnowledgePackStore
 
     /// <summary>Closes every live record of the pack. History and schema stay; a later import reopens the keys.</summary>
     Task<KnowledgePackImportResult> RemoveAsync(ModuleManifest pack, DateTimeOffset atUtc, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Applies verified erasures (feature 08, R-CORE-133) in one transaction: every version of each erased record is removed, and a
+    /// tombstone of it is kept (the pack, the type, the salt and the key's hash, never the key), so no later import writes it again.
+    /// </summary>
+    Task<KnowledgePackEraseResult> EraseAsync(ModuleManifest pack, IReadOnlyList<ModuleErasure> erasures, DateTimeOffset atUtc, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("This store does not apply erasures.");
 }
 
 /// <summary>What a store holds of a pack.</summary>
@@ -91,6 +98,20 @@ public sealed class KnowledgePackImporter
         if (!allowDowngrade && state.Version is { } stored && ModuleVersion.Parse(stored).CompareTo(pack.Manifest.Version) > 0)
             throw new KnowledgePackException([$"The store holds {pack.Id} {stored}, newer than {pack.Version}; ask for a downgrade explicitly."]);
         return await _store.ImportAsync(pack, _clock.GetUtcNow(), cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Imports a pack after applying the erasures that name it (feature 08, R-CORE-133): before any record is written, so an erased
+    /// record never reaches the store, and an erasure carried by a later version reaches the records of earlier ones.
+    /// </summary>
+    public async Task<KnowledgePackImportResult> ImportAsync(KnowledgePack pack, IReadOnlyList<ModuleErasure> erasures, bool allowDowngrade = false,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(pack);
+        ArgumentNullException.ThrowIfNull(erasures);
+        var mine = erasures.Where(e => e.PackId == pack.Id).ToList();
+        if (mine.Count > 0) await _store.EraseAsync(pack.Manifest, mine, _clock.GetUtcNow(), cancellationToken).ConfigureAwait(false);
+        return await ImportAsync(pack, allowDowngrade, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Closes every live record of a pack.</summary>

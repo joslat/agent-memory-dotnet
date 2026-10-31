@@ -855,6 +855,13 @@ attestations as `<stem>.erasure.dsse.json`, the stem its signer's key and issue 
 **R-CORE-132.** A verifier MUST hold an erasure only when a signature verifies by a key the trust policy names as `publisher` or
 `revoker` for the pack's id, valid at `issuedAt` and now, and the erasure names that pack.
 
+**R-CORE-133.** A host MUST apply every erasure it holds for a pack before it writes any of that pack's records, from any
+version: each erased record's every version, and its content, MUST leave the store, and the host MUST keep a tombstone of the
+pack, the type, the salt and the key's hash, never the key.
+
+**R-CORE-134.** A host MUST NOT write, hold or offer a record a tombstone or an erasure it holds names, whichever version or copy
+brings it; a link into an erased record goes with it.
+
 > Why: tombstones are known; a signed erasure bound to the pack's identity, held to the trust policy's roles, and read alike
 > by both verifiers, is what a host can act on without trusting the channel it came through.
 

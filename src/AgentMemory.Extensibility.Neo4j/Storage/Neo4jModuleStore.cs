@@ -101,16 +101,19 @@ public sealed class Neo4jModuleStore : IModuleStore
             return await _runner.WriteAsync(async transaction =>
             {
                 await ReadyAsync(transaction, cancellationToken).ConfigureAwait(false);
+                // A record a tombstone names is never written again (feature 08, R-CORE-134), from any version or copy.
+                var tombstones = await TombstonesAsync(transaction, module.Id, cancellationToken).ConfigureAwait(false);
+                var proposals = pack.Proposals.Where(p => !tombstones.Any(t => t.Type == p.Type && t.KeyHash == ModuleErasure.KeyHash(t.Salt, p.Key))).ToList();
                 var live = await PackLiveAsync(transaction, module, cancellationToken).ConfigureAwait(false);
-                var seeded = pack.Proposals.Select(p => (p.Type, p.Key)).ToHashSet();
+                var seeded = proposals.Select(p => (p.Type, p.Key)).ToHashSet();
                 var gone = live.Keys.Where(k => !seeded.Contains(k)).Order().ToArray();
                 foreach (var (type, key) in seeded.Concat(gone).Select(k => (Type: module.Ontology!.Types.Single(t => t.Name == k.Type), k.Key))
                     .OrderBy(k => KeyId(module.Id, k.Type.Name, null, k.Key), StringComparer.Ordinal))
                     await LockAsync(transaction, module.Id, type, key, null, cancellationToken).ConfigureAwait(false);
                 int created = 0, changed = 0, unchanged = 0, closed = 0;
-                for (var index = 0; index < pack.Proposals.Count; index++)
+                for (var index = 0; index < proposals.Count; index++)
                 {
-                    var proposal = pack.Proposals[index];
+                    var proposal = proposals[index];
                     var outcome = await WriteOneAsync(transaction, module, request, new() { Index = index, Proposal = proposal }, atUtc, cancellationToken,
                         exact: true).ConfigureAwait(false);
                     if (outcome.Status == ProposalWriteStatus.NoOp) unchanged++;
@@ -124,6 +127,59 @@ public sealed class Neo4jModuleStore : IModuleStore
             }, cancellationToken).ConfigureAwait(false);
         }
         catch (ModuleRecordRefusal refusal) { throw new KnowledgePackException([refusal.Message]); }
+    }
+
+    // The tombstones of a pack's erased records (feature 08): type, salt and key hash; never a key.
+    private static async Task<List<(string Type, string Salt, string KeyHash)>> TombstonesAsync(IAsyncQueryRunner transaction, string packId, CancellationToken cancellationToken)
+    {
+        var cursor = await transaction.RunAsync("MATCH (t:ModuleTombstone {pack:$pack}) RETURN t.type AS type, t.salt AS salt, t.key_hash AS hash",
+            new Dictionary<string, object?> { ["pack"] = packId }).ConfigureAwait(false);
+        var rows = await cursor.ToListAsync(cancellationToken).ConfigureAwait(false);
+        return [.. rows.Select(r => (r["type"].As<string>(), r["salt"].As<string>(), r["hash"].As<string>()))];
+    }
+
+    /// <summary>
+    /// Applies erasures to a pack's records in one transaction (feature 08, R-CORE-133): every version of each erased record and
+    /// its key are removed with their links, and a tombstone of the pack, the type, the salt and the key's hash is kept.
+    /// </summary>
+    internal async Task<KnowledgePackEraseResult> ErasePackAsync(string packId, IReadOnlyList<ModuleErasure> erasures, DateTimeOffset atUtc, CancellationToken cancellationToken)
+    {
+        var module = _resolution.Modules.Single(m => m.Id == packId);
+        return await _runner.WriteAsync(async transaction =>
+        {
+            await ReadyAsync(transaction, cancellationToken).ConfigureAwait(false);
+            var erased = 0;
+            var tombstones = 0;
+            foreach (var type in module.Ontology!.Types)
+            {
+                var named = erasures.SelectMany(e => e.Records.Where(r => r.Type == type.Name).Select(r => (Erasure: e, Record: r))).ToList();
+                if (named.Count == 0) continue;
+                var cursor = await transaction.RunAsync("MATCH (n:`" + type.Name + "`) WHERE n.source_pack=$pack RETURN DISTINCT n.key AS key",
+                    new Dictionary<string, object?> { ["pack"] = packId }).ConfigureAwait(false);
+                var keys = (await cursor.ToListAsync(cancellationToken).ConfigureAwait(false)).Select(r => r["key"].As<string>()).ToList();
+                var gone = keys.Where(k => named.Any(n => n.Erasure.Erases(type.Name, k))).ToList();
+                if (gone.Count > 0)
+                {
+                    await transaction.RunAsync("MATCH (n:`" + type.Name + "`) WHERE n.source_pack=$pack AND n.key IN $keys "
+                        + "OPTIONAL MATCH (k:ModuleKey {id:n.key_id}) DETACH DELETE n, k",
+                        new Dictionary<string, object?> { ["pack"] = packId, ["keys"] = gone }).ConfigureAwait(false);
+                    erased += gone.Count;
+                }
+                // A tombstone for every record named, held or not: a later copy is blocked as well.
+                foreach (var (erasure, record) in named)
+                {
+                    await transaction.RunAsync("MERGE (t:ModuleTombstone {pack:$pack, type:$type, key_hash:$hash}) "
+                        + "ON CREATE SET t.salt=$salt, t.erasure=$erasure, t.reason=$reason, t.erased_at=datetime($at)",
+                        new Dictionary<string, object?>
+                        {
+                            ["pack"] = packId, ["type"] = type.Name, ["hash"] = record.KeyHash ?? erasure.HashOf(record.Key!), ["salt"] = erasure.Salt,
+                            ["erasure"] = erasure.Statement, ["reason"] = erasure.Reason, ["at"] = atUtc.ToString("O", CultureInfo.InvariantCulture),
+                        }).ConfigureAwait(false);
+                    tombstones++;
+                }
+            }
+            return new KnowledgePackEraseResult { PackId = packId, Erased = erased, Tombstones = tombstones };
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Records one snapshot transaction writes; a first code map is far larger than one transaction should hold.</summary>

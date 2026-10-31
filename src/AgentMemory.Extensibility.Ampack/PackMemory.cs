@@ -62,9 +62,12 @@ public sealed partial class PackMemory : IModuleTraversalReader
     /// <param name="snapshots">The snapshots, each with its definition and dependencies.</param>
     /// <param name="grants">The host's consent grants (PACK-consent), beside the snapshots' own: a relation into a module that does
     /// not list the walking one in containableBy is walked only with one, as the host walks it (review 5: serve took none).</param>
-    public static PackMemory From(IEnumerable<KnowledgePack> knowledge, IEnumerable<ModuleSnapshot>? snapshots = null, IEnumerable<ModuleConsentGrant>? grants = null)
+    /// <param name="erasures">Verified erasures (feature 08): the records they name are never held, from any pack of their id.</param>
+    public static PackMemory From(IEnumerable<KnowledgePack> knowledge, IEnumerable<ModuleSnapshot>? snapshots = null, IEnumerable<ModuleConsentGrant>? grants = null,
+        IEnumerable<ModuleErasure>? erasures = null)
     {
         ArgumentNullException.ThrowIfNull(knowledge);
+        var erased = (erasures ?? []).ToList();
         var packs = knowledge.ToList();
         var shots = (snapshots ?? []).ToList();
         var manifests = new Dictionary<string, ModuleManifest>(StringComparer.Ordinal);
@@ -93,6 +96,8 @@ public sealed partial class PackMemory : IModuleTraversalReader
         foreach (var (manifest, records) in sources)
             foreach (var record in records)
             {
+                // An erased record is never held (feature 08, R-CORE-134), whichever version or copy brought it.
+                if (erased.Any(e => e.PackId == manifest.Id && e.Erases(record.Type, record.Key))) continue;
                 var stored = new ModuleRecord
                 {
                     ModuleId = manifest.Id, Type = record.Type, Id = IdOf(manifest.Id, record.Type, record.Key), Key = record.Key,
@@ -127,6 +132,7 @@ public sealed partial class PackMemory : IModuleTraversalReader
                         links.Add(new ModuleRecordLink { Relation = relation.Name, TargetId = targetId, TargetType = target.Type });
                 }
                 var id = IdOf(manifest.Id, record.Type, record.Key);
+                if (!memory._byId.ContainsKey(id)) continue; // erased: not held, and links into it are left out above
                 var linked = memory._byId[id] with
                 {
                     Links = links.DistinctBy(l => (l.Relation, l.TargetId)).OrderBy(l => l.Relation, StringComparer.Ordinal)
@@ -187,7 +193,9 @@ public sealed partial class PackMemory : IModuleTraversalReader
             // With the host's grants, the same ones the walk gets below: one consent check, one set of grants (review 6, M1).
             snapshots.Add(shot.ToSnapshot(definitions[of], [.. definitions[of].Modules.Keys.Where(definitions.ContainsKey).Select(d => definitions[d])], [.. grants ?? []]));
         }
-        try { return new PackMount(loaded, From(loaded.Select(p => p.Knowledge).OfType<KnowledgePack>(), snapshots, grants)); }
+        // Each pack's verified erasures reach every pack of its id mounted here: an erasure a later version carries erases the
+        // records an earlier one brought (feature 08).
+        try { return new PackMount(loaded, From(loaded.Select(p => p.Knowledge).OfType<KnowledgePack>(), snapshots, grants, loaded.SelectMany(p => p.Erasures))); }
         catch (KnowledgePackException e) { throw new PackLoadException(e.Problems); }
     }
 

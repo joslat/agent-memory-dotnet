@@ -77,6 +77,7 @@
     <Compile Include="../../shared/PackText.cs" Link="Shared/PackText.cs" />
     <Compile Include="../../shared/PackBuiltIns.cs" Link="Shared/PackBuiltIns.cs" />
     <Compile Include="../../shared/RecordFrame.cs" Link="Shared/RecordFrame.cs" />
+    <Compile Include="../../shared/ErasureHash.cs" Link="Shared/ErasureHash.cs" />
     <EmbeddedResource Include="../../spec/registry.json" LogicalName="AgentMemory.Extensibility.registry.json" />
   </ItemGroup>
 </Project>

@@ -50,6 +50,17 @@ public sealed class Neo4jKnowledgePackStore : IKnowledgePackStore
     }
 
     /// <inheritdoc/>
+    public async Task<KnowledgePackEraseResult> EraseAsync(ModuleManifest pack, IReadOnlyList<ModuleErasure> erasures, DateTimeOffset atUtc, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(pack);
+        ArgumentNullException.ThrowIfNull(erasures);
+        var resolution = KnowledgePack.ResolutionOf(pack);
+        var migration = await new ModuleMigrator(_runner, resolution, _clock).ApplyAsync("knowledge-pack:" + pack.Id, cancellationToken).ConfigureAwait(false);
+        if (migration.Problems.Count != 0) throw new KnowledgePackException(migration.Problems);
+        return await new Neo4jModuleStore(_runner, resolution).ErasePackAsync(pack.Id, erasures, atUtc.ToUniversalTime(), cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
     public async Task<KnowledgePackImportResult> RemoveAsync(ModuleManifest pack, DateTimeOffset atUtc, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(pack);

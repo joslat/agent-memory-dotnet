@@ -23,8 +23,7 @@ internal sealed partial record PackErasure(string Id, DateTimeOffset IssuedAt, s
     internal static readonly IReadOnlySet<string> Roles = PackRegistry.ErasureRoles;
 
     /// <summary>The salted hash of a key: the SHA-256 of the salt, a colon and the key in UTF-8, in lowercase hexadecimal.</summary>
-    internal static string HashOf(string salt, string key) =>
-        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(salt + ":" + key))).ToLowerInvariant();
+    internal static string HashOf(string salt, string key) => ErasureHash.Of(salt, key);
 
     /// <summary>Whether it erases the record of this type and key.</summary>
     internal bool Erases(string type, string key) =>

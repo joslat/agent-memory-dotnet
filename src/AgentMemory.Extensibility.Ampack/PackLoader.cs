@@ -166,6 +166,11 @@ public sealed record LoadedPack
     /// what result. They inform; one admits the pack only where the host trusts certificates (<see cref="PackCertificates.Admit"/>).
     /// </summary>
     public IReadOnlyList<PackEvaluation> Certificates { get; internal init; } = [];
+    /// <summary>
+    /// The erasures the pack carries that this host's trust policy verifies (feature 08): signed by a publisher or revoker for its
+    /// id. An import applies them before it writes, and the records they name stay out of every read of this pack.
+    /// </summary>
+    public IReadOnlyList<ModuleErasure> Erasures { get; internal init; } = [];
     /// <summary>For a snapshot pack, its verified record files, read by <see cref="PackLoader.ToSnapshot"/>.</summary>
     internal IReadOnlyDictionary<string, ReadOnlyMemory<byte>> RecordFiles { get; init; } = new Dictionary<string, ReadOnlyMemory<byte>>();
 }
@@ -308,6 +313,7 @@ public static class PackLoader
             // Read under the same trust the pack verified under: what this host revoked before (its ledger) holds for evaluator
             // keys too (review 1, H2).
             Certificates = PackCertificates.Read(pack, ledger is null ? trust.Policy : ledger.Ledger.Apply(trust.Policy), DateTimeOffset.UtcNow),
+            Erasures = PackErasures.Read(pack, ledger is null ? trust.Policy : ledger.Ledger.Apply(trust.Policy), DateTimeOffset.UtcNow),
             // An absent file is null, not empty: a plain null would convert, through byte[], to an empty and present ReadOnlyMemory.
             Tests = pack.Files.TryGetValue(PackTests.FileName, out var tests) ? new ReadOnlyMemory<byte>(tests) : (ReadOnlyMemory<byte>?)null,
         };

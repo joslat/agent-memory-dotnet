@@ -1398,6 +1398,28 @@
    ]
   },
   {
+   "id": "R-CORE-133",
+   "doc": "core.md",
+   "section": "17a",
+   "level": "MUST",
+   "summary": "A host MUST apply every erasure it holds for a pack before it writes any of that pack's records, from any version: each erased record's every version, and its content, MUST leave the store, and the host MUST keep a tombstone of the pack, the type, the salt and the key's hash, never the key.",
+   "verifiedBy": [
+    "unit:ErasureTests.An_import_applies_the_erasures_that_name_its_pack_before_it_writes",
+    "integration:ModuleRecordWriteIntegrationTests.AnErasedRecordIsRemovedWithATombstoneThatNoReImportPassesInBothStores"
+   ]
+  },
+  {
+   "id": "R-CORE-134",
+   "doc": "core.md",
+   "section": "17a",
+   "level": "MUST",
+   "summary": "A host MUST NOT write, hold or offer a record a tombstone or an erasure it holds names, whichever version or copy brings it; a link into an erased record goes with it.",
+   "verifiedBy": [
+    "unit:ErasureTests.Memory_never_holds_an_erased_record_and_links_into_it_are_left_out",
+    "integration:ModuleRecordWriteIntegrationTests.AnErasedRecordIsRemovedWithATombstoneThatNoReImportPassesInBothStores"
+   ]
+  },
+  {
    "id": "R-CORE-126",
    "doc": "core.md",
    "section": "16",

@@ -245,6 +245,46 @@ public sealed partial class ModuleRecordWriteIntegrationTests
         finally { await importer.RemoveAsync(pack.Manifest); }
     }
 
+    [Fact]
+    public async Task AnErasedRecordIsRemovedWithATombstoneThatNoReImportPassesInBothStores()
+    {
+        // Feature 08 (R-CORE-133, 134): Heian Shodan erased by its salted key hash, the notice naming no key. Neo4j removes every
+        // version and keeps a tombstone; importing the same pack again writes every record but that one; memory agrees.
+        var pack = PackLoader.Load(PackAuthoring.Build(PackAuthoring.FromModuleBundle(RealBundle("MartialArts")), AmpackKey.PrivateKeyPem), AmpackTrust());
+        var importer = new KnowledgePackImporter(new Neo4jKnowledgePackStore(fixture.TransactionRunner));
+        await importer.ImportAsync(pack.Knowledge!);
+        const string Salt = "0123456789abcdef0123456789abcdef";
+        var erasure = new ModuleErasure
+        {
+            PackId = pack.Id, Statement = "sha256:" + new string('e', 64), IssuedAt = DateTimeOffset.UtcNow, Reason = "withdrawn", Salt = Salt,
+            Records = [new ModuleErasedRecord("MartialArtsKata", null, ModuleErasure.KeyHash(Salt, "shotokan/heian-shodan"))],
+        };
+        try
+        {
+            using var services = Policies();
+            var views = new ModuleViews(pack.Knowledge!.Resolution,
+                new Neo4jModuleReader(fixture.TransactionRunner, pack.Knowledge.Resolution, pack.Id, services.GetRequiredService<IMemoryIsolationPolicy>()));
+            var lea = new ModuleReadContext { Scope = MemoryScope.For("lea") };
+            async Task<int> Held() => (await views.EvaluateWithArgumentsAsync("kata", new() { Search = "Heian Shodan" }, lea)).Items.Count(i => i.Record.Key == "shotokan/heian-shodan");
+            (await Held()).Should().Be(1);
+
+            var store = new Neo4jKnowledgePackStore(fixture.TransactionRunner);
+            (await store.EraseAsync(pack.Manifest, [erasure], DateTimeOffset.UtcNow)).Should().Be(new KnowledgePackEraseResult { PackId = pack.Id, Erased = 1, Tombstones = 1 });
+            (await Held()).Should().Be(0, "every version is gone");
+            await importer.ImportAsync(pack.Knowledge!);
+            (await Held()).Should().Be(0, "the tombstone blocks the record from a re-import of the very pack that brought it");
+
+            var memory = PackMemory.From([pack.Knowledge!], erasures: [erasure]);
+            (await new ModuleViews(memory.Resolution, memory.ReaderFor(pack.Id)).EvaluateWithArgumentsAsync("kata", new() { Search = "Heian Shodan" }, lea))
+                .Items.Should().NotContain(i => i.Record.Key == "shotokan/heian-shodan", "memory never holds an erased record");
+        }
+        finally
+        {
+            await importer.RemoveAsync(pack.Manifest);
+            await fixture.TransactionRunner.WriteAsync(async tx => await tx.RunAsync("MATCH (t:ModuleTombstone {pack:$pack}) DELETE t", new Dictionary<string, object?> { ["pack"] = pack.Id }));
+        }
+    }
+
     private static async Task<ContextEnvelope> CompileAsync(IServiceProvider provider, ContextRequest request)
     {
         await using var scope = provider.CreateAsyncScope();

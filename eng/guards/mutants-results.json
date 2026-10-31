@@ -1,6 +1,6 @@
 {
  "format": "agentmemory.guards.mutants-results/2",
- "commit": "36ea86ee",
+ "commit": "57875754",
  "results": [
   {
    "id": "archive-ratio",
@@ -1192,16 +1192,6 @@
    "seconds": 172
   },
   {
-   "id": "walk-ignores-life",
-   "rule": "LIVE-IN-WORLD-TIME",
-   "door": "serve",
-   "mutant_sha256": "9d51676804cd15c2d8e35768ec48bdce3a0101fd9dbc2642f91f7f56c27cf736",
-   "killed": false,
-   "file_sha256": "f0f79756611802e952ae26fab9db67c2c16927cd4b1d527967e8bea68933cfa9",
-   "failed": [],
-   "seconds": 9
-  },
-  {
    "id": "reader-ignores-life",
    "rule": "LIVE-IN-WORLD-TIME",
    "door": "serve",
@@ -1261,6 +1251,66 @@
     "RecordLifeTests.A_refreshing_record_ends_its_type_s_days_after_it_begins"
    ],
    "seconds": 7
+  },
+  {
+   "id": "erase-after-import",
+   "rule": "ERASED-STAYS-GONE",
+   "door": "install",
+   "mutant_sha256": "6cfd27b30edaffaf639edebcd31c359813e18cfebf540f8e7694f249d9dede21",
+   "killed": true,
+   "file_sha256": "1c8fad7aa5b19039fa6909e1dbf2c4dbb39862f141f8e2eca3f0f4bd625812c3",
+   "failed": [
+    "ErasureTests.An_import_applies_the_erasures_that_name_its_pack_before_it_writes"
+   ],
+   "seconds": 8
+  },
+  {
+   "id": "memory-keeps-erased",
+   "rule": "ERASED-STAYS-GONE",
+   "door": "serve",
+   "mutant_sha256": "09e6c38c08eeb7e9aa6e921147f500d7c656105e9502de44aaabaac1e2b2db9a",
+   "killed": true,
+   "file_sha256": "b780c29a14d2f834bd1a2ab377576b5f5c2de9fdff05f35746439879fd065012",
+   "failed": [
+    "ErasureTests.Memory_never_holds_an_erased_record_and_links_into_it_are_left_out"
+   ],
+   "seconds": 9
+  },
+  {
+   "id": "erasure-by-anyone",
+   "rule": "ERASED-STAYS-GONE",
+   "door": "verify",
+   "mutant_sha256": "805688cfedf590ccf694ceaa07f0afccc64d44cc5b9c53c5d0c0cdadbf4fe335",
+   "killed": true,
+   "file_sha256": "b9655a5f60d7e52d779ace77f0e82f14a4e24416c4f9a17a287d1f892cb7ad10",
+   "failed": [
+    "kit"
+   ],
+   "seconds": 174
+  },
+  {
+   "id": "python-erasure-by-anyone",
+   "rule": "ERASED-STAYS-GONE",
+   "door": "verify",
+   "mutant_sha256": "d469ef496e0f0f6a060aaf3f8248eb58d51af1f5d90a4891c9d5eea68d5e3ce1",
+   "killed": true,
+   "file_sha256": "6400d7f923071c19671c8642b68b6ebe7aa84e1abaaf7494f322f36374043a4d",
+   "failed": [
+    "kit"
+   ],
+   "seconds": 165
+  },
+  {
+   "id": "hash-unsalted",
+   "rule": "ERASED-STAYS-GONE",
+   "door": "definition",
+   "mutant_sha256": "47895f0056fccfd9855e431f0c448557f41d185ccab9847c783766326c86b9e6",
+   "killed": true,
+   "file_sha256": "125ea3c369a07d23fa8400a47b1f14fae295ee741a2cf63beea26f9fa08cb69f",
+   "failed": [
+    "ErasureTests.A_key_hash_is_the_salted_sha256_both_verifiers_and_the_stores_compute"
+   ],
+   "seconds": 8
   },
   {
    "id": "length-by-utf16",

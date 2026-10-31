@@ -1563,6 +1563,81 @@
    "sha256": "269571530c2e2ab18a2da32ac7db986b913ea646717d2d286ca0ab2428a06494"
   },
   {
+   "id": "erase-after-import",
+   "rule": "ERASED-STAYS-GONE",
+   "door": "install",
+   "file": "src/AgentMemory.Extensibility/Packs/KnowledgePackImporter.cs",
+   "edits": [
+    {
+     "old": "        if (mine.Count > 0) await _store.EraseAsync(pack.Manifest, mine, _clock.GetUtcNow(), cancellationToken).ConfigureAwait(false);\n        return await ImportAsync(pack, allowDowngrade, cancellationToken).ConfigureAwait(false);",
+     "new": "        var result = await ImportAsync(pack, allowDowngrade, cancellationToken).ConfigureAwait(false);\n        if (mine.Count > 0) await _store.EraseAsync(pack.Manifest, mine, _clock.GetUtcNow(), cancellationToken).ConfigureAwait(false);\n        return result;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ErasureTests",
+   "sha256": "6cfd27b30edaffaf639edebcd31c359813e18cfebf540f8e7694f249d9dede21"
+  },
+  {
+   "id": "memory-keeps-erased",
+   "rule": "ERASED-STAYS-GONE",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackMemory.cs",
+   "edits": [
+    {
+     "old": "                if (erased.Any(e => e.PackId == manifest.Id && e.Erases(record.Type, record.Key))) continue;\n",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ErasureTests",
+   "sha256": "09e6c38c08eeb7e9aa6e921147f500d7c656105e9502de44aaabaac1e2b2db9a"
+  },
+  {
+   "id": "erasure-by-anyone",
+   "rule": "ERASED-STAYS-GONE",
+   "door": "verify",
+   "file": "src/AgentMemory.Packs.Format/PackErasure.cs",
+   "edits": [
+    {
+     "old": "if (roleRefusals.Any(r => r is null)) return (erasure, keyId, []);",
+     "new": "if (roleRefusals.Count >= 0) return (erasure, keyId, []);"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "805688cfedf590ccf694ceaa07f0afccc64d44cc5b9c53c5d0c0cdadbf4fe335"
+  },
+  {
+   "id": "python-erasure-by-anyone",
+   "rule": "ERASED-STAYS-GONE",
+   "door": "verify",
+   "file": "conformance/pack-v1.1/python/ampack_verify.py",
+   "edits": [
+    {
+     "old": "        if any(key_refusal(key, role, pid, issued_at, now, revoked_keys) is None for role in ERASURE_ROLES):",
+     "new": "        if True:"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "d469ef496e0f0f6a060aaf3f8248eb58d51af1f5d90a4891c9d5eea68d5e3ce1"
+  },
+  {
+   "id": "hash-unsalted",
+   "rule": "ERASED-STAYS-GONE",
+   "door": "definition",
+   "file": "shared/ErasureHash.cs",
+   "edits": [
+    {
+     "old": "Encoding.UTF8.GetBytes(salt + \":\" + key)",
+     "new": "Encoding.UTF8.GetBytes(key)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ErasureTests",
+   "sha256": "47895f0056fccfd9855e431f0c448557f41d185ccab9847c783766326c86b9e6"
+  },
+  {
    "id": "length-by-utf16",
    "rule": "TEXT-BY-CHARACTER",
    "door": "verify",
