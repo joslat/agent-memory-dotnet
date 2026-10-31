@@ -50,8 +50,8 @@ public sealed partial class PackMemory : IModuleTraversalReader
     public int Count => _byId.Count;
 
     /// <summary>Every record held, by module, type and key: what a composer lists (PACK-composer).</summary>
-    public IReadOnlyList<ModuleRecord> Records => [.. _byId.Values.OrderBy(r => r.ModuleId, StringComparer.Ordinal)
-        .ThenBy(r => r.Type, StringComparer.Ordinal).ThenBy(r => r.Key, StringComparer.Ordinal)];
+    public IReadOnlyList<ModuleRecord> Records => [.. _byId.Values.OrderBy(r => r.ModuleId, PackText.Order)
+        .ThenBy(r => r.Type, PackText.Order).ThenBy(r => r.Key, PackText.Order)];
 
     /// <summary>
     /// Holds knowledge packs and snapshots in memory. A snapshot brings its module and its dependencies; a link into a record
@@ -548,7 +548,8 @@ public sealed partial class PackMemory : IModuleTraversalReader
             var b = right.ValueKind == JsonValueKind.String ? right.GetString()! : right.GetRawText();
             if (type == "datetime" && DateTimeOffset.TryParse(a, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var x)
                 && DateTimeOffset.TryParse(b, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var y)) return x.CompareTo(y);
-            return string.CompareOrdinal(a, b);
+            // Code-point order, as Cypher orders the same values in the Neo4j store (feature 02).
+            return PackText.Compare(a, b);
         }
     }
 

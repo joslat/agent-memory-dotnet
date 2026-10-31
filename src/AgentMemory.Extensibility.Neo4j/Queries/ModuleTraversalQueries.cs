@@ -140,8 +140,8 @@ internal static class ModuleTraversalQueries
     /// <remarks>
     /// What is returned is a superset of what the cut keeps, and small (review 3, performance: every tie with its properties was
     /// returned, hundreds of rows for a hub of alike tests): the first <c>$fanOut</c> in this order, which is the format's order
-    /// wherever the keys of the records tied with the last one kept are below U+D800 (Cypher compares strings by code point,
-    /// which agrees with UTF-16 code units there), and every tied record when one of those keys is not (<c>$wide</c>). Records
+    /// (Cypher compares strings by code point, as the format does since feature 02), and every tied record when one of those
+    /// keys is at or above U+D800 (<c>$wide</c>: kept from when the format ordered by UTF-16 unit; a superset, so harmless). Records
     /// are ranked by reference, and each comes back narrow, its id, key, degree and hits (review 8, W2: every tied record came back
     /// whole when one tied key was wide); the caller cuts, then reads whole only the records it keeps (<see cref="ByIds"/>).
     /// Without question words nothing is folded.

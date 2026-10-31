@@ -7,14 +7,17 @@ namespace AgentMemory.Extensibility.Context.Traversal;
 [Experimental("AMEXT001")]
 internal static class AnchorMatcher
 {
+    // Qualities in millionths (feature 02): every score of the walk is an integer, so every implementation ranks alike.
     /// <summary>The value equals the anchor.</summary>
-    internal const double Exact = 1.0;
+    internal const long Exact = 1_000_000;
     /// <summary>A symbol's simple name equals the anchor's.</summary>
-    internal const double Named = 0.9;
+    internal const long Named = 900_000;
     /// <summary>A glob with wildcards matches.</summary>
-    internal const double Globbed = 0.7;
+    internal const long Globbed = 700_000;
     /// <summary>A folder prefix contains the anchor: at least this, more the deeper the folder.</summary>
-    internal const double PrefixBase = 0.5;
+    internal const long PrefixBase = 500_000;
+    /// <summary>What a folder's depth adds at most to <see cref="PrefixBase"/>.</summary>
+    internal const long PrefixDepth = 300_000;
 
     /// <summary>
     /// The most work one stored value's match may take, in the units of the one cost model the spec states (§6.1; review 8, W1
@@ -69,11 +72,11 @@ internal static class AnchorMatcher
     }
 
     /// <summary>The best match of one stored value against the anchors: its quality (0 for none), the anchor and the pattern.</summary>
-    internal static (double Quality, string? Anchor, string? Pattern) Best(ModuleAnchorMatch match, string? value, IEnumerable<string> anchors) =>
+    internal static (long Quality, string? Anchor, string? Pattern) Best(ModuleAnchorMatch match, string? value, IEnumerable<string> anchors) =>
         Best(match, value, new Anchors(anchors));
 
     /// <summary>The best match of one stored value against anchors prepared once: its quality, the anchor and the pattern.</summary>
-    internal static (double Quality, string? Anchor, string? Pattern) Best(ModuleAnchorMatch match, string? value, Anchors anchors)
+    internal static (long Quality, string? Anchor, string? Pattern) Best(ModuleAnchorMatch match, string? value, Anchors anchors)
     {
         if (IsBlank(value)) return (0, null, null);
         // Paths split on whitespace too; names do not, because a SCIP identity holds spaces; an exact value is one piece.
@@ -89,7 +92,7 @@ internal static class AnchorMatcher
         var pieces = new List<Piece>();
         var read = 0;
         long work = 0;
-        (double Quality, string? Anchor, string? Pattern) best = (0, null, null);
+        (long Quality, string? Anchor, string? Pattern) best = (0, null, null);
         foreach (var anchor in anchors.Items)
             for (var i = 0; ; i++)
             {
@@ -141,7 +144,7 @@ internal static class AnchorMatcher
     }
 
     // One piece against one anchor, charged what it compares.
-    private static double Compare(ModuleAnchorMatch match, Piece piece, Anchor anchor, ref long work)
+    private static long Compare(ModuleAnchorMatch match, Piece piece, Anchor anchor, ref long work)
     {
         switch (match)
         {
@@ -171,7 +174,7 @@ internal static class AnchorMatcher
         return string.Equals(a, b, StringComparison.Ordinal);
     }
 
-    internal static double Quality(ModuleAnchorMatch match, string pattern, string anchor) => Best(match, pattern, [anchor]).Quality;
+    internal static long Quality(ModuleAnchorMatch match, string pattern, string anchor) => Best(match, pattern, [anchor]).Quality;
 
     /// <summary>
     /// Whether a seed's pattern is its anchor, as its reason shows it (review 3: the raw texts were compared): the same path,
@@ -201,7 +204,7 @@ internal static class AnchorMatcher
         return value[start..end].Replace('\\', '/');
     }
 
-    private static double PrefixQuality(string foldedPrefix, Anchor anchor, ref long work)
+    private static long PrefixQuality(string foldedPrefix, Anchor anchor, ref long work)
     {
         work++;
         if (foldedPrefix.Length == 0 || anchor.Path.Length == 0) return 0;
@@ -211,9 +214,10 @@ internal static class AnchorMatcher
         work += 2L * PackText.Length(foldedPrefix);
         if (!anchor.FoldedPath.StartsWith(foldedPrefix, StringComparison.Ordinal)) return 0;
         // A deeper folder says more about the file: src/a/b/ beats src/ for src/a/b/c.cs.
-        var depth = (double)foldedPrefix.Count(c => c == '/') + 1;
-        var total = (double)anchor.Slashes + 1;
-        return PrefixBase + 0.3 * Math.Min(1, depth / total);
+        long depth = foldedPrefix.Count(c => c == '/') + 1;
+        long total = anchor.Slashes + 1;
+        // 0.5 + 0.3 x min(1, depth / total), in millionths and rounded down (feature 02).
+        return PrefixBase + PrefixDepth * Math.Min(depth, total) / total;
     }
 
     /// <summary>

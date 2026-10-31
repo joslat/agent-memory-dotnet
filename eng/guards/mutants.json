@@ -963,6 +963,21 @@
    "sha256": "3be705ae300a09b663db73d68943cf4109af7d67cf4610ce79b3a6778126811d"
   },
   {
+   "id": "walk-rounds-to-nearest",
+   "rule": "INTEGER-UNITS",
+   "door": "definition",
+   "file": "shared/PackNumbers.cs",
+   "edits": [
+    {
+     "old": "internal static long MulFloor(long a, long b) => (long)Math.Floor((decimal)a * b / One);",
+     "new": "internal static long MulFloor(long a, long b) => (long)Math.Round((decimal)a * b / One);"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.PackFormat",
+   "filter": "FullyQualifiedName~PackNumbersTests",
+   "sha256": "32a9425a7e0139e4778e0ed3c3bb151b88896cce196b56006bef0f5368924f79"
+  },
+  {
    "id": "length-by-utf16",
    "rule": "TEXT-BY-CHARACTER",
    "door": "verify",

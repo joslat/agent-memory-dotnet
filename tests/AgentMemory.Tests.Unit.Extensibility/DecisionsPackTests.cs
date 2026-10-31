@@ -127,8 +127,8 @@ public sealed class DecisionsPackTests : IDisposable
         var snapshot = DecisionsReader.Read(_root, DecisionsReader.DecisionFiles(Files), CodeIndex.Scan(_root, Files), "git:abc");
         var directive = snapshot.Records.Single(r => r.Properties["title"].GetString() == "User directive");
 
-        AnchorMatcher.Best(ModuleAnchorMatch.Glob, directive.Properties["appliesTo"].GetString(), ["src/Store/ModuleStore.cs"]).Quality.Should().Be(1.0);
-        AnchorMatcher.Best(ModuleAnchorMatch.Name, directive.Properties["mentions"].GetString(), ["Neo4jModuleStore"]).Quality.Should().Be(1.0);
+        AnchorMatcher.Best(ModuleAnchorMatch.Glob, directive.Properties["appliesTo"].GetString(), ["src/Store/ModuleStore.cs"]).Quality.Should().Be(AnchorMatcher.Exact);
+        AnchorMatcher.Best(ModuleAnchorMatch.Name, directive.Properties["mentions"].GetString(), ["Neo4jModuleStore"]).Quality.Should().Be(AnchorMatcher.Exact);
         DecisionsPack.Manifest.Validate().Should().BeEmpty();
         DecisionsPack.Manifest.Traversal!.Anchors.Select(a => (a.Property, a.Kind)).Should().Equal(
             ("appliesTo", ContextAnchorKind.Path), ("mentions", ContextAnchorKind.Symbol));

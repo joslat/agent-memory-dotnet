@@ -197,7 +197,7 @@ public sealed class WalkWorkBoundsTests
             var anchors = Enumerable.Range(0, 1 + rng.Next(4)).Select(_ => string.Join("/", Enumerable.Range(0, 1 + rng.Next(3))
                 .Select(_ => parts[rng.Next(4)]))).ToList();
             var pieces = value.Split([' ', ';', ',', '\t', '\n'], StringSplitOptions.RemoveEmptyEntries).Select(AnchorMatcher.Trimmed).Where(p => p.Length > 0).ToList();
-            (double Quality, string? Anchor, string? Pattern) expected = (0, null, null);
+            (long Quality, string? Anchor, string? Pattern) expected = (0, null, null);
             foreach (var anchor in anchors)
                 foreach (var pattern in pieces)
                     if (AnchorMatcher.Quality(ModuleAnchorMatch.Glob, pattern, anchor) is var q && q > expected.Quality) expected = (q, anchor, pattern);

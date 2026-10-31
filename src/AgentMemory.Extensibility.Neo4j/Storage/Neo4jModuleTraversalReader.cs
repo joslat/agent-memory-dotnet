@@ -73,7 +73,7 @@ public sealed class Neo4jModuleTraversalReader : IModuleTraversalReader
                 void Trim()
                 {
                     kept.Sort(static (a, b) => b.Quality.CompareTo(a.Quality) is var q and not 0 ? q
-                        : string.CompareOrdinal(a.Key, b.Key) is var k and not 0 ? k : string.CompareOrdinal(a.Id, b.Id));
+                        : ModuleAnchorQuery.Order(a.Key, b.Key) is var k and not 0 ? k : ModuleAnchorQuery.Order(a.Id, b.Id));
                     if (kept.Count > limit) kept.RemoveRange(limit, kept.Count - limit);
                 }
                 await EachAsync(transaction, statement, new Dictionary<string, object?>
@@ -141,7 +141,7 @@ public sealed class Neo4jModuleTraversalReader : IModuleTraversalReader
                 var best = new Dictionary<string, List<(long Hits, int Degree, string Key, string Id)>>(StringComparer.Ordinal);
                 static int Order((long Hits, int Degree, string Key, string Id) a, (long Hits, int Degree, string Key, string Id) b) =>
                     b.Hits.CompareTo(a.Hits) is var h and not 0 ? h : a.Degree.CompareTo(b.Degree) is var d and not 0 ? d
-                    : string.CompareOrdinal(a.Key, b.Key) is var k and not 0 ? k : string.CompareOrdinal(a.Id, b.Id);
+                    : ModuleAnchorQuery.Order(a.Key, b.Key) is var k and not 0 ? k : ModuleAnchorQuery.Order(a.Id, b.Id);
                 void Trim(List<(long, int, string, string)> list)
                 {
                     list.Sort(Order);

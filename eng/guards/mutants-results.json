@@ -1,6 +1,6 @@
 {
  "format": "agentmemory.guards.mutants-results/2",
- "commit": "59c9f5fb",
+ "commit": "63b3f1a6",
  "results": [
   {
    "id": "archive-ratio",
@@ -104,11 +104,11 @@
    "door": "neo4j expand",
    "mutant_sha256": "f8153e5f9ad844e3acc69cfae700ec7ff6af35574b155c89a423cf929e189b6a",
    "killed": true,
-   "file_sha256": "1a8a7d6bd1297516dc65cb246de77d7c8ad533d450618e314d265db14d032d66",
+   "file_sha256": "ddb23493d39818c44ef829500e050c10fb1bc75c213a260857916b87449f604b",
    "failed": [
     "Review8GuardTests.W2_neo4j_expansion_returns_narrow_rows_and_reads_whole_only_the_records_it_keeps"
    ],
-   "seconds": 11
+   "seconds": 10
   },
   {
    "id": "golden-drift",
@@ -456,11 +456,11 @@
    "door": "definition",
    "mutant_sha256": "a99f5b81f6d6a3e2a7dbf16ba79dd21244830aba21a940f49264b28e71057e1f",
    "killed": true,
-   "file_sha256": "dac4258fd4cfbb579286cfd02e87128072c12bb453eb58f640671889329fbf99",
+   "file_sha256": "1df2cab59fff8b298941b8f83dcc525a0a49e796c0d264f8dced81df86814d52",
    "failed": [
     "AnchorMatcherWorkTests.Review8_W1_a_value_at_the_format_s_longest_line_is_bounded_in_memory_and_time_whatever_it_holds"
    ],
-   "seconds": 85
+   "seconds": 75
   },
   {
    "id": "walk-charged-by-length",
@@ -468,7 +468,7 @@
    "door": "definition",
    "mutant_sha256": "b8fd5c484619c163a49ac522ccede65fa24cedf9c331c4cb5236a3a15e118a42",
    "killed": true,
-   "file_sha256": "dac4258fd4cfbb579286cfd02e87128072c12bb453eb58f640671889329fbf99",
+   "file_sha256": "1df2cab59fff8b298941b8f83dcc525a0a49e796c0d264f8dced81df86814d52",
    "failed": [
     "AnchorMatcherWorkTests.Review8_W1_ordinary_names_are_charged_what_they_compare_so_a_late_anchor_still_seeds"
    ],
@@ -480,11 +480,11 @@
    "door": "neo4j expand",
    "mutant_sha256": "06bc9feb7edb87af68275e85d1dd8020c77336669897bb0e36dfaaaafe871363",
    "killed": true,
-   "file_sha256": "1a8a7d6bd1297516dc65cb246de77d7c8ad533d450618e314d265db14d032d66",
+   "file_sha256": "ddb23493d39818c44ef829500e050c10fb1bc75c213a260857916b87449f604b",
    "failed": [
     "Review8GuardTests.W2_neo4j_expansion_returns_narrow_rows_and_reads_whole_only_the_records_it_keeps"
    ],
-   "seconds": 12
+   "seconds": 11
   },
   {
    "id": "walk-isolates-a-read",
@@ -492,7 +492,7 @@
    "door": "walk",
    "mutant_sha256": "92932e25f6fdb7b35a18ff635723806be4061ae24b2681a8e7afddd032b65146",
    "killed": true,
-   "file_sha256": "91711438e65d3daa79a4316deb94a90e151ded1aa6929902f089c6c813a14934",
+   "file_sha256": "c70ae04e4b5c7c8755e28351331e3d05c403742fd986069e1e98582c3de846d0",
    "failed": [
     "TraversalBudgetTests.Review7_W2_one_module_s_failing_read_leaves_that_module_out_and_the_walk_goes_on"
    ],
@@ -504,11 +504,11 @@
    "door": "neo4j read",
    "mutant_sha256": "7a2628d4943931e63b77627466fd258382040a3ff2587aa217850715d863ca53",
    "killed": true,
-   "file_sha256": "36c0b18a71386b390a10613c9ff96d1062570a299f247fc84a1752045a3d8684",
+   "file_sha256": "85fe072f5b5948ee816f40033e24d3dd1b613345618dd57da0e1122d5163ad98",
    "failed": [
     "TraversalDeadlineTests.A_read_with_a_budget_runs_under_that_server_deadline_and_one_without_runs_as_before"
    ],
-   "seconds": 11
+   "seconds": 10
   },
   {
    "id": "path-one-pass",
@@ -516,7 +516,7 @@
    "door": "definition",
    "mutant_sha256": "d416299a2818fd5805aa502c2ed6c449b469580c7609623fa5faa863bc82fce5",
    "killed": true,
-   "file_sha256": "dac4258fd4cfbb579286cfd02e87128072c12bb453eb58f640671889329fbf99",
+   "file_sha256": "1df2cab59fff8b298941b8f83dcc525a0a49e796c0d264f8dced81df86814d52",
    "failed": [
     "AnchorMatcherWorkTests.The_path_in_one_pass_equals_the_loop_the_format_defines_on_every_generated_value"
    ],
@@ -528,7 +528,7 @@
    "door": "definition",
    "mutant_sha256": "2720d5106d1410bb636ea7e8d998967c195118d35b1f3867ea681162e812127f",
    "killed": true,
-   "file_sha256": "dac4258fd4cfbb579286cfd02e87128072c12bb453eb58f640671889329fbf99",
+   "file_sha256": "1df2cab59fff8b298941b8f83dcc525a0a49e796c0d264f8dced81df86814d52",
    "failed": [
     "AnchorMatcherWorkTests.The_glob_matcher_equals_the_regex_it_replaced_on_every_generated_pair"
    ],
@@ -540,7 +540,7 @@
    "door": "walk",
    "mutant_sha256": "308d4f4971295a7909df861bd04f291f365e10749cc8108d284971eaf5d976fa",
    "killed": true,
-   "file_sha256": "91711438e65d3daa79a4316deb94a90e151ded1aa6929902f089c6c813a14934",
+   "file_sha256": "c70ae04e4b5c7c8755e28351331e3d05c403742fd986069e1e98582c3de846d0",
    "failed": [
     "WalkWorkBoundsTests.Review7_W7_the_walk_makes_the_fan_out_cut_whatever_a_store_returns_and_in_whatever_order"
    ],
@@ -661,12 +661,12 @@
    "door": "serve",
    "mutant_sha256": "5c0b3d1f26ad0dd394db3d8309197cb2ae3ae5b41a80b20742a279eb2385785c",
    "killed": true,
-   "file_sha256": "aa9e2207de25437e92362e1063c7f6dece0d753edea9e947ac1fc8dd0b380c33",
+   "file_sha256": "5b6bebeb14fc21e3df447a36ef6dd6c8d5db82acd91a0b1122365c4eaaf312f0",
    "failed": [
     "AmpackLoaderTests.Review11_serve_holds_what_the_host_composes_whatever_the_packaging",
     "PackFamilyTests.Review11_serve_refuses_a_family_the_host_refuses"
    ],
-   "seconds": 8
+   "seconds": 12
   },
   {
    "id": "composed-any-origin",
@@ -711,11 +711,11 @@
    "door": "install",
    "mutant_sha256": "f1a700f453eba57cab9448c0a86c2c56c731475c8e38817eef80ec4651c15f76",
    "killed": true,
-   "file_sha256": "aa9e2207de25437e92362e1063c7f6dece0d753edea9e947ac1fc8dd0b380c33",
+   "file_sha256": "5b6bebeb14fc21e3df447a36ef6dd6c8d5db82acd91a0b1122365c4eaaf312f0",
    "failed": [
     "PackConsentTests.Review14_install_runs_the_snapshot_imports_serve_runs"
    ],
-   "seconds": 8
+   "seconds": 12
   },
   {
    "id": "profiles-file-match",
@@ -769,6 +769,18 @@
    "seconds": 13
   },
   {
+   "id": "walk-rounds-to-nearest",
+   "rule": "INTEGER-UNITS",
+   "door": "definition",
+   "mutant_sha256": "32a9425a7e0139e4778e0ed3c3bb151b88896cce196b56006bef0f5368924f79",
+   "killed": true,
+   "file_sha256": "d8ff2b8d6127adf32552d305c74ea4801915d39b7403357ec7fee5d6bf464aec",
+   "failed": [
+    "PackNumbersTests.A_product_of_millionths_is_rounded_down"
+   ],
+   "seconds": 5
+  },
+  {
    "id": "length-by-utf16",
    "rule": "TEXT-BY-CHARACTER",
    "door": "verify",
@@ -810,11 +822,11 @@
    "door": "memory",
    "mutant_sha256": "837745dcc83c15215cdb4251c74ad6c53a9795049caa2896ecbe5a2c98fbded3",
    "killed": true,
-   "file_sha256": "aa9e2207de25437e92362e1063c7f6dece0d753edea9e947ac1fc8dd0b380c33",
+   "file_sha256": "5b6bebeb14fc21e3df447a36ef6dd6c8d5db82acd91a0b1122365c4eaaf312f0",
    "failed": [
     "PackConsentTests.Review7_W9_a_snapshot_whose_links_reach_a_dependency_that_holds_nothing_is_refused_as_the_store_refuses_it"
    ],
-   "seconds": 7
+   "seconds": 10
   },
   {
    "id": "live-in-the-walk",
@@ -822,11 +834,11 @@
    "door": "definition",
    "mutant_sha256": "13014790f90d49e8a2247fb4e42e6b585d09a6468b4fbb8608449a88cb6517ec",
    "killed": true,
-   "file_sha256": "91711438e65d3daa79a4316deb94a90e151ded1aa6929902f089c6c813a14934",
+   "file_sha256": "c70ae04e4b5c7c8755e28351331e3d05c403742fd986069e1e98582c3de846d0",
    "failed": [
     "WalkWorkBoundsTests.Review7_W8_a_record_that_may_not_take_part_neither_seeds_nor_steers"
    ],
-   "seconds": 16
+   "seconds": 15
   },
   {
    "id": "live-in-pack-memory",
@@ -834,11 +846,11 @@
    "door": "pack memory",
    "mutant_sha256": "3dfa47b6c585c0033755167ec87cd566da2e37d6b99afb0c8ab2b5630e606675",
    "killed": true,
-   "file_sha256": "aa9e2207de25437e92362e1063c7f6dece0d753edea9e947ac1fc8dd0b380c33",
+   "file_sha256": "5b6bebeb14fc21e3df447a36ef6dd6c8d5db82acd91a0b1122365c4eaaf312f0",
    "failed": [
     "Review8GuardTests.A4_a_pack_memory_walk_leaves_out_the_records_an_expired_carrier_brought"
    ],
-   "seconds": 7
+   "seconds": 12
   },
   {
    "id": "signed-before-countersign",

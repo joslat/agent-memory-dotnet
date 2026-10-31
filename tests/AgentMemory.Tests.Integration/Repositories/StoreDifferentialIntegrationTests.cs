@@ -119,7 +119,7 @@ public sealed partial class ModuleRecordWriteIntegrationTests
                 var fromNeo4j = await TraversalWalk.RunAsync(work.Resolve(), neo4j, context, CancellationToken.None);
                 var fromMemory = await TraversalWalk.RunAsync(memory.Resolution, memory, context, CancellationToken.None);
                 var because = $"seed {seed}, request {request}: [{string.Join(" | ", anchors.Select(a => a.Kind + ":" + a.Value))}] '{question}'";
-                static string Offers(TraversalResult walk) => string.Join("\n", walk.Items.Select(i => $"{i.Record.Type} '{i.Record.Key}' {Math.Round(i.Score, 9)} {i.Via} {i.Hops}"))
+                static string Offers(TraversalResult walk) => string.Join("\n", walk.Items.Select(i => $"{i.Record.Type} '{i.Record.Key}' {i.Score} {i.Via} {i.Hops}"))
                     + "\n-- problems: " + string.Join(" | ", walk.Problems);
                 var (n, m) = (Offers(fromNeo4j), Offers(fromMemory));
                 if (n != m)

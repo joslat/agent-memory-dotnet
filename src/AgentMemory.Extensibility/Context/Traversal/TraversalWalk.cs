@@ -10,14 +10,14 @@ using AgentMemory.Extensibility.Reading;
 namespace AgentMemory.Extensibility.Context.Traversal;
 
 /// <summary>
-/// A record a walk reached: its score and how it was reached, how many of the question's words its text holds, and how specific
-/// the last link to it was (1 over how many records share that link).
+/// A record a walk reached: its score in millionths and how it was reached, how many of the question's words its text holds, and
+/// how many records share the last link to it (fewer is more specific; feature 02 keeps the count, not its inverse).
 /// </summary>
 [Experimental("AMEXT001")]
-internal sealed record TraversalItem(ModuleRecord Record, double Score, string Via, int Hops, int Matches = 0, double Specificity = 1)
+internal sealed record TraversalItem(ModuleRecord Record, long Score, string Via, int Hops, int Matches = 0, int SharedBy = 1)
 {
     /// <summary>The order a walk offers records in: the path's score, raised by each question word the record's text holds.</summary>
-    internal double Rank => Score * (1 + Matches);
+    internal long Rank => Score * (1 + Matches);
 }
 
 /// <summary>
@@ -95,7 +95,7 @@ internal static class TraversalWalk
     }
 
 
-    internal const double MinimumScore = 0.1;
+    internal const long MinimumScore = 100_000;
 
     // timeBudget: TimeBudget unless a test sets a shorter one.
     // live: whether a module may take part now (review 1, M2: a pack past its validUntil neither seeds, steers nor offers).
@@ -254,22 +254,23 @@ internal static class TraversalWalk
                     foreach (var edge in step.Edges)
                     {
                         if (!starting.TryGetValue(edge.FromId, out var parent)) continue;
-                        var score = parent.Score * PackNumbers.Fraction(declared.WeightMicro);
+                        // In millionths, rounded down at each step (feature 02): the one rounding rule, so every store agrees.
+                        var score = PackNumbers.MulFloor(parent.Score, declared.WeightMicro);
                         if (score < MinimumScore) continue;
                         var verb = Verb(module, declared.Name);
                         var via = parent.Via + " → " + (declared.Direction == ModuleTraversalDirection.Out
                             ? verb + " " + Label(edge.To) : Label(edge.To) + " " + verb + " it");
-                        reached.Add((new TraversalItem(edge.To, score, via, hop, Matches(edge.To), 1.0 / Math.Max(1, edge.Degree)), parent.Record));
+                        reached.Add((new TraversalItem(edge.To, score, via, hop, Matches(edge.To), Math.Max(1, edge.Degree)), parent.Record));
                     }
                     // The walk makes the fan-out cut, by the format's order: most matches, then most specific, then the format's order
                     // (review 7, W7: each store made it with its own copy of the order, so a store that returned more, as the spec
                     // allows, kept more neighbours).
                     var fanOut = Math.Clamp(declared.FanOut, 1, ModuleTraversalRelation.MaximumFanOut);
                     reached = [.. reached.GroupBy(r => r.From.Id, StringComparer.Ordinal).SelectMany(g => g.OrderByDescending(r => r.Item.Matches)
-                        .ThenByDescending(r => r.Item.Specificity).ThenBy(r => r.Item.Record, TraversalOrder.Records).Take(fanOut))];
+                        .ThenBy(r => r.Item.SharedBy).ThenBy(r => r.Item.Record, TraversalOrder.Records).Take(fanOut))];
                     // Offered in the format's order, whatever order the store answered in (review 2).
                     foreach (var (item, _) in reached.OrderByDescending(r => r.Item.Score).ThenByDescending(r => r.Item.Matches)
-                                 .ThenByDescending(r => r.Item.Specificity).ThenBy(r => r.Item.Record, TraversalOrder.Records).ThenBy(r => r.From, TraversalOrder.Records))
+                                 .ThenBy(r => r.Item.SharedBy).ThenBy(r => r.Item.Record, TraversalOrder.Records).ThenBy(r => r.From, TraversalOrder.Records))
                     {
                         if (Offer(item)) next.Add(item);
                         if (best.Count >= MaximumVisited) break;
@@ -284,7 +285,7 @@ internal static class TraversalWalk
             .SetTag(ModuleTelemetry.TraversalVisited, spent.Visited)
             .SetTag(ModuleTelemetry.TraversalElapsedMs, Math.Round(spent.Elapsed.TotalMilliseconds, 1))
             .SetTag(ModuleTelemetry.TraversalStoppedBy, spent.StoppedBy ?? "none");
-        return new([.. best.Values.OrderByDescending(i => i.Rank).ThenByDescending(i => i.Specificity).ThenBy(i => i.Hops)
+        return new([.. best.Values.OrderByDescending(i => i.Rank).ThenBy(i => i.SharedBy).ThenBy(i => i.Hops)
             .ThenBy(i => i.Record, TraversalOrder.Records)], problems.AsReadOnly(), spent);
     }
 

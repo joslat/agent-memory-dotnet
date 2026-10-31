@@ -50,10 +50,17 @@ public sealed record ModuleAnchorQuery
     public TimeSpan? Budget { get; init; }
 
     /// <summary>
-    /// How well a stored value matches the anchors by the walk's rules, 0 for not at all: the one measure every store ranks
-    /// its matches by, so that each returns the same best ones (review 6, M2).
+    /// The format's order of two texts, a key or an id: by code point (feature 02), which is UTF-8 byte order and Cypher's
+    /// string order, not .NET's ordinal UTF-16 order. Every store breaks a tie by it, so each keeps the same records.
     /// </summary>
-    public static double Quality(ModuleAnchorMatch match, string? value, IEnumerable<string> anchors) =>
+    public static int Order(string? a, string? b) => PackText.Compare(a, b);
+
+    /// <summary>
+    /// How well a stored value matches the anchors by the walk's rules, in millionths, 0 for not at all: the one measure every
+    /// store ranks its matches by, so that each returns the same best ones (review 6, M2); an integer, so equal is equal in every
+    /// store (feature 02).
+    /// </summary>
+    public static long Quality(ModuleAnchorMatch match, string? value, IEnumerable<string> anchors) =>
         Context.Traversal.AnchorMatcher.Best(match, value, anchors ?? throw new ArgumentNullException(nameof(anchors))).Quality;
 
     /// <summary>
@@ -61,7 +68,7 @@ public sealed record ModuleAnchorQuery
     /// anchors worked out once for every value a store matches (review 7, W1: each record normalized every anchor again). Each
     /// value's match is bounded in work, the same in every store, so a store checks its time budget on every record.
     /// </summary>
-    public Func<string?, double> Matcher()
+    public Func<string?, long> Matcher()
     {
         var anchors = new Context.Traversal.AnchorMatcher.Anchors(Values.Where(v => !IsBlank(v)));
         var match = Match;

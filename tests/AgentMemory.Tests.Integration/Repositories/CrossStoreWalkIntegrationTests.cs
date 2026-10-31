@@ -76,10 +76,10 @@ public sealed partial class ModuleRecordWriteIntegrationTests
 
                 fromNeo4j.Problems.Should().BeEmpty(string.Join(" | ", anchors));
                 if (anchors[0] == "src/Cross/CrossStore.cs")
-                    fromMemory.Items.Select(i => i.Record.Key).Should().Contain(k => k.Contains("\U0001F600", StringComparison.Ordinal))
-                        .And.NotContain(k => k.Contains('\uE000'), "the sixth place goes by UTF-16 code unit: U+D83D before U+E000");
-                fromNeo4j.Items.Select(i => (i.Record.Type, i.Record.Key, Math.Round(i.Score, 9), i.Via, i.Hops))
-                    .Should().Equal(fromMemory.Items.Select(i => (i.Record.Type, i.Record.Key, Math.Round(i.Score, 9), i.Via, i.Hops)), string.Join(" | ", anchors));
+                    fromMemory.Items.Select(i => i.Record.Key).Should().Contain(k => k.Contains('\uE000'))
+                        .And.NotContain(k => k.Contains("\U0001F600", StringComparison.Ordinal), "the sixth place goes by code point (feature 02): U+E000 before U+1F600");
+                fromNeo4j.Items.Select(i => (i.Record.Type, i.Record.Key, i.Score, i.Via, i.Hops))
+                    .Should().Equal(fromMemory.Items.Select(i => (i.Record.Type, i.Record.Key, i.Score, i.Via, i.Hops)), string.Join(" | ", anchors));
             }
 
             // ASCII folding only: a path that differs outside ASCII is another file in both stores.

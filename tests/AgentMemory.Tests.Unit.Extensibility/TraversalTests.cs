@@ -221,12 +221,20 @@ public sealed class TraversalTests
     [InlineData(ModuleAnchorMatch.Name, "ModuleStore", "modulestore", 0.0)]
     [InlineData(ModuleAnchorMatch.Name, "Ledger, ModuleStore; Gate", "ModuleStore", 1.0)]
     public void Anchors_match_by_path_glob_folder_or_symbol_name(ModuleAnchorMatch match, string value, string anchor, double quality) =>
-        AnchorMatcher.Best(match, value, [anchor]).Quality.Should().BeApproximately(quality, 0.0001);
+        AnchorMatcher.Best(match, value, [anchor]).Quality.Should().Be((long)Math.Round(quality * 1_000_000), "qualities are millionths (feature 02)");
 
     [Fact]
     public void A_deeper_folder_says_more_than_a_shallow_one() =>
         AnchorMatcher.Quality(ModuleAnchorMatch.Prefix, "src/Store/Deep", "src/Store/Deep/A.cs")
             .Should().BeGreaterThan(AnchorMatcher.Quality(ModuleAnchorMatch.Prefix, "src", "src/Store/Deep/A.cs"));
+
+    [Fact]
+    public void A_folder_s_quality_is_whole_millionths_rounded_down()
+    {
+        // Feature 02: 500,000 + 300,000 x 2 / 7 = 585,714.28..., so 585,714 in every implementation.
+        AnchorMatcher.Quality(ModuleAnchorMatch.Prefix, "a/b", "a/b/c/d/e/f/g.cs").Should().Be(585_714);
+        AnchorMatcher.Quality(ModuleAnchorMatch.Prefix, "src", "src/a/b.cs").Should().Be(600_000);
+    }
 
     [Theory]
     // Review 3: ASCII only, in every store. A-Z fold; nothing else does, and only ASCII white space is trimmed.
@@ -241,7 +249,7 @@ public sealed class TraversalTests
     [InlineData(ModuleAnchorMatch.Glob, "src/Ä*", "src/ä.cs", 0.0)]
     [InlineData(ModuleAnchorMatch.Prefix, "SRC/Store", "src/store/A.cs", 0.7)]
     public void Matching_folds_ASCII_letters_only(ModuleAnchorMatch match, string value, string anchor, double quality) =>
-        AnchorMatcher.Best(match, value, [anchor]).Quality.Should().BeApproximately(quality, 0.0001);
+        AnchorMatcher.Best(match, value, [anchor]).Quality.Should().Be((long)Math.Round(quality * 1_000_000), "qualities are millionths (feature 02)");
 
     [Fact]
     public void A_walk_takes_anchors_in_NFC_distinct_well_formed_and_at_most_32()
