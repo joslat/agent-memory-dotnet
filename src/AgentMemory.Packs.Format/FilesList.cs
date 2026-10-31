@@ -46,7 +46,7 @@ internal sealed partial record FilesList(string Id, string Version, IReadOnlyLis
         using var document = JsonDocument.Parse(bytes.ToArray());
         var root = document.RootElement;
         if (root.ValueKind != JsonValueKind.Object) return (null, $"{PackPaths.FilesList} is not an object.");
-        var known = new HashSet<string>(StringComparer.Ordinal) { "format", "id", "version", "files" };
+        var known = PackRegistry.FilesListFields;
         if (root.EnumerateObject().Select(p => p.Name).FirstOrDefault(n => !known.Contains(n)) is { } unknown)
             return (null, $"{PackPaths.FilesList} has an unknown field '{unknown}'.");
         if (!root.TryGetProperty("format", out var format) || format.ValueKind != JsonValueKind.String)

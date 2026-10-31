@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -22,27 +22,23 @@ internal sealed partial record PackManifest
 
     /// <summary>The most names <c>critical</c> holds.</summary>
     internal const int MaximumCritical = 64;
-    internal static readonly IReadOnlySet<string> Tiers = new HashSet<string>(StringComparer.Ordinal) { "open", "curated", "premium", "private", "hosted" };
-    internal static readonly IReadOnlySet<string> Kinds = new HashSet<string>(StringComparer.Ordinal) { "knowledge", "definition", "snapshot", "composite", "set" };
-    internal static readonly IReadOnlySet<string> Protections = new HashSet<string>(StringComparer.Ordinal) { "open", "audience", "licensed", "attested", "hosted" };
-    internal static readonly IReadOnlySet<string> CodeTiers = new HashSet<string>(StringComparer.Ordinal) { "E0", "E1", "E2" };
+    internal static readonly IReadOnlySet<string> Tiers = PackRegistry.Tiers;
+    internal static readonly IReadOnlySet<string> Kinds = PackRegistry.Kinds;
+    internal static readonly IReadOnlySet<string> Protections = PackRegistry.Protections;
+    internal static readonly IReadOnlySet<string> CodeTiers = PackRegistry.CodeTiers;
 
     /// <summary>
     /// Every field <c>pack.json</c> may hold (v1.1 §5 rule 1, PACK-strict): any other refuses the pack, so a field a newer
     /// writer adds is never silently ignored. What the format does not define goes in <c>extensions</c>.
     /// </summary>
-    internal static readonly IReadOnlySet<string> Fields = new HashSet<string>(StringComparer.Ordinal)
-    {
-        "format", "id", "version", "kind", "sdk", "requires", "display", "containableBy", "contains", "tier", "licence", "validUntil",
-        "protection", "code", "source", "extensions", "critical",
-    };
+    internal static readonly IReadOnlySet<string> Fields = PackRegistry.ManifestFields;
 
     /// <summary>
     /// The extensions this reader understands. An extension in <c>extensions</c> is ignored unless the pack lists its name in
     /// <c>extensions.critical</c>; a critical extension the reader does not understand refuses the pack. The first one is the
     /// federated profile (federated packs §3).
     /// </summary>
-    internal static readonly IReadOnlySet<string> UnderstoodExtensions = new HashSet<string>(StringComparer.Ordinal) { PackFederation.ExtensionName };
+    internal static readonly IReadOnlySet<string> UnderstoodExtensions = PackRegistry.Extensions;
 
     internal required string Id { get; init; }
     internal required string Version { get; init; }
@@ -127,7 +123,7 @@ internal sealed partial record PackManifest
         if (Critical(root) is { } criticalProblem) return (null, criticalProblem);
         if (Extensions(root) is { } extensionProblem) return (null, extensionProblem);
         // A field of the wrong type is refused, never read as absent (an expiry as a number would never expire).
-        foreach (var name in (string[])["format", "id", "version", "kind", "sdk", "tier", "licence", "validUntil", "protection", "code"])
+        foreach (var name in PackRegistry.ManifestStringFields)
             if (root.TryGetProperty(name, out var field) && field.ValueKind != JsonValueKind.String)
                 return (null, $"{FileName} has a '{name}' that is not a string.");
         foreach (var name in (string[])["requires", "display"])

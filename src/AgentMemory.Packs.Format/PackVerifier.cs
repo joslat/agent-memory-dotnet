@@ -373,7 +373,7 @@ internal static class PackVerifier
             yield return $"{PackPaths.LockFile} pins other members than the composite contains.";
     }
 
-    private static readonly HashSet<string> MemberFields = new(StringComparer.Ordinal) { "id", "version", "priority", "enabled", "contains" };
+    private static readonly IReadOnlySet<string> MemberFields = PackRegistry.MemberFields;
 
     // A member's values typed as the loader reads them (review 3): an id and a version range as text, a 32-bit priority, a
     // Boolean switch, and a list of ids it contains.

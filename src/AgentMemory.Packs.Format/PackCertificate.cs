@@ -40,21 +40,18 @@ internal sealed partial record PackCertificate(string Id, string Version, string
     internal const string Role = "evaluator";
     /// <summary>A trial needs at least this many tasks, as the host's own gate does.</summary>
     internal const int MinimumTasks = PackIds.PackNamespace.MinimumTrialTasks;
-    internal static readonly IReadOnlySet<string> Measures = new HashSet<string>(StringComparer.Ordinal) { "test-impact", "retrieval" };
-    internal static readonly IReadOnlySet<string> Baselines = new HashSet<string>(StringComparer.Ordinal) { "host", "none" };
+    internal static readonly IReadOnlySet<string> Measures = PackRegistry.Measures;
+    internal static readonly IReadOnlySet<string> Baselines = PackRegistry.Baselines;
     /// <summary>
     /// The targets a certificate states: a trial's declared ones. No regression is a host's comparison with the version that
     /// passed on that host, which a certificate carries no arm for, so a certificate never states it (review 7, G3: one issued
     /// from an upgrade trial carried those checks and could never be admitted).
     /// </summary>
-    internal static readonly IReadOnlySet<string> Targets = new HashSet<string>(StringComparer.Ordinal)
-    {
-        "hitRate", "precision", "lift", "precisionLift", "addedP95Ms",
-    };
+    internal static readonly IReadOnlySet<string> Targets = PackRegistry.Targets;
 
     /// <summary>The history a trial's tasks come from, as the host's gate holds it: the most recent 2,000 eligible commits.</summary>
     internal const int HistoryWindow = 2000;
-    internal static readonly IReadOnlySet<int> Confidences = new HashSet<int> { 900, 950, 975, 990 };
+    internal static readonly IReadOnlySet<int> Confidences = PackRegistry.Confidences;
     /// <summary>The most tasks a trial runs, so a certificate's per-task evidence is bounded (a trial declares 10 to 200).</summary>
     internal const int MaximumTasks = 200;
     /// <summary>The most items one task may offer, the format's traversal limit.</summary>

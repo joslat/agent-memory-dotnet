@@ -72,5 +72,7 @@
     <Compile Include="../../shared/Nfc.cs" Link="Shared/Nfc.cs" />
     <Compile Include="../../shared/BoundedFile.cs" Link="Shared/BoundedFile.cs" />
     <Compile Include="../../shared/NfcTables.cs" Link="Shared/NfcTables.cs" />
+    <Compile Include="../../shared/PackRegistry.cs" Link="Shared/PackRegistry.cs" />
+    <EmbeddedResource Include="../../spec/registry.json" LogicalName="AgentMemory.Extensibility.registry.json" />
   </ItemGroup>
 </Project>

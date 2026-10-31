@@ -36,6 +36,26 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, utils
 
+
+def _load_registry():
+    """The one definition of every name the format defines (feature 01): spec/registry.json, read by both verifiers and the spec.
+    AMPACK_REGISTRY names another copy of the file; otherwise it is found beside the repository's spec folder."""
+    path = os.environ.get("AMPACK_REGISTRY") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "spec", "registry.json")
+
+    def no_duplicates(pairs):
+        keys = [k for k, _ in pairs]
+        if len(keys) != len(set(keys)):
+            raise ValueError("the format registry repeats a key")
+        return dict(pairs)
+    with open(path, "rb") as f:
+        registry = json.loads(f.read().decode("utf-8"), object_pairs_hook=no_duplicates)
+    if registry.get("format") != "ampack.registry/1":
+        raise ValueError("the format registry is not ampack.registry/1")
+    return registry
+
+
+REGISTRY = _load_registry()
+
 FILES = "META/files.json"
 SIGNATURES = "META/signatures/"
 # Beside the signatures, outside the files list: evaluation certificates and the AEF runs they name (v1.2 §16).
@@ -44,12 +64,12 @@ CERT_FILE = re.compile(r"META/attestations/([a-z0-9][a-z0-9-]{0,63})\.certificat
 RUN_FILE = re.compile(r"META/attestations/([a-z0-9][a-z0-9-]{0,63})\.aef/.+")
 MAX_CERTIFICATES, MAX_RUN_FILES, MAX_RUN_BYTES = 8, 256, 8 << 20
 CERTIFICATE = "urn:agentmemory:pack:certificate:v1"
-MEASURES = {"test-impact", "retrieval"}
-BASELINES = {"host", "none"}
+MEASURES = set(REGISTRY["certificate"]["measures"])
+BASELINES = set(REGISTRY["certificate"]["baselines"])
 # A certificate states the declared targets; no regression is a host's comparison it carries no arm for (review 7, G3).
-TARGETS = {"hitRate", "precision", "lift", "precisionLift", "addedP95Ms"}
+TARGETS = set(REGISTRY["trial"]["targets"])
 HISTORY_WINDOW = 2000  # the most recent eligible commits a trial draws its tasks from (review 7, G5)
-CONFIDENCES = {900, 950, 975, 990}
+CONFIDENCES = set(REGISTRY["certificate"]["confidences"])
 RUN_ID = re.compile(r"[A-Za-z0-9._:-]{1,128}", re.ASCII)
 MINIMUM_TASKS = 10
 # The pack card (v1.2 §15): card.json, read strictly when present.
@@ -59,26 +79,26 @@ FILES_FORMAT = "agentmemory.pack.files/1.1"
 PACK_FORMAT = "agentmemory.pack/1.2"
 # Readable minors (v1.2 §2.1, review 1 M18): this verifier reads 1.2 strictly and a later 1.x as far as it knows it; a field of a
 # later minor it does not know is ignored unless the pack names it in "critical". Earlier minors were drafts.
+
 PACK_MINOR = 2
 PACK_FORMAT_RE = re.compile(r"agentmemory\.pack/1\.([1-9][0-9]{0,2})")
 MAX_CRITICAL = 64
 # Every field pack.json may hold at this minor; anything the format does not define goes in "extensions" (PACK-strict).
-PACK_FIELDS = {"format", "id", "version", "kind", "sdk", "requires", "display", "containableBy", "contains", "tier", "licence",
-               "validUntil", "protection", "code", "source", "extensions", "critical"}
+PACK_FIELDS = set(REGISTRY["manifest"]["fields"])
 # A timestamp token beside its envelope (<envelope>.tsr), reserved for trusted time (format 1.3): accepted, bounded, not judged.
 TIMESTAMP_SUFFIX = ".tsr"
-UNDERSTOOD_EXTENSIONS = {"federation"}
+UNDERSTOOD_EXTENSIONS = set(REGISTRY["manifest"]["extensions"])
 FEDERATION_FORMAT = "agentmemory.pack.federation/1"
 PUBLICATION = "urn:agentmemory:pack:publication:v1"
 # One WebID grammar for every verifier (federated packs §3): https and a DNS host, or http for a loopback host; an optional
 # port; a path of characters that need no escaping in Turtle; at most one '#'; at most 512 characters.
 WEBID = re.compile(r"(?:https://[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*"
                    r"|http://(?:localhost|127\.0\.0\.1|\[::1\]))(?::[0-9]{1,5})?/[A-Za-z0-9\-._~:/?#@!$&'()*+,;=%]*", re.ASCII)
-ACCESS_KINDS = {"wac", "acp", "public"}
-KINDS = {"knowledge", "definition", "snapshot", "composite", "set"}
-TIERS = {"open", "curated", "premium", "private", "hosted"}
-PROTECTIONS = {"open", "audience", "licensed", "attested", "hosted"}
-CODE_TIERS = {"E0", "E1", "E2"}
+ACCESS_KINDS = set(REGISTRY["federation"]["accessKinds"])
+KINDS = set(REGISTRY["manifest"]["values"]["kind"])
+TIERS = set(REGISTRY["manifest"]["values"]["tier"])
+PROTECTIONS = set(REGISTRY["manifest"]["values"]["protection"])
+CODE_TIERS = set(REGISTRY["manifest"]["values"]["code"])
 LOCK = "META/lock.json"
 LOCK_FORMAT = "agentmemory.pack.lock/1.1"
 COMMIT = re.compile(r"[0-9a-f]{7,64}")
@@ -91,15 +111,15 @@ PUBLIC_PEM = re.compile(r"-----BEGIN PUBLIC KEY-----\r?\n(?:[A-Za-z0-9+/=]{1,76}
 INSTANT = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,7})?(?:Z|[+-][0-9]{2}:[0-9]{2})", re.ASCII)
 PAYLOAD_TYPE = "application/vnd.in-toto+json"
 STATEMENT = "https://in-toto.io/Statement/v1"
-ROLES = {"publisher", "curator", "assurer"}
+ROLES = set(REGISTRY["roles"]["signing"])
 SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}")
-DEVICES = {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
+DEVICES = set(REGISTRY["paths"]["deviceNames"])
 ID = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*){2,}")
 # A pack id prefix: one or more id segments, optionally ending with a dot (as .NET's PackManifest.IsValidPrefix).
 PREFIX = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)*\.?")
 SEMVER = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?", re.ASCII)
 SIGNED_AT = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z", re.ASCII)
-KEY_ROLES = {"publisher", "curator", "assurer", "evaluator", "revoker"}
+KEY_ROLES = set(REGISTRY["roles"]["keys"])
 MAX_DEPTH = 64
 MAX_COMBINING_RUN = 30
 UNICODE_VERSION = "15.0.0"
@@ -123,7 +143,7 @@ def safe_path(path):
     return len(parts) <= 8 and all(SEGMENT.fullmatch(p) and not p.endswith(".") and p.split(".")[0].upper() not in DEVICES for p in parts)
 
 
-MEMBER_FIELDS = {"id", "version", "priority", "enabled", "contains"}
+MEMBER_FIELDS = set(REGISTRY["members"]["fields"])
 KEY_ID = re.compile(r"[0-9a-f]{64}", re.ASCII)
 
 
@@ -507,7 +527,7 @@ def valid_id(value):
 
 def manifest_checks(manifest, content, now):
     """pack.json's fields and what its kind must hold (v1.2 §2, §3, §5), as `ampack verify` checks them."""
-    for field in ("format", "id", "version", "kind", "sdk", "tier", "licence", "validUntil", "protection", "code"):
+    for field in REGISTRY["manifest"]["stringFields"]:
         if field in manifest and not isinstance(manifest[field], str):
             raise Refused(f"pack.json has a '{field}' that is not a string")
     for field in ("requires", "display"):
@@ -760,7 +780,7 @@ def verify(files, policy, now):
         raise Refused("META/files.json is not a v1.1 files list")
     if canonical(listing).encode("utf-8") != list_bytes:
         raise Refused("META/files.json is not canonical")
-    if set(listing) != {"format", "id", "version", "files"} or listing["format"] != FILES_FORMAT:
+    if set(listing) != set(REGISTRY["documents"]["files"]["fields"]) or listing["format"] != FILES_FORMAT:
         raise Refused("META/files.json is not a v1.1 files list")
     pid, version = listing["id"], listing["version"]
     if not isinstance(pid, str) or not isinstance(version, str) or not ID.fullmatch(pid) or len(pid) > 64 or not valid_version(version):

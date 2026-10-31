@@ -37,7 +37,7 @@ internal static class Dsse
 {
     internal const string PayloadType = "application/vnd.in-toto+json";
     internal const string StatementType = "https://in-toto.io/Statement/v1";
-    internal static readonly IReadOnlySet<string> Roles = new HashSet<string>(StringComparer.Ordinal) { "publisher", "curator", "assurer" };
+    internal static readonly IReadOnlySet<string> Roles = PackRegistry.SigningRoles;
 
     internal static string PredicateType(string role) => $"urn:agentmemory:pack:{role}:v1";
 

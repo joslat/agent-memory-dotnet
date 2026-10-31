@@ -61,9 +61,9 @@ internal static class ModuleManifestReader
 
     private static ModuleTrial Trial(JsonElement value, string path)
     {
-        Object(value, path, "measure", "tasks", "baseline", "confidence", "targets", "upgrade");
+        Object(value, path, [.. PackRegistry.TrialFields]);
         if (!value.TryGetProperty("targets", out var targets)) throw Error(path + ".targets", "a trial needs targets");
-        Object(targets, path + ".targets", "hitRate", "precision", "lift", "precisionLift", "addedP95Ms");
+        Object(targets, path + ".targets", [.. PackRegistry.Targets]);
         double? Number(string name) => targets.TryGetProperty(name, out var n)
             ? n.ValueKind == JsonValueKind.Number ? n.GetDouble() : throw Error(path + ".targets." + name, "expected a number")
             : null;

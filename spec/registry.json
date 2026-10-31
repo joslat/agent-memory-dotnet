@@ -1,0 +1,178 @@
+{
+  "format": "ampack.registry/1",
+  "about": "The one definition of every name the format defines: both verifiers load it, the spec's tables are rendered from it, the conformance kit checks against it. Feature 01, step 1: today's lists, unchanged.",
+  "manifest": {
+    "fields": [
+      "format",
+      "id",
+      "version",
+      "kind",
+      "sdk",
+      "requires",
+      "display",
+      "containableBy",
+      "contains",
+      "tier",
+      "licence",
+      "validUntil",
+      "protection",
+      "code",
+      "source",
+      "extensions",
+      "critical"
+    ],
+    "values": {
+      "kind": [
+        "knowledge",
+        "definition",
+        "snapshot",
+        "composite",
+        "set"
+      ],
+      "tier": [
+        "open",
+        "curated",
+        "premium",
+        "private",
+        "hosted"
+      ],
+      "protection": [
+        "open",
+        "audience",
+        "licensed",
+        "attested",
+        "hosted"
+      ],
+      "code": [
+        "E0",
+        "E1",
+        "E2"
+      ]
+    },
+    "extensions": [
+      "federation"
+    ],
+    "stringFields": [
+      "format",
+      "id",
+      "version",
+      "kind",
+      "sdk",
+      "tier",
+      "licence",
+      "validUntil",
+      "protection",
+      "code"
+    ]
+  },
+  "documents": {
+    "files": {
+      "fields": [
+        "format",
+        "id",
+        "version",
+        "files"
+      ]
+    },
+    "composite": {
+      "fields": [
+        "format",
+        "id",
+        "version",
+        "display",
+        "members"
+      ]
+    }
+  },
+  "members": {
+    "fields": [
+      "id",
+      "version",
+      "priority",
+      "enabled",
+      "contains"
+    ]
+  },
+  "roles": {
+    "signing": [
+      "publisher",
+      "curator",
+      "assurer"
+    ],
+    "keys": [
+      "publisher",
+      "curator",
+      "assurer",
+      "revoker",
+      "evaluator"
+    ]
+  },
+  "federation": {
+    "accessKinds": [
+      "wac",
+      "acp",
+      "public"
+    ]
+  },
+  "trial": {
+    "fields": [
+      "measure",
+      "tasks",
+      "baseline",
+      "confidence",
+      "targets",
+      "upgrade"
+    ],
+    "targets": [
+      "hitRate",
+      "precision",
+      "lift",
+      "precisionLift",
+      "addedP95Ms"
+    ]
+  },
+  "certificate": {
+    "measures": [
+      "test-impact",
+      "retrieval"
+    ],
+    "baselines": [
+      "host",
+      "none"
+    ],
+    "confidences": [
+      900,
+      950,
+      975,
+      990
+    ]
+  },
+  "paths": {
+    "deviceNames": [
+      "CON",
+      "PRN",
+      "AUX",
+      "NUL",
+      "CONIN$",
+      "CONOUT$",
+      "COM1",
+      "COM2",
+      "COM3",
+      "COM4",
+      "COM5",
+      "COM6",
+      "COM7",
+      "COM8",
+      "COM9",
+      "LPT1",
+      "LPT2",
+      "LPT3",
+      "LPT4",
+      "LPT5",
+      "LPT6",
+      "LPT7",
+      "LPT8",
+      "LPT9"
+    ]
+  }
+}

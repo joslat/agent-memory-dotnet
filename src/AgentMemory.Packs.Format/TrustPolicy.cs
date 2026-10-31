@@ -22,7 +22,7 @@ internal sealed partial record TrustPolicy
     internal const string Format = "agentmemory.pack.trust/1.1";
 
     /// <summary>The roles a trusted key may hold: the three that sign packs, and <c>revoker</c>, which signs revocation documents only.</summary>
-    internal static readonly IReadOnlySet<string> KeyRoles = new HashSet<string>(Dsse.Roles, StringComparer.Ordinal) { Revocations.Role, PackCertificate.Role };
+    internal static readonly IReadOnlySet<string> KeyRoles = PackRegistry.KeyRoles;
 
     internal IReadOnlyList<TrustedKey> Keys { get; init; } = [];
     internal IReadOnlyList<string> RevokedDigests { get; init; } = [];

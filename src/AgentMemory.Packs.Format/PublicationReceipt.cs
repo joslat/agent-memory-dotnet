@@ -26,7 +26,7 @@ internal sealed record PublicationReceipt(string Id, string Version, string Pack
 {
     internal const string PredicateType = "urn:agentmemory:pack:publication:v1";
     internal const string Anonymous = "anonymous";
-    internal static readonly IReadOnlySet<string> AccessKinds = new HashSet<string>(StringComparer.Ordinal) { "wac", "acp", "public" };
+    internal static readonly IReadOnlySet<string> AccessKinds = PackRegistry.AccessKinds;
 
     /// <summary>The receipt's resource name beside the archive: <c>sha256-&lt;hex&gt;.receipt.dsse.json</c>.</summary>
     internal static string FileNameFor(string packDigest) => $"{ResourceStem(packDigest)}.receipt.dsse.json";

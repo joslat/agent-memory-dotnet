@@ -17,12 +17,7 @@ internal static partial class PackPaths
     /// <summary>Version-control files a pack folder may hold at its root; they are never part of the pack (v1.1 M1).</summary>
     internal static readonly IReadOnlySet<string> IgnoredAtRoot = new HashSet<string>(StringComparer.Ordinal) { ".git", ".gitattributes", ".gitignore" };
 
-    private static readonly HashSet<string> DeviceNames = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$",
-        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
-        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
-    };
+    private static readonly IReadOnlySet<string> DeviceNames = PackRegistry.DeviceNames;
 
     /// <summary>The most segments a pack path holds.</summary>
     internal const int MaximumSegments = 8;

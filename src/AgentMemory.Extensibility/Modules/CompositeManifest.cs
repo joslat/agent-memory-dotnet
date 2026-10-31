@@ -52,7 +52,7 @@ public sealed record CompositeManifest
     {
         using var document = Document(json, ModuleManifest.MaximumUtf8Bytes, "composite manifest");
         var root = document.RootElement;
-        Object(root, "$", "format", "id", "version", "display", "members");
+        Object(root, "$", [.. PackRegistry.CompositeFields]);
         var format = Text(root, "format", "$");
         if (format != FormatName) throw Error("$.format", "unsupported composite format");
         return new CompositeManifest
@@ -139,7 +139,7 @@ public sealed record CompositeManifest
 
     private static CompositeMember Member(JsonElement value, string path)
     {
-        Object(value, path, "id", "version", "priority", "enabled", "contains");
+        Object(value, path, [.. PackRegistry.MemberFields]);
         return new CompositeMember
         {
             Id = Text(value, "id", path), Version = Range(Text(value, "version", path), path + ".version"),
