@@ -90,8 +90,8 @@ internal static partial class Program
             if (certificate is null) { refusals.AddRange(refused.Select(p => $"{name}: {p}")); continue; }
             verified = true;
             Console.WriteLine($"Verified the certificate {name}\n  pack    {pack.Id} {pack.Version} {pack.Digest}\n  by      {Shown(certificate.Evaluator, 200)} (key {Dsse.Short(signedBy!)}), {certificate.EvaluatedAt:u}"
-                + $"\n  tool    {Shown(certificate.Tool)} {Shown(certificate.ToolVersion)}\n  trial   {certificate.Measure} against {certificate.Baseline}{(certificate.ConfidenceMilli is { } c ? $", confidence {c / 1000.0:0.###}" : "")}, {certificate.With.Tasks} tasks from {Shown(certificate.TaskSource, 500)}"
-                + $"\n  result  {(certificate.Passed ? "passed" : "did not pass")}: " + string.Join(", ", certificate.Checks.Select(k => $"{k.Target} {k.ObservedMilli / 1000.0:0.###} ({(k.Met ? "met" : "MISSED")} {k.RequiredMilli / 1000.0:0.###})"))
+                + $"\n  tool    {Shown(certificate.Tool)} {Shown(certificate.ToolVersion)}\n  trial   {certificate.Measure} against {certificate.Baseline}{(certificate.ConfidencePermille is { } c ? $", confidence {c / 1000.0:0.###}" : "")}, {certificate.With.Tasks} tasks from {Shown(certificate.TaskSource, 500)}"
+                + $"\n  result  {(certificate.Passed ? "passed" : "did not pass")}: " + string.Join(", ", certificate.Checks.Select(k => $"{k.Target} {k.ObservedMicro / 1e6:0.######} ({(k.Met ? "met" : "MISSED")} {k.RequiredMicro / 1e6:0.######})"))
                 + (certificate.AefRunId is { } runId ? $"\n  aef     {runId} {certificate.AefRunHash![..16]}… {(run is null ? "(the run travels elsewhere)" : "(the run travels beside it and matches)")}" : ""));
             break;
             }
@@ -184,10 +184,12 @@ internal static partial class Program
     {
         var (confidence, tasks, targets) = (o.Value("floor-confidence"), o.Value("floor-tasks"), o.Value("floor-targets"));
         if (confidence is null && tasks is null && targets is null) return null;
-        double? least = null;
+        // People write decimals here; each is read exactly, into the trial's integers (feature 02).
+        int? least = null;
         if (confidence is not null)
-            least = double.TryParse(confidence, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var c) && c is 0.9 or 0.95 or 0.975 or 0.99
-                ? c : throw new UsageException("--floor-confidence is 0.9, 0.95, 0.975 or 0.99.");
+            least = AgentMemory.Packs.Format.PackNumbers.ParseMicro(confidence) is { } c && c % 1000 == 0
+                && AgentMemory.Packs.Format.PackNumbers.Problem("confidencePermille", c / 1000) is null
+                ? (int)(c / 1000) : throw new UsageException("--floor-confidence is 0.9, 0.95, 0.975 or 0.99.");
         var fewest = ModuleTrial.MinimumTasks;
         if (tasks is not null)
             fewest = int.TryParse(tasks, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var n) && n >= ModuleTrial.MinimumTasks && n <= 100_000
@@ -199,19 +201,20 @@ internal static partial class Program
             foreach (var pair in targets.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             {
                 var parts = pair.Split('=', 2, StringSplitOptions.TrimEntries);
-                if (parts.Length != 2 || !double.TryParse(parts[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var value) || !double.IsFinite(value))
+                if (parts.Length != 2 || AgentMemory.Packs.Format.PackNumbers.ParseMicro(parts[1]) is not { } micro)
                     throw new UsageException($"--floor-targets takes name=value pairs; '{Shown(pair, 80)}' is not one.");
                 goals = parts[0] switch
                 {
-                    "hitRate" => goals with { HitRate = value },
-                    "precision" => goals with { Precision = value },
-                    "lift" => goals with { Lift = value },
-                    "precisionLift" => goals with { PrecisionLift = value },
-                    "addedP95Ms" => goals with { AddedP95Ms = value },
+                    "hitRate" => goals with { HitRateMicro = micro },
+                    "precision" => goals with { PrecisionMicro = micro },
+                    "lift" => goals with { LiftMicro = micro },
+                    "precisionLift" => goals with { PrecisionLiftMicro = micro },
+                    "addedP95Ms" when micro % AgentMemory.Packs.Format.PackNumbers.One == 0 => goals with { AddedP95Ms = micro / AgentMemory.Packs.Format.PackNumbers.One },
+                    "addedP95Ms" => throw new UsageException("--floor-targets takes addedP95Ms in whole milliseconds."),
                     _ => throw new UsageException($"--floor-targets names hitRate, precision, lift, precisionLift or addedP95Ms, not '{Shown(parts[0], 80)}'."),
                 };
             }
         }
-        return new PackTrialFloor { Confidence = least, Tasks = fewest, Targets = goals };
+        return new PackTrialFloor { ConfidencePermille = least, Tasks = fewest, Targets = goals };
     }
 }

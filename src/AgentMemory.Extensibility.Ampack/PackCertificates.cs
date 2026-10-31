@@ -152,7 +152,7 @@ public static class PackCertificates
         // The gate's decision for the declared trial checks every declared target at the declared value; a certificate made from
         // anything else would misstate what was measured.
         foreach (var (target, value) in Declared(trial))
-            if (decision.Checks.FirstOrDefault(c => c.Target == target) is not { } check || Milli(check.Required) != Milli(value))
+            if (decision.Checks.FirstOrDefault(c => c.Target == target) is not { } check || Micro(check.Required) != Micro(value))
                 problems.Add($"The decision does not check {target} at the declared {value.ToString(CultureInfo.InvariantCulture)}: it is not the gate's decision for this pack's trial.");
         // The evidence travels with the verdict (review 5, root RB): each arm's per-task results and cap, so every host derives
         // the verdict again under its own statistic; the checks are derived here under this one, never copied.
@@ -199,8 +199,8 @@ public static class PackCertificates
             foreach (var (path, bytes) in run) files[PackPaths.AttestationsFolder + stem + PackAttestations.RunSuffix + path] = bytes;
         }
         var certificate = new PackCertificate(pack.Id, pack.Version, pack.Digest, evaluator, tool, toolVersion, evaluatedAt, trial.Measure, trial.Baseline,
-            trial.Confidence is { } c ? (int)Math.Round(c * 1000) : null, taskSource, PackTrialGate.Statistic,
-            [.. checks.Select(k => new CertificateCheck(k.Target, Milli(k.Required), Milli(k.Observed), k.Met, k.Estimate is { } e ? Milli(e) : null))],
+            trial.ConfidencePermille, taskSource, PackTrialGate.Statistic,
+            [.. checks.Select(k => new CertificateCheck(k.Target, Micro(k.Required), Micro(k.Observed), k.Met, k.Estimate is { } e ? Micro(e) : null))],
             Arm(decision.With!), decision.Without is { } without ? Arm(without) : null, passed, runId, runHash);
         byte[] envelope;
         try { envelope = certificate.Sign(signer); }
@@ -272,24 +272,20 @@ public static class PackCertificates
         if (!certificate.Passed) return "it did not pass";
         if (certificate.Measure != trial.Measure) return $"it measured {certificate.Measure}; the pack declares {trial.Measure}";
         if (certificate.Baseline != trial.Baseline) return $"it compared with {certificate.Baseline}; the pack declares {trial.Baseline}";
-        if (Milli(certificate.Confidence) != Milli(trial.Confidence)) return "it was not judged at the confidence the pack declares";
+        if ((certificate.Confidence is { } judged ? Math.Round(judged * 1000) : (double?)null) != trial.ConfidencePermille)
+            return "it was not judged at the confidence the pack declares";
         if ((certificate.With?.Tasks ?? 0) < ModuleTrial.MinimumTasks) return $"it ran fewer than {ModuleTrial.MinimumTasks} tasks";
         foreach (var (target, value) in Declared(trial))
         {
             if (certificate.Checks.FirstOrDefault(c => c.Target == target) is not { } check) return $"it does not check {target}";
-            if (Milli(check.Required) != Milli(value)) return $"it checked {target} against {check.Required.ToString(CultureInfo.InvariantCulture)}, not the declared {value.ToString(CultureInfo.InvariantCulture)}";
+            if (Micro(check.Required) != Micro(value)) return $"it checked {target} against {check.Required.ToString(CultureInfo.InvariantCulture)}, not the declared {value.ToString(CultureInfo.InvariantCulture)}";
             if (!check.Met) return $"{target} was not met";
         }
         return null;
     }
 
     // The targets a trial declares, by the names the gate checks them under.
-    private static IEnumerable<(string Target, double Value)> Declared(ModuleTrial trial)
-    {
-        var t = trial.Targets;
-        foreach (var (target, value) in new (string, double?)[] { ("hitRate", t.HitRate), ("precision", t.Precision), ("lift", t.Lift), ("precisionLift", t.PrecisionLift), ("addedP95Ms", t.AddedP95Ms) })
-            if (value is { } v) yield return (target, v);
-    }
+    private static IEnumerable<(string Target, double Value)> Declared(ModuleTrial trial) => trial.Targets.Checked();
 
     /// <summary>
     /// Every certificate a verified pack carries, as this host reads it, trusted or not: one per statement, however many copies
@@ -321,8 +317,8 @@ public static class PackCertificates
                 evaluation = claimed is null ? evaluation : evaluation with
                 {
                     Evaluator = claimed.Evaluator, EvaluatedAt = claimed.EvaluatedAt, Tool = $"{claimed.Tool} {claimed.ToolVersion}", Measure = claimed.Measure,
-                    Baseline = claimed.Baseline, Confidence = claimed.ConfidenceMilli / 1000.0, TaskSource = claimed.TaskSource, Statistic = claimed.Statistic, Passed = claimed.Passed,
-                    Checks = [.. claimed.Checks.Select(c => new PackTrialCheck(c.Target, c.RequiredMilli / 1000.0, c.ObservedMilli / 1000.0, c.Met, c.EstimateMilli / 1000.0))],
+                    Baseline = claimed.Baseline, Confidence = claimed.ConfidencePermille / 1000.0, TaskSource = claimed.TaskSource, Statistic = claimed.Statistic, Passed = claimed.Passed,
+                    Checks = [.. claimed.Checks.Select(c => new PackTrialCheck(c.Target, c.RequiredMicro / (double)One, c.ObservedMicro / (double)One, c.Met, c.EstimateMicro / (double)One))],
                     With = Measurement(claimed.With), Without = claimed.Without is { } w ? Measurement(w) : null, AefRunId = claimed.AefRunId, AefRunHash = claimed.AefRunHash,
                 };
                 evaluations.Add(evaluation);
@@ -367,7 +363,8 @@ public static class PackCertificates
     private static CertificateArm Arm(PackTrialMeasurement m) => new(m.Tasks, m.Hits, m.Offered, m.Correct, (long)Math.Round(m.P95Ms * 1000, MidpointRounding.AwayFromZero),
         m.MaximumOffered ?? ModuleTraversal.MaximumOffered, m.Spacing ?? 1, [.. m.PerTask!.Select(t => new CertificateTask(t.Offered, t.Correct))]);
 
-    private static long Milli(double value) => checked((long)Math.Round(value * 1000, MidpointRounding.AwayFromZero));
+    // A certificate's numbers are millionths of the target's own unit (feature 02): a rate's are the trial's own integers.
+    private const long One = AgentMemory.Packs.Format.PackNumbers.One;
 
-    private static long? Milli(double? value) => value is { } v ? Milli(v) : null;
+    private static long Micro(double value) => checked((long)Math.Round(value * One, MidpointRounding.AwayFromZero));
 }

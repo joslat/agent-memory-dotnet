@@ -100,7 +100,7 @@ public sealed class TraversalBudgetTests
         var prefix = char.ToUpperInvariant(name[0]) + name[1..];
         var upper = name.ToUpperInvariant();
         var declared = string.Join(",", Enumerable.Range(0, relations).Select(i => $$"""{"name":"{{upper}}_R{{i:00}}","from":"{{prefix}}Thing","to":"{{prefix}}Thing"}"""));
-        var walked = string.Join(",", Enumerable.Range(0, relations).Select(i => $$"""{"name":"{{upper}}_R{{i:00}}","direction":"out","weight":0.9,"fanOut":32}"""));
+        var walked = string.Join(",", Enumerable.Range(0, relations).Select(i => $$"""{"name":"{{upper}}_R{{i:00}}","direction":"out","weightMicro":900000,"fanOut":32}"""));
         const string Template = """
             {"format":"agentmemory.module/v1alpha1","id":"com.example.NAME","version":"1.0.0","sdk":"[0.1,0.2)",
              "ontology":{"labelPrefix":"PREFIX","types":[{"name":"PREFIXThing","scope":"shared","render":"{path}","properties":{"path":{"type":"string","required":true}}}],

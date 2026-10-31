@@ -30,7 +30,7 @@ public sealed partial class ModuleRecordWriteIntegrationTests
          "traversal":{
            "anchors":[{"type":"TraceFile","property":"path","match":"exact"},{"type":"TraceSymbol","property":"name","match":"exact","kind":"symbol"},
                       {"type":"TraceDecision","property":"appliesTo","match":"glob"}],
-           "relations":[{"name":"TRACE_DEFINES","direction":"out","weight":0.9},{"name":"TRACE_TESTS","direction":"in","weight":0.8,"fanOut":8}],
+           "relations":[{"name":"TRACE_DEFINES","direction":"out","weightMicro":900000},{"name":"TRACE_TESTS","direction":"in","weightMicro":800000,"fanOut":8}],
            "hubs":["TraceFile","TraceSymbol"]}}
         """;
 

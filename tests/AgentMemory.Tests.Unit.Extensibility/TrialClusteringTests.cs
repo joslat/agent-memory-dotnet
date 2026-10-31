@@ -58,7 +58,7 @@ public sealed class TrialClusteringTests
     {
         var manifest = ModuleManifest.Parse("""
             {"format":"agentmemory.module/v1alpha1","id":"com.example.base","version":"1.0.0","sdk":"[0.1,0.2)",
-             "trial":{"measure":"test-impact","tasks":12,"confidence":0.95,"targets":{"precision":0.25}}}
+             "trial":{"measure":"test-impact","tasks":12,"confidencePermille":950,"targets":{"precisionMicro":250000}}}
             """);
         var perTask = Enumerable.Range(0, 12).Select(i => i < 4 ? new PackTrialTask(10, 10) : new PackTrialTask(10, 0)).ToList();
         var with = new PackTrialMeasurement { Tasks = 12, Hits = 4, Offered = 120, Correct = 40, P95Ms = 10 };
@@ -77,7 +77,7 @@ public sealed class TrialClusteringTests
     [Fact]
     public void Tasks_kept_must_add_up_to_the_arm_and_name_its_hits()
     {
-        var manifest = ModuleManifest.Parse("""{"format":"agentmemory.module/v1alpha1","id":"com.example.base","version":"1.0.0","sdk":"[0.1,0.2)","trial":{"measure":"test-impact","tasks":12,"targets":{"precision":0.25}}}""");
+        var manifest = ModuleManifest.Parse("""{"format":"agentmemory.module/v1alpha1","id":"com.example.base","version":"1.0.0","sdk":"[0.1,0.2)","trial":{"measure":"test-impact","tasks":12,"targets":{"precisionMicro":250000}}}""");
         var with = new PackTrialMeasurement { Tasks = 2, Hits = 1, Offered = 4, Correct = 2, P95Ms = 10, PerTask = [new(2, 2), new(1, 0)] };
         var without = new PackTrialMeasurement { Tasks = 2, Hits = 0, Offered = 0, Correct = 0, P95Ms = 5 };
 

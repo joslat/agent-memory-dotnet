@@ -3607,8 +3607,8 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/2d4ce96fab0610dc-20261027t120000z.certificate.dsse.json: A certificate check names a known target, requiredMilli and observedMilli as integers, and met.",
-   "pythonSays": "refused: a certificate check names a known target, requiredMilli and observedMilli as integers, and met",
+   "dotnetSays": "refused: META/attestations/2d4ce96fab0610dc-20261027t120000z.certificate.dsse.json: A certificate check names a known target, requiredMicro and observedMicro as integers, and met.",
+   "pythonSays": "refused: a certificate check names a known target, requiredMicro and observedMicro as integers, and met",
    "sha256": "6b48c4d1a400f48a95c9e9e1f2c2823edd6bc5f17e12d8174ce6150eb4bffbde"
   },
   {
@@ -3627,8 +3627,8 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/2d4ce96fab0610dc-20261027t120000z.certificate.dsse.json: A certificate check names a known target, requiredMilli and observedMilli as integers, and met.",
-   "pythonSays": "refused: a certificate check names a known target, requiredMilli and observedMilli as integers, and met",
+   "dotnetSays": "refused: META/attestations/2d4ce96fab0610dc-20261027t120000z.certificate.dsse.json: A certificate check names a known target, requiredMicro and observedMicro as integers, and met.",
+   "pythonSays": "refused: a certificate check names a known target, requiredMicro and observedMicro as integers, and met",
    "sha256": "6e33e7ce415b01d6aa5423209b88f88a82eeaa49524b4558e93e5ea9adcca2bd"
   },
   {
@@ -3637,8 +3637,8 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/2d4ce96fab0610dc-20261027t120000z.certificate.dsse.json: A certificate check names a known target, requiredMilli and observedMilli as integers, and met.",
-   "pythonSays": "refused: a certificate check names a known target, requiredMilli and observedMilli as integers, and met",
+   "dotnetSays": "refused: META/attestations/2d4ce96fab0610dc-20261027t120000z.certificate.dsse.json: A certificate check names a known target, requiredMicro and observedMicro as integers, and met.",
+   "pythonSays": "refused: a certificate check names a known target, requiredMicro and observedMicro as integers, and met",
    "sha256": "6885e2dcb2dab64a35f1afaf2a354ba0b5133780c132d7b24d88a72e6bf593c1"
   },
   {
@@ -3647,8 +3647,8 @@
    "dotnet": "refused",
    "python": "refused",
    "agree": true,
-   "dotnetSays": "refused: META/attestations/2d4ce96fab0610dc-20261027t120000z.certificate.dsse.json: The certificate's confidenceMilli is 900, 950, 975 or 990.",
-   "pythonSays": "refused: the certificate's confidenceMilli is 900, 950, 975 or 990",
+   "dotnetSays": "refused: META/attestations/2d4ce96fab0610dc-20261027t120000z.certificate.dsse.json: The certificate's confidencePermille is 900, 950, 975 or 990.",
+   "pythonSays": "refused: the certificate's confidencePermille is 900, 950, 975 or 990",
    "sha256": "6d1fdb636469d7695930f9b61fbb6260d9a702883c0febf9af563c2c25fadd4d"
   },
   {

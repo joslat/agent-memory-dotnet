@@ -311,13 +311,13 @@
       {
         "name": "INTENT_SCENARIO_OF",
         "direction": "in",
-        "weight": 0.8,
+        "weightMicro": 800000,
         "fanOut": 8
       },
       {
         "name": "INTENT_VERIFIES",
         "direction": "out",
-        "weight": 0.85,
+        "weightMicro": 850000,
         "fanOut": 4
       }
     ],

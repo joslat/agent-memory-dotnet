@@ -78,8 +78,8 @@ public sealed record ModuleTraversalRelation
     public required string Name { get; init; }
     /// <summary>Out follows the link from its source; In finds the sources that point at a record.</summary>
     public ModuleTraversalDirection Direction { get; init; } = ModuleTraversalDirection.Out;
-    /// <summary>How much of a record's score passes along this link, greater than 0 and at most 1.</summary>
-    public double Weight { get; init; } = 0.8;
+    /// <summary>How much of a record's score passes along this link, in millionths, 1 to 1,000,000; default 800,000.</summary>
+    public long WeightMicro { get; init; } = PackRegistry.DefaultWeightMicro;
     /// <summary>Most records one record may lead to through this link.</summary>
     public int FanOut { get; init; } = 8;
 }

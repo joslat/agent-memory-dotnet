@@ -358,7 +358,7 @@ public sealed class AmpackCommandLineTests : IDisposable
         var card = JsonNode.Parse(File.ReadAllText(At("notes", "card.json")))!.AsObject();
         card["owner"]!["name"]!.GetValue<string>().Should().Be("Example Team");
         Directory.CreateDirectory(At("notes", "evals"));
-        File.WriteAllText(At("notes", "evals", "trial.json"), """{ "measure": "test-impact", "tasks": 40, "targets": { "hitRate": 0.5 } }""");
+        File.WriteAllText(At("notes", "evals", "trial.json"), """{ "measure": "test-impact", "tasks": 40, "targets": { "hitRateMicro": 500000 } }""");
         Done("build", "notes", "--out", "notes.ampack", "--key", At("keys", "publisher.key.pem"));
         Done("lint", "notes.ampack", "--policy", "trust.json").Should().Contain("card.template");
         card["intendedUse"] = "Notes for the example team's study coach.";

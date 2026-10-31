@@ -116,7 +116,7 @@ public sealed class ModuleActivationTests
             using var host = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
             var services = Services();
             services.AddAgentMemoryModules(m => m
-                .Add(Manifest(Topics, extra: ""","trial":{"measure":"test-impact","targets":{"hitRate":0.5}}"""),
+                .Add(Manifest(Topics, extra: ""","trial":{"measure":"test-impact","targets":{"hitRateMicro":500000}}"""),
                     b => b.AddContextContributor(_ => new Contributor(Topics + ":open") { Text = "topic" }))
                 .Add(Manifest(Reviews), b => b.AddContextContributor(_ => new Contributor(Reviews + ":open") { Text = "Review the Lyon plan" }))
                 .RequireTrials(new PackActivationFolder(folder, host.ExportSubjectPublicKeyInfoPem())));
@@ -233,7 +233,7 @@ public sealed class ModuleActivationTests
             using var host = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
             var services = Services();
             services.AddAgentMemoryModules(m => m.UseProfile(profile)
-                .Add(Manifest(Topics, extra: ""","trial":{"measure":"test-impact","targets":{"hitRate":0.5}}"""), _ => { })
+                .Add(Manifest(Topics, extra: ""","trial":{"measure":"test-impact","targets":{"hitRateMicro":500000}}"""), _ => { })
                 .Add(Manifest(Reviews), _ => { })
                 .RequireTrials(new PackActivationFolder(folder, host.ExportSubjectPublicKeyInfoPem())));
             using var provider = Build(services);

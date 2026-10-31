@@ -31,8 +31,8 @@ public sealed class TraversalTests
            "anchors":[{"type":"CodeFile","property":"path","match":"exact"},
                       {"type":"CodeSymbol","property":"name","match":"exact","kind":"symbol"},
                       {"type":"CodeDecision","property":"appliesTo","match":"glob"}],
-           "relations":[{"name":"CODE_DEFINES","direction":"out","weight":0.9},
-                        {"name":"CODE_TESTS","direction":"in","weight":0.8,"fanOut":2}],
+           "relations":[{"name":"CODE_DEFINES","direction":"out","weightMicro":900000},
+                        {"name":"CODE_TESTS","direction":"in","weightMicro":800000,"fanOut":2}],
            "hubs":["CodeFile","CodeSymbol"],"maxItems":3}}
         """;
 
@@ -270,8 +270,8 @@ public sealed class TraversalTests
         manifest.Traversal!.Anchors.Select(a => (a.Type, a.Match, a.Kind)).Should().Equal(
             ("CodeFile", ModuleAnchorMatch.Exact, ContextAnchorKind.Path), ("CodeSymbol", ModuleAnchorMatch.Exact, ContextAnchorKind.Symbol),
             ("CodeDecision", ModuleAnchorMatch.Glob, ContextAnchorKind.Path));
-        manifest.Traversal.Relations.Select(r => (r.Name, r.Direction, r.Weight, r.FanOut)).Should().Equal(
-            ("CODE_DEFINES", ModuleTraversalDirection.Out, 0.9, 8), ("CODE_TESTS", ModuleTraversalDirection.In, 0.8, 2));
+        manifest.Traversal.Relations.Select(r => (r.Name, r.Direction, r.WeightMicro, r.FanOut)).Should().Equal(
+            ("CODE_DEFINES", ModuleTraversalDirection.Out, 900_000L, 8), ("CODE_TESTS", ModuleTraversalDirection.In, 800_000L, 2));
         ModuleEditorSchemaTests.EditorAccepts("module", Manifest).Should().BeTrue();
     }
 
@@ -279,7 +279,7 @@ public sealed class TraversalTests
     [InlineData("\"traversal\":{\"anchors\":[{\"type\":\"CodeTest\",\"property\":\"missing\"}]}", "anchor must name a declared property")]
     [InlineData("\"traversal\":{\"anchors\":[{\"type\":\"OtherType\",\"property\":\"name\"}]}", "anchor must name an owned type")]
     [InlineData("\"traversal\":{\"relations\":[{\"name\":\"CODE_ELSEWHERE\"}]}", "traversal may follow owned relations only")]
-    [InlineData("\"traversal\":{\"relations\":[{\"name\":\"CODE_TESTS\",\"weight\":1.5}]}", "weight must be greater than 0 and at most 1")]
+    [InlineData("\"traversal\":{\"relations\":[{\"name\":\"CODE_TESTS\",\"weightMicro\":1500000}]}", "weightMicro: expected 1 to 1000000")]
     [InlineData("\"traversal\":{\"relations\":[{\"name\":\"CODE_TESTS\",\"fanOut\":33}]}", "expected 1 to 32")]
     [InlineData("\"traversal\":{\"relations\":[{\"name\":\"CODE_TESTS\"}],\"hubs\":[\"Nowhere\"]}", "hub must name an owned type")]
     [InlineData("\"traversal\":{\"relations\":[{\"name\":\"CODE_TESTS\"}],\"maxItems\":17}", "expected 1 to 16")]

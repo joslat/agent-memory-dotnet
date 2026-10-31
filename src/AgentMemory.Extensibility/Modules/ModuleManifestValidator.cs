@@ -224,39 +224,27 @@ internal sealed class ModuleManifestValidator
         if (trial.Measure != "test-impact") Error(path + ".measure", "expected test-impact");
         if (trial.Tasks is < ModuleTrial.MinimumTasks or > ModuleTrial.MaximumTasks) Error(path + ".tasks", "expected 10 to 200");
         if (trial.Baseline is not { } baseline || !PackRegistry.Baselines.Contains(baseline)) Error(path + ".baseline", "expected host or none");
-        if (trial.Confidence is { } confidence && !PackTrialGate.Confidences.ContainsKey(confidence)) Error(path + ".confidence", "expected 0.9, 0.95, 0.975 or 0.99");
-        if (trial.Upgrade is { Tolerance: < 0 or > ModuleTrialUpgrade.MaximumTolerance or double.NaN })
-            Error(path + ".upgrade.tolerance", "expected 0 to 0.5");
+        if (trial.ConfidencePermille is { } confidence && PackNumbers.Problem("confidencePermille", confidence) is { } wrong) Error(path + ".confidencePermille", wrong);
+        if (trial.Upgrade is { } rule && PackNumbers.Problem("toleranceMicro", rule.ToleranceMicro) is { } far)
+            Error(path + ".upgrade.toleranceMicro", far);
         // With a confidence, no regression is shown by a bound, and no bound shows a drop of exactly 0 (review 6: tolerance 0 fell
         // back to the estimate, so a real drop of 0.1 passed a fifth of the time).
-        else if (trial.Upgrade is { NoRegression: true, Tolerance: 0 } && trial.Confidence is not null)
-            Error(path + ".upgrade.tolerance", "with a confidence, no regression needs a tolerance above 0 (ampack lint says what the declared tasks can show)");
+        else if (trial.Upgrade is { NoRegression: true, ToleranceMicro: 0 } && trial.ConfidencePermille is not null)
+            Error(path + ".upgrade.toleranceMicro", "with a confidence, no regression needs a tolerance above 0 (ampack lint says what the declared tasks can show)");
         var t = trial.Targets;
-        if (t is null || (t.HitRate, t.Precision, t.Lift, t.PrecisionLift, t.AddedP95Ms) == (null, null, null, null, null)) { Error(path + ".targets", "a trial needs at least one target"); return; }
+        if (t is null || !t.Given().Any()) { Error(path + ".targets", "a trial needs at least one target"); return; }
         foreach (var (name, problem) in TargetProblems(t)) Error(path + ".targets." + name, problem);
-        if (trial.Upgrade is { } u && !double.IsNaN(u.Tolerance) && !Thousandths(u.Tolerance)) Error(path + ".upgrade.tolerance", "expected at most three decimals");
     }
 
-    private static bool Thousandths(double value) => Math.Abs(value * 1000 - Math.Round(value * 1000)) < 1e-6;
-
     /// <summary>
-    /// Every target out of its range, by name: rates and precision 0 to 1, lifts -1 to 1, added latency above 0 and at most
-    /// 60,000 ms, each a finite number of at most three decimals, as a certificate records it (review 6, L9). The one rule for
-    /// a manifest's targets and a host floor's (review 7, G14: the floor kept no rule, and NaN met every one).
+    /// Every target out of its range, by its field's name, by the registry's units (feature 02: rates and precision 0 to
+    /// 1,000,000 millionths, lifts -1,000,000 to 1,000,000, added latency 1 to 60,000 ms). The one rule for a manifest's
+    /// targets and a host floor's (review 7, G14).
     /// </summary>
     internal static IEnumerable<(string Name, string Problem)> TargetProblems(ModuleTrialTargets t)
     {
-        foreach (var (name, value, low, high, open) in new (string, double?, double, double, bool)[]
-                 {
-                     ("hitRate", t.HitRate, 0, 1, false), ("precision", t.Precision, 0, 1, false), ("lift", t.Lift, -1, 1, false),
-                     ("precisionLift", t.PrecisionLift, -1, 1, false), ("addedP95Ms", t.AddedP95Ms, 0, 60_000, true),
-                 })
-        {
-            if (value is not { } v) continue;
-            if (!double.IsFinite(v) || v < low || v > high || open && v <= low)
-                yield return (name, open ? "expected more than 0 and at most 60000" : $"expected {low.ToString(System.Globalization.CultureInfo.InvariantCulture)} to {high.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
-            else if (!Thousandths(v)) yield return (name, "expected at most three decimals");
-        }
+        foreach (var (name, value) in t.Given())
+            if (PackNumbers.Problem(PackRegistry.TargetFields[name], value) is { } problem) yield return (PackRegistry.TargetFields[name], problem);
     }
 
     private void ValidateTraversal(ModuleTraversal traversal, ModuleOntology? ontology, IReadOnlyDictionary<string, ModuleType> types)
@@ -294,7 +282,7 @@ internal sealed class ModuleManifestValidator
                 Error(at, "traversal does not walk into core entities");
             if (!Enum.IsDefined(relation.Direction)) Error(at + ".direction", "unknown direction");
             if (!seenRelations.Add((relation.Name, relation.Direction))) Error(at, "duplicate relation and direction");
-            if (!(relation.Weight > 0 && relation.Weight <= 1)) Error(at + ".weight", "weight must be greater than 0 and at most 1");
+            if (PackNumbers.Problem("weightMicro", relation.WeightMicro) is { } weight) Error(at + ".weightMicro", weight);
             if (relation.FanOut is < 1 or > ModuleTraversalRelation.MaximumFanOut) Error(at + ".fanOut", "expected 1 to 32");
         }
         var hubs = List(traversal.Hubs, path + ".hubs");

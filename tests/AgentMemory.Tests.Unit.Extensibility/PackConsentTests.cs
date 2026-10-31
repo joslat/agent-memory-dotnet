@@ -28,7 +28,7 @@ public sealed class PackConsentTests
          "requires":{"modules":{"com.example.code":"[1,2)"}},
          "ontology":{"labelPrefix":"Work","types":[{"name":"WorkItem","scope":"shared","render":"Work item {item}: {title}","properties":{"item":{"type":"string","required":true},"title":{"type":"string","required":true}}}],
           "relations":[{"name":"WORK_CHANGED","from":"WorkItem","to":"com.example.code:CodeFile"}]},
-         "traversal":{"relations":[{"name":"WORK_CHANGED","direction":"in","weight":0.6,"fanOut":3}],"maxItems":2,"hops":1}}
+         "traversal":{"relations":[{"name":"WORK_CHANGED","direction":"in","weightMicro":600000,"fanOut":3}],"maxItems":2,"hops":1}}
         """;
 
     private static ModuleManifest CodeModule(bool consents) =>

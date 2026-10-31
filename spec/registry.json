@@ -231,17 +231,17 @@
       "fields": [
         "measure",
         "baseline",
-        "confidenceMilli",
+        "confidencePermille",
         "taskSource"
       ]
     },
     "certificateCheck": {
       "fields": [
         "target",
-        "requiredMilli",
-        "observedMilli",
+        "requiredMicro",
+        "observedMicro",
         "met",
-        "estimateMilli"
+        "estimateMicro"
       ]
     },
     "certificateAef": {
@@ -346,16 +346,30 @@
       "measure",
       "tasks",
       "baseline",
-      "confidence",
+      "confidencePermille",
       "targets",
       "upgrade"
     ],
-    "targets": [
-      "hitRate",
-      "precision",
-      "lift",
-      "precisionLift",
-      "addedP95Ms"
+    "targets": {
+      "hitRate": {
+        "field": "hitRateMicro"
+      },
+      "precision": {
+        "field": "precisionMicro"
+      },
+      "lift": {
+        "field": "liftMicro"
+      },
+      "precisionLift": {
+        "field": "precisionLiftMicro"
+      },
+      "addedP95Ms": {
+        "field": "addedP95Ms"
+      }
+    },
+    "upgradeFields": [
+      "noRegression",
+      "toleranceMicro"
     ]
   },
   "certificate": {
@@ -366,12 +380,6 @@
     "baselines": [
       "host",
       "none"
-    ],
-    "confidences": [
-      900,
-      950,
-      975,
-      990
     ]
   },
   "paths": {
@@ -467,6 +475,75 @@
         "policy.json"
       ],
       "refusal": "{id} carries a usage policy (policy.json); this host cannot enforce one yet, so it does not load the pack."
+    }
+  },
+  "traversal": {
+    "relationFields": [
+      "name",
+      "direction",
+      "weightMicro",
+      "fanOut"
+    ],
+    "defaultWeightMicro": 800000
+  },
+  "units": {
+    "about": "Every number in a pack document is an integer within ±(2^53−1). A unit-bearing field is in the unit and range given here; its name ends in its unit.",
+    "kinds": {
+      "micro": {
+        "means": "millionths of one"
+      },
+      "permille": {
+        "means": "thousandths, from a closed set"
+      },
+      "ms": {
+        "means": "whole milliseconds"
+      }
+    },
+    "fields": {
+      "weightMicro": {
+        "unit": "micro",
+        "min": 1,
+        "max": 1000000
+      },
+      "hitRateMicro": {
+        "unit": "micro",
+        "min": 0,
+        "max": 1000000
+      },
+      "precisionMicro": {
+        "unit": "micro",
+        "min": 0,
+        "max": 1000000
+      },
+      "liftMicro": {
+        "unit": "micro",
+        "min": -1000000,
+        "max": 1000000
+      },
+      "precisionLiftMicro": {
+        "unit": "micro",
+        "min": -1000000,
+        "max": 1000000
+      },
+      "addedP95Ms": {
+        "unit": "ms",
+        "min": 1,
+        "max": 60000
+      },
+      "toleranceMicro": {
+        "unit": "micro",
+        "min": 0,
+        "max": 500000
+      },
+      "confidencePermille": {
+        "unit": "permille",
+        "values": [
+          900,
+          950,
+          975,
+          990
+        ]
+      }
     }
   }
 }

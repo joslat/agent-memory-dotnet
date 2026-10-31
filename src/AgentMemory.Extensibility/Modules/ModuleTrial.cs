@@ -29,10 +29,10 @@ public sealed record ModuleTrial
     /// </summary>
     public string Baseline { get; init; } = "none";
     /// <summary>
-    /// When set (0.9, 0.95, 0.975 or 0.99), a target is met only when its one-sided lower confidence bound at this confidence
-    /// reaches it (<see cref="PackTrialGate.Statistic"/>), so a small trial cannot pass by luck.
+    /// When set, in thousandths (900, 950, 975 or 990), a target is met only when its one-sided lower confidence bound at this
+    /// confidence reaches it (<see cref="PackTrialGate.Statistic"/>), so a small trial cannot pass by luck.
     /// </summary>
-    public double? Confidence { get; init; }
+    public int? ConfidencePermille { get; init; }
     /// <summary>The targets; every one given must be met.</summary>
     public required ModuleTrialTargets Targets { get; init; }
     /// <summary>
@@ -46,16 +46,13 @@ public sealed record ModuleTrial
 [Experimental("AMEXT001")]
 public sealed record ModuleTrialUpgrade
 {
-    /// <summary>The largest tolerated drop in hit rate or precision against the active version, 0 to 0.5.</summary>
-    public const double MaximumTolerance = 0.5;
-
     /// <summary>
     /// Whether the new version must not do worse than the active one: its hit rate and precision, measured on the same tasks
-    /// in the same run, may drop by at most <see cref="Tolerance"/>.
+    /// in the same run, may drop by at most <see cref="ToleranceMicro"/>.
     /// </summary>
     public required bool NoRegression { get; init; }
-    /// <summary>How much worse is still no regression, 0 to 0.5; default 0.</summary>
-    public double Tolerance { get; init; }
+    /// <summary>How much worse is still no regression, in millionths, 0 to 500,000; default 0.</summary>
+    public long ToleranceMicro { get; init; }
 }
 
 /// <summary>
@@ -66,8 +63,8 @@ public sealed record ModuleTrialUpgrade
 [Experimental("AMEXT001")]
 public sealed record PackTrialFloor
 {
-    /// <summary>The least confidence a trial declares; a trial without one is below any. Null: estimates are enough.</summary>
-    public double? Confidence { get; init; }
+    /// <summary>The least confidence a trial declares, in thousandths; a trial without one is below any. Null: estimates are enough.</summary>
+    public int? ConfidencePermille { get; init; }
     /// <summary>The fewest tasks a trial runs.</summary>
     public int Tasks { get; init; } = ModuleTrial.MinimumTasks;
     /// <summary>
@@ -117,14 +114,30 @@ internal sealed record PackTrialPolicy(IReadOnlyList<string> Mandatory, IReadOnl
 [Experimental("AMEXT001")]
 public sealed record ModuleTrialTargets
 {
-    /// <summary>The least share of tasks whose truth the pack offers, 0 to 1.</summary>
-    public double? HitRate { get; init; }
-    /// <summary>The least share of what the pack offers that is in the truth, 0 to 1.</summary>
-    public double? Precision { get; init; }
-    /// <summary>The least improvement in hit rate over the baseline, -1 to 1.</summary>
-    public double? Lift { get; init; }
-    /// <summary>The least improvement in precision over the baseline, -1 to 1.</summary>
-    public double? PrecisionLift { get; init; }
-    /// <summary>The most p95 latency the pack may add to a compile, in milliseconds.</summary>
-    public double? AddedP95Ms { get; init; }
+    /// <summary>The least share of tasks whose truth the pack offers, in millionths, 0 to 1,000,000.</summary>
+    public long? HitRateMicro { get; init; }
+    /// <summary>The least share of what the pack offers that is in the truth, in millionths, 0 to 1,000,000.</summary>
+    public long? PrecisionMicro { get; init; }
+    /// <summary>The least improvement in hit rate over the baseline, in millionths, -1,000,000 to 1,000,000.</summary>
+    public long? LiftMicro { get; init; }
+    /// <summary>The least improvement in precision over the baseline, in millionths, -1,000,000 to 1,000,000.</summary>
+    public long? PrecisionLiftMicro { get; init; }
+    /// <summary>The most p95 latency the pack may add to a compile, in whole milliseconds, 1 to 60,000.</summary>
+    public long? AddedP95Ms { get; init; }
+
+    /// <summary>
+    /// Each target given, as the gate checks it: a rate or a lift as a fraction of one, the added latency in milliseconds.
+    /// </summary>
+    internal IEnumerable<(string Name, double Value)> Checked() =>
+        Given().Select(g => (g.Name, g.Name == "addedP95Ms" ? (double)g.Value : PackNumbers.Fraction(g.Value)));
+
+    /// <summary>Each target given, by the name a certificate's checks use, in the unit of its field.</summary>
+    internal IEnumerable<(string Name, long Value)> Given()
+    {
+        if (HitRateMicro is { } hit) yield return ("hitRate", hit);
+        if (PrecisionMicro is { } precision) yield return ("precision", precision);
+        if (LiftMicro is { } lift) yield return ("lift", lift);
+        if (PrecisionLiftMicro is { } precisionLift) yield return ("precisionLift", precisionLift);
+        if (AddedP95Ms is { } added) yield return ("addedP95Ms", added);
+    }
 }

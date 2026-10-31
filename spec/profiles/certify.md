@@ -45,8 +45,8 @@ The predicate is read strictly and holds integers only.
 | `id`, `version` | The pack's |
 | `evaluator`, `tool {name, version}` | Who evaluated, with what (one line each) |
 | `evaluatedAt` | UTC, seconds |
-| `trial {measure, baseline, confidenceMilli?, taskSource}` | The declared trial it ran, and where its tasks came from (the evaluator's own) |
-| `checks[]` | `{target, requiredMilli, observedMilli, met, estimateMilli?}` |
+| `trial {measure, baseline, confidencePermille?, taskSource}` | The declared trial it ran, and where its tasks came from (the evaluator's own) |
+| `checks[]` | `{target, requiredMicro, observedMicro, met, estimateMicro?}` |
 | `statistic` | The statistic its checks were computed with (one line) |
 | `with`, `without?` | `{tasks, hits, offered, correct, p95Micros, maximumOffered, spacing, perTask}` |
 | `passed` | Whether every check was met on at least 10 tasks |
@@ -68,7 +68,7 @@ Measures, baselines and confidences (in thousandths) a certificate may name:
 | `none` |
 <!-- /registry -->
 
-<!-- registry:certificate.confidences -->
+<!-- registry:units.fields.confidencePermille.values -->
 | Confidence (thousandths) |
 |---|
 | 900 |
@@ -89,11 +89,11 @@ holds no line feed, no tab and no other control character.
 **R-CERTIFY-008.** `evaluatedAt` MUST be a UTC time written `YYYY-MM-DDTHH:MM:SSZ`, within the key's window, and not
 more than 5 minutes after the time of verification (the one clock allowance of R-CORE-061).
 
-**R-CERTIFY-009.** `trial.measure` and `trial.baseline` MUST be among the values above, and `confidenceMilli`, when
+**R-CERTIFY-009.** `trial.measure` and `trial.baseline` MUST be among the values above, and `confidencePermille`, when
 present, among the confidences above.
 
 **R-CERTIFY-010.** `checks` MUST hold 1 to 16 checks, each naming a known target of the Trial profile once, with
-`requiredMilli` and `observedMilli` integers, `met` a boolean, and `estimateMilli` an integer when present; a
+`requiredMicro` and `observedMicro` integers, `met` a boolean, and `estimateMicro` an integer when present; a
 no-regression comparison MUST NOT appear as a check, since it is a host's own.
 
 **R-CERTIFY-011.** An arm MUST hold exactly its fields: at most 200 tasks; `maximumOffered` 0 (nothing offered by design)

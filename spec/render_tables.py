@@ -27,7 +27,7 @@ HEADINGS = {
     "roles.keys": "Key role",
     "manifest.values": "Field",
     "profiles": "Profile",
-    "certificate.confidences": "Confidence (thousandths)",
+    "units.fields.confidencePermille.values": "Confidence (thousandths)",
 }
 
 

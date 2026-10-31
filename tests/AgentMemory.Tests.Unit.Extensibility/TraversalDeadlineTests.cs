@@ -23,7 +23,7 @@ public sealed class TraversalDeadlineTests
         {"format":"agentmemory.module/v1alpha1","id":"com.example.code","version":"1.0.0","sdk":"[0.1,0.2)",
          "ontology":{"labelPrefix":"Code","types":[{"name":"CodeFile","scope":"shared","render":"{path}","properties":{"path":{"type":"string","required":true}}}],
           "relations":[{"name":"CODE_USES","from":"CodeFile","to":"CodeFile"}]},
-         "traversal":{"anchors":[{"type":"CodeFile","property":"path","match":"prefix"}],"relations":[{"name":"CODE_USES","direction":"out","weight":0.5,"fanOut":3}],"maxItems":3}}
+         "traversal":{"anchors":[{"type":"CodeFile","property":"path","match":"prefix"}],"relations":[{"name":"CODE_USES","direction":"out","weightMicro":500000,"fanOut":3}],"maxItems":3}}
         """;
 
     private static readonly ModuleReadContext Context = new() { Scope = MemoryScope.For("pack") };

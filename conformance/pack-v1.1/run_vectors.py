@@ -1143,7 +1143,7 @@ def main():
     for name_, body in certificate_policies.items():
         (OUT / name_).write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", **body}, separators=(",", ":")), encoding="utf-8")
     federated_policy("trust-federated-buyer-evaluator.json", more=(evaluator_entry,))
-    trial = {"measure": "test-impact", "tasks": 40, "baseline": "none", "targets": {"hitRate": 0.5}}
+    trial = {"measure": "test-impact", "tasks": 40, "baseline": "none", "targets": {"hitRateMicro": 500000}}
     certified = signed({**content, "evals/trial.json": json.dumps(trial).encode() + b"\n"})
 
     def certificate(files_, signer=None, evaluated="2026-10-27T12:00:00Z", checks=None, with_arm=None, without=None, passed=True, extra=None,
@@ -1152,7 +1152,7 @@ def main():
         pred = {"id": pid_ or listing["id"], "version": version_ or listing["version"], "evaluator": "Kit evaluator",
                 "tool": {"name": "kit", "version": "1.0.0"}, "evaluatedAt": evaluated,
                 "trial": trial_ or {"measure": "test-impact", "baseline": "none", "taskSource": "the kit's synthetic tasks"},
-                "checks": checks or [{"target": "hitRate", "requiredMilli": 500, "observedMilli": 600, "met": True}],
+                "checks": checks or [{"target": "hitRate", "requiredMicro": 500000, "observedMicro": 600000, "met": True}],
                 "statistic": "agentmemory.trial.hedged/4",
                 "with": with_arm or arm_(40, 24, 120, 30, 12500), "passed": passed, **(extra or {})}
         if without is not None:
@@ -1227,13 +1227,13 @@ def main():
         "certificate-valid-dotnet": (dotnet_certified, dotnet_certificate, None, "trust-evaluator.json", "verified"),
         "certificate-as-a-separate-file": (certified_bytes, None, certificate(certified), "trust-evaluator.json", "verified"),
         **{f"certificate-shape-{how}": (certified_bytes, None, reshaped(certificate(certified), how), "trust-evaluator.json", "refused") for how in SHAPES},
-        "certificate-honest-failure": (carrying(certificate(certified, checks=[{"target": "hitRate", "requiredMilli": 500, "observedMilli": 400, "met": False}],
+        "certificate-honest-failure": (carrying(certificate(certified, checks=[{"target": "hitRate", "requiredMicro": 500000, "observedMicro": 400000, "met": False}],
                                                             passed=False)), certificate_path, None, "trust-evaluator.json", "verified"),
-        "certificate-with-host-baseline": (carrying(certificate(certified, trial_={"measure": "test-impact", "baseline": "host", "confidenceMilli": 950,
+        "certificate-with-host-baseline": (carrying(certificate(certified, trial_={"measure": "test-impact", "baseline": "host", "confidencePermille": 950,
                                                                                     "taskSource": "the kit's synthetic tasks"},
                                                                 without=arm_(40, 20, 120, 24, 9000),
-                                                                checks=[{"target": "hitRate", "requiredMilli": 500, "observedMilli": 520, "met": True, "estimateMilli": 600},
-                                                                        {"target": "lift", "requiredMilli": 0, "observedMilli": 100, "met": True}])),
+                                                                checks=[{"target": "hitRate", "requiredMicro": 500000, "observedMicro": 520000, "met": True, "estimateMicro": 600000},
+                                                                        {"target": "lift", "requiredMicro": 0, "observedMicro": 100000, "met": True}])),
                                            certificate_path, None, "trust-evaluator.json", "verified"),
         # The AEF run beside the certificate: named by its run hash, exactly.
         "certificate-aef-run-matches": (carrying(certificate(certified, aef=aef), run), certificate_path, None, "trust-evaluator.json", "verified"),
@@ -1274,10 +1274,10 @@ def main():
         "certificate-other-version": (carrying(certificate(certified, version_="1.0.1")), certificate_path, None, "trust-evaluator.json", "refused"),
         "certificate-two-subjects": (carrying(certificate(certified, subjects=[{"name": py.FILES, "digest": {"sha256": hashlib.sha256(certified[py.FILES]).hexdigest()}}] * 2)),
                                      certificate_path, None, "trust-evaluator.json", "refused"),
-        "certificate-edited-after-signing": (carrying(certificate(certified, edit=lambda b: b.replace(b'"observedMilli":600', b'"observedMilli":900'))),
+        "certificate-edited-after-signing": (carrying(certificate(certified, edit=lambda b: b.replace(b'"observedMicro":600', b'"observedMicro":900'))),
                                              certificate_path, None, "trust-evaluator.json", "refused"),
         # A verdict that agrees with its record.
-        "certificate-passed-with-a-missed-check": (carrying(certificate(certified, checks=[{"target": "hitRate", "requiredMilli": 500, "observedMilli": 400, "met": False}])),
+        "certificate-passed-with-a-missed-check": (carrying(certificate(certified, checks=[{"target": "hitRate", "requiredMicro": 500000, "observedMicro": 400000, "met": False}])),
                                                    certificate_path, None, "trust-evaluator.json", "refused"),
         "certificate-passed-on-nine-tasks": (carrying(certificate(certified, with_arm=arm_(9, 9, 9, 9, 1))),
                                              certificate_path, None, "trust-evaluator.json", "refused"),
@@ -1302,8 +1302,8 @@ def main():
                                           certificate_path, None, "trust-evaluator.json", "refused"),
         # Review 6: a baseline that offers nothing by design records a cap of 0; how far apart the tasks were drawn, 1 to 2,000.
         "certificate-baseline-cap-zero": (carrying(certificate(certified, without=arm_(40, 0, 0, 0, 9000, cap=0),
-                                                               checks=[{"target": "hitRate", "requiredMilli": 500, "observedMilli": 600, "met": True},
-                                                                       {"target": "lift", "requiredMilli": 0, "observedMilli": 100, "met": True}])),
+                                                               checks=[{"target": "hitRate", "requiredMicro": 500000, "observedMicro": 600000, "met": True},
+                                                                       {"target": "lift", "requiredMicro": 0, "observedMicro": 100000, "met": True}])),
                                           certificate_path, None, "trust-evaluator.json", "verified"),
         "certificate-baseline-cap-zero-offering": (carrying(certificate(certified, without={**arm_(40, 1, 1, 1, 9000), "maximumOffered": 0})),
                                                    certificate_path, None, "trust-evaluator.json", "refused"),
@@ -1335,14 +1335,14 @@ def main():
                                           certificate_path, None, "trust-evaluator.json", "refused"),
         # Strict shape: integers only, known fields, known targets, one line of text.
         "certificate-fraction-not-integer": (carrying(certificate(certified, payload_override=lambda st: json.dumps(st, separators=(",", ":")).replace(
-            '"requiredMilli":500', '"requiredMilli":0.5').encode())), certificate_path, None, "trust-evaluator.json", "refused"),
+            '"requiredMicro":500000', '"requiredMicro":0.5').encode())), certificate_path, None, "trust-evaluator.json", "refused"),
         "certificate-extra-field": (carrying(certificate(certified, extra={"note": "x"})), certificate_path, None, "trust-evaluator.json", "refused"),
-        "certificate-unknown-target": (carrying(certificate(certified, checks=[{"target": "recall", "requiredMilli": 500, "observedMilli": 600, "met": True}])),
+        "certificate-unknown-target": (carrying(certificate(certified, checks=[{"target": "recall", "requiredMicro": 500000, "observedMicro": 600000, "met": True}])),
                                        certificate_path, None, "trust-evaluator.json", "refused"),
         # Review 7, G3: no regression is a host's own comparison; a certificate carries no arm for it.
-        "certificate-no-regression-target": (carrying(certificate(certified, checks=[{"target": "noRegression.hitRate", "requiredMilli": 0, "observedMilli": 0, "met": True}])),
+        "certificate-no-regression-target": (carrying(certificate(certified, checks=[{"target": "noRegression.hitRate", "requiredMicro": 0, "observedMicro": 0, "met": True}])),
                                              certificate_path, None, "trust-evaluator.json", "refused"),
-        "certificate-confidence-unknown": (carrying(certificate(certified, trial_={"measure": "test-impact", "baseline": "none", "confidenceMilli": 800, "taskSource": "x"})),
+        "certificate-confidence-unknown": (carrying(certificate(certified, trial_={"measure": "test-impact", "baseline": "none", "confidencePermille": 800, "taskSource": "x"})),
                                            certificate_path, None, "trust-evaluator.json", "refused"),
         "certificate-evaluator-two-lines": (carrying(certificate(certified, extra={"evaluator": "Kit\nevaluator"})), certificate_path, None,
                                             "trust-evaluator.json", "refused"),

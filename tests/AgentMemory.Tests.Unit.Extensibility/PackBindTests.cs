@@ -28,7 +28,7 @@ public sealed class PackBindTests : IDisposable
     private readonly ECDsa _host = ECDsa.Create(ECCurve.NamedCurves.nistP256);
 
     private static readonly ModuleManifest Trialled = ModuleManifest.Parse(
-        """{"format":"agentmemory.module/v1alpha1","id":"com.example.base","version":"1.0.0","sdk":"[0.1,0.2)","trial":{"measure":"test-impact","tasks":40,"targets":{"hitRate":0.5}}}""");
+        """{"format":"agentmemory.module/v1alpha1","id":"com.example.base","version":"1.0.0","sdk":"[0.1,0.2)","trial":{"measure":"test-impact","tasks":40,"targets":{"hitRateMicro":500000}}}""");
 
     private static PackTrialMeasurement Arm(int hits) => new() { Tasks = 40, Hits = hits, Correct = hits, Offered = 2 * hits, P95Ms = 10 };
 

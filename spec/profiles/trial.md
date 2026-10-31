@@ -32,7 +32,7 @@ this document.
 | `measure` |
 | `tasks` |
 | `baseline` |
-| `confidence` |
+| `confidencePermille` |
 | `targets` |
 | `upgrade` |
 <!-- /registry -->
@@ -49,13 +49,13 @@ this document.
 The targets:
 
 <!-- registry:trial.targets -->
-| Target |
-|---|
-| `hitRate` |
-| `precision` |
-| `lift` |
-| `precisionLift` |
-| `addedP95Ms` |
+| Target | field |
+|---|---|
+| `hitRate` | hitRateMicro |
+| `precision` | precisionMicro |
+| `lift` | liftMicro |
+| `precisionLift` | precisionLiftMicro |
+| `addedP95Ms` | addedP95Ms |
 <!-- /registry -->
 
 **R-TRIAL-002.** `measure` MUST be `test-impact`; `retrieval` is reserved, and a host that does not implement it MUST

@@ -30,7 +30,7 @@ public sealed class Review7GuardTests
     [Fact]
     public void H6_a_host_floor_is_judged_on_the_tasks_a_decision_ran_not_on_what_its_pack_declares()
     {
-        var manifest = Manifest("""{"hitRate":0.5}""");
+        var manifest = Manifest("""{"hitRateMicro":500000}""");
         var decision = PackTrialGate.Decide(manifest, Arm(30), Arm(0), Now);
         var floor = new PackTrialFloor { Tasks = 40 };
         PackTrialGate.Below(manifest.Trial!, floor).Should().BeNull("the declaration claims forty tasks");
@@ -43,25 +43,25 @@ public sealed class Review7GuardTests
     [Fact]
     public void M13_a_lift_floor_is_not_met_by_a_lift_against_a_baseline_that_offers_nothing()
     {
-        var manifest = Manifest("""{"hitRate":0.5,"lift":0.1}""");
+        var manifest = Manifest("""{"hitRateMicro":500000,"liftMicro":100000}""");
         var decision = PackTrialGate.Decide(manifest, Arm(30), Arm(0), Now);
 
-        PackTrialGate.Below(decision, new PackTrialFloor { Targets = new ModuleTrialTargets { Lift = 0.1 } })
+        PackTrialGate.Below(decision, new PackTrialFloor { Targets = new ModuleTrialTargets { LiftMicro = 100_000 } })
             .Should().Contain("baseline that offers nothing");
-        PackTrialGate.Below(manifest.Trial!, new PackTrialFloor { Targets = new ModuleTrialTargets { Lift = 0.1 } })
+        PackTrialGate.Below(manifest.Trial!, new PackTrialFloor { Targets = new ModuleTrialTargets { LiftMicro = 100_000 } })
             .Should().Contain("not this host's own retrieval");
     }
 
     [Fact]
     public void M11_the_caps_every_bound_rests_on_are_the_declarations()
     {
-        var manifest = Manifest("""{"hitRate":0.5}""");
+        var manifest = Manifest("""{"hitRateMicro":500000}""");
 
         FluentActions.Invoking(() => PackTrialGate.Decide(manifest, Arm(30) with { MaximumOffered = 2 }, Arm(0), Now))
             .Should().Throw<ArgumentException>().WithMessage("*records a cap of 2*maxItems*");
         FluentActions.Invoking(() => PackTrialGate.Decide(manifest, Arm(30), Arm(4), Now))
             .Should().Throw<ArgumentException>().WithMessage("*baseline of none offers nothing*");
-        var host = Manifest("""{"hitRate":0.5},"baseline":"host" """.TrimEnd());
+        var host = Manifest("""{"hitRateMicro":500000},"baseline":"host" """.TrimEnd());
         FluentActions.Invoking(() => PackTrialGate.Decide(host, Arm(30), Arm(4) with { MaximumOffered = 0 }, Now))
             .Should().Throw<ArgumentException>().WithMessage("*host's own retrieval*cap of 1 or more*");
         PackTrialGate.Decide(manifest, Arm(30), Arm(0), Now).With!.MaximumOffered.Should().Be(ModuleTraversal.MaximumOffered, "left out, the cap is the declared one");
@@ -70,7 +70,7 @@ public sealed class Review7GuardTests
     [Fact]
     public void L11_every_arm_of_a_trial_was_drawn_at_one_spacing_within_the_history_window()
     {
-        var manifest = Manifest("""{"hitRate":0.5}""");
+        var manifest = Manifest("""{"hitRateMicro":500000}""");
 
         FluentActions.Invoking(() => PackTrialGate.Decide(manifest, Arm(30), Arm(0, spacing: 1), Now))
             .Should().Throw<ArgumentException>().WithMessage("*one spacing*");
@@ -82,7 +82,7 @@ public sealed class Review7GuardTests
     [Fact]
     public void L16_a_recheck_runs_the_intake_the_decision_ran()
     {
-        var decision = PackTrialGate.Decide(Manifest("""{"hitRate":0.5}"""), Arm(30), Arm(0), Now);
+        var decision = PackTrialGate.Decide(Manifest("""{"hitRateMicro":500000}"""), Arm(30), Arm(0), Now);
         PackTrialGate.Unmet(decision).Should().BeNull();
 
         var respaced = decision with { Without = decision.Without! with { Spacing = 1 } };
@@ -93,8 +93,9 @@ public sealed class Review7GuardTests
     [Fact]
     public void L13_a_latency_exactly_at_its_budget_passes_whatever_the_binary_rounding()
     {
-        // 0.3 - 0.1 is 0.19999999999999998 in binary; in whole microseconds it is 200, at the budget of 0.2.
-        var decision = PackTrialGate.Decide(Manifest("""{"hitRate":0.5,"addedP95Ms":0.2}"""), Arm(30, p95: 0.3), Arm(0, p95: 0.1), Now);
+        // 2.3 - 1.3 is 0.9999999999999998 in binary; in whole microseconds it is 1000, at the budget of 1 ms (a budget is whole
+        // milliseconds since feature 02).
+        var decision = PackTrialGate.Decide(Manifest("""{"hitRateMicro":500000,"addedP95Ms":1}"""), Arm(30, p95: 2.3), Arm(0, p95: 1.3), Now);
 
         decision.Checks.Single(c => c.Target == "addedP95Ms").Met.Should().BeTrue();
     }
@@ -102,7 +103,7 @@ public sealed class Review7GuardTests
     [Fact]
     public void L17_a_floor_s_targets_are_held_to_the_rule_a_manifest_s_are()
     {
-        foreach (var bad in new ModuleTrialTargets[] { new() { HitRate = double.NaN }, new() { HitRate = 1.5 }, new() { AddedP95Ms = -1 } })
+        foreach (var bad in new ModuleTrialTargets[] { new() { HitRateMicro = -1 }, new() { HitRateMicro = 1_500_000 }, new() { AddedP95Ms = 0 } })
             FluentActions.Invoking(() => new ModuleSetBuilder().RequireTrialFloor(new PackTrialFloor { Targets = bad }))
                 .Should().Throw<ArgumentException>();
     }

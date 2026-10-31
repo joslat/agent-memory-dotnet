@@ -70,7 +70,7 @@ BASELINES = set(REGISTRY["certificate"]["baselines"])
 # A certificate states the declared targets; no regression is a host's comparison it carries no arm for (review 7, G3).
 TARGETS = set(REGISTRY["trial"]["targets"])
 HISTORY_WINDOW = 2000  # the most recent eligible commits a trial draws its tasks from (review 7, G5)
-CONFIDENCES = set(REGISTRY["certificate"]["confidences"])
+CONFIDENCES = set(REGISTRY["units"]["fields"]["confidencePermille"]["values"])
 RUN_ID = re.compile(r"[A-Za-z0-9._:-]{1,128}", re.ASCII)
 MINIMUM_TASKS = 10
 # The pack card (v1.2 §15): card.json, read strictly when present.
@@ -1321,16 +1321,16 @@ def read_certificate(payload):
         raise Refused("the certificate's trial names its measure, baseline and task source")
     if not is_line(pred.get("statistic"), 100):
         raise Refused("the certificate names the statistic its checks were computed with")
-    if "confidenceMilli" in trial and (as_int(trial["confidenceMilli"]) is None or trial["confidenceMilli"] not in CONFIDENCES):
-        raise Refused("the certificate's confidenceMilli is 900, 950, 975 or 990")
+    if "confidencePermille" in trial and (as_int(trial["confidencePermille"]) is None or trial["confidencePermille"] not in CONFIDENCES):
+        raise Refused("the certificate's confidencePermille is 900, 950, 975 or 990")
     checks = pred.get("checks")
     if not isinstance(checks, list) or not 1 <= len(checks) <= 16:
         raise Refused("the certificate lists 1 to 16 checks")
     for c in checks:
         if not isinstance(c, dict) or set(c) - SHAPE["certificateCheck"] \
-                or not one_of(c.get("target"), TARGETS) or as_int(c.get("requiredMilli")) is None or as_int(c.get("observedMilli")) is None \
-                or not isinstance(c.get("met"), bool) or ("estimateMilli" in c and as_int(c["estimateMilli"]) is None):
-            raise Refused("a certificate check names a known target, requiredMilli and observedMilli as integers, and met")
+                or not one_of(c.get("target"), TARGETS) or as_int(c.get("requiredMicro")) is None or as_int(c.get("observedMicro")) is None \
+                or not isinstance(c.get("met"), bool) or ("estimateMicro" in c and as_int(c["estimateMicro"]) is None):
+            raise Refused("a certificate check names a known target, requiredMicro and observedMicro as integers, and met")
     if len({c["target"] for c in checks}) != len(checks):
         raise Refused("the certificate checks one target twice")
     with_arm = read_arm(pred.get("with"))

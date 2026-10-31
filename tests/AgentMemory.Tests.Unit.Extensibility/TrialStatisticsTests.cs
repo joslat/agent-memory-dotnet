@@ -305,7 +305,7 @@ public sealed class TrialStatisticsTests
         var none = new PackTrialMeasurement { Tasks = 40, Hits = 0, Offered = 0, Correct = 0, P95Ms = 1, MaximumOffered = 0 };
         FluentActions.Invoking(() => PackTrialGate.PrecisionDifferenceLower(totals, none, 0.95)).Should().Throw<ArgumentException>().WithMessage("*PerTask*");
         var manifest = ModuleManifest.Parse(
-            """{"format":"agentmemory.module/v1alpha1","id":"com.example.base","version":"1.0.0","sdk":"[0.1,0.2)","trial":{"measure":"test-impact","tasks":40,"confidence":0.95,"targets":{"precision":0.25}}}""");
+            """{"format":"agentmemory.module/v1alpha1","id":"com.example.base","version":"1.0.0","sdk":"[0.1,0.2)","trial":{"measure":"test-impact","tasks":40,"confidencePermille":950,"targets":{"precisionMicro":250000}}}""");
         FluentActions.Invoking(() => PackTrialGate.Decide(manifest, totals, none, DateTimeOffset.UnixEpoch)).Should().Throw<ArgumentException>().WithMessage("*PerTask*");
     }
 
@@ -314,19 +314,19 @@ public sealed class TrialStatisticsTests
     {
         static ModuleTrial Trial(int tasks, string targets, string upgrade = "") => ModuleManifest.Parse(
             """{"format":"agentmemory.module/v1alpha1","id":"com.example.base","version":"1.0.0","sdk":"[0.1,0.2)","trial":{"measure":"test-impact","tasks":"""
-            + tasks + ""","confidence":0.95,"targets":""" + targets + upgrade + "}}").Trial!;
+            + tasks + ""","confidencePermille":950,"targets":""" + targets + upgrade + "}}").Trial!;
 
         // The code map's own trial: every target reachable on forty tasks.
-        PackTrialGate.Unreachable(Trial(40, """{"hitRate":0.35,"precision":0.25,"lift":-0.05,"precisionLift":0.05}"""), 3).Should().BeEmpty();
+        PackTrialGate.Unreachable(Trial(40, """{"hitRateMicro":350000,"precisionMicro":250000,"liftMicro":-50000,"precisionLiftMicro":50000}"""), 3).Should().BeEmpty();
         // Ten tasks cannot bound a precision at 0.9, whatever the data; more tasks would.
-        PackTrialGate.Unreachable(Trial(10, """{"precision":0.9}"""), 3).Should().ContainSingle().Which.Should().Contain("precision 0.9 cannot be met on 10 tasks").And.Contain("tasks would");
+        PackTrialGate.Unreachable(Trial(10, """{"precisionMicro":900000}"""), 3).Should().ContainSingle().Which.Should().Contain("precision 0.9 cannot be met on 10 tasks").And.Contain("tasks would");
         // Review 5, M4: an upgrade exactly as good as this version cannot clear 0.05 on forty tasks; the note says what would,
         // and that a pack offering fewer items than its cap needs more (review 6, M7).
-        PackTrialGate.Unreachable(Trial(40, """{"hitRate":0.35}""", ""","upgrade":{"noRegression":true,"tolerance":0.05}"""), 3)
+        PackTrialGate.Unreachable(Trial(40, """{"hitRateMicro":350000}""", ""","upgrade":{"noRegression":true,"toleranceMicro":50000}"""), 3)
             .Should().ContainSingle().Which.Should().Contain("cannot clear the tolerance 0.05 on 40 tasks").And.Contain("a tolerance of 0.09")
             .And.Contain("every task offers all 3 items");
         // Without a confidence nothing is bounded, so nothing falls short.
-        PackTrialGate.Unreachable(Trial(10, """{"precision":0.9}""") with { Confidence = null }, 3).Should().BeEmpty();
+        PackTrialGate.Unreachable(Trial(10, """{"precisionMicro":900000}""") with { ConfidencePermille = null }, 3).Should().BeEmpty();
     }
 
     [Fact]

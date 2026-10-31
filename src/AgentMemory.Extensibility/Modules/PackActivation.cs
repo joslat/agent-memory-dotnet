@@ -263,6 +263,11 @@ public static class PackTrialGate
     };
 
     /// <summary>The one-sided normal quantiles the trial's confidence may name.</summary>
+    // The integers of a trial (feature 02) as the fractions the floating-point statistic still computes with; step 4 of
+    // feature 02 decides exactly and these go.
+    private static double? F(long? micro) => micro is { } m ? PackNumbers.Fraction(m) : null;
+    private static double? Level(int? permille) => permille is { } p ? p / 1000.0 : null;
+
     internal static readonly IReadOnlyDictionary<double, double> Confidences = new Dictionary<double, double>
     {
         [0.9] = 1.2815516, [0.95] = 1.6448536, [0.975] = 1.9599640, [0.99] = 2.3263479,
@@ -447,7 +452,7 @@ public static class PackTrialGate
     public static IReadOnlyList<string> Unreachable(ModuleTrial trial, int maximumOffered)
     {
         ArgumentNullException.ThrowIfNull(trial);
-        if (trial.Confidence is not { } level || !Confidences.ContainsKey(level)) return [];
+        if (Level(trial.ConfidencePermille) is not { } level || !Confidences.ContainsKey(level)) return [];
         var cap = Cap(maximumOffered);
         var t = trial.Targets;
         // The best evidence draws its tasks at least a burst apart (review 6, H4); a short history clusters them and shows less.
@@ -458,11 +463,11 @@ public static class PackTrialGate
         };
         // The best a trial of n tasks can show for each target; the baseline gets nothing right (grep offers its three, or nothing).
         var checks = new List<(string Target, double Required, Func<int, double> Best)>();
-        if (t.HitRate is { } hit) checks.Add(("hitRate", hit, n => HitRateLower(Arm(n, cap, cap, cap), level)));
-        if (t.Precision is { } precision) checks.Add(("precision", precision, n => PrecisionLower(Arm(n, cap, cap, cap), level)));
+        if (F(t.HitRateMicro) is { } hit) checks.Add(("hitRate", hit, n => HitRateLower(Arm(n, cap, cap, cap), level)));
+        if (F(t.PrecisionMicro) is { } precision) checks.Add(("precision", precision, n => PrecisionLower(Arm(n, cap, cap, cap), level)));
         PackTrialMeasurement Baseline(int n) => trial.Baseline == "host" ? Arm(n, 3, 0, 3) : Arm(n, 0, 0, 0);
-        if (t.Lift is { } lift) checks.Add(("lift", lift, n => HitDifferenceLower(Arm(n, cap, cap, cap), Baseline(n), level)));
-        if (t.PrecisionLift is { } precisionLift) checks.Add(("precisionLift", precisionLift, n => PrecisionDifferenceLower(Arm(n, cap, cap, cap), Baseline(n), level)));
+        if (F(t.LiftMicro) is { } lift) checks.Add(("lift", lift, n => HitDifferenceLower(Arm(n, cap, cap, cap), Baseline(n), level)));
+        if (F(t.PrecisionLiftMicro) is { } precisionLift) checks.Add(("precisionLift", precisionLift, n => PrecisionDifferenceLower(Arm(n, cap, cap, cap), Baseline(n), level)));
         var notes = new List<string>();
         string Needed(Func<int, double> bound, double required) =>
             Enumerable.Range(trial.Tasks + 1, Math.Max(0, ModuleTrial.MaximumTasks - trial.Tasks)).FirstOrDefault(n => bound(n) >= required - 1e-9) is var n and > 0
@@ -471,16 +476,16 @@ public static class PackTrialGate
             if (best(trial.Tasks) is var bound && bound < required - 1e-9)
                 notes.Add($"{target} {required.ToString(CultureInfo.InvariantCulture)} cannot be met on {trial.Tasks} tasks at {level.ToString(CultureInfo.InvariantCulture)}: "
                     + $"even the best evidence bounds it at {Math.Round(bound, 3).ToString(CultureInfo.InvariantCulture)}; {Needed(best, required)}.");
-        if (trial.Upgrade is { NoRegression: true, Tolerance: > 0 } upgrade)
+        if (trial.Upgrade is { NoRegression: true, ToleranceMicro: > 0 } upgrade)
         {
             // Two versions that agree on every task: only the tasks the trial did not see separate them. Both checks, hit rate
             // and precision, at their best: every task offering the cap (review 6, M7: a pack that offers fewer items than its
             // cap needs more, since the unseen task offers the cap; on the code map's own forty tasks, -0.104 at a cap of 3).
             double Same(int n) => Math.Min(HitDifferenceLower(Arm(n, cap, 1, cap), Arm(n, cap, 1, cap), level),
                 PrecisionDifferenceLower(Arm(n, cap, 1, cap), Arm(n, cap, 1, cap), level));
-            if (Same(trial.Tasks) is var same && same < -upgrade.Tolerance - 1e-9)
-                notes.Add($"An upgrade exactly as good as this version cannot clear the tolerance {upgrade.Tolerance.ToString(CultureInfo.InvariantCulture)} on {trial.Tasks} tasks: "
-                    + $"agreeing on every task bounds the drop at {Math.Round(same, 3).ToString(CultureInfo.InvariantCulture)} at best; {Needed(Same, -upgrade.Tolerance)}, or a tolerance of {Math.Ceiling(-same * 100) / 100:0.00}. "
+            if (Same(trial.Tasks) is var same && same < -PackNumbers.Fraction(upgrade.ToleranceMicro) - 1e-9)
+                notes.Add($"An upgrade exactly as good as this version cannot clear the tolerance {PackNumbers.Fraction(upgrade.ToleranceMicro).ToString(CultureInfo.InvariantCulture)} on {trial.Tasks} tasks: "
+                    + $"agreeing on every task bounds the drop at {Math.Round(same, 3).ToString(CultureInfo.InvariantCulture)} at best; {Needed(Same, -PackNumbers.Fraction(upgrade.ToleranceMicro))}, or a tolerance of {Math.Ceiling(-same * 100) / 100:0.00}. "
                     + $"That is when every task offers all {cap} items: a pack that offers fewer needs more, and a smaller maxItems tightens the bound.");
         }
         return notes;
@@ -656,20 +661,15 @@ public static class PackTrialGate
             throw new ArgumentException("The previous version is an earlier version, or other content under this one, measured on the same tasks.", nameof(previous));
         var trial = manifest.Trial ?? throw new ArgumentException($"Module '{manifest.Id}' declares no trial.", nameof(manifest));
         var t = trial.Targets;
-        var targets = new List<(string Target, double Required)>();
-        if (t.HitRate is { } hit) targets.Add(("hitRate", hit));
-        if (t.Precision is { } precision) targets.Add(("precision", precision));
-        if (t.Lift is { } lift) targets.Add(("lift", lift));
-        if (t.PrecisionLift is { } precisionLift) targets.Add(("precisionLift", precisionLift));
-        if (t.AddedP95Ms is { } added) targets.Add(("addedP95Ms", added));
+        var targets = t.Checked().Select(c => (Target: c.Name, Required: c.Value)).ToList();
         // An upgrade does not do worse than the version it replaces, on the same tasks, beyond the declared tolerance.
         if (trial.Upgrade is { NoRegression: true } upgrade && previous is not null)
         {
-            var floor = upgrade.Tolerance > 0 ? -upgrade.Tolerance : 0;
+            var floor = PackNumbers.Fraction(upgrade.ToleranceMicro) > 0 ? -PackNumbers.Fraction(upgrade.ToleranceMicro) : 0;
             targets.Add(("noRegression.hitRate", floor));
             targets.Add(("noRegression.precision", floor));
         }
-        var checks = targets.Select(x => Check(x.Target, x.Required, trial.Confidence, with, without, previous?.With)).ToList();
+        var checks = targets.Select(x => Check(x.Target, x.Required, Level(trial.ConfidencePermille), with, without, previous?.With)).ToList();
         var enough = with.Tasks >= ModuleTrial.MinimumTasks;
         var failed = checks.Where(c => !c.Met).ToList();
         var reason = !enough ? $"only {with.Tasks} tasks in this host's history; a trial needs {ModuleTrial.MinimumTasks}"
@@ -681,7 +681,7 @@ public static class PackTrialGate
         {
             ModuleId = manifest.Id, Version = manifest.Version.ToString(), ManifestDigest = DigestOf(manifest), PackDigest = packDigest,
             Active = enough && failed.Count == 0, Reason = reason, DecidedAt = decidedAt, Checks = checks, With = with, Without = without,
-            Previous = previous, Upgrade = trial.Upgrade, Confidence = trial.Confidence, Statistic = Statistic,
+            Previous = previous, Upgrade = trial.Upgrade, Confidence = Level(trial.ConfidencePermille), Statistic = Statistic,
         };
     }
 
@@ -911,13 +911,13 @@ public static class PackTrialGate
     {
         var gaps = new List<string>();
         static string S(double v) => v.ToString(CultureInfo.InvariantCulture);
-        if (floor.Confidence is { } least)
+        if (Level(floor.ConfidencePermille) is { } least)
         {
-            if (trial.Confidence is not { } declared) gaps.Add($"no confidence, {S(least)} required");
+            if (Level(trial.ConfidencePermille) is not { } declared) gaps.Add($"no confidence, {S(least)} required");
             else if (declared < least) gaps.Add($"confidence {S(declared)} below {S(least)}");
         }
         if (trial.Tasks < floor.Tasks) gaps.Add($"{trial.Tasks} tasks, {floor.Tasks} required");
-        if (floor.Targets is { Lift: not null } or { PrecisionLift: not null } && trial.Baseline != "host")
+        if (floor.Targets is { LiftMicro: not null } or { PrecisionLiftMicro: not null } && trial.Baseline != "host")
             gaps.Add($"its lifts are against {trial.Baseline}, not this host's own retrieval");
         if (floor.Targets is { } f)
         {
@@ -928,10 +928,10 @@ public static class PackTrialGate
                 if (declared is not { } d) gaps.Add($"no {name} target, {S(r)} required");
                 else if (d < r) gaps.Add($"{name} {S(d)} below {S(r)}");
             }
-            AtLeast("hitRate", f.HitRate, t.HitRate);
-            AtLeast("precision", f.Precision, t.Precision);
-            AtLeast("lift", f.Lift, t.Lift);
-            AtLeast("precisionLift", f.PrecisionLift, t.PrecisionLift);
+            AtLeast("hitRate", F(f.HitRateMicro), F(t.HitRateMicro));
+            AtLeast("precision", F(f.PrecisionMicro), F(t.PrecisionMicro));
+            AtLeast("lift", F(f.LiftMicro), F(t.LiftMicro));
+            AtLeast("precisionLift", F(f.PrecisionLiftMicro), F(t.PrecisionLiftMicro));
             if (f.AddedP95Ms is { } budget)
             {
                 if (t.AddedP95Ms is not { } added) gaps.Add($"no addedP95Ms target, {S(budget)} required");
@@ -952,7 +952,7 @@ public static class PackTrialGate
     {
         var gaps = new List<string>();
         static string S(double v) => v.ToString(CultureInfo.InvariantCulture);
-        if (floor.Confidence is { } least)
+        if (Level(floor.ConfidencePermille) is { } least)
         {
             if (decision.Confidence is not { } judged) gaps.Add($"judged on estimates, {S(least)} required");
             else if (judged < least) gaps.Add($"judged at {S(judged)}, below {S(least)}");
@@ -968,16 +968,16 @@ public static class PackTrialGate
                 if (Checked(name) is not { } d) gaps.Add($"no {name} checked, {S(r)} required");
                 else if (d < r) gaps.Add($"{name} checked at {S(d)}, below {S(r)}");
             }
-            AtLeast("hitRate", f.HitRate);
-            AtLeast("precision", f.Precision);
-            AtLeast("lift", f.Lift);
-            AtLeast("precisionLift", f.PrecisionLift);
+            AtLeast("hitRate", F(f.HitRateMicro));
+            AtLeast("precision", F(f.PrecisionMicro));
+            AtLeast("lift", F(f.LiftMicro));
+            AtLeast("precisionLift", F(f.PrecisionLiftMicro));
             if (f.AddedP95Ms is { } budget)
             {
                 if (Checked("addedP95Ms") is not { } added) gaps.Add($"no addedP95Ms checked, {S(budget)} required");
                 else if (added > budget) gaps.Add($"addedP95Ms checked at {S(added)}, above {S(budget)}");
             }
-            if ((f.Lift is not null || f.PrecisionLift is not null) && decision.Without?.MaximumOffered == 0)
+            if ((F(f.LiftMicro) is not null || F(f.PrecisionLiftMicro) is not null) && decision.Without?.MaximumOffered == 0)
                 gaps.Add("its lifts are against a baseline that offers nothing, not this host's own retrieval");
         }
         return gaps.Count == 0 ? null : string.Join("; ", gaps);
@@ -1018,7 +1018,7 @@ public static class PackTrialGate
     private sealed record HeldRule(IReadOnlyList<NoRegressionRule> Rules);
 
     private static HeldRule Rule(ModuleTrialUpgrade? upgrade, double? confidence) =>
-        new(upgrade is { NoRegression: true } u ? [new NoRegressionRule(u.Tolerance, confidence)] : []);
+        new(upgrade is { NoRegression: true } u ? [new NoRegressionRule(PackNumbers.Fraction(u.ToleranceMicro), confidence)] : []);
 
     // Why a passing decision may not go on as an upgrade (or null), and the rule it is held to: the stricter of its own and
     // the one its predecessor was held to, so a rule carries down the whole chain, not one version (third review). The version

@@ -383,43 +383,43 @@
       {
         "name": "ARCHITECTURE_OPERATION_OF",
         "direction": "out",
-        "weight": 0.9,
+        "weightMicro": 900000,
         "fanOut": 2
       },
       {
         "name": "ARCHITECTURE_PROVIDES",
         "direction": "in",
-        "weight": 0.85,
+        "weightMicro": 850000,
         "fanOut": 4
       },
       {
         "name": "ARCHITECTURE_CONSUMES",
         "direction": "in",
-        "weight": 0.7,
+        "weightMicro": 700000,
         "fanOut": 8
       },
       {
         "name": "ARCHITECTURE_PART_OF",
         "direction": "out",
-        "weight": 0.6,
+        "weightMicro": 600000,
         "fanOut": 2
       },
       {
         "name": "ARCHITECTURE_COMPONENT_OWNED_BY",
         "direction": "out",
-        "weight": 0.6,
+        "weightMicro": 600000,
         "fanOut": 2
       },
       {
         "name": "ARCHITECTURE_API_OWNED_BY",
         "direction": "out",
-        "weight": 0.6,
+        "weightMicro": 600000,
         "fanOut": 2
       },
       {
         "name": "ARCHITECTURE_DEPENDS_ON",
         "direction": "out",
-        "weight": 0.5,
+        "weightMicro": 500000,
         "fanOut": 6
       }
     ],

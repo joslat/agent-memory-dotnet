@@ -17,11 +17,11 @@ internal sealed record CertificateArm(int Tasks, int Hits, int Offered, int Corr
 internal sealed record CertificateTask(int Offered, int Correct);
 
 /// <summary>
-/// One target an evaluation checked, in thousandths (a rate of 0.304 is 304; a time target is in thousandths of a
-/// millisecond): what was required, what was used (a confidence bound when the trial asks for one), whether it held, and the
+/// One target an evaluation checked, in millionths of the target's unit (feature 02: a rate of 0.304 is 304,000, the trial's own
+/// integer; a time target is in millionths of a millisecond): what was required, what was used (a confidence bound when the trial asks for one), whether it held, and the
 /// plain estimate beside a bound. Canonical JSON in this format holds integers only.
 /// </summary>
-internal sealed record CertificateCheck(string Target, long RequiredMilli, long ObservedMilli, bool Met, long? EstimateMilli);
+internal sealed record CertificateCheck(string Target, long RequiredMicro, long ObservedMicro, bool Met, long? EstimateMicro);
 
 /// <summary>
 /// An evaluation certificate (pack format v1.2 §16): an evaluator's signed statement of how one pack did on the evaluator's
@@ -32,7 +32,7 @@ internal sealed record CertificateCheck(string Target, long RequiredMilli, long 
 /// be added after release; a host trusts one only from a key it names as <c>evaluator</c> for the pack's id.
 /// </summary>
 internal sealed partial record PackCertificate(string Id, string Version, string PackDigest, string Evaluator, string Tool, string ToolVersion,
-    DateTimeOffset EvaluatedAt, string Measure, string Baseline, int? ConfidenceMilli, string TaskSource, string Statistic, IReadOnlyList<CertificateCheck> Checks,
+    DateTimeOffset EvaluatedAt, string Measure, string Baseline, int? ConfidencePermille, string TaskSource, string Statistic, IReadOnlyList<CertificateCheck> Checks,
     CertificateArm With, CertificateArm? Without, bool Passed, string? AefRunId, string? AefRunHash)
 {
     internal const string PredicateType = "urn:agentmemory:pack:certificate:v1";
@@ -62,7 +62,7 @@ internal sealed partial record PackCertificate(string Id, string Version, string
     internal byte[] Sign(PackSigner signer)
     {
         var trial = new JsonObject { ["measure"] = Measure, ["baseline"] = Baseline, ["taskSource"] = TaskSource };
-        if (ConfidenceMilli is { } confidence) trial["confidenceMilli"] = confidence;
+        if (ConfidencePermille is { } confidence) trial["confidencePermille"] = confidence;
         var predicate = new JsonObject
         {
             ["id"] = Id, ["version"] = Version, ["evaluator"] = Evaluator,
@@ -72,8 +72,8 @@ internal sealed partial record PackCertificate(string Id, string Version, string
             ["statistic"] = Statistic,
             ["checks"] = new JsonArray([.. Checks.Select(c =>
             {
-                var check = new JsonObject { ["target"] = c.Target, ["requiredMilli"] = c.RequiredMilli, ["observedMilli"] = c.ObservedMilli, ["met"] = c.Met };
-                if (c.EstimateMilli is { } estimate) check["estimateMilli"] = estimate;
+                var check = new JsonObject { ["target"] = c.Target, ["requiredMicro"] = c.RequiredMicro, ["observedMicro"] = c.ObservedMicro, ["met"] = c.Met };
+                if (c.EstimateMicro is { } estimate) check["estimateMicro"] = estimate;
                 return (JsonNode)check;
             })]),
             ["with"] = Arm(With),
@@ -219,10 +219,10 @@ internal sealed partial record PackCertificate(string Id, string Version, string
         if (Str(p, "statistic") is not { } statistic || !IsLine(statistic, 100))
             return (null, "The certificate names the statistic its checks were computed with (one line of 1 to 100 characters).");
         int? confidence = null;
-        if (trial.TryGetProperty("confidenceMilli", out var confidenceValue))
+        if (trial.TryGetProperty("confidencePermille", out var confidenceValue))
         {
             if (confidenceValue.ValueKind != JsonValueKind.Number || !confidenceValue.TryGetInt32(out var c) || !Confidences.Contains(c))
-                return (null, "The certificate's confidenceMilli is 900, 950, 975 or 990.");
+                return (null, "The certificate's confidencePermille is 900, 950, 975 or 990.");
             confidence = c;
         }
         if (!p.TryGetProperty("checks", out var checksValue) || checksValue.ValueKind != JsonValueKind.Array || checksValue.GetArrayLength() is 0 or > 16)
@@ -232,13 +232,13 @@ internal sealed partial record PackCertificate(string Id, string Version, string
         {
             if (c.ValueKind != JsonValueKind.Object || c.EnumerateObject().Any(f => !PackRegistry.Shape("certificateCheck").Contains(f.Name))
                 || Str(c, "target") is not { } target || !Targets.Contains(target)
-                || Long(c, "requiredMilli") is not { } required || Long(c, "observedMilli") is not { } observed
+                || Long(c, "requiredMicro") is not { } required || Long(c, "observedMicro") is not { } observed
                 || !c.TryGetProperty("met", out var met) || met.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
-                return (null, "A certificate check names a known target, requiredMilli and observedMilli as integers, and met.");
+                return (null, "A certificate check names a known target, requiredMicro and observedMicro as integers, and met.");
             long? estimate = null;
-            if (c.TryGetProperty("estimateMilli", out _))
+            if (c.TryGetProperty("estimateMicro", out _))
             {
-                if (Long(c, "estimateMilli") is not { } e) return (null, "A certificate check's estimateMilli is an integer.");
+                if (Long(c, "estimateMicro") is not { } e) return (null, "A certificate check's estimateMicro is an integer.");
                 estimate = e;
             }
             checks.Add(new CertificateCheck(target, required, observed, met.ValueKind == JsonValueKind.True, estimate));

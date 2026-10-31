@@ -31,7 +31,7 @@ public sealed class TrialGateTests : IDisposable
         $$"""{"format":"agentmemory.module/v1alpha1","id":"{{id}}","version":"1.0.0","sdk":"[0.1,0.2)"{{extra}}}""");
 
     private static readonly ModuleManifest Trialled = Manifest(Base,
-        ""","trial":{"measure":"test-impact","tasks":40,"targets":{"hitRate":0.5,"precision":0.25,"lift":0.25,"addedP95Ms":250}}""");
+        ""","trial":{"measure":"test-impact","tasks":40,"targets":{"hitRateMicro":500000,"precisionMicro":250000,"liftMicro":250000,"addedP95Ms":250}}""");
     private static readonly ModuleManifest Dependent = Manifest(Top, ""","requires":{"modules":{"com.example.base":"[1,2)"}}""");
 
     /// <summary>
@@ -43,7 +43,7 @@ public sealed class TrialGateTests : IDisposable
     public void TheDeclarationsDigestIsPinned() =>
         PackTrialGate.DigestOf(Trialled).Should().Be(GoldenTrialledDigest, "the SDK's manifest serialization changed: see the remarks on PackTrialGate.DigestOf");
 
-    private const string GoldenTrialledDigest = "jcs-sha256:4f8b018552e494ff47e9c0b4889937d22914ff93a04faf88161b5fb7daa7df51";
+    private const string GoldenTrialledDigest = "jcs-sha256:dd4def6a8004cf640dbbff3ccdbc7eb2c1dfdbcb98cae98a240ea57b151af016";
 
     /// <summary>Review 2: the same pin over a full manifest (ontology, views, traversal, trial), the code map pack's own.</summary>
     [Fact]
@@ -51,13 +51,13 @@ public sealed class TrialGateTests : IDisposable
         PackTrialGate.DigestOf(AgentMemory.Packs.CodeMap.CodeMapPack.Manifest).Should().Be(GoldenCodeMapDigest,
             "the SDK's manifest serialization changed, or the code map's declarations did: see the remarks on PackTrialGate.DigestOf");
 
-    private const string GoldenCodeMapDigest = "jcs-sha256:a52acb6a7bd3c6350156593f8c8087314be544bec87e7e0b1d5d12355987cd16";
+    private const string GoldenCodeMapDigest = "jcs-sha256:c9446c0e46ee07b0d45a763dc8ede4960f5b71066e121f74152e5b19e73056f3";
 
     [Fact]
     public void Review6_with_a_confidence_no_regression_needs_a_tolerance_and_is_then_a_bound()
     {
         ModuleManifest Upgrade(double tolerance) => Manifest(Base,
-            $$$""","trial":{"measure":"test-impact","tasks":40,"confidence":0.95,"targets":{"hitRate":0.5},"upgrade":{"noRegression":true,"tolerance":{{{tolerance.ToString(System.Globalization.CultureInfo.InvariantCulture)}}}}}""");
+            $$$""","trial":{"measure":"test-impact","tasks":40,"confidencePermille":950,"targets":{"hitRateMicro":500000},"upgrade":{"noRegression":true,"toleranceMicro":{{{(long)Math.Round(tolerance * 1_000_000)}}}}}""");
         var arm = Arm(30, 32, 60, 10);
         var previous = new PackTrialPrevious { Version = "0.9.0", ManifestDigest = "jcs-sha256:" + new string('a', 64), With = arm };
 
@@ -65,7 +65,7 @@ public sealed class TrialGateTests : IDisposable
         // time), so with a confidence a tolerance of 0 is refused; without one it stays the estimate check it says it is.
         Upgrade(0).Validate().Should().Contain(p => p.Contains("$.trial.upgrade.tolerance") && p.Contains("above 0"));
         Upgrade(0.05).Validate().Should().BeEmpty();
-        var equal = PackTrialGate.Decide(Upgrade(0) with { Trial = Upgrade(0).Trial! with { Confidence = null } }, arm, Arm(0, 0, 0, 0), Now, previous: previous);
+        var equal = PackTrialGate.Decide(Upgrade(0) with { Trial = Upgrade(0).Trial! with { ConfidencePermille = null } }, arm, Arm(0, 0, 0, 0), Now, previous: previous);
         equal.Checks.Where(c => c.Target.StartsWith("noRegression", StringComparison.Ordinal)).Should().OnlyContain(c => c.Met && c.Estimate == null,
             "without a confidence an upgrade as good as its predecessor passes on its estimates");
 
@@ -188,7 +188,7 @@ public sealed class TrialGateTests : IDisposable
     [Fact]
     public void With_confidence_a_rate_target_is_met_only_by_its_lower_bound()
     {
-        var careful = Manifest(Base, ""","trial":{"measure":"test-impact","tasks":40,"baseline":"host","confidence":0.95,"targets":{"hitRate":0.5,"precisionLift":0.05}}"""
+        var careful = Manifest(Base, ""","trial":{"measure":"test-impact","tasks":40,"baseline":"host","confidencePermille":950,"targets":{"hitRateMicro":500000,"precisionLiftMicro":50000}}"""
             + ""","ontology":{"labelPrefix":"Code","types":[{"name":"CodeFile","scope":"shared","render":"{path}","properties":{"path":{"type":"string","required":true}}}]}"""
             + ""","traversal":{"anchors":[{"type":"CodeFile","property":"path","match":"exact"}],"hubs":["CodeFile"],"maxItems":3}""");
         careful.Validate().Should().BeEmpty();
@@ -219,16 +219,16 @@ public sealed class TrialGateTests : IDisposable
     [Fact]
     public void A_trial_names_a_known_baseline_and_confidence()
     {
-        Manifest(Base, ""","trial":{"measure":"test-impact","baseline":"vibes","targets":{"hitRate":0.5}}""").Validate().Should().Contain(p => p.Contains("$.trial.baseline"));
-        Manifest(Base, ""","trial":{"measure":"test-impact","confidence":0.5,"targets":{"hitRate":0.5}}""").Validate().Should().Contain(p => p.Contains("$.trial.confidence"));
+        Manifest(Base, ""","trial":{"measure":"test-impact","baseline":"vibes","targets":{"hitRateMicro":500000}}""").Validate().Should().Contain(p => p.Contains("$.trial.baseline"));
+        Manifest(Base, ""","trial":{"measure":"test-impact","confidencePermille":500,"targets":{"hitRateMicro":500000}}""").Validate().Should().Contain(p => p.Contains("$.trial.confidence"));
     }
 
     [Fact]
     public void With_confidence_a_difference_target_is_met_only_by_its_lower_bound()
     {
         // Review 1, M4: lift and precisionLift keep the same promise as the rates.
-        var careful = Manifest(Base, ""","trial":{"measure":"test-impact","tasks":40,"baseline":"host","confidence":0.95,"targets":{"lift":0.05}}""");
-        var loose = Manifest(Base, ""","trial":{"measure":"test-impact","tasks":40,"baseline":"host","targets":{"lift":0.05}}""");
+        var careful = Manifest(Base, ""","trial":{"measure":"test-impact","tasks":40,"baseline":"host","confidencePermille":950,"targets":{"liftMicro":50000}}""");
+        var loose = Manifest(Base, ""","trial":{"measure":"test-impact","tasks":40,"baseline":"host","targets":{"liftMicro":50000}}""");
         // 24 of 40 against 20 of 40: a lift of 0.10, which a 95% bound on 40 tasks cannot tell from nothing.
         var withArm = Arm(24, 30, 80, 20);
         var withoutArm = Arm(20, 25, 90, 10);
@@ -268,8 +268,8 @@ public sealed class TrialGateTests : IDisposable
     [Fact]
     public void A_trial_needs_a_measure_and_a_target_in_range()
     {
-        Manifest(Base, ""","trial":{"measure":"vibes","targets":{"hitRate":0.5}}""").Validate().Should().Contain(p => p.Contains("$.trial.measure"));
-        Manifest(Base, ""","trial":{"measure":"test-impact","targets":{"hitRate":1.5}}""").Validate().Should().Contain(p => p.Contains("$.trial.targets.hitRate"));
+        Manifest(Base, ""","trial":{"measure":"vibes","targets":{"hitRateMicro":500000}}""").Validate().Should().Contain(p => p.Contains("$.trial.measure"));
+        Manifest(Base, ""","trial":{"measure":"test-impact","targets":{"hitRateMicro":1500000}}""").Validate().Should().Contain(p => p.Contains("$.trial.targets.hitRate"));
         Trialled.Validate().Should().BeEmpty();
     }
 
@@ -333,7 +333,7 @@ public sealed class TrialGateTests : IDisposable
     {
         // The real pack passes; a weakened copy under the same id and version is trialled later into the same folder (PACK-review 1.7).
         Write(PackTrialGate.Decide(Trialled, Arm(30, 32, 77, 60), Arm(0, 0, 0, 30), Now), _host, "real");
-        var weakened = Manifest(Base, ""","trial":{"measure":"test-impact","tasks":40,"targets":{"hitRate":0.1}}""");
+        var weakened = Manifest(Base, ""","trial":{"measure":"test-impact","tasks":40,"targets":{"hitRateMicro":100000}}""");
         Write(PackTrialGate.Decide(weakened, Arm(0, 0, 0, 60), Arm(0, 0, 0, 30), Now.AddMinutes(5)), _host, "weak");
 
         var set = Activate(new PackActivationFolder(_folder, PublicKey()));
@@ -344,7 +344,7 @@ public sealed class TrialGateTests : IDisposable
     [Fact]
     public void A_record_for_other_content_does_not_count()
     {
-        var weakened = Manifest(Base, ""","trial":{"measure":"test-impact","tasks":40,"targets":{"hitRate":0.1}}""");
+        var weakened = Manifest(Base, ""","trial":{"measure":"test-impact","tasks":40,"targets":{"hitRateMicro":100000}}""");
         Write(PackTrialGate.Decide(weakened, Arm(30, 32, 77, 60), Arm(0, 0, 0, 30), Now), _host);
 
         var set = Activate(new PackActivationFolder(_folder, PublicKey()));
@@ -355,9 +355,9 @@ public sealed class TrialGateTests : IDisposable
     [Fact]
     public void Review6_a_host_floor_leaves_off_a_trial_that_claims_less()
     {
-        // M8: a pack chose its own targets, so {"hitRate":0} without a confidence always passed. The host sets what a trial
+        // M8: a pack chose its own targets, so {"hitRateMicro":0} without a confidence always passed. The host sets what a trial
         // must claim before it counts.
-        var weak = Manifest(Base, ""","trial":{"measure":"test-impact","tasks":40,"targets":{"hitRate":0}}""");
+        var weak = Manifest(Base, ""","trial":{"measure":"test-impact","tasks":40,"targets":{"hitRateMicro":0}}""");
         Write(PackTrialGate.Decide(weak, Arm(0, 0, 0, 60), Arm(0, 0, 0, 30), Now), _host, "weak");
         Write(PackTrialGate.Decide(Trialled, Arm(30, 32, 77, 60), Arm(0, 0, 0, 30), Now), _host, "real");
         ModuleSet With(ModuleManifest manifest, PackTrialFloor floor)
@@ -368,12 +368,12 @@ public sealed class TrialGateTests : IDisposable
             return services.BuildServiceProvider().GetRequiredService<ModuleSet>();
         }
 
-        var floor = new PackTrialFloor { Confidence = 0.95, Targets = new ModuleTrialTargets { HitRate = 0.3 } };
+        var floor = new PackTrialFloor { ConfidencePermille = 950, Targets = new ModuleTrialTargets { HitRateMicro = 300_000 } };
         With(weak, floor).SwitchedOff.Single().Reason.Should().Be("its trial claims less than this host requires: no confidence, 0.95 required; hitRate 0 below 0.3");
         With(Trialled, floor).SwitchedOff.Single().Reason.Should().Contain("no confidence, 0.95 required");
-        With(Trialled, new PackTrialFloor { Targets = new ModuleTrialTargets { HitRate = 0.3, AddedP95Ms = 500 } }).Modules.Should().ContainSingle();
+        With(Trialled, new PackTrialFloor { Targets = new ModuleTrialTargets { HitRateMicro = 300_000, AddedP95Ms = 500 } }).Modules.Should().ContainSingle();
         With(Trialled, new PackTrialFloor { Tasks = 60 }).SwitchedOff.Single().Reason.Should().Contain("40 tasks, 60 required");
-        FluentActions.Invoking(() => With(Trialled, new PackTrialFloor { Confidence = 0.8 })).Should().Throw<ArgumentException>();
+        FluentActions.Invoking(() => With(Trialled, new PackTrialFloor { ConfidencePermille = 800 })).Should().Throw<ArgumentException>();
         var unbound = new ServiceCollection();
         unbound.AddAgentMemoryModules(m => m.Add(Trialled, _ => { }).RequireTrialFloor(floor));
         FluentActions.Invoking(() => unbound.BuildServiceProvider().GetRequiredService<ModuleSet>()).Should().Throw<ModuleActivationException>()

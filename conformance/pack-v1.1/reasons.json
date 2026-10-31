@@ -786,16 +786,16 @@
    "the certificate names the statistic its checks were computed with"
   ],
   "certificate-fraction-not-integer": [
-   "A certificate check names a known target, requiredMilli and observedMilli as integers, and met",
-   "a certificate check names a known target, requiredMilli and observedMilli as integers, and met"
+   "A certificate check names a known target, requiredMicro and observedMicro as integers, and met",
+   "a certificate check names a known target, requiredMicro and observedMicro as integers, and met"
   ],
   "certificate-extra-field": [
    "predicate holds other fields than this format defines",
    "predicate holds other fields than this format defines"
   ],
   "certificate-unknown-target": [
-   "A certificate check names a known target, requiredMilli and observedMilli as integers, and met",
-   "a certificate check names a known target, requiredMilli and observedMilli as integers, and met"
+   "A certificate check names a known target, requiredMicro and observedMicro as integers, and met",
+   "a certificate check names a known target, requiredMicro and observedMicro as integers, and met"
   ],
   "certificate-evaluator-two-lines": [
    "The certificate names its evaluator as one line of",

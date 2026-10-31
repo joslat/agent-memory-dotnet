@@ -3004,7 +3004,7 @@
    "doc": "profiles/certify.md",
    "section": "2.1",
    "level": "MUST",
-   "summary": "`trial.measure` and `trial.baseline` MUST be among the values above, and `confidenceMilli`, when present, among the confidences above.",
+   "summary": "`trial.measure` and `trial.baseline` MUST be among the values above, and `confidencePermille`, when present, among the confidences above.",
    "verifiedBy": [
     "kit"
    ]
@@ -3014,7 +3014,7 @@
    "doc": "profiles/certify.md",
    "section": "2.1",
    "level": "MUST",
-   "summary": "`checks` MUST hold 1 to 16 checks, each naming a known target of the Trial profile once, with `requiredMilli` and `observedMilli` integers, `met` a boolean, and `estimateMilli` an integer when present; a...",
+   "summary": "`checks` MUST hold 1 to 16 checks, each naming a known target of the Trial profile once, with `requiredMicro` and `observedMicro` integers, `met` a boolean, and `estimateMicro` an integer when present; a...",
    "verifiedBy": [
     "kit"
    ]

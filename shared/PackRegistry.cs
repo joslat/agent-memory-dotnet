@@ -47,8 +47,25 @@ internal static class PackRegistry
     internal static readonly IReadOnlySet<string> Baselines = Set("certificate", "baselines");
     /// <summary>The fields of a trial declaration, and the targets a trial (and so a certificate) may state.</summary>
     internal static readonly IReadOnlySet<string> TrialFields = Set("trial", "fields");
-    internal static readonly IReadOnlySet<string> Targets = Set("trial", "targets");
-    internal static readonly IReadOnlySet<int> Confidences = new HashSet<int>(Path("certificate", "confidences").EnumerateArray().Select(e => e.GetInt32()));
+    /// <summary>The trial's target names, as a certificate's checks name them.</summary>
+    internal static readonly IReadOnlySet<string> Targets = new HashSet<string>(Path("trial", "targets").EnumerateObject().Select(p => p.Name), StringComparer.Ordinal);
+    /// <summary>The field of <c>evals/trial.json</c>'s targets that holds each target, by target name (its unit is in its name).</summary>
+    internal static readonly IReadOnlyDictionary<string, string> TargetFields = Path("trial", "targets").EnumerateObject()
+        .ToDictionary(p => p.Name, p => p.Value.GetProperty("field").GetString()!, StringComparer.Ordinal);
+    internal static readonly IReadOnlySet<string> UpgradeFields = Set("trial", "upgradeFields");
+    internal static readonly IReadOnlySet<string> RelationFields = Set("traversal", "relationFields");
+    internal static readonly long DefaultWeightMicro = Path("traversal", "defaultWeightMicro").GetInt64();
+    /// <summary>A unit-bearing field's unit and range (feature 02): an inclusive range, or a closed set of values.</summary>
+    internal sealed record Unit(string Name, string Means, long Min, long Max, IReadOnlySet<long>? Values);
+    internal static readonly IReadOnlyDictionary<string, Unit> UnitFields = Path("units", "fields").EnumerateObject().ToDictionary(p => p.Name, p =>
+    {
+        var name = p.Value.GetProperty("unit").GetString()!;
+        var values = p.Value.TryGetProperty("values", out var v) ? new HashSet<long>(v.EnumerateArray().Select(x => x.GetInt64())) : null;
+        return new Unit(name, Path("units", "kinds", name, "means").GetString()!,
+            p.Value.TryGetProperty("min", out var min) ? min.GetInt64() : values?.Min() ?? 0, p.Value.TryGetProperty("max", out var max) ? max.GetInt64() : values?.Max() ?? 0, values);
+    }, StringComparer.Ordinal);
+    /// <summary>The confidences a trial and a certificate may name, in thousandths.</summary>
+    internal static readonly IReadOnlySet<int> Confidences = new HashSet<int>(UnitFields["confidencePermille"].Values!.Select(v => (int)v));
     /// <summary>Reserved device names, compared without case, as the path grammar refuses them.</summary>
     internal static readonly IReadOnlySet<string> DeviceNames = new HashSet<string>(Strings("paths", "deviceNames"), StringComparer.OrdinalIgnoreCase);
 

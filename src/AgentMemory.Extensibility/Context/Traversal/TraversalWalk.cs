@@ -254,7 +254,7 @@ internal static class TraversalWalk
                     foreach (var edge in step.Edges)
                     {
                         if (!starting.TryGetValue(edge.FromId, out var parent)) continue;
-                        var score = parent.Score * declared.Weight;
+                        var score = parent.Score * PackNumbers.Fraction(declared.WeightMicro);
                         if (score < MinimumScore) continue;
                         var verb = Verb(module, declared.Name);
                         var via = parent.Via + " → " + (declared.Direction == ModuleTraversalDirection.Out

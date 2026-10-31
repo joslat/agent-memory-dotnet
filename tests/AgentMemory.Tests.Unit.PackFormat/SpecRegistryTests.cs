@@ -30,7 +30,49 @@ public sealed class SpecRegistryTests
         PackManifest.Tiers.Should().BeEquivalentTo(List(r.GetProperty("manifest").GetProperty("values").GetProperty("tier")));
         Dsse.Roles.Should().BeEquivalentTo(List(r.GetProperty("roles").GetProperty("signing")));
         TrustPolicy.KeyRoles.Should().BeEquivalentTo(List(r.GetProperty("roles").GetProperty("keys")));
-        PackCertificate.Targets.Should().BeEquivalentTo(List(r.GetProperty("trial").GetProperty("targets")));
+        PackCertificate.Targets.Should().BeEquivalentTo(r.GetProperty("trial").GetProperty("targets").EnumerateObject().Select(p => p.Name));
+    }
+
+    [Fact]
+    public void The_module_schema_gives_every_unit_field_the_registry_s_range()
+    {
+        // The editor's JSON schema is a second statement of the units (feature 02); held equal here, field by field.
+        var root = Root();
+        using var registry = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(root, "spec", "registry.json")));
+        using var schema = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(root, "src", "AgentMemory.Extensibility", "Schemas", "agentmemory.module.v1alpha1.schema.json")));
+        var declared = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        void Walk(JsonElement e)
+        {
+            if (e.ValueKind == JsonValueKind.Object)
+                foreach (var p in e.EnumerateObject())
+                {
+                    // The first statement of a field wins: a later "properties" may narrow it (an if/then), not redefine it.
+                    if (p.Name == "properties" && p.Value.ValueKind == JsonValueKind.Object)
+                        foreach (var field in p.Value.EnumerateObject())
+                            if (field.Value.ValueKind == JsonValueKind.Object && (field.Value.TryGetProperty("type", out _) || field.Value.TryGetProperty("enum", out _)))
+                                declared.TryAdd(field.Name, field.Value);
+                    Walk(p.Value);
+                }
+            else if (e.ValueKind == JsonValueKind.Array)
+                foreach (var item in e.EnumerateArray()) Walk(item);
+        }
+        Walk(schema.RootElement);
+        var wrong = new List<string>();
+        foreach (var unit in registry.RootElement.GetProperty("units").GetProperty("fields").EnumerateObject())
+        {
+            if (!declared.TryGetValue(unit.Name, out var field)) { wrong.Add($"{unit.Name}: not in the schema"); continue; }
+            if (unit.Value.TryGetProperty("values", out var values))
+            {
+                long[] Longs(JsonElement a) => [.. a.EnumerateArray().Select(x => x.GetInt64())];
+                if (!field.TryGetProperty("enum", out var e) || !Longs(e).SequenceEqual(Longs(values))) wrong.Add($"{unit.Name}: enum is not {values.GetRawText()}");
+                continue;
+            }
+            if (!field.TryGetProperty("type", out var type) || type.GetString() != "integer") wrong.Add($"{unit.Name}: not an integer");
+            foreach (var (bound, schemaName) in new[] { ("min", "minimum"), ("max", "maximum") })
+                if (!field.TryGetProperty(schemaName, out var s) || s.GetInt64() != unit.Value.GetProperty(bound).GetInt64())
+                    wrong.Add($"{unit.Name}: {schemaName} is not {unit.Value.GetProperty(bound).GetInt64()}");
+        }
+        string.Join(Environment.NewLine, wrong).Should().BeEmpty("the schema's units come from spec/registry.json");
     }
 
     [Fact]

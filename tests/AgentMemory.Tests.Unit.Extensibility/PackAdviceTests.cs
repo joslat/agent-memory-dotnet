@@ -78,7 +78,7 @@ public sealed class PackAdviceTests
     [Fact]
     public void A_trial_without_an_upgrade_rule_or_with_few_tasks_is_advised()
     {
-        var pack = Load(trial: """{ "measure": "test-impact", "tasks": 20, "targets": { "hitRate": 0.3 } }""");
+        var pack = Load(trial: """{ "measure": "test-impact", "tasks": 20, "targets": { "hitRateMicro": 300000 } }""");
 
         Rules(pack).Should().Equal("trial.upgrade", "trial.small");
     }
@@ -88,7 +88,7 @@ public sealed class PackAdviceTests
     {
         var pack = Load(
             m => m["validUntil"] = DateTimeOffset.UtcNow.AddDays(400).UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ", System.Globalization.CultureInfo.InvariantCulture),
-            trial: """{ "measure": "test-impact", "tasks": 40, "targets": { "hitRate": 0.3 }, "upgrade": { "noRegression": true, "tolerance": 0.02 } }""");
+            trial: """{ "measure": "test-impact", "tasks": 40, "targets": { "hitRateMicro": 300000 }, "upgrade": { "noRegression": true, "toleranceMicro": 20000 } }""");
 
         Rules(pack).Should().BeEmpty();
         Rules(pack, DateTimeOffset.UtcNow.AddDays(380)).Should().Equal("validity.soon");
@@ -97,7 +97,7 @@ public sealed class PackAdviceTests
     [Fact]
     public void A_pack_without_a_card_or_with_the_template_one_is_advised_and_a_real_card_is_read_back()
     {
-        const string trial = """{ "measure": "test-impact", "tasks": 40, "targets": { "hitRate": 0.3 }, "upgrade": { "noRegression": true } }""";
+        const string trial = """{ "measure": "test-impact", "tasks": 40, "targets": { "hitRateMicro": 300000 }, "upgrade": { "noRegression": true } }""";
 
         Rules(Load(trial: trial, card: null)).Should().Equal("card.missing");
         Rules(Load(trial: trial, card: Card.Replace("Example Dojo", "Who owns this pack", StringComparison.Ordinal))).Should().Equal("card.template");

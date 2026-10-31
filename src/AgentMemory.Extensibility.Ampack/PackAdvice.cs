@@ -54,7 +54,7 @@ public static class PackAdvice
                     Add("trial.unreachable", note);
                 // The history that best evidence assumes (review 7, G15): tasks a burst apart, within the window a trial draws from;
                 // said where it needs more than half that window, where a host's history is likely to fall short.
-                if (trial.Confidence is not null && PackTrialGate.BurstLength * (trial.Tasks - 1) + 1 > PackTrialGate.HistoryWindow / 2)
+                if (trial.ConfidencePermille is not null && PackTrialGate.BurstLength * (trial.Tasks - 1) + 1 > PackTrialGate.HistoryWindow / 2)
                     Add("trial.history", $"Its bounds count tasks as independent only {PackTrialGate.BurstLength} eligible commits apart: {trial.Tasks} tasks need "
                         + $"{PackTrialGate.BurstLength * (trial.Tasks - 1) + 1} eligible commits among a host's last {PackTrialGate.HistoryWindow}; on a shorter history they cluster, and every bound shows less.");
             }

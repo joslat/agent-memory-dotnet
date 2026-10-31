@@ -62,10 +62,10 @@ public sealed class ModuleEditorSchemaTests
     [Theory]
     [InlineData(16, null, true)]
     [InlineData(17, null, false)]
-    [InlineData(2, 0.05, true)]
-    [InlineData(2, 0.5, true)]
-    [InlineData(2, 0.6, false)]
-    public void TraversalAndTrialHaveTheSameEditorAndRuntimeContract(int relations, double? tolerance, bool accepted)
+    [InlineData(2, 50_000, true)]
+    [InlineData(2, 500_000, true)]
+    [InlineData(2, 500_001, false)]
+    public void TraversalAndTrialHaveTheSameEditorAndRuntimeContract(int relations, int? toleranceMicro, bool accepted)
     {
         var names = Enumerable.Range(0, (relations + 1) / 2).Select(i => $"REVIEW_R{i}").ToList();
         var root = new JsonObject
@@ -84,8 +84,8 @@ public sealed class ModuleEditorSchemaTests
             },
             ["trial"] = new JsonObject
             {
-                ["measure"] = "test-impact", ["targets"] = new JsonObject { ["hitRate"] = 0.5 },
-                ["upgrade"] = tolerance is { } t ? new JsonObject { ["noRegression"] = true, ["tolerance"] = t } : new JsonObject { ["noRegression"] = true },
+                ["measure"] = "test-impact", ["targets"] = new JsonObject { ["hitRateMicro"] = 500_000 },
+                ["upgrade"] = toleranceMicro is { } t ? new JsonObject { ["noRegression"] = true, ["toleranceMicro"] = t } : new JsonObject { ["noRegression"] = true },
             },
         };
         var json = root.ToJsonString();
@@ -105,9 +105,13 @@ public sealed class ModuleEditorSchemaTests
     [InlineData("tolerance-negative", false)]
     [InlineData("tolerance-0-with-confidence", false)]
     [InlineData("no-tolerance-with-confidence", false)]
-    [InlineData("tolerance-0.05-with-confidence", true)]
-    [InlineData("target-four-decimals", false)]
-    [InlineData("target-three-decimals", true)]
+    [InlineData("tolerance-50000-with-confidence", true)]
+    [InlineData("target-a-decimal", false)]
+    [InlineData("target-millionths", true)]
+    [InlineData("target-above-one", false)]
+    [InlineData("weight-a-decimal", false)]
+    [InlineData("weight-zero", false)]
+    [InlineData("weight-one-millionth", true)]
     [InlineData("traversal-without-anchors-or-relations", false)]
     [InlineData("traversal-with-empty-anchors", false)]
     [InlineData("hops-written-2.0", true)]
@@ -119,7 +123,7 @@ public sealed class ModuleEditorSchemaTests
         var properties = new JsonObject();
         for (var i = 0; i < 17; i++) properties["p" + i] = new JsonObject { ["type"] = "string" };
         var traversal = new JsonObject { ["anchors"] = new JsonArray(Anchor(0)) };
-        var trial = new JsonObject { ["measure"] = "test-impact", ["targets"] = new JsonObject { ["hitRate"] = 0.5 } };
+        var trial = new JsonObject { ["measure"] = "test-impact", ["targets"] = new JsonObject { ["hitRateMicro"] = 500_000 } };
         switch (edge)
         {
             case "anchors-16": traversal["anchors"] = new JsonArray([.. Enumerable.Range(0, 16).Select(Anchor)]); break;
@@ -128,14 +132,19 @@ public sealed class ModuleEditorSchemaTests
             case "tasks-10": trial["tasks"] = 10; break;
             case "tasks-200": trial["tasks"] = 200; break;
             case "tasks-201": trial["tasks"] = 201; break;
-            case "tolerance-0": trial["upgrade"] = new JsonObject { ["noRegression"] = true, ["tolerance"] = 0 }; break;
-            case "tolerance-negative": trial["upgrade"] = new JsonObject { ["noRegression"] = true, ["tolerance"] = -0.01 }; break;
-            // Review 6: with a confidence, no regression needs a tolerance (H1); a target states at most thousandths (L9).
-            case "tolerance-0-with-confidence": trial["confidence"] = 0.95; trial["upgrade"] = new JsonObject { ["noRegression"] = true, ["tolerance"] = 0 }; break;
-            case "no-tolerance-with-confidence": trial["confidence"] = 0.95; trial["upgrade"] = new JsonObject { ["noRegression"] = true }; break;
-            case "tolerance-0.05-with-confidence": trial["confidence"] = 0.95; trial["upgrade"] = new JsonObject { ["noRegression"] = true, ["tolerance"] = 0.05 }; break;
-            case "target-four-decimals": trial["targets"] = new JsonObject { ["hitRate"] = 0.2504 }; break;
-            case "target-three-decimals": trial["targets"] = new JsonObject { ["hitRate"] = 0.35, ["precision"] = 0.251, ["lift"] = -0.05 }; break;
+            case "tolerance-0": trial["upgrade"] = new JsonObject { ["noRegression"] = true, ["toleranceMicro"] = 0 }; break;
+            case "tolerance-negative": trial["upgrade"] = new JsonObject { ["noRegression"] = true, ["toleranceMicro"] = -10_000 }; break;
+            // Review 6: with a confidence, no regression needs a tolerance (H1). Feature 02: every unit field is an integer, which
+            // every validator holds exactly, so the editor and the runtime now agree on targets too (review 7, G10 is gone).
+            case "tolerance-0-with-confidence": trial["confidencePermille"] = 950; trial["upgrade"] = new JsonObject { ["noRegression"] = true, ["toleranceMicro"] = 0 }; break;
+            case "no-tolerance-with-confidence": trial["confidencePermille"] = 950; trial["upgrade"] = new JsonObject { ["noRegression"] = true }; break;
+            case "tolerance-50000-with-confidence": trial["confidencePermille"] = 950; trial["upgrade"] = new JsonObject { ["noRegression"] = true, ["toleranceMicro"] = 50_000 }; break;
+            case "target-a-decimal": trial["targets"] = new JsonObject { ["hitRateMicro"] = 250_000.5m }; break;
+            case "target-millionths": trial["targets"] = new JsonObject { ["hitRateMicro"] = 350_000, ["precisionMicro"] = 251_000, ["liftMicro"] = -50_000 }; break;
+            case "target-above-one": trial["targets"] = new JsonObject { ["hitRateMicro"] = 1_000_001 }; break;
+            case "weight-a-decimal": traversal["relations"] = new JsonArray(new JsonObject { ["name"] = "REVIEW_R0", ["weightMicro"] = 0.8m }); break;
+            case "weight-zero": traversal["relations"] = new JsonArray(new JsonObject { ["name"] = "REVIEW_R0", ["weightMicro"] = 0 }); break;
+            case "weight-one-millionth": traversal["relations"] = new JsonArray(new JsonObject { ["name"] = "REVIEW_R0", ["weightMicro"] = 1 }); break;
             case "traversal-without-anchors-or-relations": traversal = new JsonObject { ["maxItems"] = 3 }; break;
             case "traversal-with-empty-anchors": traversal = new JsonObject { ["anchors"] = new JsonArray() }; break;
             case "hops-written-2.0": traversal["hops"] = JsonValue.Create(2.0m); break;
@@ -154,11 +163,12 @@ public sealed class ModuleEditorSchemaTests
             ["traversal"] = traversal, ["trial"] = trial,
         };
         if (edge == "containable-by-not-an-id") root["containableBy"] = new JsonArray("Not An Id");
+        // A weight edge follows a relation the module owns, so only the weight decides.
+        if (edge.StartsWith("weight-", StringComparison.Ordinal))
+            ((JsonObject)root["ontology"]!)["relations"] = new JsonArray(new JsonObject { ["name"] = "REVIEW_R0", ["from"] = "ReviewItem", ["to"] = "ReviewItem" });
         var json = root.ToJsonString();
         if (edge == "hops-written-2.0") json.Should().Contain("\"hops\":2.0");
-        // The one edge the editor cannot state portably (review 7, G10): "at most three decimals" as multipleOf 0.001 is computed
-        // in binary floating point by most validators, which then refuse 0.35. The schema says it in words; the runtime holds it.
-        EditorAccepts("module", json).Should().Be(accepted || edge == "target-four-decimals", "the editor schema");
+        EditorAccepts("module", json).Should().Be(accepted, "the editor schema");
         RuntimeAccepts("module", json).Should().Be(accepted, "the runtime");
     }
 

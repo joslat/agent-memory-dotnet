@@ -19,7 +19,7 @@ namespace AgentMemory.Tests.Unit.Extensibility;
 public sealed class PackCertificateTests : IDisposable
 {
     private const string Id = "io.agentmemory.packs.martialarts";
-    private const string Trial = """{ "measure": "test-impact", "tasks": 40, "targets": { "hitRate": 0.5 } }""";
+    private const string Trial = """{ "measure": "test-impact", "tasks": 40, "targets": { "hitRateMicro": 500000 } }""";
     private static readonly string MartialArts = Path.Combine(AppContext.BaseDirectory, "Packs", "MartialArts");
     private readonly PackSigningKey _publisher = PackAuthoring.CreateKey();
     private readonly PackSigningKey _evaluator = PackAuthoring.CreateKey();
@@ -132,11 +132,11 @@ public sealed class PackCertificateTests : IDisposable
     }
 
     [Theory]
-    [InlineData("retrieval", "none", null, "hitRate", 500L, "it measured retrieval")]
-    [InlineData("test-impact", "host", null, "hitRate", 500L, "it compared with host")]
-    [InlineData("test-impact", "none", 950, "hitRate", 500L, "confidence")]
-    [InlineData("test-impact", "none", null, "hitRate", 400L, "not the declared 0.5")]
-    [InlineData("test-impact", "none", null, "precision", 500L, "does not check hitRate")]
+    [InlineData("retrieval", "none", null, "hitRate", 500000L, "it measured retrieval")]
+    [InlineData("test-impact", "host", null, "hitRate", 500000L, "it compared with host")]
+    [InlineData("test-impact", "none", 950, "hitRate", 500000L, "confidence")]
+    [InlineData("test-impact", "none", null, "hitRate", 400000L, "not the declared 0.5")]
+    [InlineData("test-impact", "none", null, "precision", 500000L, "does not check hitRate")]
     public void A_certificate_admits_only_the_trial_the_pack_declares(string measure, string baseline, int? confidence, string target, long required, string gap)
     {
         // Issued through PackCertificates a certificate states the declared trial (the digest covers evals/trial.json); one
@@ -144,7 +144,7 @@ public sealed class PackCertificateTests : IDisposable
         var (built, pack) = Built();
         using var signer = PackSigner.FromPem(_evaluator.PrivateKeyPem);
         var certificate = new PackCertificate(Id, pack.Version, pack.Digest, "Other Lab", "other-tool", "1.0", Earlier, measure, baseline, confidence,
-            "its own tasks", PackTrialGate.Statistic, [new CertificateCheck(target, required, 600, true, null)], ArmOf(40, 24, 120, 30, 12500),
+            "its own tasks", PackTrialGate.Statistic, [new CertificateCheck(target, required, 600_000, true, null)], ArmOf(40, 24, 120, 30, 12500),
             ArmOf(40, 0, 0, 0, 2500, cap: baseline == "host" ? ModuleTraversal.MaximumOffered : 0), true, null, null);
         var files = new Dictionary<string, byte[]>(PackReader.ReadArchive(built, "built").Files, StringComparer.Ordinal)
         {
@@ -164,7 +164,7 @@ public sealed class PackCertificateTests : IDisposable
     {
         var (built, pack) = Built();
         var certificate = PackReader.ReadArchive(Certify(built, pack), "certified").Files.Single(f => f.Key.StartsWith("META/attestations/", StringComparison.Ordinal));
-        var (other, _) = Built("""{ "measure": "test-impact", "tasks": 40, "targets": { "hitRate": 0.4 } }""");
+        var (other, _) = Built("""{ "measure": "test-impact", "tasks": 40, "targets": { "hitRateMicro": 400000 } }""");
         var moved = new Dictionary<string, byte[]>(PackReader.ReadArchive(other, "other").Files, StringComparer.Ordinal) { [certificate.Key] = certificate.Value };
 
         var loaded = PackLoader.Load(StrictZip.Write(moved, compress: true), Trust());
@@ -201,7 +201,7 @@ public sealed class PackCertificateTests : IDisposable
     {
         // 1.0.0 passed here on the host's own trial; 1.0.1 declares no regression and arrives with a certificate. The evaluator
         // could not compare against this host's 1.0.0, so the upgrade still needs this host's own trial.
-        const string rule = """{ "measure": "test-impact", "tasks": 40, "targets": { "hitRate": 0.5 }, "upgrade": { "noRegression": true } }""";
+        const string rule = """{ "measure": "test-impact", "tasks": 40, "targets": { "hitRateMicro": 500000 }, "upgrade": { "noRegression": true } }""";
         var (_, first) = Built(rule);
         PackActivationFolder.Write(_folder, PackTrialGate.Decide(first.Manifest, Arm(30), Arm(0), Earlier, first.Digest), _host);
         var (built, next) = Built(rule, version: "9.9.9");
@@ -293,7 +293,7 @@ public sealed class PackCertificateTests : IDisposable
     {
         // Review 1, M2: 1.0.0 passed on this host's own trial; 1.1.0 was admitted on a certificate where certificates are not
         // trusted (it stays off); 1.2.0 declares no regression. It must compare against 1.0.0, not against 1.1.0.
-        const string rule = """{ "measure": "test-impact", "tasks": 40, "targets": { "hitRate": 0.5 }, "upgrade": { "noRegression": true } }""";
+        const string rule = """{ "measure": "test-impact", "tasks": 40, "targets": { "hitRateMicro": 500000 }, "upgrade": { "noRegression": true } }""";
         var (_, first) = Built(rule, version: "1.0.0");
         PackActivationFolder.Write(_folder, PackTrialGate.Decide(first.Manifest, Arm(36), Arm(0), Earlier.AddMinutes(-10), first.Digest), _host);
         var (middleBuilt, middle) = Built(rule, version: "1.1.0");
@@ -310,7 +310,7 @@ public sealed class PackCertificateTests : IDisposable
     {
         // Review 2, M1: 1.0.0 and 1.1.0 passed this host's own trials (1.1.0 compared against 1.0.0 on the same tasks). An
         // admission of 1.1.0 on a certificate afterwards must not hide its own pass and switch the upgrade off.
-        const string rule = """{ "measure": "test-impact", "tasks": 40, "targets": { "hitRate": 0.5 }, "upgrade": { "noRegression": true } }""";
+        const string rule = """{ "measure": "test-impact", "tasks": 40, "targets": { "hitRateMicro": 500000 }, "upgrade": { "noRegression": true } }""";
         var (_, first) = Built(rule, version: "1.0.0");
         PackActivationFolder.Write(_folder, PackTrialGate.Decide(first.Manifest, Arm(30), Arm(0), Earlier.AddMinutes(-10), first.Digest), _host);
         var (built, next) = Built(rule, version: "1.1.0");
@@ -329,7 +329,7 @@ public sealed class PackCertificateTests : IDisposable
     public void A_version_whose_own_trial_failed_is_never_the_version_that_passed_here_even_if_later_admitted_on_a_certificate()
     {
         // Review 2, M2: the upgrade gate resolves each version's decisions by the same rule as the gate itself.
-        const string rule = """{ "measure": "test-impact", "tasks": 40, "targets": { "hitRate": 0.5 }, "upgrade": { "noRegression": true } }""";
+        const string rule = """{ "measure": "test-impact", "tasks": 40, "targets": { "hitRateMicro": 500000 }, "upgrade": { "noRegression": true } }""";
         var (firstBuilt, first) = Built(rule, version: "1.0.0");
         PackActivationFolder.Write(_folder, PackTrialGate.Decide(first.Manifest, Arm(2), Arm(0), Earlier.AddMinutes(-10), first.Digest), _host);
         PackActivationFolder.Write(_folder, PackCertificates.Admit(PackLoader.Load(Certify(firstBuilt, first), Trust()), Earlier.AddMinutes(-5)).Decision!, _host);
@@ -454,7 +454,7 @@ public sealed class PackCertificateTests : IDisposable
         var (built, pack) = Built();
         using var signer = PackSigner.FromPem(_evaluator.PrivateKeyPem);
         var certificate = new PackCertificate(Id, pack.Version, pack.Digest, "Other Lab", "other-tool", "1.0", Earlier, "test-impact", "none", null,
-            "its own tasks", PackTrialGate.Statistic, [new CertificateCheck("hitRate", 500, 600, true, null)], ArmOf(40, 24, 120, 30, 12500, cap: 3),
+            "its own tasks", PackTrialGate.Statistic, [new CertificateCheck("hitRate", 500_000, 600_000, true, null)], ArmOf(40, 24, 120, 30, 12500, cap: 3),
             ArmOf(40, 0, 0, 0, 2500), true, null, null);
         var files = new Dictionary<string, byte[]>(PackReader.ReadArchive(built, "built").Files, StringComparer.Ordinal)
         {

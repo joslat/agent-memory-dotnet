@@ -186,19 +186,19 @@
       {
         "name": "CODEMAP_DEFINES",
         "direction": "out",
-        "weight": 0.9,
+        "weightMicro": 900000,
         "fanOut": 16
       },
       {
         "name": "CODEMAP_TESTS",
         "direction": "in",
-        "weight": 0.8,
+        "weightMicro": 800000,
         "fanOut": 6
       },
       {
         "name": "CODEMAP_DECLARED_IN",
         "direction": "in",
-        "weight": 0.85,
+        "weightMicro": 850000,
         "fanOut": 6
       }
     ],
@@ -214,7 +214,7 @@
     "measure": "test-impact",
     "tasks": 40,
     "baseline": "host",
-    "confidence": 0.95,
-    "targets": { "hitRate": 0.35, "precision": 0.25, "lift": -0.05, "precisionLift": 0.05, "addedP95Ms": 250 }
+    "confidencePermille": 950,
+    "targets": { "hitRateMicro": 350000, "precisionMicro": 250000, "liftMicro": -50000, "precisionLiftMicro": 50000, "addedP95Ms": 250 }
   }
 }

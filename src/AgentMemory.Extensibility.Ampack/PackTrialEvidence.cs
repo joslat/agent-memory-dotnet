@@ -189,7 +189,7 @@ public static class PackTrialEvidence
             {
                 ["version"] = previous.Version, ["manifestDigest"] = previous.ManifestDigest, ["packDigest"] = previous.PackDigest, ["with"] = Measurement(previous.With),
             };
-        if (decision.Upgrade is { } upgrade) facts["upgrade"] = new JsonObject { ["noRegression"] = upgrade.NoRegression, ["tolerance"] = upgrade.Tolerance };
+        if (decision.Upgrade is { } upgrade) facts["upgrade"] = new JsonObject { ["noRegression"] = upgrade.NoRegression, ["toleranceMicro"] = upgrade.ToleranceMicro };
         return facts;
     }
 

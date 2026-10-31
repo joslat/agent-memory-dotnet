@@ -16,7 +16,7 @@ namespace AgentMemory.Tests.Unit.Extensibility;
 public sealed class PackUpgradeTests : IDisposable
 {
     private static readonly DateTimeOffset Now = new(2026, 10, 27, 9, 0, 0, TimeSpan.Zero);
-    private const string Upgrade = ""","upgrade":{"noRegression":true,"tolerance":0.02}""";
+    private const string Upgrade = ""","upgrade":{"noRegression":true,"toleranceMicro":20000}""";
     private readonly string _folder = Directory.CreateTempSubdirectory("pack-upgrade-").FullName;
     private readonly ECDsa _host = ECDsa.Create(ECCurve.NamedCurves.nistP256);
 
@@ -28,7 +28,7 @@ public sealed class PackUpgradeTests : IDisposable
 
     private static ModuleManifest Manifest(string version, string upgrade = Upgrade) => ModuleManifest.Parse(
         """{"format":"agentmemory.module/v1alpha1","id":"com.example.map","version":""" + "\"" + version + "\""
-        + ""","sdk":"[0.1,0.2)","trial":{"measure":"test-impact","tasks":40,"targets":{"hitRate":0.5}""" + upgrade + "}}");
+        + ""","sdk":"[0.1,0.2)","trial":{"measure":"test-impact","tasks":40,"targets":{"hitRateMicro":500000}""" + upgrade + "}}");
 
     // Precision 0.5 unless given; as many right items as hits at least (a hit is a right item).
     private static PackTrialMeasurement Arm(int hits, int? correct = null, int? offered = null) =>
@@ -47,13 +47,14 @@ public sealed class PackUpgradeTests : IDisposable
     [Fact]
     public void A_trial_declares_its_upgrade_rule_and_a_tolerance_out_of_range_is_refused()
     {
-        Manifest("1.1.0").Trial!.Upgrade.Should().Be(new ModuleTrialUpgrade { NoRegression = true, Tolerance = 0.02 });
+        Manifest("1.1.0").Trial!.Upgrade.Should().Be(new ModuleTrialUpgrade { NoRegression = true, ToleranceMicro = 20_000 });
         Manifest("1.1.0").Validate().Should().BeEmpty();
-        Manifest("1.1.0", ""","upgrade":{"noRegression":true,"tolerance":0.9}""").Validate().Should().Contain(p => p.Contains("$.trial.upgrade.tolerance"));
-        // Review 6: a certificate records targets in thousandths, so a manifest states them so (L9); and with a confidence, a
-        // tolerance of 0 asks for a bound no measurement gives (H1).
-        Manifest("1.1.0", ""","upgrade":{"noRegression":true,"tolerance":0.0504}""").Validate().Should().Contain(p => p.Contains("$.trial.upgrade.tolerance") && p.Contains("three decimals"));
-        Manifest("1.1.0", ""","upgrade":{"noRegression":true,"tolerance":0},"confidence":0.95""").Validate().Should().Contain(p => p.Contains("$.trial.upgrade.tolerance"));
+        Manifest("1.1.0", ""","upgrade":{"noRegression":true,"toleranceMicro":900000}""").Validate().Should().Contain(p => p.Contains("$.trial.upgrade.tolerance"));
+        // Feature 02: a tolerance is a whole number of millionths, as a certificate records it, so a decimal is refused at reading
+        // (review 6, L9 asked for thousandths); and with a confidence, a tolerance of 0 asks for a bound no measurement gives (H1).
+        FluentActions.Invoking(() => Manifest("1.1.0", ""","upgrade":{"noRegression":true,"toleranceMicro":50400.5}""")).Should().Throw<FormatException>()
+            .WithMessage("*$.trial.upgrade.toleranceMicro*expected an integer*");
+        Manifest("1.1.0", ""","upgrade":{"noRegression":true,"toleranceMicro":0},"confidencePermille":950""").Validate().Should().Contain(p => p.Contains("$.trial.upgrade.tolerance"));
         FluentActions.Invoking(() => Manifest("1.1.0", ""","upgrade":{"noRegression":true,"window":3}""")).Should().Throw<Exception>()
             .Which.Message.Should().Contain("window");
     }
@@ -145,7 +146,7 @@ public sealed class PackUpgradeTests : IDisposable
         Compose(Manifest("1.1.0", upgrade: "")).SwitchedOff.Should().ContainSingle().Which.Reason.Should().Contain("must compare");
 
         // Compared, with a loose tolerance of its own (0.5): held to the predecessor's 0.02, a drop of 0.025 is too much.
-        const string loose = ""","upgrade":{"noRegression":true,"tolerance":0.5}""";
+        const string loose = ""","upgrade":{"noRegression":true,"toleranceMicro":500000}""";
         Write(PackTrialGate.Decide(Manifest("1.1.0", loose), Arm(29), Nothing, Now.AddMinutes(2), previous: Previous(passed, Arm(30))));
         Compose(Manifest("1.1.0", loose)).SwitchedOff.Should().ContainSingle().Which.Reason.Should().Contain("beyond the tolerance 0.02");
     }
@@ -201,7 +202,7 @@ public sealed class PackUpgradeTests : IDisposable
         PerTask = [.. Enumerable.Range(0, 40).Select(i => new PackTrialTask(3, i >= from && i < from + hits ? 1 : 0))],
     };
 
-    private const string Careful = ""","upgrade":{"noRegression":true,"tolerance":0.05},"confidence":0.95""";
+    private const string Careful = ""","upgrade":{"noRegression":true,"toleranceMicro":50000},"confidencePermille":950""";
 
     [Fact]
     public void Review5_the_chain_carries_the_confidence_too()
@@ -225,11 +226,11 @@ public sealed class PackUpgradeTests : IDisposable
         // H1: 1.0.0 asks for no regression within 0.1 at 95%; 1.1.0 for no drop of its estimate (tolerance 0, no confidence).
         // The stricter of the two was a blend, tolerance 0 at 95%, which fell back to the estimate: 1.1.0 hits as many tasks as
         // 1.0.0, ten of them others, so its estimate does not drop while its bound is below -0.2. Each rule as declared: off.
-        const string rule = ""","upgrade":{"noRegression":true,"tolerance":0.1},"confidence":0.95""";
+        const string rule = ""","upgrade":{"noRegression":true,"toleranceMicro":100000},"confidencePermille":950""";
         var passed = PackTrialGate.Decide(Manifest("1.0.0", rule), Tasked(30), NothingSpaced, Now);
         passed.Active.Should().BeTrue(passed.Reason);
         Write(passed);
-        const string own = ""","upgrade":{"noRegression":true,"tolerance":0}""";
+        const string own = ""","upgrade":{"noRegression":true,"toleranceMicro":0}""";
         var upgrade = PackTrialGate.Decide(Manifest("1.1.0", own), Tasked(30, from: 10), NothingSpaced, Now.AddMinutes(1), previous: Previous(passed, Tasked(30)));
         upgrade.Active.Should().BeTrue("its own rule, on the estimate, is met");
         Write(upgrade);
@@ -242,7 +243,7 @@ public sealed class PackUpgradeTests : IDisposable
     {
         // The previous version's arm was taken at the cap its record states: a narrower one tightens the comparison's bound, and
         // the host may no longer hold that version's declarations. It holds its own decision, which fixed the cap.
-        const string rule = ""","upgrade":{"noRegression":true,"tolerance":0.4},"confidence":0.95""";
+        const string rule = ""","upgrade":{"noRegression":true,"toleranceMicro":400000},"confidencePermille":950""";
         var passed = PackTrialGate.Decide(Manifest("1.0.0", rule), Tasked(30), NothingSpaced, Now);
         passed.With!.MaximumOffered.Should().Be(ModuleTraversal.MaximumOffered);
         Write(passed);
@@ -260,7 +261,7 @@ public sealed class PackUpgradeTests : IDisposable
         // that passed here: 1.2.0, compared only against 1.0.0, stays off (it went on: 1.1.0 waited for a new trial and the
         // chain skipped it). Two versions that agree on forty tasks bound their hit rates' difference at -0.086, and their
         // precisions' at -0.364, hedged at the format's cap of 16 for a pack that declares no traversal: so the tolerance is 0.4.
-        const string rule = ""","upgrade":{"noRegression":true,"tolerance":0.4},"confidence":0.95""";
+        const string rule = ""","upgrade":{"noRegression":true,"toleranceMicro":400000},"confidencePermille":950""";
         var first = PackTrialGate.Decide(Manifest("1.0.0", rule), Tasked(30), NothingSpaced, Now);
         Write(first);
         var second = PackTrialGate.Decide(Manifest("1.1.0", rule), Tasked(30), NothingSpaced, Now.AddMinutes(1), previous: Previous(first, Tasked(30)));

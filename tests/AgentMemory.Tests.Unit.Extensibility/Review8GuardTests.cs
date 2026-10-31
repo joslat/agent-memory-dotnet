@@ -32,7 +32,7 @@ public sealed class Review8GuardTests : IDisposable
     }
 
     private static ModuleManifest Manifest(int tasks, string version = "1.0.0") => ModuleManifest.Parse(
-        "{\"format\":\"agentmemory.module/v1alpha1\",\"id\":\"" + Base + "\",\"version\":\"" + version + "\",\"sdk\":\"[0.1,0.2)\",\"trial\":{\"measure\":\"test-impact\",\"tasks\":" + tasks + ",\"targets\":{\"hitRate\":0.5}}}");
+        "{\"format\":\"agentmemory.module/v1alpha1\",\"id\":\"" + Base + "\",\"version\":\"" + version + "\",\"sdk\":\"[0.1,0.2)\",\"trial\":{\"measure\":\"test-impact\",\"tasks\":" + tasks + ",\"targets\":{\"hitRateMicro\":500000}}}");
 
     private static PackTrialMeasurement Arm(int tasks, int hits) => new()
     {
@@ -150,7 +150,7 @@ public sealed class Review8GuardTests : IDisposable
 
     private static ModuleManifest Upgrading(int tasks, string version) => ModuleManifest.Parse(
         "{\"format\":\"agentmemory.module/v1alpha1\",\"id\":\"" + Base + "\",\"version\":\"" + version + "\",\"sdk\":\"[0.1,0.2)\",\"trial\":{\"measure\":\"test-impact\",\"tasks\":"
-        + tasks + ",\"targets\":{\"hitRate\":0.5},\"upgrade\":{\"noRegression\":true,\"tolerance\":0.02}}}");
+        + tasks + ",\"targets\":{\"hitRateMicro\":500000},\"upgrade\":{\"noRegression\":true,\"toleranceMicro\":20000}}}");
 
     private static PackTrialPrevious Previous(PackActivation passed, PackTrialMeasurement measured) => new()
     {

@@ -59,36 +59,37 @@ internal static class ModuleManifestReader
         };
     }
 
+    // A unit-bearing number (feature 02): an integer. A decimal or an exponent is refused here, at reading, so no reader
+    // rounds it; its range (the registry's units) is the validator's, with every other range.
+    private static long? Integer(JsonElement value, string name, string path)
+    {
+        if (!value.TryGetProperty(name, out var n)) return null;
+        return PackNumbers.Integer(n) ?? throw Error(path + "." + name, "expected an integer");
+    }
+
     private static ModuleTrial Trial(JsonElement value, string path)
     {
         Object(value, path, [.. PackRegistry.TrialFields]);
         if (!value.TryGetProperty("targets", out var targets)) throw Error(path + ".targets", "a trial needs targets");
-        Object(targets, path + ".targets", [.. PackRegistry.Targets]);
-        double? Number(string name) => targets.TryGetProperty(name, out var n)
-            ? n.ValueKind == JsonValueKind.Number ? n.GetDouble() : throw Error(path + ".targets." + name, "expected a number")
-            : null;
-        double? confidence = value.TryGetProperty("confidence", out var c)
-            ? c.ValueKind == JsonValueKind.Number ? c.GetDouble() : throw Error(path + ".confidence", "expected a number")
-            : null;
+        Object(targets, path + ".targets", [.. PackRegistry.TargetFields.Values]);
+        long? Target(string name) => Integer(targets, PackRegistry.TargetFields[name], path + ".targets");
+        var confidence = Integer(value, "confidencePermille", path);
         ModuleTrialUpgrade? upgrade = null;
         if (value.TryGetProperty("upgrade", out var rule))
         {
-            Object(rule, path + ".upgrade", "noRegression", "tolerance");
+            Object(rule, path + ".upgrade", [.. PackRegistry.UpgradeFields]);
             if (!rule.TryGetProperty("noRegression", out var no) || no.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
                 throw Error(path + ".upgrade.noRegression", "expected true or false");
-            double tolerance = 0;
-            if (rule.TryGetProperty("tolerance", out var t))
-                tolerance = t.ValueKind == JsonValueKind.Number ? t.GetDouble() : throw Error(path + ".upgrade.tolerance", "expected a number");
-            upgrade = new ModuleTrialUpgrade { NoRegression = no.GetBoolean(), Tolerance = tolerance };
+            upgrade = new ModuleTrialUpgrade { NoRegression = no.GetBoolean(), ToleranceMicro = Integer(rule, "toleranceMicro", path + ".upgrade") ?? 0 };
         }
         return new ModuleTrial
         {
             Measure = Text(value, "measure", path), Tasks = PositiveInteger(value, "tasks", path) ?? 40,
-            Baseline = OptionalText(value, "baseline", path) ?? "none", Confidence = confidence, Upgrade = upgrade,
+            Baseline = OptionalText(value, "baseline", path) ?? "none", ConfidencePermille = confidence is { } p ? (int)p : null, Upgrade = upgrade,
             Targets = new ModuleTrialTargets
             {
-                HitRate = Number("hitRate"), Precision = Number("precision"), Lift = Number("lift"), PrecisionLift = Number("precisionLift"),
-                AddedP95Ms = Number("addedP95Ms"),
+                HitRateMicro = Target("hitRate"), PrecisionMicro = Target("precision"), LiftMicro = Target("lift"),
+                PrecisionLiftMicro = Target("precisionLift"), AddedP95Ms = Target("addedP95Ms"),
             },
         };
     }
@@ -127,8 +128,8 @@ internal static class ModuleManifestReader
 
     private static ModuleTraversalRelation TraversalRelation(JsonElement value, string path)
     {
-        Object(value, path, "name", "direction", "weight", "fanOut");
-        var weight = Number(value, "weight", path);
+        Object(value, path, [.. PackRegistry.RelationFields]);
+        var weight = Integer(value, "weightMicro", path);
         return new ModuleTraversalRelation
         {
             Name = Text(value, "name", path),
@@ -137,7 +138,7 @@ internal static class ModuleManifestReader
                 "out" => ModuleTraversalDirection.Out, "in" => ModuleTraversalDirection.In,
                 _ => throw Error(path + ".direction", "expected out or in")
             },
-            Weight = weight is { } w ? w.GetDouble() : 0.8, FanOut = PositiveInteger(value, "fanOut", path) ?? 8
+            WeightMicro = weight ?? PackRegistry.DefaultWeightMicro, FanOut = PositiveInteger(value, "fanOut", path) ?? 8
         };
     }
 
