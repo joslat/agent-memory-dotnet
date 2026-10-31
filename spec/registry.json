@@ -63,7 +63,12 @@
       "validUntil",
       "protection",
       "code"
-    ]
+    ],
+    "defaults": {
+      "tier": "open",
+      "protection": "open",
+      "code": "E0"
+    }
   },
   "documents": {
     "files": {
@@ -417,9 +422,6 @@
         "members.json",
         "META/lock.json"
       ],
-      "fields": [
-        "contains"
-      ],
       "kinds": [
         "composite"
       ]
@@ -432,9 +434,7 @@
     },
     "protection": {
       "implemented": false,
-      "files": [
-        "META/seal.json"
-      ],
+      "files": [],
       "values": {
         "protection": [
           "audience",

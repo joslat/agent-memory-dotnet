@@ -60,6 +60,13 @@ def mutated(mutant):
 
 def guards(mutant):
     if mutant["project"] == "kit":
+        # The kit runs the built ampack. A .NET mutant before it rebuilt ampack from its broken source and restored only the
+        # source, so the kit then ran a sabotaged tool and its baseline failed (31 Oct: two kit mutants "not killed" in every
+        # batch, caught alone). Build ampack from the tree as it is now, every time.
+        build = subprocess.run(["dotnet", "build", str(ROOT / "tools/Ampack"), "-m:1", "--nologo", "-v", "q"], capture_output=True, text=True,
+                               encoding="utf-8", errors="replace", cwd=ROOT, env={**os.environ, "MSBUILDDISABLENODEREUSE": "1"})
+        if build.returncode != 0:
+            return "compile", (build.stdout + build.stderr)[-1500:], []
         out = tempfile.mkdtemp(prefix="mutant-kit-")
         tool = ROOT / "tools/Ampack/bin/Debug/net10.0" / ("Ampack.exe" if sys.platform == "win32" else "Ampack")
         cmd = [sys.executable, "-I", str(ROOT / "conformance/pack-v1.1/run_vectors.py"), str(tool), out]

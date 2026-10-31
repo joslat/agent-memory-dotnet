@@ -886,7 +886,7 @@
    "doc": "core.md",
    "section": "11.4",
    "level": "MUST",
-   "summary": "`source` MUST be an object of `repository`, `commit` and `builtAt`, each a string of 1 to 200 UTF-16 code units; `builtAt` MUST be a time (§6) and `commit` 7 to 64 lowercase hexadecimal digits.",
+   "summary": "`source` MUST be an object whose members are among `repository`, `commit` and `builtAt` (each optional), each a string of 1 to 200 UTF-16 code units.",
    "verifiedBy": [
     "kit"
    ]
@@ -2994,7 +2994,7 @@
    "doc": "profiles/certify.md",
    "section": "2.1",
    "level": "MUST",
-   "summary": "`evaluatedAt` MUST be a UTC time written `YYYY-MM-DDTHH:MM:SSZ`, within the key's window, and not in the future.",
+   "summary": "`evaluatedAt` MUST be a UTC time written `YYYY-MM-DDTHH:MM:SSZ`, within the key's window, and not more than 5 minutes after the time of verification.",
    "verifiedBy": [
     "kit"
    ]

@@ -14,8 +14,8 @@ internal static class PackProfiles
             p.Files.Any(f => paths.Any(path => f.EndsWith('/') ? path.StartsWith(f, StringComparison.Ordinal) : path == f))
             || p.Fields.Any(manifest.Present.Contains)
             || p.Kinds.Contains(manifest.Kind)
-            || p.Extensions.Any(e => e == PackFederation.ExtensionName && manifest.Federation is not null)
-            || p.Values.Any(v => Value(manifest, v.Key) is { } value && v.Value.Contains(value)))];
+            || p.Extensions.Any(manifest.ExtensionNames.Contains)
+            || p.Values.Any(v => manifest.Strings.TryGetValue(v.Key, out var value) && v.Value.Contains(value)))];
     }
 
     /// <summary>Why a host that does not implement <paramref name="profile"/> refuses the pack, in the registry's words.</summary>
@@ -24,12 +24,4 @@ internal static class PackProfiles
             .Replace("{id}", manifest.Id, StringComparison.Ordinal).Replace("{protection}", manifest.Protection, StringComparison.Ordinal)
             .Replace("{code}", manifest.Code, StringComparison.Ordinal);
 
-    private static string? Value(PackManifest manifest, string field) => field switch
-    {
-        "kind" => manifest.Kind,
-        "tier" => manifest.Tier,
-        "protection" => manifest.Protection,
-        "code" => manifest.Code,
-        _ => null,
-    };
 }

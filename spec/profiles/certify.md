@@ -87,7 +87,7 @@ integer.
 holds no line feed, no tab and no other control character.
 
 **R-CERTIFY-008.** `evaluatedAt` MUST be a UTC time written `YYYY-MM-DDTHH:MM:SSZ`, within the key's window, and not
-in the future.
+more than 5 minutes after the time of verification (the one clock allowance of R-CORE-061).
 
 **R-CERTIFY-009.** `trial.measure` and `trial.baseline` MUST be among the values above, and `confidenceMilli`, when
 present, among the confidences above.

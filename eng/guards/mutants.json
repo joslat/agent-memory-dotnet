@@ -903,6 +903,51 @@
    "sha256": "f1a700f453eba57cab9448c0a86c2c56c731475c8e38817eef80ec4651c15f76"
   },
   {
+   "id": "profiles-file-match",
+   "rule": "PROFILES-DERIVED",
+   "door": "definition",
+   "file": "src/AgentMemory.Packs.Format/PackProfiles.cs",
+   "edits": [
+    {
+     "old": "? path.StartsWith(f, StringComparison.Ordinal) : path == f))",
+     "new": "? path.StartsWith(f, StringComparison.Ordinal) : path == f + \"~\"))"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.PackFormat",
+   "filter": "FullyQualifiedName~PackProfilesTests",
+   "sha256": "046e35fd12826e9e134553275115c99aa8e1056690e5f8e4cdb04b8b5965f791"
+  },
+  {
+   "id": "profiles-not-implemented",
+   "rule": "PROFILES-DERIVED",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackLoader.cs",
+   "edits": [
+    {
+     "old": "PackProfiles.Used(pack.Files.Keys, pack.Manifest).Where(p => !p.Implemented)",
+     "new": "PackProfiles.Used(pack.Files.Keys, pack.Manifest).Where(p => p.Implemented && !p.Implemented)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackReviewFindingsTests",
+   "sha256": "c24516601c13aed388a9873c85e2c100394813579b2dbb4c63612de74fc0e0a4"
+  },
+  {
+   "id": "python-profiles-file-match",
+   "rule": "PROFILES-DERIVED",
+   "door": "verify",
+   "file": "conformance/pack-v1.1/python/ampack_verify.py",
+   "edits": [
+    {
+     "old": "if f.endswith(\"/\") else path == f for f in",
+     "new": "if f.endswith(\"/\") else path == f + \"~\" for f in"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "09c65367272920ce39b8f849db42c9273fc4a752a171d57fcaf4960ba0a090e6"
+  },
+  {
    "id": "links-before-dependency",
    "rule": "ONE-MOUNT-PLAN",
    "door": "memory",

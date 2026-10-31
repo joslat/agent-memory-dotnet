@@ -16,7 +16,6 @@ public sealed class SpecRegistryTests
     private static readonly (string File, string Why)[] Allowed =
     [
         ("conformance/pack-v1.1/run_vectors.py", "test data: trust policies the kit builds on purpose"),
-        ("demobrain/src/DemoBrain.App/PackComposerWindow.Build.cs", "a role picker in a private demo app; noted for feature 01 step 2"),
         ("tools/Ampack/Program.cs", "the revoke command's option names, which mirror the revocation fields on purpose; no document is read with them"),
     ];
 
@@ -50,7 +49,7 @@ public sealed class SpecRegistryTests
                 foreach (var p in e.EnumerateObject()) Walk(p.Value);
         }
         Walk(registry.RootElement);
-        var sources = new[] { "src", "tools", "shared", "conformance", "demobrain/src" }
+        var sources = new[] { "src", "tools", "shared", "conformance" }
             .Select(d => Path.Combine(root, d)).Where(Directory.Exists)
             .SelectMany(d => Directory.EnumerateFiles(d, "*.*", SearchOption.AllDirectories))
             .Where(f => (f.EndsWith(".cs", StringComparison.Ordinal) || f.EndsWith(".py", StringComparison.Ordinal))

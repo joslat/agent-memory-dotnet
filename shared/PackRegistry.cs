@@ -28,6 +28,9 @@ internal static class PackRegistry
     /// <summary>The fields of <c>pack.json</c> whose value is a string.</summary>
     internal static readonly IReadOnlyList<string> ManifestStringFields = [.. Strings("manifest", "stringFields")];
     internal static readonly IReadOnlySet<string> Kinds = Set("manifest", "values", "kind");
+    /// <summary>The value a <c>pack.json</c> field has when the pack leaves it out (tier, protection, code).</summary>
+    internal static readonly IReadOnlyDictionary<string, string> ManifestDefaults = Path("manifest", "defaults").EnumerateObject()
+        .ToDictionary(p => p.Name, p => p.Value.GetString()!, StringComparer.Ordinal);
     /// <summary>The fields of <c>META/files.json</c>.</summary>
     internal static readonly IReadOnlySet<string> FilesListFields = Set("documents", "files", "fields");
     /// <summary>The fields of a composite's manifest.</summary>
@@ -81,6 +84,22 @@ internal static class PackRegistry
         using var stream = typeof(PackRegistry).Assembly.GetManifestResourceStream(Resource)
             ?? throw new InvalidOperationException($"The format registry ({Resource}) is not embedded.");
         using var document = JsonDocument.Parse(stream, new JsonDocumentOptions { AllowTrailingCommas = false, CommentHandling = JsonCommentHandling.Disallow });
+        // A key given twice is refused, as the Python verifier refuses it (feature 01 review, F01-9): one meaning per name.
+        static void Once(JsonElement e)
+        {
+            if (e.ValueKind == JsonValueKind.Object)
+            {
+                var seen = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var p in e.EnumerateObject())
+                {
+                    if (!seen.Add(p.Name)) throw new InvalidOperationException($"The format registry repeats the key '{p.Name}'.");
+                    Once(p.Value);
+                }
+            }
+            else if (e.ValueKind == JsonValueKind.Array)
+                foreach (var item in e.EnumerateArray()) Once(item);
+        }
+        Once(document.RootElement);
         if (document.RootElement.TryGetProperty("format", out var format) is false || format.GetString() != "ampack.registry/1")
             throw new InvalidOperationException("The format registry is not ampack.registry/1.");
         return document.RootElement.Clone();

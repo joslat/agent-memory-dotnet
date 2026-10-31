@@ -579,7 +579,7 @@ def manifest_checks(manifest, content, now):
         composite_checks(manifest, content)
     if kind == "set" and not any(p.startswith("packs/") for p in content):
         raise Refused("a pack set carries its members under packs/")
-    if manifest.get("protection", "open") != "open" and "META/seal.json" not in content:
+    if manifest.get("protection", REGISTRY["manifest"]["defaults"]["protection"]) != "open" and "META/seal.json" not in content:
         raise Refused("a protected pack carries META/seal.json")
 
 
@@ -591,7 +591,7 @@ def profiles_used(manifest, files):
                 or any(field in manifest for field in p.get("fields", []))
                 or manifest.get("kind") in p.get("kinds", [])
                 or any(isinstance(manifest.get("extensions"), dict) and e in manifest["extensions"] for e in p.get("extensions", []))
-                or any(manifest.get(field, {"protection": "open", "code": "E0", "tier": "open"}.get(field)) in values
+                or any(manifest.get(field, REGISTRY["manifest"]["defaults"].get(field)) in values
                        for field, values in p.get("values", {}).items())):
             used.append(name)
     return used
@@ -1228,7 +1228,7 @@ def attestation_checks(files):
 def run_hash(run):
     """An AEF run's run hash (AEF 1.0 SEAL-1 to SEAL-4)."""
     lines = "".join(f"{hashlib.sha256(run[p]).hexdigest()}  {len(run[p])}  {p}\n" for p in sorted(run, key=lambda x: x.encode("utf-8"))
-                    if p not in ("seal.json", "attestation.dsse.json") and not p.startswith("overlays/"))
+                    if p not in tuple(SHAPE["aefRunUnhashed"]) and not p.startswith("overlays/"))
     return hashlib.sha256(lines.encode("utf-8")).hexdigest()
 
 
@@ -1609,7 +1609,8 @@ def main(argv):
         return 2
     print(f"verified {shown(pid)} {shown(version)} {digest}")
     used = profiles_used(json.loads(files["pack.json"]), [p for p in files if not p.startswith("META/signatures/") and not p.startswith(ATTESTATIONS)])
-    print(f"profiles {', '.join(used) if used else 'core'}")
+    missing = [n for n in used if not REGISTRY["profiles"][n]["implemented"]]
+    print(f"profiles {', '.join(used) if used else 'core'}" + (f" (not implemented by this reader: {', '.join(missing)})" if missing else ""))
     return 0
 
 

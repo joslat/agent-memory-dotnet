@@ -49,6 +49,10 @@ internal sealed partial record PackManifest
     internal IReadOnlyList<string> Contains { get; init; } = [];
     /// <summary>Id prefixes of the packs allowed to contain this one and walk into it. Empty: none may.</summary>
     internal IReadOnlyList<string> ContainableBy { get; init; } = [];
+    /// <summary>The string fields by name, each as given or its registry default (feature 01: the profile map reads them).</summary>
+    internal IReadOnlyDictionary<string, string> Strings { get; init; } = new Dictionary<string, string>(StringComparer.Ordinal);
+    /// <summary>The names of the extensions pack.json carries, <c>critical</c> aside.</summary>
+    internal IReadOnlySet<string> ExtensionNames { get; init; } = new HashSet<string>(StringComparer.Ordinal);
     /// <summary>The top-level fields pack.json holds, by name: what a kind's own rules read (review 7, F11).</summary>
     internal IReadOnlySet<string> Present { get; init; } = new HashSet<string>(StringComparer.Ordinal);
     /// <summary>After this instant a host switches the pack off (v1.2 §11).</summary>
@@ -136,11 +140,11 @@ internal sealed partial record PackManifest
         if (Text("id") is not { } id || !IsValidId(id)) return (null, $"{FileName} has no valid reverse-DNS id.");
         if (Text("version") is not { } version || !SemVer.TryParse(version, out _)) return (null, $"{FileName} has no valid SemVer version.");
         if (Text("kind") is not { } kind || !Kinds.Contains(kind)) return (null, $"{FileName} needs a kind: {string.Join(", ", Kinds)}.");
-        var tier = Text("tier") ?? "open";
+        var tier = Text("tier") ?? PackRegistry.ManifestDefaults["tier"];
         if (!Tiers.Contains(tier)) return (null, $"{FileName} has an unknown tier '{tier}'.");
-        var protection = Text("protection") ?? "open";
+        var protection = Text("protection") ?? PackRegistry.ManifestDefaults["protection"];
         if (!Protections.Contains(protection)) return (null, $"{FileName} has an unknown protection '{protection}'.");
-        var code = Text("code") ?? "E0";
+        var code = Text("code") ?? PackRegistry.ManifestDefaults["code"];
         if (!CodeTiers.Contains(code)) return (null, $"{FileName} has an unknown code tier '{code}'.");
         if (Strings("contains") is not { } contains || contains.Any(c => !IsValidId(c))) return (null, $"{FileName} has a malformed 'contains'.");
         if (Strings("containableBy") is not { } containable || containable.Any(c => !IsValidId(c))) return (null, $"{FileName} has a malformed 'containableBy'.");
@@ -182,6 +186,12 @@ internal sealed partial record PackManifest
             ValidUntil = validUntil, Protection = protection, Code = code, Source = origin, Federation = federation,
             FormatMinor = minor.Value, IgnoredFields = unknown,
             Present = root.EnumerateObject().Select(p => p.Name).ToHashSet(StringComparer.Ordinal),
+            // Every string field as the pack gives it, its default where it leaves one out: what the profile map reads.
+            Strings = PackRegistry.ManifestStringFields
+                .Select(n => (n, v: root.TryGetProperty(n, out var f) && f.ValueKind == JsonValueKind.String ? f.GetString() : PackRegistry.ManifestDefaults.GetValueOrDefault(n)))
+                .Where(x => x.v is not null).ToDictionary(x => x.n, x => x.v!, StringComparer.Ordinal),
+            ExtensionNames = root.TryGetProperty("extensions", out var ext) && ext.ValueKind == JsonValueKind.Object
+                ? ext.EnumerateObject().Select(p => p.Name).Where(n => n != "critical").ToHashSet(StringComparer.Ordinal) : new HashSet<string>(StringComparer.Ordinal),
         }, null);
     }
 

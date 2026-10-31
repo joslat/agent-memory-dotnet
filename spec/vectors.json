@@ -1790,6 +1790,22 @@
   "certificate-evaluator-two-lines": [
    "R-CERTIFY-007",
    "R-CORE-002"
+  ],
+  "profile-open-pack-with-seal": [
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "profile-walk": [
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097"
+  ],
+  "profile-code-tier": [
+   "R-CORE-002",
+   "R-CORE-095",
+   "R-CORE-097",
+   "R-CODE-001"
   ]
  }
 }

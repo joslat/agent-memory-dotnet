@@ -87,6 +87,20 @@ public sealed partial class SpecRequirementsTests
         requirements.Should().OnlyContain(r => r.Level == "MUST" || r.Level == "SHOULD" || r.Level == "MAY");
     }
 
+    [Fact]
+    public void The_spec_s_registry_tables_are_as_the_registry_renders_them()
+    {
+        // render_tables.py --check: a table typed by hand, or a registry change not rendered, fails (feature 01 review, C4).
+        var python = OperatingSystem.IsWindows() ? "python" : "python3";
+        using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(python, ["-I", Path.Combine(Spec, "render_tables.py"), "--check"])
+        {
+            RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = Root(),
+        })!;
+        var output = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
+        process.WaitForExit();
+        process.ExitCode.Should().Be(0, output);
+    }
+
     private static string Root()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

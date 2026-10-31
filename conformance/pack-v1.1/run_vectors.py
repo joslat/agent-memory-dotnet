@@ -299,6 +299,11 @@ def main():
     vectors["unknown-code-tier"] = (signed(edited(code="E9")), "trust.json", "refused")
     vectors["valid-until-passed"] = (signed(edited(validUntil="2020-01-01T00:00:00Z")), "trust.json", "refused")
     vectors["valid-until-ahead"] = (signed(edited(validUntil="2099-01-01T00:00:00Z")), "trust.json", "verified")
+    # Feature 01 (review C8): verified packs that use profiles, so the kit compares how both verifiers derive them.
+    newline = chr(10).encode()
+    vectors["profile-open-pack-with-seal"] = (signed({**content, "META/seal.json": b'{"format":"agentmemory.pack.seal/1.2"}' + newline}), "trust.json", "verified")
+    vectors["profile-walk"] = (signed({**content, "traversal.json": b"{}" + newline}), "trust.json", "verified")
+    vectors["profile-code-tier"] = (signed(edited(code="E1")), "trust.json", "verified")
     vectors["valid-until-not-rfc3339"] = (signed(edited(validUntil="2099-01-01")), "trust.json", "refused")
     vectors["source-commit-not-hex"] = (signed(edited(source={"commit": "main"})), "trust.json", "refused")
     vectors["source-valid"] = (signed(edited(source={"repository": "https://example.com/notes", "commit": "0a1b2c3",
@@ -1369,6 +1374,11 @@ def main():
         for name_ in unmapped:
             print(f"FAIL {name_:34} is not mapped to a requirement in spec/vectors.json")
         failures += len(unmapped)
+        # A name the map carries that the kit no longer runs is coverage that does not exist (feature 01 review, C3).
+        stale = sorted(set(mapped) - {r["vector"] for r in results})
+        for name_ in stale:
+            print(f"FAIL {name_:34} is in spec/vectors.json but the kit runs no such vector")
+        failures += len(stale)
         print(f"requirements covered by the kit: {len({req for r in results for req in mapped.get(r['vector'], [])})}")
     else:
         print("FAIL spec/vectors.json is missing: every vector must name the requirements it tests")

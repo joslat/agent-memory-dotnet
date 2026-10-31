@@ -559,8 +559,14 @@ internal static partial class Program
     }
 
     // A pack's profiles as verify, inspect and the kit show them: names in the registry's order, or "core" for none.
-    private static string Profiles(VerifiedPack pack) => PackProfiles.Used(pack.Files.Keys, pack.Manifest) is { Count: > 0 } used
-        ? string.Join(", ", used.Select(u => u.Name)) : "core";
+    private static string Profiles(VerifiedPack pack)
+    {
+        var used = PackProfiles.Used(pack.Files.Keys, pack.Manifest);
+        if (used.Count == 0) return "core";
+        // R-CORE-003: a reader says which profile it does not implement (feature 01 review, F01-4).
+        var missing = used.Where(u => !u.Implemented).Select(u => u.Name).ToList();
+        return string.Join(", ", used.Select(u => u.Name)) + (missing.Count > 0 ? $" (not implemented by this reader: {string.Join(", ", missing)})" : "");
+    }
 
     private static int Verify(Options o)
     {

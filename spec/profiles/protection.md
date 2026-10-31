@@ -23,8 +23,9 @@ Protection is a ladder, chosen per pack, honest about what each step does not st
 
 ### 1.2 When a pack uses it
 
-By the registry's profile map (Core §13), a pack uses the Protection profile when it holds `META/seal.json` or declares a
-`protection` of `audience`, `licensed`, `attested` or `hosted`.
+By the registry's profile map (Core §13), a pack uses the Protection profile when it declares a
+`protection` of `audience`, `licensed`, `attested` or `hosted`. A `META/seal.json` in an open pack does not make it use the
+profile.
 
 ## 2. Requirements
 

@@ -507,8 +507,8 @@ break.
 MUST be `#RRGGBB`; an icon MUST be a PNG under `assets/`, 16 to 512 pixels a side and at most 64 KiB, and MAY appear only
 on a knowledge pack.
 
-**R-CORE-082.** `source` MUST be an object of `repository`, `commit` and `builtAt`, each a string of 1 to 200 UTF-16
-code units; `builtAt` MUST be a time (§6) and `commit` 7 to 64 lowercase hexadecimal digits.
+**R-CORE-082.** `source` MUST be an object whose members are among `repository`, `commit` and `builtAt` (each optional),
+each a string of 1 to 200 UTF-16 code units; `builtAt` MUST be a time (§6) and `commit` 7 to 64 lowercase hexadecimal digits.
 
 **R-CORE-083.** `validUntil` MUST be a time (§6).
 
@@ -573,15 +573,15 @@ its extensions, or one of its values of a field (a field that is absent takes it
 `E0`, `tier` `open`). There is no field in `pack.json` that lists profiles.
 
 <!-- registry:profiles -->
-| Profile | implemented | files | fields | kinds | extensions | values | refusal |
-|---|---|---|---|---|---|---|---|
-| `walk` | yes | `traversal.json` |  |  |  |  |  |
-| `trial` | yes | `evals/trial.json`, `evals/tests.json` |  |  |  |  |  |
-| `compose` | yes | `members.json`, `META/lock.json` | `contains` | `composite` |  |  |  |
-| `federation` | yes |  |  |  | `federation` |  |  |
-| `protection` | no | `META/seal.json` |  |  |  | `protection`: `audience`, `licensed`, `attested`, `hosted` | {id} is protected as '{protection}'; this host opens 'open' packs only. |
-| `code` | no | `queries.json`, `queries/`, `components.json`, `components/` |  |  |  | `code`: `E1`, `E2` | {id} carries code (tier {code}); this host runs declarative (E0) packs only. |
-| `permissions` | no | `policy.json` |  |  |  |  | {id} carries a usage policy (policy.json); this host cannot enforce one yet, so it does not load the pack. |
+| Profile | implemented | files | kinds | extensions | values | refusal |
+|---|---|---|---|---|---|---|
+| `walk` | yes | `traversal.json` |  |  |  |  |
+| `trial` | yes | `evals/trial.json`, `evals/tests.json` |  |  |  |  |
+| `compose` | yes | `members.json`, `META/lock.json` | `composite` |  |  |  |
+| `federation` | yes |  |  | `federation` |  |  |
+| `protection` | no |  |  |  | `protection`: `audience`, `licensed`, `attested`, `hosted` | {id} is protected as '{protection}'; this host opens 'open' packs only. |
+| `code` | no | `queries.json`, `queries/`, `components.json`, `components/` |  |  | `code`: `E1`, `E2` | {id} carries code (tier {code}); this host runs declarative (E0) packs only. |
+| `permissions` | no | `policy.json` |  |  |  | {id} carries a usage policy (policy.json); this host cannot enforce one yet, so it does not load the pack. |
 <!-- /registry -->
 
 **R-CORE-095.** A reader MUST derive a pack's profiles from what it holds by the registry's profile map, in

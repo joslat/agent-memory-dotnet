@@ -223,7 +223,7 @@ internal sealed class ModuleManifestValidator
         const string path = "$.trial";
         if (trial.Measure != "test-impact") Error(path + ".measure", "expected test-impact");
         if (trial.Tasks is < ModuleTrial.MinimumTasks or > ModuleTrial.MaximumTasks) Error(path + ".tasks", "expected 10 to 200");
-        if (trial.Baseline is not ("host" or "none")) Error(path + ".baseline", "expected host or none");
+        if (trial.Baseline is not { } baseline || !PackRegistry.Baselines.Contains(baseline)) Error(path + ".baseline", "expected host or none");
         if (trial.Confidence is { } confidence && !PackTrialGate.Confidences.ContainsKey(confidence)) Error(path + ".confidence", "expected 0.9, 0.95, 0.975 or 0.99");
         if (trial.Upgrade is { Tolerance: < 0 or > ModuleTrialUpgrade.MaximumTolerance or double.NaN })
             Error(path + ".upgrade.tolerance", "expected 0 to 0.5");
