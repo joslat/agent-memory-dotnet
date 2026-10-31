@@ -978,6 +978,51 @@
    "sha256": "32a9425a7e0139e4778e0ed3c3bb151b88896cce196b56006bef0f5368924f79"
   },
   {
+   "id": "verdict-by-float",
+   "rule": "EXACT-VERDICT",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "return new(target, required, Math.Round(estimate, 3), exact >= t);",
+     "new": "return new(target, required, Math.Round(estimate, 3), estimate >= required);"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~TrialGateTests.A_lift_exactly_at_its_target_is_met_exactly",
+   "sha256": "f6f7a5a68f6508ca36d74e51f1baddf85a69c8fcf9252134cfc29a7b942d2e6e"
+  },
+  {
+   "id": "tie-refused",
+   "rule": "EXACT-VERDICT",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Modules/PackTrialGate.Exact.cs",
+   "edits": [
+    {
+     "old": "return tail <= Alpha(permille);",
+     "new": "return tail < Alpha(permille);"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~TrialStatisticsTests.A_bound_exactly_at_its_target_is_decided_the_same_everywhere",
+   "sha256": "1511e5e10c6e2eac723abe54d51571bb1c6e669fb3c65e3d983ba6ab151d3ac8"
+  },
+  {
+   "id": "python-exact-hedge",
+   "rule": "EXACT-VERDICT",
+   "door": "definition",
+   "file": "eng/trial-statistics/exact.py",
+   "edits": [
+    {
+     "old": "HEDGE = {0.9: Q(5, 4), 0.95: Q(3, 2),",
+     "new": "HEDGE = {0.9: Q(5, 4), 0.95: Q(5, 4),"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~StatisticsCoverageTests.Golden_json_is_the_reference_s_own_output",
+   "sha256": "d76481fe8cd3dd238983a177fe64c39cfe8339969f784249b3db102aa57906a4"
+  },
+  {
    "id": "length-by-utf16",
    "rule": "TEXT-BY-CHARACTER",
    "door": "verify",

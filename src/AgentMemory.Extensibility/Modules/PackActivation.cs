@@ -206,7 +206,7 @@ public sealed record SwitchedOffModule(string ModuleId, string Version, string R
 
 /// <summary>Decides a trial, and applies decisions when a module set activates.</summary>
 [Experimental("AMEXT001")]
-public static class PackTrialGate
+public static partial class PackTrialGate
 {
     /// <summary>
     /// The statistic this library computes bounds with, as a decision records it (reviews 5 and 6, root RB). A hit rate's bound,
@@ -701,37 +701,48 @@ public static class PackTrialGate
             var added = Micros(with.P95Ms) - Micros(Arm(without, target).P95Ms);
             return new(target, required, Math.Round(added / 1000.0, 1), added <= Micros(required));
         }
+        // The verdict is exact (feature 02): the estimate as a ratio of counts, the bound decided by PackTrialExact against the
+        // target's own millionths. The floating-point values are what the check shows, never what it decides.
+        var t = Q.Of(checked((long)Math.Round(required * PackNumbers.One)), PackNumbers.One);
         double estimate;
+        Q exact;
         Func<double, double> bound;
-        var slack = 1e-9;
+        Func<int, Q, bool> meets;
         switch (target)
         {
             case "hitRate":
-                (estimate, bound, slack) = (with.HitRate, level => HitRateLower(with, level), 0);
+                (estimate, exact, bound, meets) = (with.HitRate, RateOf(with), level => HitRateLower(with, level), (p, x) => MeetsHitRate(with, p, x));
                 break;
             case "precision":
-                (estimate, bound, slack) = (with.Precision, level => PrecisionLower(with, level), 0);
+                (estimate, exact, bound, meets) = (with.Precision, PrecisionOf(with), level => PrecisionLower(with, level), (p, x) => MeetsPrecision(with, p, x));
                 break;
             case "lift" or "noRegression.hitRate":
             {
                 var other = Arm(target == "lift" ? without : previous, target);
-                (estimate, bound) = (with.HitRate - other.HitRate, level => HitDifferenceLower(with, other, level));
+                (estimate, exact, bound, meets) = (with.HitRate - other.HitRate, RateOf(with) - RateOf(other), level => HitDifferenceLower(with, other, level),
+                    (p, x) => MeetsHitDifference(with, other, p, x));
                 break;
             }
             case "precisionLift" or "noRegression.precision":
             {
                 var other = Arm(target == "precisionLift" ? without : previous, target);
-                (estimate, bound) = (with.Precision - other.Precision, level => PrecisionDifferenceLower(with, other, level));
+                (estimate, exact, bound, meets) = (with.Precision - other.Precision, PrecisionOf(with) - PrecisionOf(other),
+                    level => PrecisionDifferenceLower(with, other, level), (p, x) => MeetsPrecisionDifference(with, other, p, x));
                 break;
             }
             default:
                 throw new ArgumentException($"{target} is not a target this gate checks.");
         }
         if (confidence is not { } level || target.StartsWith("noRegression.", StringComparison.Ordinal) && required >= 0)
-            return new(target, required, Math.Round(estimate, 3), estimate >= required - slack);
+            return new(target, required, Math.Round(estimate, 3), exact >= t);
         var lower = bound(level);
-        return new(target, required, Math.Round(lower, 3), lower >= required - slack, Math.Round(estimate, 3));
+        return new(target, required, Math.Round(lower, 3), meets((int)Math.Round(level * 1000), t), Math.Round(estimate, 3));
     }
+
+    // An arm's hit rate and pooled precision as exact ratios of its counts (0 for none), as the estimates are defined.
+    private static Q RateOf(PackTrialMeasurement arm) => arm.Tasks == 0 ? 0 : Q.Of(arm.Hits, arm.Tasks);
+
+    private static Q PrecisionOf(PackTrialMeasurement arm) => arm.Offered == 0 ? 0 : Q.Of(arm.Correct, arm.Offered);
 
     private static PackTrialMeasurement Arm(PackTrialMeasurement? arm, string target) =>
         arm ?? throw new ArgumentException($"{target} needs an arm the record does not carry.");

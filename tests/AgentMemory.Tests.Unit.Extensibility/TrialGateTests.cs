@@ -157,6 +157,20 @@ public sealed class TrialGateTests : IDisposable
     // Forty tasks with these totals: the items spread evenly, one right item on each of the first `hits` tasks and the rest of
     // the right items on them too, so the per-task results agree with the totals.
     // Impossible totals get no per-task results, so the gate's own checks answer for them.
+    [Fact]
+    public void A_lift_exactly_at_its_target_is_met_exactly()
+    {
+        // Feature 02: 28/40 - 24/40 is 0.09999999999999998 in binary, below 0.1; a verdict is a comparison of ratios of counts,
+        // so the lift of exactly 100,000 millionths is met, with no slack to tune.
+        var manifest = Manifest(Base, ""","trial":{"measure":"test-impact","tasks":40,"baseline":"host","targets":{"liftMicro":100000}}""");
+
+        var decision = PackTrialGate.Decide(manifest, Arm(28, 28, 40, 1), Arm(24, 24, 40, 1) with { MaximumOffered = 1 }, Now);
+
+        decision.Checks.Single(c => c.Target == "lift").Met.Should().BeTrue();
+        PackTrialGate.Decide(manifest with { Trial = manifest.Trial! with { Targets = new ModuleTrialTargets { LiftMicro = 100_001 } } },
+            Arm(28, 28, 40, 1), Arm(24, 24, 40, 1) with { MaximumOffered = 1 }, Now).Checks.Single(c => c.Target == "lift").Met.Should().BeFalse();
+    }
+
     private static PackTrialMeasurement Arm(int hits, int correct, int offered, double p95)
     {
         var tasks = Enumerable.Range(0, 40).Select(i => offered < 0 ? 0 : offered / 40 + (i < offered % 40 ? 1 : 0)).ToArray();

@@ -45,6 +45,49 @@ public sealed class TrialStatisticsTests
         }
     }
 
+    [Fact]
+    public void Every_exact_verdict_is_the_reference_s()
+    {
+        // Feature 02: whether each bound reaches a target is decided exactly, in both languages, and golden.json holds a grid of
+        // the Python reference's verdicts (exact.py) around every case's bounds; the port reaches each one.
+        using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "TrialStatistics", "golden.json")));
+        var checkedCount = 0;
+        foreach (var g in document.RootElement.EnumerateArray())
+        {
+            List<PackTrialTask> Tasks(string name) => [.. g.GetProperty(name).EnumerateArray().Select(t => new PackTrialTask(t[0].GetInt32(), t[1].GetInt32()))];
+            var (a, b) = (Tasks("first"), Tasks("second"));
+            var (permille, cap1, cap2, spacing) = ((int)Math.Round(g.GetProperty("confidence").GetDouble() * 1000), g.GetProperty("cap1").GetInt32(),
+                g.GetProperty("cap2").GetInt32(), g.GetProperty("spacing").GetInt32());
+            foreach (var decision in g.GetProperty("decisions").EnumerateArray())
+            {
+                var (bound, micro, met) = (decision[0].GetString()!, decision[1].GetInt64(), decision[2].GetBoolean());
+                var t = PackTrialGate.Q.Of(micro, 1_000_000);
+                var exact = bound switch
+                {
+                    "rateLower" => PackTrialGate.MeetsRate(a.Count(x => x.Correct > 0), a.Count, permille, t),
+                    "precisionLower" => PackTrialGate.MeetsPrecision(a, cap1, permille, t),
+                    "hitRateLowerOf" => PackTrialGate.MeetsHitRate(Arm(a, cap1, spacing), permille, t),
+                    "precisionLowerOf" => PackTrialGate.MeetsPrecision(Arm(a, cap1, spacing), permille, t),
+                    "precisionDifferenceLower" => PackTrialGate.MeetsPrecisionDifference(Arm(a, cap1, spacing), Arm(b, cap2, spacing), permille, t),
+                    "hitDifferenceLower" => PackTrialGate.MeetsHitDifference(Arm(a, cap1, spacing), Arm(b, cap2, spacing), permille, t),
+                    _ => throw new InvalidOperationException(bound),
+                };
+                exact.Should().Be(met, $"{bound} at {micro} millionths, {a.Count} tasks at {permille}, caps {cap1}/{cap2}, spacing {spacing}");
+                checkedCount++;
+            }
+        }
+        checkedCount.Should().BeGreaterThan(3000);
+    }
+
+    [Fact]
+    public void A_bound_exactly_at_its_target_is_decided_the_same_everywhere()
+    {
+        // 1 success in 1 trial at 95%: Clopper-Pearson's bound is exactly 0.05, where P(X >= 1) at 0.05 equals 1 - 0.95. In
+        // floating point the bisection lands either side; exactly, the target 50,000 millionths is met and 50,001 is not.
+        PackTrialGate.MeetsRate(1, 1, 950, PackTrialGate.Q.Of(50_000, 1_000_000)).Should().BeTrue();
+        PackTrialGate.MeetsRate(1, 1, 950, PackTrialGate.Q.Of(50_001, 1_000_000)).Should().BeFalse();
+    }
+
     // One task's (offered, correct): sizes with weights, a precision per size, a share of tasks all right or all wrong together.
     private sealed record Regime(int[] Sizes, double[] Weights, double[] Precision, double Together)
     {

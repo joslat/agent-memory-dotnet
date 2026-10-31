@@ -7,6 +7,33 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import reference as r  # noqa: E402
+import exact as e  # noqa: E402
+from fractions import Fraction  # noqa: E402
+
+
+def decisions(c):
+    """Feature 02: the exact verdict of each bound at targets around it, in millionths (exact.py), which the C# port must
+    reach too. Away from the bound (more than 1e-9) each agrees with the floating-point bound, or nothing is written."""
+    conf, cap1, cap2, sp, f, s = c["confidence"], c["cap1"], c["cap2"], c["spacing"], c["first"], c["second"]
+    meets = {
+        "rateLower": lambda t: e.meets_rate(sum(1 for _, k in f if k > 0), len(f), conf, t),
+        "precisionLower": lambda t: e.meets_precision(f, cap1, conf, t),
+        "hitRateLowerOf": lambda t: e.meets_hit_rate_arm(f, sp, conf, t),
+        "precisionLowerOf": lambda t: e.meets_precision_arm(f, cap1, sp, conf, t),
+        "precisionDifferenceLower": lambda t: e.meets_precision_diff_arm(f, cap1, s, cap2, sp, conf, t),
+        "hitDifferenceLower": lambda t: e.meets_hit_diff_arm(f, s, sp, conf, t),
+    }
+    out = []
+    for name, meet in meets.items():
+        centre = round(c[name] * 1_000_000)
+        for micro in sorted({centre + d for d in (-10000, -1000, -1, 0, 1, 1000, 10000)} | {-1_000_000, 0, 500_000, 1_000_000}):
+            if not -1_000_000 <= micro <= 1_000_000:
+                continue
+            met = meet(Fraction(micro, 1_000_000))
+            if abs(c[name] - micro / 1e6) > 1e-9 and met != (c[name] >= micro / 1e6):
+                raise SystemExit(f"{name}: the exact verdict at {micro} disagrees with the bound {c[name]}")
+            out.append([name, micro, met])
+    return out
 
 
 def tasks(n, cap, p):
@@ -52,6 +79,8 @@ for spacing in (4, 5, 7, 9, 12):
 for cap, spacing in ((1, 2), (16, 3), (2, 8), (2, 4)):
     cases.append(case(0.95, cap, 3, tasks(40, cap, .5), tasks(40, 3, .3), spacing))
 cases.append(case(0.95, 0, 3, [(0, 0)] * 40, tasks(40, 3, .3)))
+for c in cases:
+    c["decisions"] = decisions(c)
 text = json.dumps(cases, indent=0)
 target = Path(__file__).with_name("golden.json")
 # --check: golden.json is this reference's output, the link between the bounds coverage checks and the C# the tests pin
