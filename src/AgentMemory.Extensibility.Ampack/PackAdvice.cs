@@ -67,6 +67,8 @@ public static class PackAdvice
             Add("card.missing", "It has no pack card (card.json): owner, intended use, limitations and boundaries are what a host's operator reads before installing.");
         else if (pack.Card is { IsTemplate: true })
             Add("card.template", "Its card still holds the texts ampack init wrote: say who owns it, what it is for and what it is not for before it travels.");
+        else if (pack.Card is { WhenToUse: null } && pack.Kind is "knowledge" or "definition")
+            Add("card.when-to-use", "Its card says nothing for the model (whenToUse): with many packs mounted, a model asks the ones that say what they know and when to ask them.");
         if (pack.Certificates.Count > 0 && pack.Certificates.All(c => !c.Trusted))
             Add("certificate.untrusted", $"It carries {pack.Certificates.Count} evaluation certificate(s), none from a key this host trusts as evaluator for it: they inform, and admit nothing.");
         else if (manifest.Trial is not null && PackCertificates.Admit(pack, now).Decision is not null)

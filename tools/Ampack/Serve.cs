@@ -38,11 +38,11 @@ internal sealed class PackTools
 {
     private static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, WriteIndented = false };
 
-    [McpServerTool(Name = "pack_list", ReadOnly = true), Description("The memory packs this server holds: id, version, digest, kind, title, description, the views each offers (search views take text; any view takes a record key), and whether it can be walked from files or symbols.")]
+    [McpServerTool(Name = "pack_list", ReadOnly = true), Description("The memory packs this server holds: id, version, digest, kind, title, description, when to use it (what it knows and when to ask it), the views each offers (search views take text; any view takes a record key), and whether it can be walked from files or symbols.")]
     public static string List(PackMount mount) => JsonSerializer.Serialize(mount.Packs.Select(p => new
     {
         id = p.Id, version = p.Version, digest = p.Digest, kind = p.Kind,
-        title = p.Manifest.Display?.Title, description = p.Manifest.Display?.Description,
+        title = p.Manifest.Display?.Title, description = p.Manifest.Display?.Description, whenToUse = p.Card?.WhenToUse,
         views = (mount.Memory.Resolution.Modules.FirstOrDefault(m => m.Id == p.Id)?.Views ?? p.Manifest.Views)
             .Select(v => new { id = v.Id, type = v.Type, search = v.Search is not null }),
         walkable = p.Manifest.Traversal is not null,

@@ -1993,6 +1993,26 @@
    "R-CERTIFY-010",
    "R-CORE-002",
    "R-TRIAL-057"
+  ],
+  "card-when-to-use": [
+   "R-CORE-002",
+   "R-CORE-111",
+   "R-CORE-127"
+  ],
+  "card-when-to-use-400-emoji": [
+   "R-CORE-002",
+   "R-CORE-111",
+   "R-CORE-127"
+  ],
+  "card-when-to-use-401": [
+   "R-CORE-002",
+   "R-CORE-111",
+   "R-CORE-127"
+  ],
+  "card-when-to-use-bidi-override": [
+   "R-CORE-002",
+   "R-CORE-111",
+   "R-CORE-127"
   ]
  }
 }

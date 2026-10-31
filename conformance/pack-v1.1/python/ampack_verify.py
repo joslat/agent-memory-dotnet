@@ -1339,7 +1339,7 @@ def read_card(data):
             or ("contact" in owner and not is_text(owner["contact"], 200)):
         raise Refused("card.json names its owner as 'name' and, optionally, 'contact'")
     for name, maximum, required in (("intendedUse", 2000, True), ("limitations", 2000, True), ("provenance", 2000, False),
-                                    ("audience", 500, False), ("domain", 100, False)):
+                                    ("audience", 500, False), ("domain", 100, False), ("whenToUse", 400, False)):
         if (required or name in card) and not is_text(card.get(name), maximum):
             raise Refused(f"card.json: '{name}' is text of 1 to {maximum} characters")
     for name, maximum in (("boundaries", 32), ("risks", 32), ("references", 16)):

@@ -1353,6 +1353,51 @@
    "sha256": "fcc7af5c4c64e572011124a864eea725d02fa75e49dcc0f88ce43535a1bb5dee"
   },
   {
+   "id": "when-to-use-free",
+   "rule": "COUNTED-IS-SHOWN",
+   "door": "gate",
+   "file": "src/AgentMemory.Extensibility/Modules/PackTrialRender.cs",
+   "edits": [
+    {
+     "old": "public static long FixedBytes(ModuleManifest manifest) => AlwaysShown(manifest) is { } shown ? Encoding.UTF8.GetByteCount(shown) : 0;",
+     "new": "public static long FixedBytes(ModuleManifest manifest) => AlwaysShown(manifest) is { } shown ? 0 : 0;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~WhenToUseTests",
+   "sha256": "8f2dbfeebb73508df5ef7dc137304d76cf1b5c762bb8f74cfee89d27c73286e7"
+  },
+  {
+   "id": "when-to-use-unbounded",
+   "rule": "COUNTED-IS-SHOWN",
+   "door": "verify",
+   "file": "src/AgentMemory.Packs.Format/PackCard.cs",
+   "edits": [
+    {
+     "old": "    internal const int MaximumWhenToUse = 400;",
+     "new": "    internal const int MaximumWhenToUse = 100_000;"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "27792532c44aade26af11cdea8a1b3ca7e5c342b3f1c34478a80f12464b6d650"
+  },
+  {
+   "id": "python-when-to-use-unbounded",
+   "rule": "COUNTED-IS-SHOWN",
+   "door": "verify",
+   "file": "conformance/pack-v1.1/python/ampack_verify.py",
+   "edits": [
+    {
+     "old": "(\"whenToUse\", 400, False)",
+     "new": "(\"whenToUse\", 100_000, False)"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "24b91fb39228e7f676261ede78300a02a2ced1f18695d10669859973ae77bf97"
+  },
+  {
    "id": "length-by-utf16",
    "rule": "TEXT-BY-CHARACTER",
    "door": "verify",

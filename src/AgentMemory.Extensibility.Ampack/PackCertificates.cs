@@ -32,6 +32,8 @@ public sealed record PackCardInfo
     public string? Domain { get; init; }
     /// <summary>Further reading.</summary>
     public IReadOnlyList<string> References { get; init; } = [];
+    /// <summary>What the pack shows the model on every turn: what it knows and when to ask it (feature 06); null when not given.</summary>
+    public string? WhenToUse { get; init; }
 
     /// <summary>The texts <c>ampack init</c> writes into a new card, to be replaced before the pack travels.</summary>
     internal const string TemplateOwner = "Who owns this pack", TemplateUse = "Describe what this pack is for.",
@@ -46,7 +48,7 @@ public sealed record PackCardInfo
             {
                 Owner = card.OwnerName, OwnerContact = card.OwnerContact, IntendedUse = card.IntendedUse, Limitations = card.Limitations,
                 Boundaries = card.Boundaries, Risks = card.Risks, Provenance = card.Provenance, Audience = card.Audience, Domain = card.Domain,
-                References = card.References,
+                References = card.References, WhenToUse = card.WhenToUse,
             }
             : null;
 }

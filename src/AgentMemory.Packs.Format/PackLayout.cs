@@ -62,6 +62,9 @@ internal static class PackLayout
         if (PackBuiltIns.Bind(Node(files, Ontology), manifest["id"]!.GetValue<string>(),
                 PackBuiltIns.Used(RecordFiles(files.Keys).Select(f => (ReadOnlyMemory<byte>)files[f]))) is { } ontology) manifest["ontology"] = ontology;
         if (Node(files, Views) is { } views) manifest["views"] = views;
+        // What the pack shows the model on every turn (feature 06), from its card: one value for the trial, the provider and the
+        // listing, and in the declarations digest, since it is a declared cost.
+        if (Node(files, PackCard.FileName) is JsonObject card && card["whenToUse"] is JsonValue whenToUse) manifest["whenToUse"] = whenToUse.DeepClone();
         if (Node(files, Traversal) is { } traversal) manifest["traversal"] = traversal;
         if (Node(files, Trial) is { } trial) manifest["trial"] = trial;
         var seed = kind == "knowledge" ? RecordFiles(files.Keys) : [];
@@ -105,6 +108,8 @@ internal static class PackLayout
             pack["display"] = copy;
         }
         if (module["containableBy"] is JsonArray containable) pack["containableBy"] = containable.DeepClone();
+        if (module["whenToUse"] is not null)
+            throw new InvalidDataException("A pack's whenToUse travels in its card.json (feature 06): write it there, not in the module manifest.");
         pack["tier"] = "open";
         pack["protection"] = "open";
         pack["code"] = "E0";

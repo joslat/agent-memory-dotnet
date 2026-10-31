@@ -26,6 +26,9 @@ public sealed record ModuleView
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public ModuleViewSearch? Search { get; init; }
+    /// <summary>What the view answers, for the model choosing one (feature 06): display text of at most 160 characters. Optional.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? Summary { get; init; }
 }
 
 /// <summary>

@@ -655,7 +655,12 @@ internal static partial class Program
             if (manifest?.Federation is { } federation)
                 Console.WriteLine($"Federated: publisher {federation.Publisher}, for {PackFederation.Describe(federation.Audience)}  (not verified)");
             if (content.Files.TryGetValue(PackCard.FileName, out var cardBytes) && PackCard.Parse(cardBytes).Card is { } card)
+            {
                 Console.WriteLine($"Card    {Shown(card.OwnerName, 200)}: {Shown(card.IntendedUse, 200)}  (not verified)");
+                // What every turn costs (feature 06): the text the model is shown, and its bytes as framed in context.
+                if (card.WhenToUse is { } whenToUse)
+                    Console.WriteLine($"When    {Shown(whenToUse, 400)}  ({System.Text.Encoding.UTF8.GetByteCount(whenToUse):N0} bytes of text a turn, before its frame)");
+            }
             // Each set of vectors as its index states it (feature 03; review F03: inspect showed none).
             foreach (var set in PackEmbeddings.Read(content.Files).Sets)
                 Console.WriteLine($"Vectors {set.Name}: {set.Rows.Count} rows of {set.Dimension} {set.DataType}, {Shown(set.Model, 200)}, {set.Distance}  (not verified)");

@@ -597,14 +597,16 @@ public sealed class PackCertificateTests : IDisposable
         // met is the exact bound at or above the target, which both verifiers check.
         var (built, pack) = Built("""{ "measure": "test-impact", "baseline": "host", "tasks": 40, "targets": { "hitRateMicro": 500000 }, "cost": { "savingBytesMedian": 300 } }""");
         static PackTrialMeasurement Bytes(PackTrialMeasurement arm, long each) => arm with { PerTask = [.. arm.PerTask!.Select(t => t with { OfferedBytes = each })] };
-        var decision = PackTrialGate.Decide(pack.Manifest, Bytes(Arm(24), 600), Bytes(Arm(12), 1000), Earlier, pack.Digest) with { History = "parent" };
+        var decision = PackTrialGate.Decide(pack.Manifest, Bytes(Arm(24), 600), Bytes(Arm(12), 1500), Earlier, pack.Digest) with { History = "parent" };
         decision.Checks.Single(c => c.Target == "savingBytes").Met.Should().BeTrue();
 
         var loaded = PackLoader.Load(Certify(built, pack, decision), Trust());
         var (admitted, reason) = PackCertificates.Admit(loaded, Now);
 
         admitted.Should().NotBeNull(reason);
-        admitted!.Checks.Single(c => c.Target == "savingBytes").Observed.Should().Be(400);
+        admitted!.Checks.Single(c => c.Target == "savingBytes").Observed.Should().Be(900 - PackTrialRender.FixedBytes(pack.Manifest),
+            "the saving is counted after the pack's whenToUse, shown on every turn (feature 06)");
+        admitted.FixedBytes.Should().BeGreaterThan(0);
         PackTrialGate.Unmet(admitted).Should().BeNull("a host derives the cost check again from the bytes the certificate carries");
     }
 

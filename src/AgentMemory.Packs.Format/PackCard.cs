@@ -19,9 +19,12 @@ namespace AgentMemory.Packs.Format;
 /// <param name="Audience">Who it is meant for, in prose.</param>
 /// <param name="Domain">Its domain, such as "software engineering".</param>
 /// <param name="References">Further reading: URLs or citations, as text.</param>
+/// <param name="WhenToUse">Written for the model (feature 06): what the pack knows and when to ask it, shown on every turn.</param>
 internal sealed record PackCard(string OwnerName, string? OwnerContact, string IntendedUse, string Limitations, IReadOnlyList<string> Boundaries,
-    IReadOnlyList<string> Risks, string? Provenance, string? Audience, string? Domain, IReadOnlyList<string> References)
+    IReadOnlyList<string> Risks, string? Provenance, string? Audience, string? Domain, IReadOnlyList<string> References, string? WhenToUse = null)
 {
+    /// <summary>The most characters of <see cref="WhenToUse"/>: a fixed cost on every turn, so it is short (feature 06).</summary>
+    internal const int MaximumWhenToUse = 400;
     internal const string FileName = "card.json";
     internal const string Format = "agentmemory.pack.card/1";
     internal const int MaximumText = 2000;
@@ -54,8 +57,9 @@ internal sealed record PackCard(string OwnerName, string? OwnerContact, string I
         var boundaries = Items(root, "boundaries", MaximumItems, ref problem);
         var risks = Items(root, "risks", MaximumItems, ref problem);
         var references = Items(root, "references", MaximumReferences, ref problem);
+        var whenToUse = Text(root, "whenToUse", MaximumWhenToUse, required: false, ref problem);
         return problem is not null ? (null, problem)
-            : (new PackCard(ownerName!, contact, intended!, limitations!, boundaries, risks, provenance, audience, domain, references), null);
+            : (new PackCard(ownerName!, contact, intended!, limitations!, boundaries, risks, provenance, audience, domain, references, whenToUse), null);
     }
 
     private static string? Text(JsonElement element, string name, int maximum, bool required, ref string? problem, string? label = null)

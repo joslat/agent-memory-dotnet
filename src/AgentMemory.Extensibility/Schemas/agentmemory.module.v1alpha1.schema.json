@@ -110,6 +110,12 @@
         }
       }
     },
+    "whenToUse": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 400,
+      "description": "What the module shows the model on every turn: what it knows and when to ask it. A pack's comes from its card.json; its framed bytes are the pack's fixed cost in a trial."
+    },
     "containableBy": {
       "type": "array",
       "description": "The modules allowed to walk into this one's records through their own links, by module id or parent namespace (a dotted id of three segments or more). Empty or absent: none may.",
@@ -612,6 +618,12 @@
       "properties": {
         "id": {
           "$ref": "#/$defs/localId"
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "description": "What the view answers, for the model choosing one (feature 06): display text."
         },
         "type": {
           "$ref": "#/$defs/label"

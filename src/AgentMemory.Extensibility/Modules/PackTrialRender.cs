@@ -30,12 +30,20 @@ public static class PackTrialRender
     }
 
     /// <summary>
-    /// What a pack adds to every turn whatever the task, in bytes: nothing yet. Feature 06's always-shown summary fills it, and
-    /// a saving is counted after it.
+    /// What a pack adds to every turn whatever the task, in bytes (feature 06): its <c>whenToUse</c> in its frame, counted whether
+    /// or not this host shows it, so a chatty summary costs the pack in every trial; 0 without one.
     /// </summary>
-    public static long FixedBytes(ModuleManifest manifest)
+    public static long FixedBytes(ModuleManifest manifest) => AlwaysShown(manifest) is { } shown ? Encoding.UTF8.GetByteCount(shown) : 0;
+
+    /// <summary>
+    /// The pack's always-shown block as the model reads it (feature 06): its <c>whenToUse</c> in a frame naming the module, its
+    /// version and the type <c>whenToUse</c>, escaped; null without one. The one definition a host renders and a trial counts.
+    /// </summary>
+    public static string? AlwaysShown(ModuleManifest manifest)
     {
         ArgumentNullException.ThrowIfNull(manifest);
-        return 0;
+        return manifest.WhenToUse is { } text
+            ? RecordFrame.Frame([new("module", manifest.Id), new("version", manifest.Version.ToString()), new("type", "whenToUse")], text)
+            : null;
     }
 }

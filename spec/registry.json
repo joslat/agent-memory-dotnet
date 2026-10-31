@@ -150,7 +150,8 @@
         "provenance",
         "audience",
         "domain",
-        "references"
+        "references",
+        "whenToUse"
       ]
     },
     "cardOwner": {

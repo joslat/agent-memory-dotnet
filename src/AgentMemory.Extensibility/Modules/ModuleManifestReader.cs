@@ -17,7 +17,7 @@ internal static class ModuleManifestReader
 
     private static ModuleManifest Read(JsonElement root)
     {
-        Object(root, "$", "format", "id", "version", "sdk", "requires", "ontology", "views", "seed", "display", "traversal", "trial", "containableBy");
+        Object(root, "$", "format", "id", "version", "sdk", "requires", "ontology", "views", "seed", "display", "traversal", "trial", "containableBy", "whenToUse");
         var format = Text(root, "format", "$");
         if (format != "agentmemory.module/v1alpha1") throw Error("$.format", "unsupported module format");
         var id = Text(root, "id", "$");
@@ -53,6 +53,7 @@ internal static class ModuleManifestReader
             Views = Array(root, "views", "$", View),
             Seed = root.TryGetProperty("seed", out var seed) ? Strings(seed, "$.seed") : null,
             Display = root.TryGetProperty("display", out var display) ? Display(display, "$.display") : null,
+            WhenToUse = root.TryGetProperty("whenToUse", out var whenToUse) ? Text(root, "whenToUse", "$") : null,
             Traversal = root.TryGetProperty("traversal", out var traversal) ? Traversal(traversal, "$.traversal") : null,
             Trial = root.TryGetProperty("trial", out var trial) ? Trial(trial, "$.trial") : null,
             ContainableBy = root.TryGetProperty("containableBy", out var containable) ? Strings(containable, "$.containableBy") : null
@@ -235,7 +236,7 @@ internal static class ModuleManifestReader
 
     private static ModuleView View(JsonElement value, string path)
     {
-        Object(value, path, "id", "type", "where", "orderBy", "limit", "selection", "search");
+        Object(value, path, "id", "type", "where", "orderBy", "limit", "selection", "search", "summary");
         var id = Text(value, "id", path);
         if (!ModuleIdentity.IsValidLocalId(id)) throw Error(path + ".id", "expected local view identifier");
         return new ModuleView
@@ -249,7 +250,8 @@ internal static class ModuleManifestReader
                 _ => throw Error(path + ".selection", "expected snapshot or history")
             } : ModuleRecordSelection.Snapshot,
             Limit = PositiveInteger(value, "limit", path) ?? throw Error(path + ".limit", "required field missing"),
-            Search = value.TryGetProperty("search", out var search) ? Search(search, path + ".search") : null
+            Search = value.TryGetProperty("search", out var search) ? Search(search, path + ".search") : null,
+            Summary = OptionalText(value, "summary", path),
         };
     }
 

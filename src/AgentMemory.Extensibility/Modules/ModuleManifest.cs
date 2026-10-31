@@ -37,6 +37,12 @@ public sealed record ModuleManifest
     /// <summary>How a host shows the module or pack: title, description, icon and colour (Extensibility 0.13 §D). Optional.</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public ModuleDisplay? Display { get; init; }
+    /// <summary>
+    /// What the module shows the model on every turn (feature 06): what it knows and when to ask it, from a pack's card. Display
+    /// text of at most 400 characters; its framed bytes are the pack's fixed cost in a trial. Optional.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? WhenToUse { get; init; }
     /// <summary>How the module joins traversal context: anchor properties, traversable links, offered records (CMP-1). Optional.</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public ModuleTraversal? Traversal { get; init; }

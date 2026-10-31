@@ -962,6 +962,11 @@ def main():
                  "audience": "The team.", "domain": "notes", "references": ["https://example.com/notes"]}
     vectors["card-valid-full"] = (with_card(full_card), "trust.json", "verified")
     vectors["card-absent"] = (signed({k: v for k, v in content.items() if k != "card.json"}), "trust.json", "verified")
+    # Feature 06: whenToUse is written for the model and shown every turn: display text of at most 400 characters.
+    vectors["card-when-to-use"] = (with_card({**full_card, "whenToUse": "Ask for the team's notes when a question names the team or its projects."}), "trust.json", "verified")
+    vectors["card-when-to-use-400-emoji"] = (with_card({**full_card, "whenToUse": chr(0x1F600) * 400}), "trust.json", "verified")
+    vectors["card-when-to-use-401"] = (with_card({**full_card, "whenToUse": "x" * 401}), "trust.json", "refused")
+    vectors["card-when-to-use-bidi-override"] = (with_card({**full_card, "whenToUse": "Ask " + chr(0x202E) + "always"}), "trust.json", "refused")
     vectors["card-unknown-field"] = (with_card({**full_card, "rating": "five stars"}), "trust.json", "refused")
     vectors["card-without-intended-use"] = (with_card({k: v for k, v in full_card.items() if k != "intendedUse"}), "trust.json", "refused")
     vectors["card-other-format"] = (with_card({**full_card, "format": "agentmemory.pack.card/2"}), "trust.json", "refused")

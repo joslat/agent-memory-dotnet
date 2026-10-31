@@ -107,6 +107,8 @@ internal sealed class ModuleManifestValidator
             var path = "$.views." + view.Id;
             if (!ModuleIdentity.IsValidLocalId(view.Id)) Error(path, "invalid local view identifier");
             if (!viewIds.Add(view.Id ?? "")) Error(path, "duplicate view identifier");
+            if (view.Summary is { } summary && !PackText.IsDisplayText(summary, 160, line: false))
+                Error(path + ".summary", "a view's summary is 1 to 160 display-safe characters (feature 06)");
             if (view.Selection is not (ModuleRecordSelection.Snapshot or ModuleRecordSelection.History))
                 Error(path + ".selection", "unknown record selection");
             if (view.Selection == ModuleRecordSelection.History && view.OrderBy is not null)
@@ -133,6 +135,8 @@ internal sealed class ModuleManifestValidator
         foreach (var container in manifest.ContainableBy ?? [])
             if (!ModuleIdentity.IsValidModuleId(container)) Error("$.containableBy", $"'{container}' is not a dotted module identity or namespace");
         if (manifest.Display is { } display) ValidateDisplay(manifest, display);
+        if (manifest.WhenToUse is { } whenToUse && !PackText.IsDisplayText(whenToUse, 400, line: false))
+            Error("$.whenToUse", "whenToUse is 1 to 400 display-safe characters (feature 06)");
         return _errors.ToList().AsReadOnly();
     }
 

@@ -17,7 +17,8 @@ public sealed class PackAdviceTests
     internal const string Card = """
         { "format": "agentmemory.pack.card/1", "owner": { "name": "Example Dojo", "contact": "https://example.com/dojo" },
           "intendedUse": "Techniques and lessons for one dojo's study coach.", "limitations": "Not medical or safety advice.",
-          "boundaries": ["Do not use it to grade students."], "risks": ["Lessons may lag the syllabus."] }
+          "boundaries": ["Do not use it to grade students."], "risks": ["Lessons may lag the syllabus."],
+          "whenToUse": "Ask it for a technique's steps or a lesson's notes when a question names a technique, a kata or a lesson." }
         """;
 
     private static LoadedPack Load(Action<JsonObject>? change = null, string? trial = null, string? card = Card)
