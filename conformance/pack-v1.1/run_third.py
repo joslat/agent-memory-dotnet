@@ -63,7 +63,7 @@ def command(binary, v):
         return [str(binary), "verify", pack, policy, *[str(HERE / r) for r in v.get("revocations", [])]]
     if kind == "receipt":
         return [str(binary), "verify", pack, policy, "--receipt", str(VECTORS / f"{v['vector']}.receipt.dsse.json"), "--location", v["location"]]
-    if kind in ("certificate", "erasure"):
+    if kind in ("certificate", "erasure", "aggregate"):
         doc = v["document"]
         target = doc if doc.startswith("META/attestations/") else str(VECTORS / doc)
         return [str(binary), "verify", pack, policy, f"--{kind}", target]
