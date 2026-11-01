@@ -2148,6 +2148,36 @@
    "sha256": "d2a0524aa1d645344a546c95b70c7e99d6d79d13350c098b498ce3da72231010"
   },
   {
+   "id": "mesh-address-unchecked",
+   "rule": "MESH-BLOCKS-VERIFIED",
+   "door": "build",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackImportsMesh.cs",
+   "edits": [
+    {
+     "old": "if (key != \"cmb-\" + MerkleRoot(",
+     "new": "if (key == \"never-\" + MerkleRoot("
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackImportsMeshSignatureTests",
+   "sha256": "2aa9f2637a9a305c015fba695bd2710d4a5b8a3daca970841748e1f5e8212cc0"
+  },
+  {
+   "id": "mesh-signature-unchecked",
+   "rule": "MESH-BLOCKS-VERIFIED",
+   "door": "build",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackImportsMesh.cs",
+   "edits": [
+    {
+     "old": ": FromBase64Url(Str(m, \"sig\")) is not { Length: 64 } sig || !ed25519(publicKey, sig, payload) ?",
+     "new": ": FromBase64Url(Str(m, \"sig\")) is not { Length: 64 } sig ?"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackImportsMeshSignatureTests",
+   "sha256": "dca55b26acbe77d88adc46f5387c9e1665d609e61ee7efc3ed8f4968900f18a7"
+  },
+  {
    "id": "listing-cites-untrusted",
    "rule": "LISTING-CITES-ONLY-TRUSTED",
    "door": "build",

@@ -8,13 +8,13 @@ using Xunit;
 
 namespace AgentMemory.Tests.Unit.Extensibility;
 
-/// <summary>Feature 15, R1 and R2: a Mesh Memory Protocol store's blocks become notes; their signatures are never claimed valid.</summary>
+/// <summary>Feature 15, R1 and R2: a Mesh Memory Protocol store's blocks become notes; a signature it cannot read refuses it.</summary>
 public sealed class PackImportsMeshTests
 {
     private static readonly PackSigningKey Key = PackAuthoring.CreateKey();
 
     // An entry as a sym 0.14 store writes one: the signed two-section block, and the store's own notes beside it.
-    private static byte[] Entry(string key, string lifecycle = "observed", bool signed = true) => Encoding.UTF8.GetBytes(new JsonObject
+    private static byte[] Entry(string key, string lifecycle = "observed", bool signed = false) => Encoding.UTF8.GetBytes(new JsonObject
     {
         ["key"] = key, ["content"] = "flat text", ["lifecycle"] = lifecycle, ["storedAt"] = 1767225600000,
         ["cmb"] = new JsonObject
@@ -55,9 +55,10 @@ public sealed class PackImportsMeshTests
     }
 
     [Fact]
-    public void A_signed_block_is_recorded_as_not_checked_and_an_unsigned_store_as_absent()
+    public void A_signature_that_is_not_ed25519_refuses_the_store_and_an_unsigned_store_records_absent()
     {
-        Derivation(Import(new(StringComparer.Ordinal) { ["cmb-1.json"] = Entry("cmb-1") }).Archive).Should().Contain("not checked").And.NotContain("verified");
-        Derivation(Import(new(StringComparer.Ordinal) { ["cmb-1.json"] = Entry("cmb-1", signed: false) }).Archive).Should().Contain("\"sourceSignature\":\"absent\"");
+        FluentActions.Invoking(() => Import(new(StringComparer.Ordinal) { ["cmb-1.json"] = Entry("cmb-1", signed: true) }))
+            .Should().Throw<InvalidDataException>().WithMessage("*not ed25519*");
+        Derivation(Import(new(StringComparer.Ordinal) { ["cmb-1.json"] = Entry("cmb-1") }).Archive).Should().Contain("\"sourceSignature\":\"absent\"");
     }
 }

@@ -5,7 +5,7 @@ namespace Ampack;
 
 /// <summary>
 /// Imports (features 15 and 16): <c>ampack import json &lt;file&gt; --mapping &lt;m.json&gt;</c>, <c>ampack import text &lt;file&gt; --source &lt;name&gt;</c>
-/// <c>ampack import folder &lt;dir&gt; [--git]</c> and <c>ampack import mem &lt;bundle&gt; [--mem-trust &lt;public key hex&gt;...]</c> , <c>ampack import letta &lt;agent.af&gt;</c> and <c>ampack import mesh &lt;store folder&gt;</c>
+/// <c>ampack import folder &lt;dir&gt; [--git]</c> and <c>ampack import mem &lt;bundle&gt; [--mem-trust &lt;public key hex&gt;...]</c> , <c>ampack import letta &lt;agent.af&gt;</c> and <c>ampack import mesh &lt;store folder&gt; [--mesh-key &lt;nodeId&gt;=&lt;key&gt;...]</c>
 /// write a signed knowledge pack of notes from another tool's memory export, with a derivation naming the source by its
 /// digest and a card saying where it came from, and report every field and entry they left out.
 /// </summary>
@@ -29,7 +29,20 @@ internal static partial class Program
                 result = PackImports.FromMem(MemBundle(file), Ed25519Verifies, trusted.Count == 0 ? null : trusted, id, version, owner, key);
             }
             else if (kind == "mesh")
-                result = PackImports.FromMeshMemory(MemBundle(file), id, version, owner, key);
+            {
+                // --mesh-key <author nodeId>=<Ed25519 public key, base64url>: the mesh pins author keys out of band.
+                var keys = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+                foreach (var given in o.Values("mesh-key"))
+                {
+                    var at = given.IndexOf('=');
+                    var raw = at > 0 ? given[(at + 1)..].Replace('-', '+').Replace('_', '/') : "";
+                    byte[]? publicKey = null;
+                    try { publicKey = Convert.FromBase64String(raw + new string('=', (4 - raw.Length % 4) % 4)); } catch (FormatException) { }
+                    if (at <= 0 || publicKey is not { Length: 32 }) throw new UsageException("--mesh-key is <author nodeId>=<Ed25519 public key in base64url>.");
+                    keys[given[..at]] = publicKey;
+                }
+                result = PackImports.FromMeshMemory(MemBundle(file), id, version, owner, key, keys, Ed25519Verifies);
+            }
             else if (kind == "folder")
             {
                 var (files, commits) = MemoryFolder(file, o.Flag("git"));
@@ -64,7 +77,7 @@ internal static partial class Program
 
     // Ed25519 (RFC 8032) through BouncyCastle: whether the signature verifies over the message under the public key.
     private static bool Ed25519Verifies(byte[] publicKey, byte[] signature, byte[] message) =>
-        publicKey.Length == 32 && signature.Length == 64
+        publicKey.Length == 32 && signature.Length == 64 && Org.BouncyCastle.Math.EC.Rfc8032.Ed25519.ValidatePublicKeyFull(publicKey, 0)
         && Org.BouncyCastle.Math.EC.Rfc8032.Ed25519.Verify(signature, 0, publicKey, 0, message, 0, message.Length);
 
     // A .mem bundle's files by their bundle-relative path: a folder (no links followed) or a zip archive, at most 10,000 files,
