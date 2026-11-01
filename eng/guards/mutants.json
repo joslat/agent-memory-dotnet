@@ -1893,6 +1893,51 @@
    "sha256": "9dac14f141f895877dff7d5888db9ba3205ee306310199d81dad7d2c06a9f90e"
   },
   {
+   "id": "aggregate-counts-unchecked",
+   "rule": "AGGREGATE-NAMES-NOTHING",
+   "door": "verify",
+   "file": "src/AgentMemory.Packs.Format/PackAggregate.cs",
+   "edits": [
+    {
+     "old": "if (!noisy && successes > trials) return (null,",
+     "new": "if (false && successes > trials) return (null,"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "4b5d05acdbd93dae39e93add6408cf7d3b4dfd565815ffee9d4a3c39d6532c95"
+  },
+  {
+   "id": "python-aggregate-open-shape",
+   "rule": "AGGREGATE-NAMES-NOTHING",
+   "door": "verify",
+   "file": "conformance/pack-v1.1/python/ampack_verify.py",
+   "edits": [
+    {
+     "old": "    if not isinstance(p, dict) or set(p) - SHAPE[\"aggregatePredicate\"]:",
+     "new": "    if not isinstance(p, dict):"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "bc67a265be88e2aaf8f5361f18289d9f63de06fe9b12185f59aad3b1c5dc5fcc"
+  },
+  {
+   "id": "aggregate-noise-keeps-the-bound",
+   "rule": "AGGREGATE-NAMES-NOTHING",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackAggregates.cs",
+   "edits": [
+    {
+     "old": "Micro(c.Required), noisy ? null : Micro(c.Observed), c.Met)",
+     "new": "Micro(c.Required), Micro(c.Observed), c.Met)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~AggregateTests",
+   "sha256": "d48fce8c5515c8570518ca9fff781e60d256fbe87c74f15c5d027348bb321899"
+  },
+  {
    "id": "expiry-not-live",
    "rule": "TRIAL-OVER-TIME",
    "door": "serve",

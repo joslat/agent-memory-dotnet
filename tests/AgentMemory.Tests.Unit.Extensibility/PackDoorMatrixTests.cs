@@ -173,6 +173,7 @@ public sealed class PackDoorMatrixTests : IDisposable
                 "--evaluator", "Lab", "--task-source", "tasks", "--out", out_ + ".ampack"],
             ["certificate"] = ["verify", pack, "--policy", _policy],
             ["erasure"] = ["verify", pack, "--policy", _policy],
+            ["aggregate"] = ["verify", pack, "--policy", _policy, "--aggregate", pack],
             ["admit"] = [pack, "--policy", _policy, "--host-signing-key", _keyPem, "--activations", _activations],
             ["gate"] = [pack, "--policy", _policy, "--activations", _activations, "--host-key", _pubPem],
         };

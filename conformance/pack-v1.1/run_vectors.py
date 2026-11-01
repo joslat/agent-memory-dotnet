@@ -1554,6 +1554,56 @@ def main():
         "certificate-evaluator-two-lines": (carrying(certificate(certified, extra={"evaluator": "Kit\nevaluator"})), certificate_path, None,
                                             "trust-evaluator.json", "refused"),
     }
+    # Feature 13: a host's trial aggregate, by the kit's evaluator, of the certified pack.
+    def aggregate(files_, signer=None, **change):
+        digest_hex = hashlib.sha256(files_[py.FILES]).hexdigest()
+        listing = json.loads(files_[py.FILES])
+        pred = {"id": listing["id"], "version": listing["version"], "digest": "sha256:" + digest_hex, "measure": "retrieval", "tasks": 40,
+                "window": {"from": "2026-10-01T00:00:00Z", "to": "2026-10-27T12:00:00Z"}, "mechanism": "none", "decision": "sha256:" + "cd" * 32,
+                "checks": [{"target": "hitRate", "successes": 30, "trials": 40, "requiredMicro": 500000, "boundMicro": 600000, "met": True}], "passed": True}
+        pred.update(change)
+        pred = {k: v for k, v in pred.items() if v is not None}
+        statement = {"_type": py.STATEMENT, "predicateType": "urn:agentmemory:pack:trial-aggregate:v1", "predicate": pred,
+                     "subject": [{"name": py.FILES, "digest": {"sha256": digest_hex}}]}
+        payload = py.canonical(statement).encode()
+        who = signer or evaluator
+        spki = who.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+        sig = who.sign(py.pae(payload), ec.ECDSA(hashes.SHA256()))
+        return py.canonical({"payloadType": py.PAYLOAD_TYPE, "payload": base64.b64encode(payload).decode(),
+                             "signatures": [{"keyid": hashlib.sha256(spki).hexdigest(), "sig": base64.b64encode(sig).decode()}]}).encode()
+    one_check = {"target": "hitRate", "successes": 30, "trials": 40, "requiredMicro": 500000, "boundMicro": 600000, "met": True}
+    aggregates = {
+        "aggregate-valid": (aggregate(certified), "trust-evaluator.json", "verified"),
+        "aggregate-noisy": (aggregate(certified, mechanism="discrete-laplace", epsilonMilli=1000,
+                                      checks=[{"target": "hitRate", "successes": 31, "trials": 39, "requiredMicro": 500000, "met": True}]), "trust-evaluator.json", "verified"),
+        "aggregate-with-a-task-name": (aggregate(certified, tasks_=["When is the Lyon review?"]), "trust-evaluator.json", "refused"),
+        "aggregate-check-with-a-path": (aggregate(certified, checks=[{**one_check, "path": "src/Map.cs"}]), "trust-evaluator.json", "refused"),
+        "aggregate-successes-above-trials": (aggregate(certified, checks=[{**one_check, "successes": 41}]), "trust-evaluator.json", "refused"),
+        "aggregate-bound-disagrees-with-met": (aggregate(certified, checks=[{**one_check, "boundMicro": 400000}]), "trust-evaluator.json", "refused"),
+        "aggregate-noisy-with-a-bound": (aggregate(certified, mechanism="discrete-laplace", epsilonMilli=1000), "trust-evaluator.json", "refused"),
+        "aggregate-noisy-without-epsilon": (aggregate(certified, mechanism="discrete-laplace", checks=[{k: v for k, v in one_check.items() if k != "boundMicro"}]),
+                                            "trust-evaluator.json", "refused"),
+        "aggregate-negative-count": (aggregate(certified, mechanism="discrete-laplace", epsilonMilli=1000,
+                                               checks=[{"target": "hitRate", "successes": -1, "trials": 39, "requiredMicro": 500000, "met": True}]), "trust-evaluator.json", "refused"),
+        "aggregate-passed-disagrees": (aggregate(certified, passed=False), "trust-evaluator.json", "refused"),
+        "aggregate-of-another-pack": (aggregate(certified, digest="sha256:" + "ab" * 32), "trust-evaluator.json", "refused"),
+        "aggregate-by-a-publisher-key": (aggregate(certified, signer=key), "trust.json", "refused"),
+    }
+    for name, (aggregate_bytes, policy_file, expected) in aggregates.items():
+        pack_path, aggregate_path = VECTORS / f"{name}.ampack", VECTORS / f"{name}.aggregate.dsse.json"
+        pack_path.write_bytes(write_zip(certified))
+        aggregate_path.write_bytes(aggregate_bytes)
+        dn_code, dn_text = ampack("aggregate", "verify", str(pack_path), "--aggregate", str(aggregate_path), "--policy", str(OUT / policy_file))
+        pr = subprocess.run([sys.executable, "-I", str(HERE / "python" / "ampack_verify.py"), str(pack_path), str(OUT / policy_file),
+                             "--aggregate", str(aggregate_path)], capture_output=True, text=True, encoding="utf-8", errors="replace")
+        dotnet = {0: "verified", 1: "refused"}.get(dn_code, f"error ({dn_code})")
+        python = {0: "verified", 1: "refused"}.get(pr.returncode, f"error ({pr.returncode})")
+        agree = dotnet == python == expected and refused_for(name, dn_text, pr.stdout + pr.stderr)
+        failures += not agree
+        results.append({"vector": name, "expected": expected, "dotnet": dotnet, "python": python, "agree": agree,
+                        "dotnetSays": dn_text.splitlines()[0] if dn_text else "", "pythonSays": pr.stdout.strip().splitlines()[-1] if pr.stdout.strip() else pr.stderr.strip()[-200:],
+                        "sha256": hashlib.sha256(aggregate_bytes).hexdigest(), "kind": "aggregate", "policy": policy_file, "document": aggregate_path.name})
+        print(f"{'ok  ' if agree else 'FAIL'} {name:34} expected {expected:8} dotnet {dotnet:8} python {python}")
     for name, (pack_bytes, inside, external, policy_file, expected) in certificates.items():
         pack_path = VECTORS / f"{name}.ampack"
         pack_path.write_bytes(pack_bytes)

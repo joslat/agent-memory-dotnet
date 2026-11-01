@@ -2255,6 +2255,42 @@
   ],
   "certificate-checks-no-harm": [
    "R-TRIAL-063"
+  ],
+  "aggregate-valid": [
+   "R-CORE-140"
+  ],
+  "aggregate-noisy": [
+   "R-CORE-140"
+  ],
+  "aggregate-with-a-task-name": [
+   "R-CORE-140"
+  ],
+  "aggregate-check-with-a-path": [
+   "R-CORE-140"
+  ],
+  "aggregate-successes-above-trials": [
+   "R-CORE-140"
+  ],
+  "aggregate-bound-disagrees-with-met": [
+   "R-CORE-140"
+  ],
+  "aggregate-noisy-with-a-bound": [
+   "R-CORE-140"
+  ],
+  "aggregate-noisy-without-epsilon": [
+   "R-CORE-140"
+  ],
+  "aggregate-negative-count": [
+   "R-CORE-140"
+  ],
+  "aggregate-passed-disagrees": [
+   "R-CORE-140"
+  ],
+  "aggregate-of-another-pack": [
+   "R-CORE-140"
+  ],
+  "aggregate-by-a-publisher-key": [
+   "R-CORE-140"
   ]
  }
 }

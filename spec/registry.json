@@ -391,6 +391,37 @@
         "deny",
         "notAfter"
       ]
+    },
+    "aggregatePredicate": {
+      "fields": [
+        "id",
+        "version",
+        "digest",
+        "measure",
+        "tasks",
+        "window",
+        "mechanism",
+        "epsilonMilli",
+        "decision",
+        "checks",
+        "passed"
+      ]
+    },
+    "aggregateWindow": {
+      "fields": [
+        "from",
+        "to"
+      ]
+    },
+    "aggregateCheck": {
+      "fields": [
+        "target",
+        "successes",
+        "trials",
+        "requiredMicro",
+        "boundMicro",
+        "met"
+      ]
     }
   },
   "members": {
@@ -1214,5 +1245,16 @@
       "rehydrate:external": "odrl:use",
       "train": "odrl:use"
     }
+  },
+  "aggregate": {
+    "about": "Feature 13: a host's signed aggregate of a trial: counts, bounds and verdicts, optionally with integer noise; no task, record or path.",
+    "predicateType": "urn:agentmemory:pack:trial-aggregate:v1",
+    "mechanisms": [
+      "none",
+      "discrete-laplace"
+    ],
+    "roles": [
+      "evaluator"
+    ]
   }
 }

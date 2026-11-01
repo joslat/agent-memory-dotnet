@@ -945,6 +945,46 @@
    "A publication receipt is for a federated pack; this pack names no publisher or audience",
    "a publication receipt is for a federated pack"
   ],
+  "aggregate-with-a-task-name": [
+   "no task, question, record or path has a place in it",
+   "no task, question, record or path has a place in it"
+  ],
+  "aggregate-check-with-a-path": [
+   "An aggregate check names a known target, its successes, trials and requiredMicro as integers, and met",
+   "an aggregate check names a known target, its successes, trials and requiredMicro as integers, and met"
+  ],
+  "aggregate-successes-above-trials": [
+   "successes are within its trials",
+   "successes are within its trials"
+  ],
+  "aggregate-bound-disagrees-with-met": [
+   "met disagrees with its bound and its requiredMicro",
+   "met disagrees with its bound and its requiredMicro"
+  ],
+  "aggregate-noisy-with-a-bound": [
+   "boundMicro is an integer, without noise",
+   "boundMicro is an integer, without noise"
+  ],
+  "aggregate-noisy-without-epsilon": [
+   "An aggregate with noise names its epsilonMilli",
+   "an aggregate with noise names its epsilonMilli"
+  ],
+  "aggregate-negative-count": [
+   "counts are never negative",
+   "counts are never negative"
+  ],
+  "aggregate-passed-disagrees": [
+   "passed is whether every check was met",
+   "passed is whether every check was met"
+  ],
+  "aggregate-of-another-pack": [
+   "file list, by the digest its predicate names",
+   "file list, by the digest its predicate names"
+  ],
+  "aggregate-by-a-publisher-key": [
+   "may not sign as evaluator",
+   "the aggregate carries no signature by a key this host trusts as evaluator for the pack"
+  ],
   "certificate-shape-envelope-extra-field": [
    "The certificate is not a DSSE envelope of an in-toto statement with",
    "the certificate is not a DSSE envelope of an in-toto statement with"

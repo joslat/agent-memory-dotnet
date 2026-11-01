@@ -926,6 +926,20 @@ its constraint.
 > code to remember; inside the signed content, the policy cannot be swapped. A policy binds a host that honours this
 > specification: it is evidence for audits and contracts, not a technical control over a host that ignores it.
 
+### 17d. Trial aggregates
+
+**R-CORE-140.** A host MAY share what a trial showed, never what it ran on, as a trial aggregate: a DSSE envelope of an in-toto
+statement of `urn:agentmemory:pack:trial-aggregate:v1` whose subject is the pack's file list and whose predicate holds exactly
+the pack's `id`, `version` and `digest`, the `measure`, the number of `tasks`, a `window` (`from` and `to`, instants in UTC to
+the second), the `mechanism` (`none`, or `discrete-laplace` with `epsilonMilli`, 1 to 100,000), the `decision` (`sha256:` over
+the decision record's statement) and, per target, its `successes` and `trials`, its `requiredMicro`, its `boundMicro` (without
+noise only) and whether it was `met`, and `passed`. It names no task, question, record or path: every verifier MUST refuse a
+member the registry does not give. With noise, each count carries integer discrete-Laplace noise and no bound is stated, so a
+reader treats it as approximate. Every verifier MUST refuse an aggregate whose counts are negative, whose successes exceed
+their trials without noise, whose `met` disagrees with its bound, whose `passed` is not whether every check was met, which is
+of another pack, or which no key the reader trusts as evaluator for the pack's id signed. A host MUST share one only with its
+operator's consent, per pack and per recipient.
+
 ## 18. Limits
 
 The limits of the standard class. Text lengths are characters (code points).

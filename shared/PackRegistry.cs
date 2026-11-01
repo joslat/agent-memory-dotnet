@@ -68,6 +68,10 @@ internal static class PackRegistry
     internal static readonly IReadOnlySet<string> DerivationActions = Set("derivation", "actions");
     /// <summary>Where a pack's derivation is, inside its signed content, and the format it names (feature 09).</summary>
     internal static readonly string DerivationFile = Path("derivation", "path").GetString()!, DerivationFormat = Path("derivation", "format").GetString()!;
+    /// <summary>A host's trial aggregate (feature 13): its predicate type, its noise mechanisms, and the role that signs it.</summary>
+    internal static readonly string AggregatePredicateType = Path("aggregate", "predicateType").GetString()!;
+    internal static readonly IReadOnlySet<string> AggregateMechanisms = Set("aggregate", "mechanisms");
+    internal static readonly IReadOnlySet<string> AggregateRoles = Set("aggregate", "roles");
     /// <summary>Where a pack's usage policy is, inside its signed content, the format it names, and its verbs (feature 10).</summary>
     internal static readonly string PolicyFile = Path("policy", "path").GetString()!, PolicyFormat = Path("policy", "format").GetString()!;
     internal static readonly IReadOnlySet<string> PolicyVerbs = Set("policy", "verbs");

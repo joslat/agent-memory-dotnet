@@ -1801,6 +1801,118 @@ def verify_erasure(envelope_bytes, pid, policy, now, publisher_web_id=None):
     raise Refused("the erasure carries no signature by a key this host trusts as publisher or revoker for the pack")
 
 
+AGGREGATE = REGISTRY["aggregate"]["predicateType"]
+AGGREGATE_MECHANISMS = set(REGISTRY["aggregate"]["mechanisms"])
+AGGREGATE_ROLES = REGISTRY["aggregate"]["roles"]
+AT_MOST = set(REGISTRY["trial"]["atMost"])
+
+
+def utc_second(value):
+    if not isinstance(value, str) or not SIGNED_AT.fullmatch(value):
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def read_aggregate(payload):
+    """A host's trial aggregate (feature 13, R-CORE-140), strictly, as .NET's PackAggregate.Read."""
+    st = profile(payload, integers_only=True)
+    if not isinstance(st, dict) or set(st) - SHAPE["statement"] or st.get("_type") != STATEMENT or st.get("predicateType") != AGGREGATE:
+        raise Refused("the aggregate is not an in-toto statement of " + AGGREGATE)
+    p = st.get("predicate")
+    if not isinstance(p, dict) or set(p) - SHAPE["aggregatePredicate"]:
+        raise Refused("the aggregate's predicate holds only the registry's fields: no task, question, record or path has a place in it")
+    if not isinstance(p.get("id"), str) or not valid_id(p["id"]) or not isinstance(p.get("version"), str) or not 1 <= len(p["version"]) <= 256:
+        raise Refused("the aggregate names a valid pack id and version")
+    if not is_digest(p.get("digest")):
+        raise Refused("the aggregate's digest is sha256: and 64 lowercase hexadecimal characters")
+    subject = st.get("subject")
+    if not isinstance(subject, list) or len(subject) != 1 or not isinstance(subject[0], dict) or subject[0].get("name") != FILES \
+            or not isinstance(subject[0].get("digest"), dict) or subject[0]["digest"] != {"sha256": p["digest"][7:]}:
+        raise Refused("the aggregate's subject is the pack's file list, by the digest its predicate names")
+    if not one_of(p.get("measure"), MEASURES):
+        raise Refused("the aggregate names a known measure")
+    tasks = as_int(p.get("tasks"))
+    if tasks is None or not 1 <= tasks <= 1_000_000:
+        raise Refused("the aggregate's tasks are 1 to 1,000,000")
+    w = p.get("window")
+    start, end = (utc_second(w.get("from")), utc_second(w.get("to"))) if isinstance(w, dict) and not set(w) - SHAPE["aggregateWindow"] else (None, None)
+    if start is None or end is None or start > end:
+        raise Refused("the aggregate's window is from and to, instants in UTC to the second, from not after to")
+    if not one_of(p.get("mechanism"), AGGREGATE_MECHANISMS):
+        raise Refused("the aggregate's mechanism is " + " or ".join(sorted(AGGREGATE_MECHANISMS)))
+    noisy = p["mechanism"] != "none"
+    if "epsilonMilli" in p:
+        e = as_int(p["epsilonMilli"])
+        if not noisy or e is None or not 1 <= e <= 100_000:
+            raise Refused("the aggregate's epsilonMilli, 1 to 100,000, goes with noise only")
+    elif noisy:
+        raise Refused("an aggregate with noise names its epsilonMilli")
+    if not is_digest(p.get("decision")):
+        raise Refused("the aggregate names its decision by sha256: and 64 lowercase hexadecimal characters")
+    checks = p.get("checks")
+    if not isinstance(checks, list) or not 1 <= len(checks) <= 16:
+        raise Refused("the aggregate lists 1 to 16 checks")
+    seen = set()
+    for c in checks:
+        if not isinstance(c, dict) or set(c) - SHAPE["aggregateCheck"] or not one_of(c.get("target"), TARGETS) \
+                or any(as_int(c.get(f)) is None for f in ("successes", "trials", "requiredMicro")) or not isinstance(c.get("met"), bool):
+            raise Refused("an aggregate check names a known target, its successes, trials and requiredMicro as integers, and met")
+        if "boundMicro" in c:
+            if noisy or as_int(c["boundMicro"]) is None:
+                raise Refused("an aggregate check's boundMicro is an integer, without noise only: noise makes it approximate")
+        elif not noisy:
+            raise Refused("an aggregate without noise gives each check its boundMicro")
+        if c["successes"] < 0 or c["trials"] < 0:
+            raise Refused("an aggregate's counts are never negative")
+        if not noisy and c["successes"] > c["trials"]:
+            raise Refused("an aggregate check's successes are within its trials")
+        if "boundMicro" in c and ((c["boundMicro"] <= c["requiredMicro"]) if c["target"] in AT_MOST else (c["boundMicro"] >= c["requiredMicro"])) != c["met"]:
+            raise Refused("an aggregate check's met disagrees with its bound and its requiredMicro")
+        if c["target"] in seen:
+            raise Refused("an aggregate checks each target once")
+        seen.add(c["target"])
+    if not isinstance(p.get("passed"), bool) or p["passed"] != all(c["met"] for c in checks):
+        raise Refused("the aggregate's passed is whether every check was met")
+    return p, end
+
+
+def verify_aggregate(envelope_bytes, digest, policy, now):
+    """A host's trial aggregate of the pack with this digest (feature 13): signed by a key trusted as evaluator for its id."""
+    if len(envelope_bytes) > MAX_ENVELOPE:
+        raise Refused("the aggregate is larger than 64 KiB")
+    env = profile(envelope_bytes)
+    if not isinstance(env, dict) or set(env) != SHAPE["envelope"] or env["payloadType"] != PAYLOAD_TYPE \
+            or not isinstance(env["payload"], str) or not isinstance(env["signatures"], list) or not 1 <= len(env["signatures"]) <= MAX_SIGNATURES \
+            or not all(entry_shaped(e) for e in env["signatures"]):
+        raise Refused("the aggregate is not a DSSE envelope of an in-toto statement with 1 to 16 signatures")
+    try:
+        payload = base64.b64decode(env["payload"], validate=True)
+    except (ValueError, binascii.Error):
+        raise Refused("the aggregate's payload is not base64")
+    p, end = read_aggregate(payload)
+    if p["digest"] != digest:
+        raise Refused("the aggregate is of another pack")
+    keys = {k["keyId"]: k for k in policy.get("keys", [])}
+    revoked_keys = {r["keyId"] for r in policy.get("revoked", {}).get("keys", [])}
+    digest_of_pae = hashlib.sha256(pae(payload)).digest()
+    for entry in env["signatures"]:
+        key = keys.get(entry.get("keyid")) if isinstance(entry, dict) else None
+        if key is None or not isinstance(entry.get("sig"), str):
+            continue
+        try:
+            sig = base64.b64decode(entry["sig"], validate=True)
+            public = serialization.load_pem_public_key(key["publicKey"].encode())
+            public.verify(sig, digest_of_pae, ec.ECDSA(utils.Prehashed(hashes.SHA256())))
+        except (InvalidSignature, ValueError, binascii.Error):
+            continue
+        if any(key_refusal(key, role, p["id"], end, now, revoked_keys) is None for role in AGGREGATE_ROLES):
+            return p
+    raise Refused("the aggregate carries no signature by a key this host trusts as evaluator for the pack")
+
+
 def valid_version(text):
     if not isinstance(text, str) or len(text) > MAX_VERSION:
         return False
@@ -1942,6 +2054,7 @@ def main(argv):
     # A usage error is exit 2, never 1, which reads as a refusal (review 1, L11).
     try:
         receipt_path, location, certificate_path, erasure_path = option("--receipt"), option("--location"), option("--certificate"), option("--erasure")
+        aggregate_path = option("--aggregate")
     except IndexError as missing:
         print(f"error: {missing} needs a value\n{usage}")
         return 2
@@ -1992,6 +2105,9 @@ def main(argv):
             federation = read_federation(json.loads(files["pack.json"]).get("extensions", {}))
             pred = verify_erasure(envelope, pid, policy, now, federation["publisher"] if federation else None)
             print(f"verified the erasure of {len(pred['records'])} record(s) of {shown(pid)} ({pred['reason']})")
+        if aggregate_path is not None:
+            pred = verify_aggregate(read_file(aggregate_path, "the aggregate"), digest, policy, now)
+            print(f"verified the aggregate of {shown(pid)} {shown(pred['version'])}: {pred['tasks']} tasks, {pred['mechanism']}")
     except Refused as e:
         print(f"refused: {shown(e)}")
         return 1
