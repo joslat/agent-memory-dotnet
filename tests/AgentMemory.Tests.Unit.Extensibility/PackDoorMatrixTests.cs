@@ -28,6 +28,7 @@ public sealed class PackDoorMatrixTests : IDisposable
         ["init"] = "writes a new authoring folder; reads no pack",
         ["keygen"] = "writes a key pair; reads no pack",
         ["erase"] = "writes and signs an erasure; reads no pack",
+        ["import"] = "reads another tool's export and writes a new pack; reads no pack",
         ["ledger"] = "reads the host's own ledger",
         ["sign-bytes"] = "signs standard input for an external signer; reads no pack",
         ["uninstall"] = "removes a pack from the host's own store by id",

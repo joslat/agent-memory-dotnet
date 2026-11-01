@@ -1953,6 +1953,51 @@
    "sha256": "676229327a00af86d505f44a9a719eebfaa270af05bd52e766f9108c34f9b2bf"
   },
   {
+   "id": "import-not-nfc",
+   "rule": "IMPORT-SAYS-WHAT-IT-DROPPED",
+   "door": "build",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackImports.cs",
+   "edits": [
+    {
+     "old": "[\"properties\"] = new JsonObject { [\"text\"] = text.Normalize(NormalizationForm.FormC) } };",
+     "new": "[\"properties\"] = new JsonObject { [\"text\"] = text } };"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ImportTests",
+   "sha256": "b137e21df803e56482d07ec40a1ff05a1503ba73b0e71c170b3ebfdccc7c72ae"
+  },
+  {
+   "id": "import-drops-silently",
+   "rule": "IMPORT-SAYS-WHAT-IT-DROPPED",
+   "door": "build",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackImports.cs",
+   "edits": [
+    {
+     "old": "dropped[field] = dropped.GetValueOrDefault(field) + 1;",
+     "new": "_ = field;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ImportTests",
+   "sha256": "5063a2dbb915f8fc21b712920b8e142d5db9417a4d93256ca6d84298b0c93660"
+  },
+  {
+   "id": "import-unnamed-source",
+   "rule": "IMPORT-SAYS-WHAT-IT-DROPPED",
+   "door": "build",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackImports.cs",
+   "edits": [
+    {
+     "old": "[\"inputs\"] = new JsonArray(new JsonObject { [\"digest\"] = digest, [\"name\"] = \"source\" }),",
+     "new": "[\"inputs\"] = new JsonArray(new JsonObject { [\"digest\"] = \"sha256:\" + new string('0', 64), [\"name\"] = \"source\" }),"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ImportTests",
+   "sha256": "b3a3f66e6ed54f9d630cf93395b349361353b44e2ccd8bde1c7151d8bb2210af"
+  },
+  {
    "id": "expiry-not-live",
    "rule": "TRIAL-OVER-TIME",
    "door": "serve",

@@ -81,6 +81,7 @@ public sealed class ChokePointRatchetTests
         ("src/AgentMemory.Packs.Format/PackEmbeddings.cs", "json parse", 2, Parser),
         ("src/AgentMemory.Packs.Format/PackErasure.cs", "json parse", 2, Parser),
         ("src/AgentMemory.Packs.Format/PackAggregate.cs", "json parse", 2, Parser),
+        ("src/AgentMemory.Extensibility.Ampack/PackImports.cs", "json parse", 2, "another tool's export and a mapping the importer was given, read once to write a new pack; never a pack's content"),
         ("src/AgentMemory.Packs.Format/PackFamily.cs", "json parse", 1, Parser),
         ("src/AgentMemory.Packs.Format/PackJson.cs", "json parse", 1, "the choke point: the format's JSON profile check"),
         ("src/AgentMemory.Packs.Format/PackManifest.cs", "json parse", 1, Parser),
