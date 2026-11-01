@@ -2058,6 +2058,21 @@
    "sha256": "ab7db7fd7bed5b66191e123b9c231d696efd102151350aa6edd5d31ae216e02a"
   },
   {
+   "id": "folder-type-ignored",
+   "rule": "FOLDER-FRONT-MATTER-STRICT",
+   "door": "build",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackImports.cs",
+   "edits": [
+    {
+     "old": "                typed[name] = (typeName!, properties);",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ImportTests.A_file_whose_front_matter_names_a_declared_type",
+   "sha256": "fa6fa025343496da70557073fad84f3f6e105dbf5c04c9738e849cf6161a88f6"
+  },
+  {
    "id": "folder-link-cycle-kept",
    "rule": "FOLDER-FRONT-MATTER-STRICT",
    "door": "build",

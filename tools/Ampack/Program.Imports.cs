@@ -46,7 +46,8 @@ internal static partial class Program
             else if (kind == "folder")
             {
                 var (files, commits, renames) = MemoryFolder(file, o.Flag("git"));
-                result = PackImports.FromFolder(files, commits, id, version, owner, key, renames);
+                var ontology = o.Value("ontology") is { } given ? AgentMemory.Packs.Format.PackReader.ReadFile(given, 1 << 20, "The ontology") : null;
+                result = PackImports.FromFolder(files, commits, id, version, owner, key, renames, ontology);
                 // A file git gave no date (never committed, or its name was not read): said, not silent (review 15-17, F4).
                 if (commits is not null)
                     foreach (var undated in files.Keys.Where(k => k.EndsWith(".md", StringComparison.OrdinalIgnoreCase) && !commits.ContainsKey(k)).Order(StringComparer.Ordinal))

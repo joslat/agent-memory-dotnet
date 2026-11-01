@@ -137,10 +137,17 @@ public static partial class PackImports
     /// <param name="owner">The owner the card names.</param>
     /// <param name="signingKeyPem">The importer's signing key.</param>
     /// <param name="renames">The renames git saw, or null without git history.</param>
+    /// <param name="ontology">
+    /// An <c>ontology.json</c> for the pack, or null: a file whose front matter names one of its types (<c>type: Decision</c>)
+    /// becomes a record of that type, its body that type's text property and each front-matter key the type declares a property
+    /// of the declared kind; a file naming no type, or <c>note</c>, is a note.
+    /// </param>
     public static ImportResult FromFolder(IReadOnlyDictionary<string, byte[]> files, IReadOnlyDictionary<string, DateTimeOffset>? firstCommits,
-        string id, string version, string owner, string signingKeyPem, IReadOnlyList<FolderRename>? renames = null)
+        string id, string version, string owner, string signingKeyPem, IReadOnlyList<FolderRename>? renames = null, byte[]? ontology = null)
     {
         ArgumentNullException.ThrowIfNull(files);
+        var declared = ontology is null ? null : DeclaredTypes(ontology);
+        var typed = new Dictionary<string, (string Type, JsonObject Properties)>(StringComparer.Ordinal);
         var names = files.Keys.Where(p => p.EndsWith(".md", StringComparison.OrdinalIgnoreCase)).Order(StringComparer.Ordinal).ToList();
         // Every name a link may use for a note (its path, with or without .md, its file name, with or without .md), and the
         // note it names; a name two notes share names neither.
@@ -167,10 +174,33 @@ public static partial class PackImports
             if (problem is not null) { skipped.Add($"'{name}': front matter refused: {problem}"); continue; }
             if (string.IsNullOrWhiteSpace(body)) { skipped.Add($"'{name}': no text"); continue; }
             var life = new Dictionary<string, string>(StringComparer.Ordinal);
+            // The type its front matter names, when the ontology declares it: its properties come from the other keys.
+            var typeName = front!.FirstOrDefault(p => p.Key == "type").Value;
+            (string Text, Dictionary<string, (string Kind, bool Required)> Properties)? type = null;
+            if (typeName is not null && typeName != "note")
+            {
+                if (declared is null || !declared.TryGetValue(typeName, out var found)) { skipped.Add($"'{name}': its type '{Shown(typeName)}' is not one {(declared is null ? "a folder has without an ontology" : "the ontology declares")}"); continue; }
+                type = found;
+            }
+            var properties = new JsonObject();
+            string? unusable = null;
             foreach (var (k, v) in front!)
             {
                 if (k is "validFrom" or "validTo" or "expiresAt" or "reviewBy" && Instant(v) is { } at && Regex.IsMatch(v, @"^\d{4}-\d{2}-\d{2}")) life[k] = at;
+                else if (k == "type" && (type is not null || typeName == "note")) continue;
+                else if (type?.Properties.TryGetValue(k, out var declaredProperty) == true && k != type.Value.Text)
+                {
+                    if (Typed(v, declaredProperty.Kind) is { } value) properties[k] = value;
+                    else unusable ??= $"'{k}' is not a {declaredProperty.Kind}";
+                }
                 else dropped["front matter '" + k + "'"] = dropped.GetValueOrDefault("front matter '" + k + "'") + 1;
+            }
+            if (unusable is not null) { skipped.Add($"'{name}': {unusable}"); continue; }
+            if (type is { } t)
+            {
+                properties[t.Text] = body.Trim().Normalize(NormalizationForm.FormC);
+                if (t.Properties.FirstOrDefault(p => p.Value.Required && !properties.ContainsKey(p.Key)).Key is { } missing) { skipped.Add($"'{name}': its type '{typeName}' requires '{missing}'"); continue; }
+                typed[name] = (typeName!, properties);
             }
             // The first commit dates a note that names no start, unless the note ended before it (review 15-17, F2).
             if (!life.ContainsKey("validFrom") && date.Length != 0 && !(life.TryGetValue("validTo", out var end) && string.CompareOrdinal(end, date) <= 0))
@@ -214,8 +244,37 @@ public static partial class PackImports
             supersedes[rename.To.Normalize(NormalizationForm.FormC)] = rename.From;
         }
         return Write([.. source], lines, skipped, dropped, "folder" + (firstCommits is null ? "" : " with git dates"), "a Markdown folder", id, version, owner, signingKeyPem,
-            supersedes: supersedes, links: links);
+            supersedes: supersedes, links: links, typed: typed, ontology: ontology);
     }
+
+    // The types an ontology declares: each one's text property (its own 'text', or a property named text) and its properties,
+    // by kind and whether required. A type with no text property cannot hold a file's body, and is left out.
+    private static Dictionary<string, (string Text, Dictionary<string, (string Kind, bool Required)> Properties)> DeclaredTypes(byte[] ontology)
+    {
+        if (Parse(ontology, "The ontology") is not JsonObject root || root["types"] is not JsonArray types)
+            throw new InvalidDataException("The ontology is an object with its types.");
+        var result = new Dictionary<string, (string, Dictionary<string, (string, bool)>)>(StringComparer.Ordinal);
+        foreach (var type in types.OfType<JsonObject>())
+        {
+            if (Str(type, "name") is not { Length: > 0 } name || type["properties"] is not JsonObject declared) continue;
+            var properties = declared.Where(p => p.Value is JsonObject).ToDictionary(p => p.Key,
+                p => (Str((JsonObject)p.Value!, "type") ?? "string", p.Value!["required"] is JsonValue r && r.TryGetValue<bool>(out var req) && req), StringComparer.Ordinal);
+            var text = Str(type, "text") ?? (properties.ContainsKey("text") ? "text" : null);
+            if (text is not null && properties.TryGetValue(text, out var kind) && kind.Item1 == "string") result[name] = (text, properties);
+        }
+        return result;
+    }
+
+    // A front-matter value as the property's kind declares it, or null when it is not one.
+    private static JsonNode? Typed(string value, string kind) => kind switch
+    {
+        "string" => JsonValue.Create(value.Normalize(NormalizationForm.FormC)),
+        "int" => long.TryParse(value, System.Globalization.NumberStyles.AllowLeadingSign, System.Globalization.CultureInfo.InvariantCulture, out var n) ? JsonValue.Create(n) : null,
+        "bool" => value is "true" ? JsonValue.Create(true) : value is "false" ? JsonValue.Create(false) : null,
+        "date" => Regex.IsMatch(value, @"^\d{4}-\d{2}-\d{2}$") ? JsonValue.Create(value) : null,
+        "datetime" => Instant(value) is { } at && Regex.IsMatch(value, @"^\d{4}-\d{2}-\d{2}T") ? JsonValue.Create(at) : null,
+        _ => null,
+    };
 
     // The strict front matter (R2): '---' lines around 'key: value' lines; a value is a plain or double-quoted string with no
     // escapes, an integer or a date. Indentation, anchors, aliases, tags, flow and block collections, comments, multi-line
@@ -249,7 +308,8 @@ public static partial class PackImports
     private static ImportResult Write(byte[] source, List<(string Key, string Text, IReadOnlyDictionary<string, string>? Life)> entries, List<string> skipped,
         IReadOnlyDictionary<string, int> dropped, JsonNode mapping, string sourceName, string id, string version, string owner, string signingKeyPem,
         string sourceSignature = "absent", IReadOnlyDictionary<string, string>? extra = null, IReadOnlyList<(string Key, DateTimeOffset At)>? erased = null,
-        IReadOnlyDictionary<string, string>? supersedes = null, IReadOnlyDictionary<string, List<string>>? links = null)
+        IReadOnlyDictionary<string, string>? supersedes = null, IReadOnlyDictionary<string, List<string>>? links = null,
+        IReadOnlyDictionary<string, (string Type, JsonObject Properties)>? typed = null, byte[]? ontology = null)
     {
         var kind = mapping is JsonValue ? mapping.GetValue<string>() : "json";
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -266,7 +326,9 @@ public static partial class PackImports
             if (life is not null && life.TryGetValue("validFrom", out var from) && life.TryGetValue("validTo", out var to) && string.CompareOrdinal(to, from) <= 0)
             { skipped.Add($"'{k}': its validTo is not after its validFrom"); continue; }
             if (written == AgentMemory.Extensibility.Packs.KnowledgePack.MaximumRecords) { skipped.Add($"'{k}': a pack holds at most {AgentMemory.Extensibility.Packs.KnowledgePack.MaximumRecords} records"); continue; }
-            var line = new JsonObject { ["type"] = "note", ["key"] = k, ["properties"] = new JsonObject { ["text"] = text.Normalize(NormalizationForm.FormC) } };
+            var line = typed?.TryGetValue(key, out var declared) == true
+                ? new JsonObject { ["type"] = declared.Type, ["key"] = k, ["properties"] = declared.Properties.DeepClone() }
+                : new JsonObject { ["type"] = "note", ["key"] = k, ["properties"] = new JsonObject { ["text"] = text.Normalize(NormalizationForm.FormC) } };
             foreach (var (field, at) in life ?? new Dictionary<string, string>()) line[field] = at;
             if (Encoding.UTF8.GetByteCount(line.ToJsonString()) > AgentMemory.Extensibility.Packs.KnowledgePack.MaximumLineBytes) { skipped.Add($"'{k}': longer than a record holds ({AgentMemory.Extensibility.Packs.KnowledgePack.MaximumLineBytes / 1024} KiB)"); continue; }
             kept.Add(line);
@@ -298,9 +360,13 @@ public static partial class PackImports
                 else if (seen.Add(at)) foreach (var next in graph.GetValueOrDefault(at) ?? []) stack.Push(next);
             return false;
         }
+        // links_to joins a note to a note: a record of a declared type keeps its links as text.
+        var notes = kept.Where(l => l["type"]!.GetValue<string>() == "note").Select(l => l["key"]!.GetValue<string>()).ToHashSet(StringComparer.Ordinal);
         foreach (var line in kept.OrderBy(l => l["key"]!.GetValue<string>(), StringComparer.Ordinal))
-            if (links?.TryGetValue(line["key"]!.GetValue<string>(), out var targets) == true)
+            if (links?.TryGetValue(line["key"]!.GetValue<string>(), out var all) == true && notes.Contains(line["key"]!.GetValue<string>()))
             {
+                var targets = all.Where(t => notes.Contains(t.Normalize(NormalizationForm.FormC)) || !keys.Contains(t.Normalize(NormalizationForm.FormC))).ToList();
+                if (targets.Count < all.Count) skipped.Add($"'{line["key"]!.GetValue<string>()}': {all.Count - targets.Count} link(s) to records of a declared type (kept as text)");
                 var from = line["key"]!.GetValue<string>();
                 var held = new List<string>();
                 foreach (var target in targets.Select(t => t.Normalize(NormalizationForm.FormC)).Where(keys.Contains).Take(MaximumNoteLinks))
@@ -346,6 +412,7 @@ public static partial class PackImports
                 ["parameters"] = Parameters(sourceName, kind, mapping, sourceSignature, extra),
             }),
         };
+        if (ontology is not null) files["ontology.json"] = ontology;
         var archive = PackAuthoring.Build(files, signingKeyPem);
         if (erased is { Count: > 0 }) archive = Erasing(archive, id, erased, signingKeyPem);
         var findings = PackScan.Scan(archive).Findings.Select(f => f.ToString() ?? "").ToList();

@@ -272,7 +272,7 @@ internal static partial class Program
         ["certificate"] = ["certificate", .. TrustOptions],
         ["erasure"] = ["erasure", "out", .. SignerOptions, .. TrustOptions],
         ["aggregate"] = ["aggregate", "out", "activations", "host-key", "key", "from", "to", .. TrustOptions],
-        ["import"] = ["id", "version", "owner", "key", "out", "mapping", "source", "git", "mem-trust", "mesh-key"],
+        ["import"] = ["id", "version", "owner", "key", "out", "mapping", "source", "git", "mem-trust", "mesh-key", "ontology"],
         ["listing"] = ["format", "url", "name", "at", "out", .. TrustOptions],
         ["export"] = ["out", "mem-key", "at", .. TrustOptions],
         ["erase"] = ["erased", "reason", "plain-keys", "out", .. SignerOptions],

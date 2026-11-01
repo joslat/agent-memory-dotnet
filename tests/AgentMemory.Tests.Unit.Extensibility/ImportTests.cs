@@ -54,6 +54,36 @@ public sealed class ImportTests
     }
 
     [Fact]
+    public void A_file_whose_front_matter_names_a_declared_type_is_a_record_of_it_with_its_declared_properties()
+    {
+        var ontology = Encoding.UTF8.GetBytes("""{"labelPrefix":"Team","types":[{"name":"TeamDecision","scope":"shared","text":"summary","properties":{"summary":{"type":"string","required":true},"status":{"type":"string","required":true},"number":{"type":"int"}}}]}""");
+        var files = new Dictionary<string, byte[]>(StringComparer.Ordinal)
+        {
+            ["adr-1.md"] = Encoding.UTF8.GetBytes("---\ntype: TeamDecision\nstatus: accepted\nnumber: 7\nowner: ana\n---\nWe keep one store.\n"),
+            ["adr-2.md"] = Encoding.UTF8.GetBytes("---\ntype: TeamDecision\nnumber: seven\nstatus: draft\n---\nNot a number.\n"),
+            ["adr-3.md"] = Encoding.UTF8.GetBytes("---\ntype: TeamDecision\n---\nNo status.\n"),
+            ["idea.md"] = Encoding.UTF8.GetBytes("---\ntype: Idea\n---\nAn undeclared type.\n"),
+            ["plain.md"] = Encoding.UTF8.GetBytes("A note, and a link to [[adr-1]].\n"),
+        };
+        var result = PackImports.FromFolder(files, null, "com.example.team", "1.0.0", "Example Owner", Key.PrivateKeyPem, ontology: ontology);
+        var records = PackLoader.Load(result.Archive, Trust()).Knowledge!.Proposals.ToDictionary(p => p.Key);
+        records.Keys.Should().BeEquivalentTo(["adr-1.md", "plain.md"]);
+        records["adr-1.md"].Type.Should().Be("TeamDecision");
+        records["adr-1.md"].Properties["summary"].GetString().Should().Be("We keep one store.");
+        records["adr-1.md"].Properties["status"].GetString().Should().Be("accepted");
+        records["adr-1.md"].Properties["number"].GetInt64().Should().Be(7);
+        result.Dropped.Should().ContainKey("front matter 'owner'");
+        result.Skipped.Should().Contain(s => s.Contains("adr-2.md") && s.Contains("not a int"))
+            .And.Contain(s => s.Contains("adr-3.md") && s.Contains("requires 'status'"))
+            .And.Contain(s => s.Contains("idea.md") && s.Contains("'Idea'"))
+            .And.Contain(s => s.Contains("plain.md") && s.Contains("declared type"));
+        records["plain.md"].Links.Should().BeEmpty("links_to joins a note to a note");
+
+        PackImports.FromFolder(files, null, "com.example.team", "1.0.0", "Example Owner", Key.PrivateKeyPem)
+            .Skipped.Should().Contain(s => s.Contains("adr-1.md") && s.Contains("without an ontology"));
+    }
+
+    [Fact]
     public void A_renamed_file_keeps_its_old_path_as_a_note_that_ends_where_the_rename_begins()
     {
         var files = new Dictionary<string, byte[]>(StringComparer.Ordinal) { ["release-plan.md"] = Encoding.UTF8.GetBytes("The plan, now dated.") };
