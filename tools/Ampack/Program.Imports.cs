@@ -5,7 +5,7 @@ namespace Ampack;
 
 /// <summary>
 /// Imports (features 15 and 16): <c>ampack import json &lt;file&gt; --mapping &lt;m.json&gt;</c>, <c>ampack import text &lt;file&gt; --source &lt;name&gt;</c>
-/// <c>ampack import folder &lt;dir&gt; [--git]</c> and <c>ampack import mem &lt;bundle&gt; [--mem-trust &lt;public key hex&gt;...]</c> and <c>ampack import letta &lt;agent.af&gt;</c>
+/// <c>ampack import folder &lt;dir&gt; [--git]</c> and <c>ampack import mem &lt;bundle&gt; [--mem-trust &lt;public key hex&gt;...]</c> , <c>ampack import letta &lt;agent.af&gt;</c> and <c>ampack import mesh &lt;store folder&gt;</c>
 /// write a signed knowledge pack of notes from another tool's memory export, with a derivation naming the source by its
 /// digest and a card saying where it came from, and report every field and entry they left out.
 /// </summary>
@@ -14,7 +14,7 @@ internal static partial class Program
     // ampack import json|text|folder <file or dir> --id <id> --version <v> --owner <name> --key <private.pem> --out <pack.ampack> [--mapping <m.json> | --source <name>]
     private static int Import(Options o)
     {
-        var kind = o.Positional(0, "import kind (json, text, folder, mem, letta)");
+        var kind = o.Positional(0, "import kind (json, text, folder, mem, letta, mesh)");
         var file = o.Positional(1, "the export file");
         var (id, version, owner) = (o.Required("id"), o.Value("version") ?? "1.0.0", o.Required("owner"));
         var key = Text(o.Required("key"), "The signing key");
@@ -28,6 +28,8 @@ internal static partial class Program
                 if (trusted.Any(k => k.Length != 64 || !k.All(Uri.IsHexDigit))) throw new UsageException("--mem-trust is an Ed25519 public key as 64 hex digits.");
                 result = PackImports.FromMem(MemBundle(file), Ed25519Verifies, trusted.Count == 0 ? null : trusted, id, version, owner, key);
             }
+            else if (kind == "mesh")
+                result = PackImports.FromMeshMemory(MemBundle(file), id, version, owner, key);
             else if (kind == "folder")
             {
                 var (files, commits) = MemoryFolder(file, o.Flag("git"));
@@ -46,7 +48,7 @@ internal static partial class Program
                     id, version, owner, key),
                 "text" => PackImports.FromText(source, o.Value("source") ?? "an assistant", id, version, owner, key),
                 "letta" => PackImports.FromLetta(source, id, version, owner, key),
-                _ => throw new UsageException($"Unknown import kind '{kind}': json, text, folder, mem, letta."),
+                _ => throw new UsageException($"Unknown import kind '{kind}': json, text, folder, mem, letta, mesh."),
             };
             }
         }
