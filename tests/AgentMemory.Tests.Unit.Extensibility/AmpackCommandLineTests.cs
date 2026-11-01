@@ -737,7 +737,7 @@ public sealed class AmpackCommandLineTests : IDisposable
             await server.StandardInput.WriteLineAsync("""{"jsonrpc":"2.0","method":"notifications/initialized"}""");
 
             var tools = await Call(2, "tools/list", null);
-            tools["result"]!["tools"]!.AsArray().Select(t => t!["name"]!.GetValue<string>()).Should().BeEquivalentTo(["pack_list", "pack_ask", "pack_walk"]);
+            tools["result"]!["tools"]!.AsArray().Select(t => t!["name"]!.GetValue<string>()).Should().BeEquivalentTo(["pack_list", "pack_ask", "pack_walk", "memory_view"]);
 
             var listed = JsonNode.Parse(Text(await Call(3, "tools/call", new JsonObject { ["name"] = "pack_list", ["arguments"] = new JsonObject() })))!.AsArray();
             listed.Single()!["id"]!.GetValue<string>().Should().Be("io.agentmemory.packs.martialarts");
@@ -753,6 +753,24 @@ public sealed class AmpackCommandLineTests : IDisposable
 
             var nowhere = JsonNode.Parse(Text(await Call(5, "tools/call", new JsonObject { ["name"] = "pack_walk", ["arguments"] = new JsonObject() })))!;
             nowhere["error"]!.GetValue<string>().Should().Contain("at least one path or symbol");
+
+            // Feature 17: the resources, through the same door; feature 16: the read-only memory folder.
+            var templates = await Call(6, "resources/templates/list", null);
+            templates["result"]!["resourceTemplates"]!.AsArray().Select(t => t!["uriTemplate"]!.GetValue<string>()).Should().Contain(
+                ["ampack://status/{id}", "ampack://sha256:{digest}/card", "ampack://sha256:{digest}/records/{type}/{key}"]);
+            string Read(JsonNode response) => response["result"]!["contents"]![0]!["text"]!.GetValue<string>();
+            var hex = listed.Single()!["digest"]!.GetValue<string>()["sha256:".Length..];
+            var status = JsonNode.Parse(Read(await Call(7, "resources/read", new JsonObject { ["uri"] = "ampack://status/io.agentmemory.packs.martialarts" })))!.AsArray();
+            status.Single()!["served"]!.GetValue<bool>().Should().BeTrue();
+            JsonNode.Parse(Read(await Call(8, "resources/read", new JsonObject { ["uri"] = $"ampack://sha256:{hex}/card" })))!["id"]!.GetValue<string>()
+                .Should().Be("io.agentmemory.packs.martialarts");
+            var record = JsonNode.Parse(Read(await Call(9, "resources/read", new JsonObject { ["uri"] = $"ampack://sha256:{hex}/records/{asked[0]!["type"]!.GetValue<string>()}/{Uri.EscapeDataString("shotokan/heian-shodan")}" })))!;
+            record["key"]!.GetValue<string>().Should().Be("shotokan/heian-shodan");
+            var folder = JsonNode.Parse(Text(await Call(10, "tools/call", new JsonObject
+            {
+                ["name"] = "memory_view", ["arguments"] = new JsonObject { ["path"] = "/memories/io.agentmemory.packs.martialarts" },
+            })))!;
+            folder["entries"]!.AsArray().Select(e => e!.GetValue<string>()).Should().Contain($"{asked[0]!["type"]!.GetValue<string>()}/shotokan/heian-shodan");
         }
         finally
         {

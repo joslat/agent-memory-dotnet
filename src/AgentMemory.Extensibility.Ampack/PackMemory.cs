@@ -54,6 +54,13 @@ public sealed partial class PackMemory : IModuleTraversalReader
         .ThenBy(r => r.Type, PackText.Order).ThenBy(r => r.Key, PackText.Order)];
 
     /// <summary>
+    /// Every record live at <paramref name="now"/>, as its type renders it, in module, type and key order: what serve's resources
+    /// and its memory folder read (features 16 and 17), each with its pack provenance.
+    /// </summary>
+    public IReadOnlyList<PackHit> Live(DateTimeOffset now) =>
+        [.. Records.Where(r => AgentMemory.Extensibility.Reading.ModuleRecordLife.IsLive(r.Life, now)).Select(r => Hit(r, null))];
+
+    /// <summary>
     /// Holds knowledge packs and snapshots in memory. A snapshot brings its module and its dependencies; a link into a record
     /// none of them holds is left out, as the store leaves it out.
     /// </summary>

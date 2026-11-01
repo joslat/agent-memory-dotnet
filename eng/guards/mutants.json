@@ -2043,6 +2043,51 @@
    "sha256": "18f71190f96533aad7cc791fa7a57a7940b7fb62ce61efda2cb41e43f0257b30"
   },
   {
+   "id": "resource-off-served",
+   "rule": "SERVE-RESOURCES-ONE-DOOR",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackResources.cs",
+   "edits": [
+    {
+     "old": ": off(pack) is { } reason ? Serialize(new { id = pack.Id, served = false, reason }) : null;",
+     "new": ": null;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackResourcesTests",
+   "sha256": "96d441553d7269492c44623d6e5881142df55ebc7903013c86a85ad0d3d85c45"
+  },
+  {
+   "id": "folder-off-served",
+   "rule": "SERVE-RESOURCES-ONE-DOOR",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackResources.cs",
+   "edits": [
+    {
+     "old": "if (off(pack) is { } offReason) return Serialize(new { error = offReason });",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackResourcesTests",
+   "sha256": "12a823b2fbc2d2e582848532ad18b4ddd166c87b746062f87873be9f7aa62f07"
+  },
+  {
+   "id": "resource-dead-record",
+   "rule": "SERVE-RESOURCES-ONE-DOOR",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackMemory.cs",
+   "edits": [
+    {
+     "old": "[.. Records.Where(r => AgentMemory.Extensibility.Reading.ModuleRecordLife.IsLive(r.Life, now)).Select(r => Hit(r, null))];",
+     "new": "[.. Records.Select(r => Hit(r, null))];"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackResourcesTests",
+   "sha256": "f2b3a83f70e77f336d6c8e219c4500693a91500b1fbd4212948cdf04bded3fcd"
+  },
+  {
    "id": "expiry-not-live",
    "rule": "TRIAL-OVER-TIME",
    "door": "serve",

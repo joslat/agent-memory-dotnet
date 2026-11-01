@@ -1066,7 +1066,11 @@ internal static partial class Program
         return (packs, familyMembers) =>
         {
             var check = GateCheck(o, [.. packs.Where(p => p.Kind != "snapshot")], activations, familyMembers);
-            foreach (var off in check.Off) Console.Error.WriteLine($"ampack serve: {off.ModuleId} {off.Version} stays off: {Shown(off.Reason, 300)}");
+            foreach (var off in check.Off)
+            {
+                Console.Error.WriteLine($"ampack serve: {off.ModuleId} {off.Version} stays off: {Shown(off.Reason, 300)}");
+                PackTools.KeptOff[off.ModuleId] = $"{off.ModuleId} {off.Version} is kept off by the host's trial gate: {Shown(off.Reason, 300)}";
+            }
             return [.. check.Off.Select(off => off.ModuleId)];
         };
     }
