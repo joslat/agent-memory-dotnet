@@ -79,14 +79,37 @@ public sealed class PolicyTests
         var record = new ModuleRecord
         {
             ModuleId = pack.Id, Type = "LanternNote", Id = "a", Key = "a", CreatedAtUtc = DateTimeOffset.UnixEpoch, SourceSessionId = "pack",
-            Source = new ProposalSource { Excerpt = "a", Pack = new PackSource { Id = pack.Id, Version = pack.Version, Digest = pack.Digest, File = "records/notes.jsonl", Line = 1 } },
+            Source = new ProposalSource
+            {
+                Excerpt = "a",
+                Pack = new PackSource { Id = pack.Id, Version = pack.Version, Digest = pack.Digest, File = "records/notes.jsonl", Line = 1, UsagePolicy = pack.PolicyDigest },
+            },
         };
+        pack.PolicyDigest.Should().StartWith("sha256:");
         Compose(m => m.AddPack(pack)).Withheld(record, Now).Should().BeTrue("an unstated endpoint is external");
         Compose(m => m.AddPack(pack).UseModelEndpoint(ModelEndpoint.Private)).Withheld(record, Now).Should().BeTrue();
         Compose(m => m.AddPack(pack).UseModelEndpoint(ModelEndpoint.Local)).Withheld(record, Now).Should().BeFalse();
-        var other = record with { Source = record.Source with { Pack = record.Source.Pack! with { Id = "com.example.other" } } };
-        Compose(m => m.AddPack(pack)).Withheld(other, Now).Should().BeFalse("another pack's records follow their own policy");
-        var carried = other with { Source = other.Source with { Pack = other.Source.Pack! with { Carrier = new PackCarrier { Id = pack.Id, Version = "1.0.0", Digest = "", Signer = "" } } } };
-        Compose(m => m.AddPack(pack)).Withheld(carried, Now).Should().BeTrue("a carried record follows its carrier's policy, as an erasure names it");
+        // Review F10, H1: a record governed by a policy this host does not hold is withheld, whatever composed its module.
+        Compose(m => m.UseModelEndpoint(ModelEndpoint.Local)).Withheld(record, Now).Should().BeTrue("the host does not hold its policy");
+        var free = record with { Source = record.Source with { Pack = record.Source.Pack! with { UsagePolicy = null } } };
+        Compose(m => m.AddPack(pack)).Withheld(free, Now).Should().BeFalse("no policy governs it, as a host-built record (review F10, M3)");
+    }
+
+    [Fact]
+    public void Read_is_a_condition_of_every_other_verb_and_the_loader_names_the_policy_on_every_record()
+    {
+        // Review F10, M2: a grant to rehydrate outlives an ended read grant no longer.
+        var pack = Load("""{"format":"agentmemory.pack.policy/1","rules":[{"allow":["read"],"audience":["*"],"notAfter":"2099-01-01T00:00:00Z"},{"allow":["rehydrate:external"],"audience":["*"]}]}""");
+        pack.Knowledge!.Proposals.Should().OnlyContain(r => r.Source.Pack!.UsagePolicy == pack.PolicyDigest);
+        var services = new ServiceCollection();
+        services.AddAgentMemoryModules(m => m.UsePackPolicy(pack));
+        var set = services.BuildServiceProvider().GetRequiredService<ModuleSet>();
+        var record = new ModuleRecord
+        {
+            ModuleId = pack.Id, Type = "LanternNote", Id = "a", Key = "a", CreatedAtUtc = DateTimeOffset.UnixEpoch, SourceSessionId = "pack",
+            Source = pack.Knowledge.Proposals[0].Source,
+        };
+        set.Withheld(record, Now).Should().BeFalse();
+        set.Withheld(record, new DateTimeOffset(2099, 1, 2, 0, 0, 0, TimeSpan.Zero)).Should().BeTrue("its read grant has ended");
     }
 }

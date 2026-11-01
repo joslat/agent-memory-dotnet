@@ -139,7 +139,7 @@ public sealed class ModuleSet
             registrations, switchedOff)
         {
             ChatClient = builder.ChatClient, Priorities = priorities.AsReadOnly(), Erasures = [.. builder.Erasures], MinimumConfidenceMicro = builder.MinimumConfidenceMicro,
-            Endpoint = builder.Endpoint, PackPolicies = builder.PackPolicies.ToDictionary(p => p.PackId, p => p.Allows, StringComparer.Ordinal),
+            Endpoint = builder.Endpoint, PackPolicies = builder.PackPolicies.ToDictionary(p => p.Digest, p => p.Allows, StringComparer.Ordinal),
             Slots = [.. builder.Modules.SelectMany(m => Enumerable.Repeat(m.Manifest.Id, m.Contributors.Count))],
         };
         var log = services.GetService<ILoggerFactory>()?.CreateLogger<ModuleSet>();
@@ -249,17 +249,19 @@ public sealed class ModuleSet
     /// <summary>Where the host's model runs (feature 10).</summary>
     internal ModelEndpoint Endpoint { get; init; } = ModelEndpoint.External;
 
-    /// <summary>The usage policies this host asks, by pack id (feature 10).</summary>
+    /// <summary>The usage policies this host holds, by digest (feature 10).</summary>
     internal IReadOnlyDictionary<string, Func<string, DateTimeOffset, bool>> PackPolicies { get; init; } = new Dictionary<string, Func<string, DateTimeOffset, bool>>();
 
     /// <summary>The verb a record's text needs to reach this host's model: <c>rehydrate:</c> and the endpoint's class.</summary>
     internal string RehydrateVerb => "rehydrate:" + Endpoint.ToString().ToLowerInvariant();
 
-    // Whether the usage policy of the pack that carried the record (its carrier's, else its own, as an erasure names it) keeps
-    // its text from this host's model now (feature 10, R-CORE-139).
+    // Whether the usage policy that governs the record keeps its text from this host's model now (feature 10, R-CORE-139): one
+    // the host does not hold (review F10, H1: a record imported under a policy was offered once its pack was not registered, and
+    // a grant that ended opened it up), one that no longer lets the host read the pack (M2), or one that does not allow
+    // rehydrate at the host's endpoint class. A record no policy governs is never withheld.
     internal bool Withheld(ModuleRecord record, DateTimeOffset now) =>
-        PackPolicies.Count != 0 && (record.Source?.Pack?.Carrier?.Id ?? record.Source?.Pack?.Id) is { } pack
-        && PackPolicies.TryGetValue(pack, out var allows) && !allows(RehydrateVerb, now);
+        record.Source?.Pack?.UsagePolicy is { } policy
+        && (!PackPolicies.TryGetValue(policy, out var allows) || !allows("read", now) || !allows(RehydrateVerb, now));
 
     // Whether an erasure this host holds names the record (feature 08, R-CORE-134), whatever the store still holds.
     internal bool Erased(ModuleRecord record) => ErasedBy(Erasures, record);
@@ -297,9 +299,8 @@ public sealed class ModuleSet
     internal Context.Traversal.TraversalService Traversal(IServiceProvider services) =>
         _traversal.GetValue(services, s => new Context.Traversal.TraversalService(Resolution, Store?.CreateTraversalReader(s, Resolution), Live(s),
             s.GetService<TimeProvider>() ?? TimeProvider.System,
-            Erasures.Count == 0 && MinimumConfidenceMicro is null && PackPolicies.Count == 0 ? null
-                : r => !Erased(r) && !Withheld(r, (s.GetService<TimeProvider>() ?? TimeProvider.System).GetUtcNow())
-                    && Packs.ModuleConfidence.Clears(r.ConfidenceMicro, MinimumConfidenceMicro),
+            r => !Erased(r) && !Withheld(r, (s.GetService<TimeProvider>() ?? TimeProvider.System).GetUtcNow())
+                && Packs.ModuleConfidence.Clears(r.ConfidenceMicro, MinimumConfidenceMicro),
             MinimumConfidenceMicro));
 
     // Whether a module may take part in a walk now: a pack past its validUntil goes silent in the walk as its contributors

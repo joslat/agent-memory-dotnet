@@ -259,7 +259,7 @@ internal static partial class Program
         ["evidence"] = ["activations", "host-key", "pack", "version", "out"],
         ["scan"] = ["aef", .. TrustOptions],
         ["countersign"] = ["out", "role", .. SignerOptions, .. TrustOptions],
-        ["serve"] = ["store", "http", "allow-remote", "grant", .. GateOptions, .. TrustOptions],
+        ["serve"] = ["store", "http", "allow-remote", "grant", "client-endpoint", .. GateOptions, .. TrustOptions],
         ["install"] = ["store", "allow-downgrade", .. TrustOptions],
         ["uninstall"] = ["store"],
         ["list"] = ["store"],
@@ -1000,9 +1000,12 @@ internal static partial class Program
                 ? new AgentMemory.Extensibility.Modules.ModuleConsentGrant(module, into)
                 : throw new UsageException($"--grant {g}: give <module>=<into>, the module whose relation reaches into the other's records.")).ToList();
             var mount = AgentMemory.Extensibility.Ampack.PackMemory.Mount(archives, trust, gate, grants);
-            // The export door (feature 10, R-CORE-139): serving hands a pack's records to another program.
-            var kept = mount.Packs.Where(p => !AgentMemory.Extensibility.Ampack.PolicyGate.Allows(p, "export", DateTimeOffset.UtcNow))
-                .Select(p => $"{p.Id}: its usage policy (policy.json) does not let this host export it, so it is not served.").ToList();
+            // The export door (feature 10, R-CORE-139): serving hands a pack's records to another program, whose model is of the
+            // class the operator states (--client-endpoint; unstated, external). Asked here and on every request.
+            PackTools.ClientEndpoint = o.Value("client-endpoint") is { } endpoint
+                ? endpoint is "local" or "private" or "external" ? endpoint : throw new UsageException($"--client-endpoint {endpoint}: give local, private or external.")
+                : "external";
+            var kept = mount.Packs.Select(p => PackTools.Off(p, DateTimeOffset.UtcNow)).OfType<string>().Where(off => off.Contains("usage policy", StringComparison.Ordinal)).ToList();
             if (kept.Count != 0) return Report(kept, "");
             // Review 1, I9: a pack that declares a trial, served with no gate, is said to be served ungated.
             if (gate is null)

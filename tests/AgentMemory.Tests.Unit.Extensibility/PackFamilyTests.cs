@@ -41,9 +41,16 @@ public sealed class PackFamilyTests : IDisposable
     private static string Id(IReadOnlyDictionary<string, byte[]> files) => FilesList.Parse(files[PackPaths.FilesList]).List!.Id;
 
     // The four Coding members, built and signed, and the composite locked to exactly them.
-    private (Dictionary<string, byte[]> Composite, List<Dictionary<string, byte[]>> Members) Family(Func<string, string>? edit = null)
+    private (Dictionary<string, byte[]> Composite, List<Dictionary<string, byte[]>> Members) Family(Func<string, string>? edit = null,
+        string? policyFor = null)
     {
-        var members = MemberFolders.Select(f => Built(FromManifest(f))).ToList();
+        // policyFor: the member folder that carries a usage policy (feature 10).
+        var members = MemberFolders.Select(f =>
+        {
+            var source = FromManifest(f);
+            if (f == policyFor) source["policy.json"] = Encoding.UTF8.GetBytes("""{"format":"agentmemory.pack.policy/1","rules":[{"allow":["read","rehydrate:local"],"audience":["*"]}]}""");
+            return Built(source);
+        }).ToList();
         var composite = edit is null ? FromManifest("Coding", "composite.json") : PackLayout.FromModule(new Dictionary<string, byte[]>(StringComparer.Ordinal)
         {
             ["manifest.json"] = Encoding.UTF8.GetBytes(edit(File.ReadAllText(Path.Combine(Packs, "Coding", "composite.json")))),
@@ -76,6 +83,17 @@ public sealed class PackFamilyTests : IDisposable
         fromPacks.Modules.Select(m => m.Manifest.Id).Should().Equal(fromAssembly.Modules.Select(m => m.Manifest.Id));
         fromPacks.Priorities.Should().BeEquivalentTo(fromAssembly.Priorities);
         fromPacks.Modules.Select(m => PackTrialGate.DigestOf(m.Manifest)).Should().Equal(fromAssembly.Modules.Select(m => PackTrialGate.DigestOf(m.Manifest)));
+    }
+
+    [Fact]
+    public void A_family_member_s_usage_policy_is_held_as_an_added_pack_s_is()
+    {
+        // Feature 10, review H2: members were composed with no policy (and no erasures), so their records were offered freely.
+        var (composite, members) = Family(policyFor: "CodeMap");
+        var family = PackFamilies.LoadComposite(Save("coding", composite), members.Select(m => Save(Id(m), m)), Trust());
+        var member = family.AllMembers.Single(p => p.Id == CodeMapPack.Id);
+        member.PolicyDigest.Should().StartWith("sha256:");
+        new ModuleSetBuilder().AddFamily(family).PackPolicies.Should().ContainSingle(p => p.Digest == member.PolicyDigest);
     }
 
     [Fact]

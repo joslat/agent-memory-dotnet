@@ -1809,13 +1809,13 @@
    "file": "src/AgentMemory.Extensibility/Modules/ModuleSet.cs",
    "edits": [
     {
-     "old": "&& PackPolicies.TryGetValue(pack, out var allows) && !allows(RehydrateVerb, now);",
-     "new": "&& PackPolicies.TryGetValue(pack, out var allows) && false;"
+     "old": "|| !allows(\"read\", now) || !allows(RehydrateVerb, now));",
+     "new": "|| !allows(\"read\", now));"
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
    "filter": "FullyQualifiedName~PolicyTests",
-   "sha256": "5bff437a58495f6ffbad621bbd4824765f5cd30434c7eaee33b54833fa7f005a"
+   "sha256": "8c844ababe7d504e92ef14ad1fda6d2ddaf504f1f9b9c45d2b4eb5e1f7959e68"
   },
   {
    "id": "endpoint-ignored",
@@ -1833,19 +1833,124 @@
    "sha256": "f44a354a1e3031ba3b27b02f2df174e972c2edbb25cdc7ae5126e330edd8bc7c"
   },
   {
-   "id": "carrier-policy-ignored",
+   "id": "unheld-policy-offered",
    "rule": "POLICY-AT-THE-DOOR",
    "door": "serve",
    "file": "src/AgentMemory.Extensibility/Modules/ModuleSet.cs",
    "edits": [
     {
-     "old": "PackPolicies.Count != 0 && (record.Source?.Pack?.Carrier?.Id ?? record.Source?.Pack?.Id) is { } pack",
-     "new": "PackPolicies.Count != 0 && record.Source?.Pack?.Id is { } pack"
+     "old": "(!PackPolicies.TryGetValue(policy, out var allows) || !allows(\"read\", now)",
+     "new": "(!PackPolicies.TryGetValue(policy, out var allows) ? false : !allows(\"read\", now)"
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
    "filter": "FullyQualifiedName~PolicyTests",
-   "sha256": "194db2c4fde3b4aa236bc2650e1438c4ac8f57b2593b8dce33d9972bdfcb29df"
+   "sha256": "ad8b28f5bfc6bdd501b5fd8da6e0cb4dc6ce647860c42daba8654c601c9dd7bd"
+  },
+  {
+   "id": "read-not-standing",
+   "rule": "POLICY-AT-THE-DOOR",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility/Modules/ModuleSet.cs",
+   "edits": [
+    {
+     "old": "|| !allows(\"read\", now) || !allows(RehydrateVerb, now));",
+     "new": "|| !allows(RehydrateVerb, now));"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PolicyTests",
+   "sha256": "8a6a9df0775dec7cf22d0392410a3b884e0b154cd41a8b437a7a7bfde07968a8"
+  },
+  {
+   "id": "loader-policy-unnamed",
+   "rule": "POLICY-AT-THE-DOOR",
+   "door": "install",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackLoader.cs",
+   "edits": [
+    {
+     "old": "with { UsagePolicy = policyDigest } } })]);",
+     "new": "with { UsagePolicy = null } } })]);"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PolicyTests",
+   "sha256": "e6567b948a5a26c21305f51274726f615b79c232829bd65af7550353c41e3ab5"
+  },
+  {
+   "id": "snapshot-policy-unnamed",
+   "rule": "POLICY-AT-THE-DOOR",
+   "door": "install",
+   "file": "src/AgentMemory.Extensibility/Packs/ModuleSnapshot.cs",
+   "edits": [
+    {
+     "old": "                UsagePolicy = Carrier?.UsagePolicy,\n",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~A_snapshot_s_records_name_the_usage_policy",
+   "sha256": "e2fb60ac01f18be87bc4833f58af7097e90f8c6c6d306bfd9551eb79e222bb66"
+  },
+  {
+   "id": "family-policy-dropped",
+   "rule": "POLICY-AT-THE-DOOR",
+   "door": "install",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackFamilies.cs",
+   "edits": [
+    {
+     "old": "        foreach (var member in family.AllMembers) added.UseErasures(member.Erasures).UsePackPolicy(member);\n",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~A_family_member_s_usage_policy",
+   "sha256": "3dc164f3040d9112be7a8a4716ef5ef412a891730510a60bc6f246ac79ad453a"
+  },
+  {
+   "id": "set-policy-allowed",
+   "rule": "POLICY-AT-THE-DOOR",
+   "door": "verify",
+   "file": "src/AgentMemory.Packs.Format/PackVerifier.cs",
+   "edits": [
+    {
+     "old": "if (manifest.Kind is \"composite\" or \"set\" && all.Contains(PackPolicy.FileName))",
+     "new": "if (false)"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "27c66c41e249cc4e47391e58c0bcb95074b3463ccc0b4d3bc441a3d14bd20836"
+  },
+  {
+   "id": "python-set-policy-allowed",
+   "rule": "POLICY-AT-THE-DOOR",
+   "door": "verify",
+   "file": "conformance/pack-v1.1/python/ampack_verify.py",
+   "edits": [
+    {
+     "old": "        if REGISTRY[\"policy\"][\"path\"] in content:\n",
+     "new": "        if False:\n"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "6638609c8867240a72952bcb9e96f7eeae3e58233d820deeacdffccebd8f9c01"
+  },
+  {
+   "id": "serve-ignores-policy",
+   "rule": "POLICY-AT-THE-DOOR",
+   "door": "serve",
+   "file": "tools/Ampack/Serve.cs",
+   "edits": [
+    {
+     "old": "            if (!PolicyGate.Allows(pack, verb, now)) return",
+     "new": "            if (false) return"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~AmpackCommandLineTests.Serve_refuses_a_pack_whose_usage_policy",
+   "sha256": "ac7e07964f87e8a779219473e2cffae7120aa06b2d84e0af58ae3efb9ebf769c"
   },
   {
    "id": "added-pack-policy-dropped",

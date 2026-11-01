@@ -844,8 +844,7 @@
       "implemented": true,
       "files": [
         "policy.json"
-      ],
-      "refusal": "{id} carries a usage policy (policy.json); this host cannot enforce one yet, so it does not load the pack."
+      ]
     },
     "embeddings": {
       "implemented": true,
@@ -1185,11 +1184,11 @@
       "train"
     ],
     "doors": {
-      "read": "load",
+      "read": "verify, and every other door",
       "export": "serve",
-      "rehydrate:local": "provider",
-      "rehydrate:private": "provider",
-      "rehydrate:external": "provider",
+      "rehydrate:local": "module set, and serve by --client-endpoint",
+      "rehydrate:private": "module set, and serve by --client-endpoint",
+      "rehydrate:external": "module set, and serve by --client-endpoint",
       "derive": "none yet",
       "redact": "none yet",
       "train": "none yet"

@@ -169,6 +169,7 @@ public sealed class Neo4jModuleReader : IModuleReader
                     Id = carrier, Version = Text(row, "source_carrier_version") ?? "", Digest = Text(row, "source_carrier_digest") ?? "",
                     Signer = Text(row, "source_carrier_signer") ?? "",
                 } : null,
+                UsagePolicy = Text(row, "source_policy"),
             } : null
         },
         Properties = type.Properties.Keys.Where(row.ContainsKey).ToDictionary(key => key, key => JsonSerializer.SerializeToElement(Value(row[key])), StringComparer.Ordinal).AsReadOnly()

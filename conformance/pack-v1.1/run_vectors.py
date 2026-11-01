@@ -1010,6 +1010,9 @@ def main():
     vectors["policy-ended-denial-still-denies"] = (with_policy([{"audience": ["*"], "allow": ["read"]},
                                                                 {"audience": ["*"], "deny": ["read"], "notAfter": "2020-01-01T00:00:00Z"}]), "trust.json", "refused")
     vectors["policy-read-for-another-host"] = (with_policy([{"audience": ["https://other.example/profile#me"], "allow": ["read"]}]), "trust.json", "refused")
+    vectors["policy-read-for-this-named-host"] = (with_policy([{"audience": [buyer], "allow": ["read"]}]), "trust-federated-buyer.json", "verified")
+    vectors["policy-read-for-another-named-host"] = (with_policy([{"audience": [stranger], "allow": ["read"]}]), "trust-federated-buyer.json", "refused")
+    vectors["policy-not-after-impossible-date"] = (with_policy([{"audience": ["*"], "allow": ["read"], "notAfter": "2030-02-30T00:00:00Z"}]), "trust.json", "refused")
     vectors["policy-read-not-granted"] = (with_policy([{"audience": ["*"], "allow": ["export"]}]), "trust.json", "refused")
     vectors["policy-unknown-verb"] = (with_policy([{"audience": ["*"], "allow": ["read", "sell"]}]), "trust.json", "refused")
     vectors["policy-verb-twice"] = (with_policy([{"audience": ["*"], "allow": ["read", "read"]}]), "trust.json", "refused")
@@ -1101,6 +1104,10 @@ def main():
     restricted = dict(set_manifest, requires={"host": ["Inference"]})
     vectors["set-declares-requires"] = (signed({**{k: v for k, v in bundle_content.items()}, "pack.json": (json.dumps(restricted, indent=2) + chr(10)).encode()},
                                                pid_=set_manifest["id"]), "trust.json", "refused")
+    # Feature 10 review, M5: a set or a composite carries no usage policy of its own, as it declares no sdk.
+    a_policy = py.canonical({"format": "agentmemory.pack.policy/1", "rules": [{"allow": ["read"], "audience": ["*"]}]}).encode("utf-8")
+    vectors["composite-carries-a-policy"] = (family_with(**{"policy.json": a_policy}), "trust.json", "refused")
+    vectors["set-carries-a-policy"] = (signed({**bundle_content, "policy.json": a_policy}, pid_=set_manifest["id"]), "trust.json", "refused")
     vectors["composite-member-extra-field"] = (family_with(**{"members.json": (json.dumps({"members": [{"id": pid, "version": "[1,2)", "note": "x"}]}) + chr(10)).encode()}),
                                                "trust.json", "refused")
     for name, member in {"member-without-version": {"id": pid}, "member-priority-text": {"id": pid, "version": "[1,2)", "priority": "1"},

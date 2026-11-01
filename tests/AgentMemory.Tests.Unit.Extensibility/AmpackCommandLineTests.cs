@@ -546,7 +546,7 @@ public sealed class AmpackCommandLineTests : IDisposable
         Done("verify", "martialarts.ampack", "--policy", "trust.json").Should().Contain("permissions");
         var (exit, output) = Ampack("serve", "martialarts.ampack", "--policy", "trust.json");
         exit.Should().NotBe(0);
-        output.Should().Contain("does not let this host export it");
+        output.Should().Contain("does not allow export on this host");
     }
 
     [Fact]

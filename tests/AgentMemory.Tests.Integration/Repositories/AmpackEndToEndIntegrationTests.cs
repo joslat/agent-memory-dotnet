@@ -326,6 +326,33 @@ public sealed partial class ModuleRecordWriteIntegrationTests
         }
     }
 
+    [Fact]
+    public async Task NeoKeepsTheUsagePolicyARecordCameUnderAndAModuleSetWithholdsItFromAModelThePolicyKeepsItFrom()
+    {
+        // Feature 10 (R-CORE-139; review M6, end to end): the martial arts pack lets only a local model see its text. Over the
+        // store, a host that states no endpoint (external) gets nothing from it; one that states local gets its records; one that
+        // composes the pack's module without holding its policy gets nothing (review H1: fail closed).
+        var source = new Dictionary<string, byte[]>(PackAuthoring.FromModuleBundle(RealBundle("MartialArts")), StringComparer.Ordinal)
+        {
+            ["policy.json"] = Encoding.UTF8.GetBytes("""{"format":"agentmemory.pack.policy/1","rules":[{"allow":["read","rehydrate:local"],"audience":["*"]}]}"""),
+        };
+        var pack = PackLoader.Load(PackAuthoring.Build(source, AmpackKey.PrivateKeyPem), AmpackTrust());
+        var importer = new KnowledgePackImporter(new Neo4jKnowledgePackStore(fixture.TransactionRunner));
+        await importer.ImportAsync(pack.Knowledge!);
+        try
+        {
+            var question = new ContextRequest { SessionId = "s", Owner = "lea", Query = "Which kata do I learn for 8th kyu in Shotokan? Heian Shodan" };
+            static bool Offers(ContextEnvelope envelope, string id) => envelope.Sections.Any(s => s.Items.Any(i => i.Provenance?.RecordModuleId == id));
+            await using (var external = Host(m => m.UseNeo4jStore().AddPack(pack)))
+                Offers(await CompileAsync(external, question), pack.Id).Should().BeFalse("an unstated endpoint is external");
+            await using (var local = Host(m => m.UseNeo4jStore().AddPack(pack).UseModelEndpoint(ModelEndpoint.Local)))
+                Offers(await CompileAsync(local, question), pack.Id).Should().BeTrue("the policy lets a local model see it");
+            await using (var unheld = Host(m => m.UseNeo4jStore().AddKnowledgePack(pack.Knowledge!).UseModelEndpoint(ModelEndpoint.Local)))
+                Offers(await CompileAsync(unheld, question), pack.Id).Should().BeFalse("the host does not hold the policy its records name");
+        }
+        finally { await importer.RemoveAsync(pack.Manifest); }
+    }
+
     private static async Task<ContextEnvelope> CompileAsync(IServiceProvider provider, ContextRequest request)
     {
         await using var scope = provider.CreateAsyncScope();

@@ -143,6 +143,8 @@ public sealed record ModuleSnapshot
             Pack = new PackSource
             {
                 Id = Module.Id, Version = Source, Digest = Digest, File = r.Source.Pack?.File ?? "", Line = r.Source.Pack?.Line ?? 0, Carrier = Carrier,
+                // The carrier's policy governs what it carried (feature 10); a snapshot the host built itself has none.
+                UsagePolicy = Carrier?.UsagePolicy,
             },
         },
     });

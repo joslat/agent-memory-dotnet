@@ -2237,6 +2237,21 @@
   ],
   "policy-format-other": [
    "R-CORE-138"
+  ],
+  "composite-carries-a-policy": [
+   "R-CORE-138"
+  ],
+  "set-carries-a-policy": [
+   "R-CORE-138"
+  ],
+  "policy-read-for-this-named-host": [
+   "R-CORE-138"
+  ],
+  "policy-read-for-another-named-host": [
+   "R-CORE-138"
+  ],
+  "policy-not-after-impossible-date": [
+   "R-CORE-138"
   ]
  }
 }

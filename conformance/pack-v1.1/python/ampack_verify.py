@@ -583,6 +583,9 @@ def manifest_checks(manifest, content, now):
         for field in ("sdk", "requires", "containableBy"):
             if field in manifest:
                 raise Refused(f"a {kind} pack declares no {field}: its members carry their own")
+        # Nor a usage policy (feature 10, review M5), as .NET.
+        if REGISTRY["policy"]["path"] in content:
+            raise Refused(f"a {kind} pack carries no usage policy (policy.json): its members carry their own")
     if kind == "composite":
         if LOCK not in content or not manifest.get("contains"):
             raise Refused("a composite names what it contains and pins it in META/lock.json")

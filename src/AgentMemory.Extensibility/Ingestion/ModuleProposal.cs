@@ -108,6 +108,13 @@ public sealed record PackSource
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public PackCarrier? Carrier { get; init; }
+    /// <summary>
+    /// The usage policy that governs this record (feature 10, R-CORE-139): <c>sha256:</c> over the exact bytes of the
+    /// <c>policy.json</c> of the pack that carried it, or null when that pack has none. A host offers the record only while it
+    /// holds that policy and the policy allows it, so a record whose policy the host has not loaded is withheld.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? UsagePolicy { get; init; }
 }
 
 /// <summary>The signed pack that carried a snapshot's records (pack format v1.2 §3): its id, version, digest and signers.</summary>
@@ -122,4 +129,7 @@ public sealed record PackCarrier
     public required string Digest { get; init; }
     /// <summary>Who signed it, as the loader verified it: role and key id, comma separated.</summary>
     public required string Signer { get; init; }
+    /// <summary>The digest of its usage policy (feature 10), which governs the records it carried; null when it has none.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? UsagePolicy { get; init; }
 }

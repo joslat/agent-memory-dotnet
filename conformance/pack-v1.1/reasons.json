@@ -605,6 +605,14 @@
    "usage policy (policy.json) does not let this host read it now",
    "usage policy (policy.json) does not let this host read it now"
   ],
+  "policy-read-for-another-named-host": [
+   "usage policy (policy.json) does not let this host read it now",
+   "usage policy (policy.json) does not let this host read it now"
+  ],
+  "policy-not-after-impossible-date": [
+   "notAfter is an instant in UTC to the second",
+   "notAfter is an instant in UTC to the second"
+  ],
   "policy-read-not-granted": [
    "usage policy (policy.json) does not let this host read it now",
    "usage policy (policy.json) does not let this host read it now"
@@ -716,6 +724,14 @@
   "composite-with-records": [
    "A composite pack holds no records of its own under",
    "a composite pack holds no records of its own"
+  ],
+  "composite-carries-a-policy": [
+   "A composite pack carries no usage policy",
+   "a composite pack carries no usage policy"
+  ],
+  "set-carries-a-policy": [
+   "A set pack carries no usage policy",
+   "a set pack carries no usage policy"
   ],
   "policy-with-a-private-key": [
    "publicKey must be one PEM",

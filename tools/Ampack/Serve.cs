@@ -51,8 +51,24 @@ internal sealed class PackTools
         source = p.SnapshotSource, validUntil = p.ValidUntil, expired = Expired(p),
     }), Json);
 
-    // PACK-staleness: a pack past its validUntil is switched off while the server runs, as a host switches it off.
-    private static bool Expired(LoadedPack pack) => pack.ValidUntil is { } until && DateTimeOffset.UtcNow > until;
+    // PACK-staleness: a pack past its validUntil is switched off while the server runs, as a host switches it off; so is one
+    // whose usage policy no longer lets this host serve it (feature 10, review M1 and M2: asked once, at startup).
+    private static bool Expired(LoadedPack pack) => Off(pack, DateTimeOffset.UtcNow) is not null;
+
+    /// <summary>The class of the model the clients' text reaches (<c>--client-endpoint</c>); unstated, external.</summary>
+    internal static string ClientEndpoint { get; set; } = "external";
+
+    /// <summary>
+    /// Why the pack is not served now, or null: past its validUntil, or its usage policy does not let this host read it, export
+    /// it, or send its text to the clients' model (review F10, M4: serving over MCP is rehydration at the client's endpoint).
+    /// </summary>
+    internal static string? Off(LoadedPack pack, DateTimeOffset now)
+    {
+        if (pack.ValidUntil is { } until && now > until) return $"{pack.Id} was valid until {until:u}; it is switched off.";
+        foreach (var verb in (string[])["read", "export", "rehydrate:" + ClientEndpoint])
+            if (!PolicyGate.Allows(pack, verb, now)) return $"{pack.Id}: its usage policy (policy.json) does not allow {verb} on this host now, so it is not served.";
+        return null;
+    }
 
     private static HashSet<string> ExpiredIds(PackMount mount) =>
         mount.Packs.Where(Expired).Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
@@ -66,8 +82,8 @@ internal sealed class PackTools
         [Description("At most this many records (the view's own limit when omitted)")] int? limit = null,
         CancellationToken cancellationToken = default)
     {
-        if (mount.Packs.FirstOrDefault(p => p.Id == pack) is { } loaded && Expired(loaded))
-            return JsonSerializer.Serialize(new { error = $"{pack} was valid until {loaded.ValidUntil:u}; it is switched off." }, Json);
+        if (mount.Packs.FirstOrDefault(p => p.Id == pack) is { } loaded && Off(loaded, DateTimeOffset.UtcNow) is { } off)
+            return JsonSerializer.Serialize(new { error = off }, Json);
         var expired = ExpiredIds(mount);
         // A snapshot's records leave with their carrier, as on a walk (red team 7).
         try

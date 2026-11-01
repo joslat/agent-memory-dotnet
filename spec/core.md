@@ -593,7 +593,7 @@ its extensions, or one of its values of a field (a field that is absent takes it
 | `federation` | yes |  |  | `federation` |  |  |
 | `protection` | no |  |  |  | `protection`: `audience`, `licensed`, `attested`, `hosted` | {id} is protected as '{protection}'; this host opens 'open' packs only. |
 | `code` | no | `queries.json`, `queries/`, `components.json`, `components/` |  |  | `code`: `E1`, `E2` | {id} carries code (tier {code}); this host runs declarative (E0) packs only. |
-| `permissions` | yes | `policy.json` |  |  |  | {id} carries a usage policy (policy.json); this host cannot enforce one yet, so it does not load the pack. |
+| `permissions` | yes | `policy.json` |  |  |  |  |
 | `embeddings` | yes | `embeddings/` |  |  |  |  |
 <!-- /registry -->
 
@@ -909,18 +909,22 @@ a WebID), optionally `allow` and `deny` (distinct verbs of `read`, `derive`, `ex
 `rehydrate:private`, `rehydrate:external` and `train`; at least one verb between them), and optionally `notAfter` (an instant
 in UTC to the second). A verb is allowed for a host when a rule whose audience names everyone or one of the host's WebIDs
 allows it and has not ended (now is at or before its `notAfter`), and no such rule denies it, ended or not: deny wins, and an
-ended rule stops granting but never stops refusing. A verifier MUST refuse a pack its policy does not let the host read.
+ended rule stops granting but never stops refusing. A verifier MUST refuse a pack its policy does not let the host read. A set
+or a composite carries no policy of its own (its members carry theirs), and a verifier MUST refuse one that does.
 
-**R-CORE-139.** A host MUST ask the policy at the door where each verb's action happens, and MUST NOT act when the verb is not
-allowed: `export` where it serves a pack's records to another program, and `rehydrate:<class>` where it sends a record's text
-to a model, by the class of the endpoint its operator states (`local`, `private` or `external`; an endpoint of unstated class
-is `external`). `derive`, `redact` and `train` are declared; a host that derives from, redacts or trains on a pack asks them
+**R-CORE-139.** A host MUST ask the policy at the door where each verb's action happens, at the time it acts, and MUST NOT act
+when the verb is not allowed; `read` is a condition of every other verb. A host asks `export` where it serves a pack's records
+to another program, and `rehydrate:<class>` where it sends a record's text to a model, by the class of the endpoint its
+operator states (`local`, `private` or `external`; an endpoint of unstated class is `external`); a program it serves is a
+model of the class its operator states for its clients. Every record a pack with a policy carries names that policy (the
+`sha256:` digest of its `policy.json`) wherever it is stored, and a host MUST NOT offer a record whose policy it does not hold. `derive`, `redact` and `train` are declared; a host that derives from, redacts or trains on a pack asks them
 too. Each verb maps to an ODRL action: `read` to `odrl:read`, `derive` to `odrl:derive`, `export` to `odrl:distribute`,
 `redact` to `odrl:anonymize`, and `rehydrate:*` and `train` to `odrl:use` with the endpoint class or the training purpose as
 its constraint.
 
 > Why: a pack's owner says what a receiver may do, and a host enforces it where the action is, not by trusting the receiver's
-> code to remember; inside the signed content, the policy cannot be swapped.
+> code to remember; inside the signed content, the policy cannot be swapped. A policy binds a host that honours this
+> specification: it is evidence for audits and contracts, not a technical control over a host that ignores it.
 
 ## 18. Limits
 

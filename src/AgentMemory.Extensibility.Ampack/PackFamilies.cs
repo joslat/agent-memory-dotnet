@@ -132,7 +132,10 @@ public static partial class PackFamilies
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(family);
-        return builder.AddComposite(family.Manifest, members => AddMembers(members, family), configure);
+        var added = builder.AddComposite(family.Manifest, members => AddMembers(members, family), configure);
+        // What AddPack does for a pack, for every member too (review F10, H2): its erasures and its usage policy.
+        foreach (var member in family.AllMembers) added.UseErasures(member.Erasures).UsePackPolicy(member);
+        return added;
     }
 
     /// <summary>

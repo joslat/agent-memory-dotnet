@@ -362,6 +362,9 @@ internal static class PackVerifier
         if (manifest.Kind is "composite" or "set")
             foreach (var field in (string[])["sdk", "requires", "containableBy"])
                 if (manifest.Present.Contains(field)) yield return $"A {manifest.Kind} pack declares no {field}: its members carry their own.";
+        // Nor a usage policy (feature 10, review M5): it would be asked for read only, and its members could be wider than it.
+        if (manifest.Kind is "composite" or "set" && all.Contains(PackPolicy.FileName))
+            yield return $"A {manifest.Kind} pack carries no usage policy ({PackPolicy.FileName}): its members carry their own.";
         // Review 1, L6: a composite pins packs and holds no records of its own (spec §3).
         if (manifest.Kind == "composite" && records > 0) yield return $"A composite pack holds no records of its own under {PackLayout.Records}.";
         if (manifest.Kind == "composite" && all.Contains(PackPaths.LockFile))

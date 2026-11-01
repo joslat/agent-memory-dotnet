@@ -65,9 +65,10 @@ public sealed class ModuleSetBuilder
         return this;
     }
 
-    // The packs whose usage policy this host asks before offering their records (feature 10): by pack id, whether a verb is
-    // allowed at an instant. Registered by the pack loader, for the packs it adds and the snapshot packs whose records it carries.
-    internal List<(string PackId, Func<string, DateTimeOffset, bool> Allows)> PackPolicies { get; } = [];
+    // The usage policies this host holds (feature 10), by their digest: whether a verb is allowed at an instant. Registered by
+    // the pack loader for the packs it adds, their members, and the snapshot packs whose records the host imported. A record
+    // governed by a policy not here is withheld.
+    internal List<(string Digest, Func<string, DateTimeOffset, bool> Allows)> PackPolicies { get; } = [];
 
     /// <summary>
     /// Leaves out of every view and walk the records whose effective confidence (feature 09, R-CORE-137) is below

@@ -171,8 +171,10 @@ public sealed record LoadedPack
     /// id. An import applies them before it writes, and the records they name stay out of every read of this pack.
     /// </summary>
     public IReadOnlyList<ModuleErasure> Erasures { get; internal init; } = [];
-    // Its usage policy (feature 10), as signed with it, and the WebIDs this host acts as, from the trust it loaded under.
+    // Its usage policy (feature 10), as signed with it, its digest, which the records it carries name, and the WebIDs this host
+    // acts as, from the trust it loaded under.
     internal PackPolicy? UsagePolicy { get; init; }
+    internal string? PolicyDigest { get; init; }
     internal IReadOnlyList<string> HostWebIds { get; init; } = [];
     /// <summary>Whether it says what it was made from (feature 09): <c>META/derivation.json</c>, inside its signed content.</summary>
     public bool HasDerivation { get; internal init; }
@@ -310,6 +312,17 @@ public static class PackLoader
             foreach (var file in PackLayout.RecordFiles(pack.Files.Keys)) recordFiles[file] = pack.Files[file];
         }
 
+        // The usage policy (feature 10): verified with the pack, so it parses; one that did not would fail open, so it refuses
+        // (review F10, L6). Each record it carries names it, so it governs them wherever they are stored.
+        PackPolicy? policy = null;
+        string? policyDigest = null;
+        if (pack.Files.TryGetValue(PackPolicy.FileName, out var usage))
+        {
+            policy = PackPolicy.Parse(usage) is { Policy: { } read } ? read : throw new PackLoadException([$"{pack.Id}: {PackPolicy.Parse(usage).Problem}"]);
+            policyDigest = "sha256:" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(usage)).ToLowerInvariant();
+            if (knowledge is not null)
+                knowledge = knowledge.WithProposals([.. knowledge.Proposals.Select(r => r with { Source = r.Source with { Pack = r.Source.Pack! with { UsagePolicy = policyDigest } } })]);
+        }
         var validUntil = ValidUntil(pack, trust.Policy);
         if (knowledge is not null) knowledge.ValidUntil = validUntil;
         return new LoadedPack
@@ -323,7 +336,7 @@ public static class PackLoader
             Certificates = PackCertificates.Read(pack, ledger is null ? trust.Policy : ledger.Ledger.Apply(trust.Policy), DateTimeOffset.UtcNow),
             Erasures = PackErasures.Read(pack, ledger is null ? trust.Policy : ledger.Ledger.Apply(trust.Policy), DateTimeOffset.UtcNow),
             HasDerivation = pack.Files.ContainsKey(PackDerivation.FileName),
-            UsagePolicy = pack.Files.TryGetValue(PackPolicy.FileName, out var usage) ? PackPolicy.Parse(usage).Policy : null,
+            UsagePolicy = policy, PolicyDigest = policyDigest,
             HostWebIds = trust.Policy.HostWebIds,
             // An absent file is null, not empty: a plain null would convert, through byte[], to an empty and present ReadOnlyMemory.
             Tests = pack.Files.TryGetValue(PackTests.FileName, out var tests) ? new ReadOnlyMemory<byte>(tests) : (ReadOnlyMemory<byte>?)null,
@@ -388,8 +401,8 @@ public static class PackLoader
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(pack);
-        if (pack.UsagePolicy is not null && builder.PackPolicies.All(p => p.PackId != pack.Id))
-            builder.PackPolicies.Add((pack.Id, (verb, now) => PolicyGate.Allows(pack, verb, now)));
+        if (pack.PolicyDigest is { } digest && builder.PackPolicies.All(p => p.Digest != digest))
+            builder.PackPolicies.Add((digest, (verb, now) => PolicyGate.Allows(pack, verb, now)));
         return builder;
     }
 
@@ -404,7 +417,7 @@ public static class PackLoader
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(pack);
         if (pack.Kind == "snapshot")
-            throw new PackLoadException([$"{pack.Id} is a snapshot pack: compose its definition, and import the snapshot with ToSnapshot."]);
+            throw new PackLoadException([$"{pack.Id} is a snapshot pack: compose its definition, import the snapshot with ToSnapshot, and give the host its usage policy with UsePackPolicy."]);
         var added = pack.Knowledge is { } knowledge ? builder.AddKnowledgePack(knowledge, priority, pack.ValidUntil)
             : builder.AddDefinitionPack(pack.Manifest, pack.Digest, string.Join(", ", pack.Signers), priority, pack.ValidUntil);
         // The pack's verified erasures: no view or walk offers what they name (feature 08).
@@ -445,7 +458,7 @@ public static class PackLoader
         {
             return ModuleSnapshot.FromRecordFiles(definition, dependencies ?? [], pack.SnapshotSource!, pack.RecordFiles, grants) with
             {
-                Carrier = new PackCarrier { Id = pack.Id, Version = pack.Version, Digest = pack.Digest, Signer = string.Join(", ", pack.Signers) },
+                Carrier = new PackCarrier { Id = pack.Id, Version = pack.Version, Digest = pack.Digest, Signer = string.Join(", ", pack.Signers), UsagePolicy = pack.PolicyDigest },
             };
         }
         catch (KnowledgePackException e) { throw new PackLoadException(e.Problems); }

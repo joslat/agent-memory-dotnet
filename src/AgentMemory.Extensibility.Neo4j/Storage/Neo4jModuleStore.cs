@@ -333,6 +333,7 @@ public sealed class Neo4jModuleStore : IModuleStore
         // A life, given or stored, goes the per-record path, which compares it as the store does (feature 07 review, H1).
         if (proposal.Life is not null || ModuleRecordQueries.LifeProperties.Any(p => stored.Row.ContainsKey(p.Name))) return false;
         if (proposal.ConfidenceMicro is not null || stored.Row.ContainsKey("confidence_micro")) return false;
+        if (proposal.Source.Pack?.UsagePolicy is not null || stored.Row.ContainsKey("source_policy")) return false;
         var type = module.Ontology!.Types.Single(t => t.Name == proposal.Type);
         foreach (var (name, property) in type.Properties)
         {
@@ -456,7 +457,8 @@ public sealed class Neo4jModuleStore : IModuleStore
         string? Instant(DateTimeOffset? value) => value?.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
         var (validFrom, validTo, expiresAt, reviewBy) = (Instant(life?.ValidFromUtc), Instant(life?.ValidToUtc), Instant(life?.ExpiresAtUtc), Instant(life?.ReviewByUtc));
         var oldRows = previousId is null ? [] : await RowsAsync(runner, ModuleRecordQueries.Current(type),
-            new { id = previousId, properties, now = atUtc.ToString("O"), validFrom, validTo, expiresAt, reviewBy, confidence = (long?)proposal.ConfidenceMicro }, cancellationToken).ConfigureAwait(false);
+            new { id = previousId, properties, now = atUtc.ToString("O"), validFrom, validTo, expiresAt, reviewBy, confidence = (long?)proposal.ConfidenceMicro,
+                policy = proposal.Source.Pack?.UsagePolicy }, cancellationToken).ConfigureAwait(false);
         if (previousId is not null && oldRows.Count != 1) throw new ModuleRecordRefusal("Module version history is incomplete.");
         var old = oldRows.SingleOrDefault();
         if (old is not null)
@@ -485,7 +487,7 @@ public sealed class Neo4jModuleStore : IModuleStore
             now = atUtc.ToString("O"), session = request.SessionId, sources = proposal.Source.MessageIds.ToArray(), excerpt = proposal.Source.Excerpt,
             pack = pack?.Id, packVersion = pack?.Version, packDigest = pack?.Digest, packFile = pack?.File, packLine = pack?.Line,
             carrier = pack?.Carrier?.Id, carrierVersion = pack?.Carrier?.Version, carrierDigest = pack?.Carrier?.Digest, carrierSigner = pack?.Carrier?.Signer,
-            validFrom, validTo, expiresAt, reviewBy, confidence = (long?)proposal.ConfidenceMicro, properties }, cancellationToken).ConfigureAwait(false);
+            policy = pack?.UsagePolicy, validFrom, validTo, expiresAt, reviewBy, confidence = (long?)proposal.ConfidenceMicro, properties }, cancellationToken).ConfigureAwait(false);
         foreach (var link in links.Links)
             await OneAsync(runner, ModuleRecordQueries.Link(type.Name, link.Relation, link.TargetLabel), new { id, target = link.TargetId, owner }, cancellationToken).ConfigureAwait(false);
         if (previousId is not null)

@@ -40,6 +40,20 @@ public sealed class SnapshotPackTests
             StringComparer.Ordinal);
 
     [Fact]
+    public void A_snapshot_s_records_name_the_usage_policy_of_the_pack_that_carried_them()
+    {
+        // Feature 10, review H1: the policy goes with the records wherever they are stored, so a host that imports them and
+        // composes the definition another way still asks it.
+        var source = Source(CodeMap("git:local"));
+        source["policy.json"] = Encoding.UTF8.GetBytes("""{"format":"agentmemory.pack.policy/1","rules":[{"allow":["read","rehydrate:local"],"audience":["*"]}]}""");
+        var loaded = PackLoader.Load(PackAuthoring.Build(source, _key.PrivateKeyPem), Trust());
+        var stamped = loaded.ToSnapshot(CodeMapPack.Manifest).Stamped().ToList();
+        loaded.PolicyDigest.Should().StartWith("sha256:");
+        stamped.Should().NotBeEmpty().And.OnlyContain(r => r.Source.Pack!.UsagePolicy == loaded.PolicyDigest);
+        new ModuleSetBuilder().UsePackPolicy(loaded).PackPolicies.Should().ContainSingle(p => p.Digest == loaded.PolicyDigest);
+    }
+
+    [Fact]
     public void A_code_map_snapshot_round_trips_through_an_ampack_with_exactly_its_records()
     {
         var snapshot = CodeMap("git:local");

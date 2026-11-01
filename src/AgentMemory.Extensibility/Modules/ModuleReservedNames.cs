@@ -26,7 +26,7 @@ internal static class ModuleReservedNames
         "valid_from", "valid_to", "expires_at", "review_by", "confidence_micro",
         "source_session_id", "source_message_ids", "source_excerpt",
         "source_pack", "source_pack_version", "source_pack_digest", "source_pack_file", "source_pack_line",
-        "source_carrier", "source_carrier_version", "source_carrier_digest", "source_carrier_signer"
+        "source_carrier", "source_carrier_version", "source_carrier_digest", "source_carrier_signer", "source_policy"
     }.ToFrozenSet(StringComparer.Ordinal);
 
     // Base/bootstrap, all built-in migration objects, upstream snapshot and module bookkeeping.
