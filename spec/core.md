@@ -699,6 +699,7 @@ only its properties, each required one present:
 | Built in relation | from | to |
 |---|---|---|
 | `part_of` | chunk | document |
+| `links_to` | note | note |
 <!-- /registry -->
 
 **R-CORE-124.** A type MAY name one of its string properties as its `text`, the record's main text (a built-in type names

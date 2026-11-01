@@ -61,6 +61,19 @@ public sealed partial class PackMemory : IModuleTraversalReader
         [.. Records.Where(r => AgentMemory.Extensibility.Reading.ModuleRecordLife.IsLive(r.Life, now)).Select(r => Hit(r, null))];
 
     /// <summary>
+    /// The live records of the same module one record links to, and those that link to it (feature 16, R4: the folder view's
+    /// walk), by type and key; none for a record not held.
+    /// </summary>
+    public IReadOnlyList<(string Type, string Key)> Neighbours(string module, string type, string key, DateTimeOffset now)
+    {
+        if (_byId.Values.FirstOrDefault(r => r.ModuleId == module && r.Type == type && r.Key == key) is not { } start) return [];
+        var outgoing = start.Links.Select(l => _byId.GetValueOrDefault(l.TargetId)).OfType<ModuleRecord>();
+        var incoming = _incoming.Where(e => e.Key.TargetId == start.Id).SelectMany(e => e.Value);
+        return [.. outgoing.Concat(incoming).Where(r => r.ModuleId == module && AgentMemory.Extensibility.Reading.ModuleRecordLife.IsLive(r.Life, now))
+            .Select(r => (r.Type, r.Key)).Distinct()];
+    }
+
+    /// <summary>
     /// Holds knowledge packs and snapshots in memory. A snapshot brings its module and its dependencies; a link into a record
     /// none of them holds is left out, as the store leaves it out.
     /// </summary>

@@ -393,16 +393,46 @@ public sealed class KnowledgePack
         catch (JsonException e) { problems.Add(at + ": not valid JSON (" + e.Message + ")."); return null; }
     }
 
-    // Targets first: a record's links resolve only to records already written in the same import.
+    // Targets first: a record's links resolve only to records already written in the same import. Types in dependency order;
+    // within a type that links to itself (a built-in links_to, feature 16), each record after the records it links to, and
+    // records that link in a cycle are refused, since a store writes no link to a record not yet written.
     private static IReadOnlyList<ModuleProposal> Ordered(ModuleManifest manifest, IReadOnlyList<ModuleProposal> records)
     {
         var types = manifest.Ontology!.Types.ToDictionary(t => t.Name, StringComparer.Ordinal);
         var order = DependencyOrder.Resolve(types, types.Keys.Order(StringComparer.Ordinal),
-            t => manifest.Ontology.Relations.Where(r => r.From == t.Name).Select(r => r.To).Distinct(StringComparer.Ordinal),
+            t => manifest.Ontology.Relations.Where(r => r.From == t.Name && r.To != t.Name).Select(r => r.To).Distinct(StringComparer.Ordinal),
             (parent, id) => new KnowledgePackException([$"{parent} links to unknown type {id}."]),
             cycle => new KnowledgePackException(["The pack's relations form a cycle: " + string.Join(", ", cycle) + "."]));
-        var rank = order.Select((t, i) => (t.Name, i)).ToDictionary(p => p.Name, p => p.i, StringComparer.Ordinal);
-        return records.Select((r, i) => (r, i)).OrderBy(p => rank[p.r.Type]).ThenBy(p => p.i).Select(p => p.r).ToList().AsReadOnly();
+        var result = new List<ModuleProposal>(records.Count);
+        foreach (var type in order)
+        {
+            var mine = records.Where(r => r.Type == type.Name).ToList();
+            var self = manifest.Ontology.Relations.Where(r => r.From == type.Name && r.To == type.Name).Select(r => r.Name).ToHashSet(StringComparer.Ordinal);
+            if (self.Count == 0) { result.AddRange(mine); continue; }
+            // Stable: each record in the pack's own order, once the records it links to are placed (Kahn's order by position).
+            var keys = mine.Select(r => r.Key).Distinct(StringComparer.Ordinal).ToList();
+            var position = keys.Select((k, i) => (k, i)).ToDictionary(p => p.k, p => p.i, StringComparer.Ordinal);
+            var waiting = keys.ToDictionary(k => k, k => mine.Where(r => r.Key == k).SelectMany(r => r.Links)
+                .Where(l => self.Contains(l.Relation) && position.ContainsKey(l.Target) && l.Target != k).Select(l => l.Target).ToHashSet(StringComparer.Ordinal), StringComparer.Ordinal);
+            var users = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+            foreach (var (key, targets) in waiting)
+                foreach (var target in targets) (users.TryGetValue(target, out var list) ? list : users[target] = []).Add(key);
+            var ready = new SortedSet<int>(keys.Where(k => waiting[k].Count == 0).Select(k => position[k]));
+            var placed = new List<string>(keys.Count);
+            while (ready.Count > 0)
+            {
+                var next = keys[ready.Min];
+                ready.Remove(ready.Min);
+                placed.Add(next);
+                foreach (var user in users.GetValueOrDefault(next) ?? [])
+                    if (waiting[user].Remove(next) && waiting[user].Count == 0) ready.Add(position[user]);
+            }
+            if (placed.Count < keys.Count)
+                throw new KnowledgePackException([$"{type.Name} records link in a cycle: " + string.Join(", ", keys.Where(k => waiting[k].Count > 0).Take(8)) + "."]);
+            var byKey = mine.GroupBy(r => r.Key, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
+            result.AddRange(placed.SelectMany(k => byKey[k]));
+        }
+        return result.AsReadOnly();
     }
 
     private static string Utf8(ReadOnlyMemory<byte> bytes, string file)

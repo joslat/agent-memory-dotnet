@@ -58,8 +58,11 @@ public static class PackResources
     /// <summary>
     /// The packs as a read-only memory folder (feature 16, R4): <c>/memories</c> lists the packs, <c>/memories/{id}</c> a pack's
     /// records as files <c>{type}/{key}</c>, and <c>/memories/{id}/{type}/{key}</c> a record's text. Nothing is ever written.
+    /// Given <paramref name="from"/>, a record in hand as <c>{type}/{key}</c>, a pack's entries are ordered by the walk from it:
+    /// that record, then the records its links reach (either way) by the fewest links, up to three, then the rest.
     /// </summary>
-    public static string MemoryView(PackMount mount, string path, Func<LoadedPack, string?> off, IReadOnlyDictionary<string, string> keptOff, DateTimeOffset now)
+    public static string MemoryView(PackMount mount, string path, Func<LoadedPack, string?> off, IReadOnlyDictionary<string, string> keptOff, DateTimeOffset now,
+        string? from = null)
     {
         ArgumentNullException.ThrowIfNull(mount);
         var parts = (path ?? "").Trim().TrimEnd('/').Split('/', 4, StringSplitOptions.None);
@@ -80,11 +83,34 @@ public static class PackResources
         if (off(pack) is { } offReason) return Serialize(new { error = offReason });
         var held = Held(mount, pack, off, now);
         if (parts.Length == 3)
+        {
+            var entries = held.Select(h => h.Type + "/" + h.Key).ToList();
+            if (from is not null)
+            {
+                var anchor = from.Trim().Trim('/');
+                if (!entries.Contains(anchor)) return Serialize(new { error = $"{id} holds no live record at '{anchor}' to walk from." });
+                // Breadth first over the pack's links, three links at most, as a walk goes; the rest keep their order after.
+                var distance = new Dictionary<string, int>(StringComparer.Ordinal) { [anchor] = 0 };
+                var frontier = new List<string> { anchor };
+                for (var hop = 1; hop <= 3 && frontier.Count > 0; hop++)
+                {
+                    var next = new List<string>();
+                    foreach (var at in frontier)
+                    {
+                        var cut = at.IndexOf('/', StringComparison.Ordinal);
+                        foreach (var (type, key) in mount.Memory.Neighbours(pack.Kind == "snapshot" ? held.First().Module : id, at[..cut], at[(cut + 1)..], now))
+                            if (distance.TryAdd(type + "/" + key, hop) && entries.Contains(type + "/" + key)) next.Add(type + "/" + key);
+                    }
+                    frontier = next;
+                }
+                entries = [.. entries.OrderBy(e => distance.GetValueOrDefault(e, int.MaxValue)).ThenBy(e => e, StringComparer.Ordinal)];
+            }
             return Serialize(new
             {
-                path = "/memories/" + id, total = held.Count,
-                entries = held.Take(MaximumEntries).Select(h => h.Type + "/" + h.Key).ToList(),
+                path = "/memories/" + id, total = held.Count, from = from is null ? null : from.Trim().Trim('/'),
+                entries = entries.Take(MaximumEntries).ToList(),
             });
+        }
         var rest = parts[3];
         var slash = rest.IndexOf('/', StringComparison.Ordinal);
         var hit = slash <= 0 ? null : held.FirstOrDefault(h => h.Type == rest[..slash] && h.Key == rest[(slash + 1)..]);

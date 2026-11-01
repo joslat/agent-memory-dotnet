@@ -1040,6 +1040,10 @@
       "part_of": {
         "from": "chunk",
         "to": "document"
+      },
+      "links_to": {
+        "from": "note",
+        "to": "note"
       }
     },
     "lifeFields": [

@@ -98,11 +98,12 @@ public sealed class ImportTests
             .And.Contain(s => s.StartsWith("'empty.md': no text")).And.Contain(s => s.Contains("'bob'"));
         result.Skipped.Should().NotContain(s => s.Contains("projects/atlas'"), "a link to a note the folder holds is not reported");
         result.Dropped.Should().ContainKey("front matter 'role'");
-        var notes = PackLoader.Load(result.Archive, Trust()).Knowledge!.Proposals;
-        notes.Select(n => n.Key).Should().Equal("people/ana.md", "projects/atlas.md");
-        notes[0].Properties["text"].GetString().Should().Be("Ana leads [[projects/atlas]] and knows [[bob]].");
-        notes[0].Life!.ValidFromUtc.Should().Be(new DateTimeOffset(2026, 9, 1, 0, 0, 0, TimeSpan.Zero), "front matter wins over git");
-        notes[1].Life!.ValidFromUtc.Should().Be(new DateTimeOffset(2026, 8, 3, 10, 0, 0, TimeSpan.Zero), "a file that names no date dates from its first commit");
+        var notes = PackLoader.Load(result.Archive, Trust()).Knowledge!.Proposals.ToDictionary(n => n.Key);
+        notes.Keys.Should().BeEquivalentTo(["people/ana.md", "projects/atlas.md"]);
+        notes["people/ana.md"].Properties["text"].GetString().Should().Be("Ana leads [[projects/atlas]] and knows [[bob]].");
+        notes["people/ana.md"].Links.Select(l => l.Target).Should().Equal(["projects/atlas.md"], "a wikilink to a note the folder holds is a links_to link");
+        notes["people/ana.md"].Life!.ValidFromUtc.Should().Be(new DateTimeOffset(2026, 9, 1, 0, 0, 0, TimeSpan.Zero), "front matter wins over git");
+        notes["projects/atlas.md"].Life!.ValidFromUtc.Should().Be(new DateTimeOffset(2026, 8, 3, 10, 0, 0, TimeSpan.Zero), "a file that names no date dates from its first commit");
     }
 
     [Fact]

@@ -26,6 +26,34 @@ public sealed class PackResourcesTests
     }
 
     [Fact]
+    public void Links_become_links_to_and_the_folder_view_orders_by_the_walk_from_the_note_in_hand()
+    {
+        // a → b → c → d (a cycle back from b to a), e unlinked; links by wikilink and by Markdown link.
+        var files = new Dictionary<string, byte[]>(StringComparer.Ordinal)
+        {
+            ["a.md"] = Encoding.UTF8.GetBytes("See [[b]]."), ["b.md"] = Encoding.UTF8.GetBytes("Back to [a](a.md), on to [[sub/c|c]]."),
+            ["sub/c.md"] = Encoding.UTF8.GetBytes("On to [d](../d.md)."), ["d.md"] = Encoding.UTF8.GetBytes("The end."), ["e.md"] = Encoding.UTF8.GetBytes("Alone."),
+        };
+        var imported = PackImports.FromFolder(files, null, "com.example.links", "1.0.0", "Example Owner", Key.PrivateKeyPem);
+        var archive = imported.Archive;
+        var trust = PackTrust.Parse(Encoding.UTF8.GetBytes(PackAuthoring.TrustPolicy(Key.PublicKeyPem, "com.example")));
+        var records = PackLoader.Load(archive, trust).Knowledge!.Proposals.ToDictionary(p => p.Key);
+        records["a.md"].Links.Select(l => l.Target).Should().Equal("b.md");
+        records["b.md"].Links.Select(l => l.Target).Should().Equal(["sub/c.md"], "b's link back to a would close a cycle, so it stays text");
+        imported.Skipped.Should().ContainSingle(s => s.Contains("'b.md'") && s.Contains("close a cycle"));
+        records["sub/c.md"].Links.Select(l => l.Target).Should().Equal("d.md");
+
+        var mount = PackMemory.Mount([archive], trust);
+        var type = records["a.md"].Type;
+        string[] Order(string? from) => [.. JsonNode.Parse(PackResources.MemoryView(mount, "/memories/com.example.links", _ => null, None, Now, from))!["entries"]!.AsArray()
+            .Select(e => e!.GetValue<string>()[(type.Length + 1)..])];
+        Order(null).Should().Equal("a.md", "b.md", "d.md", "e.md", "sub/c.md");
+        Order($"{type}/a.md").Should().Equal("a.md", "b.md", "sub/c.md", "d.md", "e.md");
+        Order($"{type}/d.md").Should().Equal("d.md", "sub/c.md", "b.md", "a.md", "e.md");
+        JsonNode.Parse(PackResources.MemoryView(mount, "/memories/com.example.links", _ => null, None, Now, $"{type}/nowhere.md"))!["error"].Should().NotBeNull();
+    }
+
+    [Fact]
     public void A_served_pack_answers_its_live_records_as_files_and_resources()
     {
         var mount = Mount();

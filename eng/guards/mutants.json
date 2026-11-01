@@ -2058,6 +2058,21 @@
    "sha256": "ab7db7fd7bed5b66191e123b9c231d696efd102151350aa6edd5d31ae216e02a"
   },
   {
+   "id": "folder-link-cycle-kept",
+   "rule": "FOLDER-FRONT-MATTER-STRICT",
+   "door": "build",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackImports.cs",
+   "edits": [
+    {
+     "old": "                    if (Reaches(target, from)) { skipped.Add(",
+     "new": "                    if (Reaches(target, from) && from.Length < 0) { skipped.Add("
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackResourcesTests.Links_become",
+   "sha256": "3120f541499a3e04f1725f8d605c8fe13cc230272376188168eeb5185a781791"
+  },
+  {
    "id": "folder-rename-forgotten",
    "rule": "FOLDER-FRONT-MATTER-STRICT",
    "door": "build",

@@ -94,9 +94,10 @@ internal sealed class PackTools
     /// <summary>The packs the host's trial gate kept off at startup, with its reason (feature 17).</summary>
     internal static System.Collections.Concurrent.ConcurrentDictionary<string, string> KeptOff { get; } = new(StringComparer.Ordinal);
 
-    [McpServerTool(Name = "memory_view", ReadOnly = true), Description("The packs as a read-only memory folder: '/memories' lists the packs, '/memories/<pack id>' a pack's records as files '<type>/<key>', and '/memories/<pack id>/<type>/<key>' a record's text with its provenance. Nothing is written.")]
-    public static string MemoryView(PackMount mount, [Description("A path under /memories")] string path) =>
-        PackResources.MemoryView(mount, path, p => Off(p, DateTimeOffset.UtcNow), KeptOff, DateTimeOffset.UtcNow);
+    [McpServerTool(Name = "memory_view", ReadOnly = true), Description("The packs as a read-only memory folder: '/memories' lists the packs, '/memories/<pack id>' a pack's records as files '<type>/<key>', and '/memories/<pack id>/<type>/<key>' a record's text with its provenance. Given 'from', a record in hand, a pack's files are ordered by the walk from it, nearest first. Nothing is written.")]
+    public static string MemoryView(PackMount mount, [Description("A path under /memories")] string path,
+        [Description("A record in hand, as '<type>/<key>' from a listing: the pack's files are then ordered by the walk from it")] string? from = null) =>
+        PackResources.MemoryView(mount, path, p => Off(p, DateTimeOffset.UtcNow), KeptOff, DateTimeOffset.UtcNow, from);
 
     // PACK-staleness: a pack past its validUntil is switched off while the server runs, as a host switches it off; so is one
     // whose usage policy no longer lets this host serve it (feature 10, review M1 and M2: asked once, at startup).

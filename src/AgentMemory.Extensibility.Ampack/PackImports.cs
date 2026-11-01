@@ -123,7 +123,9 @@ public static partial class PackImports
     /// text. Front matter is a strict subset (<c>key: value</c> lines, a string, an integer or a date; anything else refuses
     /// the file); its life fields (<c>validFrom</c>, <c>validTo</c>, <c>expiresAt</c>, <c>reviewBy</c>) are kept and every other
     /// key is reported as dropped. <paramref name="firstCommits"/> gives a file's first commit, the <c>validFrom</c> of a file
-    /// that names none. <c>[[wikilinks]]</c> stay in the text; a link to a note the folder does not hold is reported.
+    /// that names none. A <c>[[wikilink]]</c> or a Markdown link to another <c>.md</c> file of the folder becomes a
+    /// <c>links_to</c> link to that note, and stays in the text as written; a link to a note the folder does not hold, or to a
+    /// name two notes share, is reported.
     /// A file git saw renamed keeps its history (R3): each old path is a note of the text it held just before the rename, from
     /// its own first commit, and the note at the new path supersedes it, so the old one ends where the rename begins.
     /// </summary>
@@ -140,8 +142,13 @@ public static partial class PackImports
     {
         ArgumentNullException.ThrowIfNull(files);
         var names = files.Keys.Where(p => p.EndsWith(".md", StringComparison.OrdinalIgnoreCase)).Order(StringComparer.Ordinal).ToList();
-        var known = new HashSet<string>(names.SelectMany(p => new[] { p, p[..^3], Path.GetFileName(p), Path.GetFileNameWithoutExtension(p) })
-            .Select(n => n.Normalize(NormalizationForm.FormC)), StringComparer.OrdinalIgnoreCase);
+        // Every name a link may use for a note (its path, with or without .md, its file name, with or without .md), and the
+        // note it names; a name two notes share names neither.
+        var named = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var path in names)
+            foreach (var alias in new[] { path, path[..^3], Path.GetFileName(path), Path.GetFileNameWithoutExtension(path) }.Select(n => n.Normalize(NormalizationForm.FormC)).Distinct(StringComparer.OrdinalIgnoreCase))
+                named[alias] = named.TryGetValue(alias, out var other) && other != path ? null : path;
+        var links = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         var dropped = new SortedDictionary<string, int>(StringComparer.Ordinal);
         var skipped = new List<string>();
         var lines = new List<(string Key, string Text, IReadOnlyDictionary<string, string>? Life)>();
@@ -168,8 +175,19 @@ public static partial class PackImports
             // The first commit dates a note that names no start, unless the note ended before it (review 15-17, F2).
             if (!life.ContainsKey("validFrom") && date.Length != 0 && !(life.TryGetValue("validTo", out var end) && string.CompareOrdinal(end, date) <= 0))
                 life["validFrom"] = date;
-            foreach (Match link in Regex.Matches(body, @"\[\[([^\[\]|#\n]{1,200})(?:[|#][^\[\]\n]{0,200})?\]\]"))
-                if (!known.Contains(link.Groups[1].Value.Trim().Normalize(NormalizationForm.FormC))) skipped.Add($"'{name}': a link to '{link.Groups[1].Value.Trim()}', which the folder does not hold (kept as text)");
+            var targets = new List<string>();
+            var wiki = Regex.Matches(body, @"\[\[([^\[\]|#\n]{1,200})(?:[|#][^\[\]\n]{0,200})?\]\]").Select(m => m.Groups[1].Value.Trim());
+            // A Markdown link to a .md file, relative to this file's folder; a link with a scheme is not the folder's.
+            var markdown = Regex.Matches(body, @"\]\(([^()\s:]{1,300}\.md)(?:#[^()\s]*)?\)").Select(m => Uri.UnescapeDataString(m.Groups[1].Value))
+                .Select(target => Path.GetRelativePath(".", Path.Combine(Path.GetDirectoryName(name) ?? "", target)).Replace('\\', '/'));
+            foreach (var target in wiki.Concat(markdown))
+            {
+                var nfc = target.Normalize(NormalizationForm.FormC);
+                if (!named.TryGetValue(nfc, out var note)) skipped.Add($"'{name}': a link to '{Shown(target)}', which the folder does not hold (kept as text)");
+                else if (note is null) skipped.Add($"'{name}': a link to '{Shown(target)}', a name two notes share (kept as text)");
+                else if (note != name && !targets.Contains(note)) targets.Add(note);
+            }
+            if (targets.Count > 0) links[name.Normalize(NormalizationForm.FormC)] = targets;
             lines.Add((name, body.Trim(), life.Count == 0 ? null : life));
         }
         if (names.Count == 0) throw new InvalidDataException("The folder holds no .md file.");
@@ -196,7 +214,7 @@ public static partial class PackImports
             supersedes[rename.To.Normalize(NormalizationForm.FormC)] = rename.From;
         }
         return Write([.. source], lines, skipped, dropped, "folder" + (firstCommits is null ? "" : " with git dates"), "a Markdown folder", id, version, owner, signingKeyPem,
-            supersedes: supersedes);
+            supersedes: supersedes, links: links);
     }
 
     // The strict front matter (R2): '---' lines around 'key: value' lines; a value is a plain or double-quoted string with no
@@ -223,12 +241,15 @@ public static partial class PackImports
         return (pairs, text[Math.Min(text.Length, end + 5)..], null);
     }
 
+    /// <summary>The most links_to links an imported note carries; the rest are reported.</summary>
+    public const int MaximumNoteLinks = 64;
+
     private static string Shown(string text) => text.Length <= 60 ? text : text[..60] + "...";
 
     private static ImportResult Write(byte[] source, List<(string Key, string Text, IReadOnlyDictionary<string, string>? Life)> entries, List<string> skipped,
         IReadOnlyDictionary<string, int> dropped, JsonNode mapping, string sourceName, string id, string version, string owner, string signingKeyPem,
         string sourceSignature = "absent", IReadOnlyDictionary<string, string>? extra = null, IReadOnlyList<(string Key, DateTimeOffset At)>? erased = null,
-        IReadOnlyDictionary<string, string>? supersedes = null)
+        IReadOnlyDictionary<string, string>? supersedes = null, IReadOnlyDictionary<string, List<string>>? links = null)
     {
         var kind = mapping is JsonValue ? mapping.GetValue<string>() : "json";
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -263,6 +284,38 @@ public static partial class PackImports
                 if (Encoding.UTF8.GetByteCount(line.ToJsonString()) <= AgentMemory.Extensibility.Packs.KnowledgePack.MaximumLineBytes) continue;
                 line.Remove("supersedes");
                 skipped.Add($"'{line["key"]!.GetValue<string>()}': its supersession of '{Shown(o)}' would take it past what a record holds");
+            }
+        // A note's links_to links, each to a note the pack holds, at most MaximumNoteLinks. The links stay free of cycles, since a
+        // store writes a record's links only to records already written: taken by key, a link that would close a cycle is left
+        // out and said (the walk follows links either way, so it still reaches that note), and stays in the text as written.
+        var graph = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        bool Reaches(string from, string to)
+        {
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            var stack = new Stack<string>([from]);
+            while (stack.TryPop(out var at))
+                if (at == to) return true;
+                else if (seen.Add(at)) foreach (var next in graph.GetValueOrDefault(at) ?? []) stack.Push(next);
+            return false;
+        }
+        foreach (var line in kept.OrderBy(l => l["key"]!.GetValue<string>(), StringComparer.Ordinal))
+            if (links?.TryGetValue(line["key"]!.GetValue<string>(), out var targets) == true)
+            {
+                var from = line["key"]!.GetValue<string>();
+                var held = new List<string>();
+                foreach (var target in targets.Select(t => t.Normalize(NormalizationForm.FormC)).Where(keys.Contains).Take(MaximumNoteLinks))
+                {
+                    if (Reaches(target, from)) { skipped.Add($"'{from}': its link to '{Shown(target)}' would close a cycle of links (kept as text)"); continue; }
+                    held.Add(target);
+                    (graph.TryGetValue(from, out var outgoing) ? outgoing : graph[from] = []).Add(target);
+                }
+                var unwritten = targets.Count(t => !keys.Contains(t.Normalize(NormalizationForm.FormC))) + Math.Max(0, targets.Count(t => keys.Contains(t.Normalize(NormalizationForm.FormC))) - MaximumNoteLinks);
+                if (unwritten > 0) skipped.Add($"'{from}': {unwritten} link(s) to notes not written, or past what a record carries");
+                if (held.Count == 0) continue;
+                line["links"] = new JsonArray([.. held.Select(t => (JsonNode)new JsonObject { ["relation"] = "links_to", ["target"] = t })]);
+                if (Encoding.UTF8.GetByteCount(line.ToJsonString()) <= AgentMemory.Extensibility.Packs.KnowledgePack.MaximumLineBytes) continue;
+                line.Remove("links");
+                skipped.Add($"'{line["key"]!.GetValue<string>()}': its links would take it past what a record holds");
             }
         var records = new StringBuilder();
         foreach (var line in kept) records.Append(line.ToJsonString()).Append('\n');

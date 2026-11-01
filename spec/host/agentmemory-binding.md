@@ -22,6 +22,10 @@ built-in relation as the prefix's upper-snake form and the relation's (`part_of`
 scope; a record's `type` and a link's `relation` MUST be mapped the same way as the record is read. A host that writes such
 records into a pack MUST write their built-in names, and never its own binding (the `builtIn` member it keeps on them).
 
+A pack's own relations join two different types. The built-in `links_to` joins a note to a note; AgentMemory writes a pack's
+records targets first, so records of a type that links to itself come after the records they link to, and records that link
+in a cycle refuse the pack (an importer leaves out the link that would close one, and says so).
+
 **R-HOST-052.** A pack that uses built-in types and declares no `ontology.json` MUST be given the prefix of its id's last
 segment in PascalCase (`com.example.lantern-notes` as `LanternNotes`); when that prefix is another module's, the pack MUST
 be refused, as any prefix two modules claim is; its author then declares a `labelPrefix` in `ontology.json`.
