@@ -1712,6 +1712,16 @@ def main():
                                                   "agreed": len(results) - failures, "total": len(results)}, indent=1) + "\n", encoding="utf-8")
     shutil.rmtree(work, ignore_errors=True)
     print(f"{len(results) - failures}/{len(results)} vectors: both verifiers agree with the expected outcome")
+    # The third verifier (feature 18): when the Rust reader is built, it must agree on every vector too (completeness review,
+    # 18: three-way agreement ran by hand only). Not built, it is said, not failed: the kit needs no Rust toolchain.
+    exe = ".exe" if os.name == "nt" else ""
+    third = next((p for p in (HERE.parent.parent / "reader-rs" / "target" / "release" / ("ampack-rs" + exe),
+                              HERE.parent.parent / "reader-rs" / "target" / "debug" / ("ampack-rs" + exe)) if p.exists()), None)
+    if third is None:
+        print("third verifier (reader-rs) not built: three-way agreement not checked")
+    elif subprocess.run([sys.executable, "-I", str(HERE / "run_third.py"), str(third)]).returncode != 0:
+        print(f"FAIL the third verifier ({third}) disagrees on a vector")
+        failures += 1
     return 1 if failures else 0
 
 
