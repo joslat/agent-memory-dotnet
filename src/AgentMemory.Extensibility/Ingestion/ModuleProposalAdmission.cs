@@ -48,6 +48,8 @@ public static class ModuleProposalAdmission
         if (!ModuleText.IsNfc(proposal.Key)) errors.Add("key: text must be in Unicode NFC.");
         if (proposal.Kind is not (ProposalKind.Assert or ProposalKind.Invalidate)) errors.Add("kind: unknown proposal operation.");
         if (proposal.Source?.Pack is not null) errors.Add("source.pack: only the knowledge pack importer writes pack sources.");
+        if (proposal.ConfidenceMicro is not null || proposal.SourceKey is not null)
+            errors.Add("confidenceMicro: only the knowledge pack importer writes a record's confidence and source key.");
         ValidateSource(proposal.Source, messages, errors);
         ValidateReplaces(proposal, errors);
         ValidateProperties(proposal, type, errors);

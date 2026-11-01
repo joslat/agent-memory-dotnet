@@ -36,6 +36,14 @@ public sealed class KnowledgePack
     public DateTimeOffset? ValidUntil { get; internal set; }
 
     // A copy that stops being valid at until: the instance others hold is never changed under them (review 2).
+    // The same pack with its records' confidence capped where they came from (feature 09: the loader computes it).
+    internal KnowledgePack WithProposals(IReadOnlyList<ModuleProposal> proposals)
+    {
+        var copy = (KnowledgePack)MemberwiseClone();
+        copy.Proposals = proposals;
+        return copy;
+    }
+
     internal KnowledgePack WithValidUntil(DateTimeOffset? until)
     {
         var copy = (KnowledgePack)MemberwiseClone();
@@ -54,7 +62,7 @@ public sealed class KnowledgePack
     /// <summary>The verified bundle it came from: digest, signer and key.</summary>
     public VerifiedBundle Bundle { get; }
     /// <summary>The seed records as shared assertions with pack provenance, targets before the records that link to them.</summary>
-    public IReadOnlyList<ModuleProposal> Proposals { get; }
+    public IReadOnlyList<ModuleProposal> Proposals { get; private set; }
     /// <summary>The pack id.</summary>
     public string Id => Manifest.Id;
     /// <summary>The pack version.</summary>
@@ -133,7 +141,11 @@ public sealed class KnowledgePack
     }
 
     /// <summary>Checks a verified bundle as a pack: its manifest, then every seed record.</summary>
-    public static KnowledgePack Open(VerifiedBundle bundle)
+    public static KnowledgePack Open(VerifiedBundle bundle) => Open(bundle, null);
+
+    // inputs: the names of the derivation inputs a record's sourceKey may name, when the caller caps the records by their sources
+    // and signers (a signed .ampack, feature 09); null for a bundle, whose records then carry no confidence or source key.
+    internal static KnowledgePack Open(VerifiedBundle bundle, IReadOnlySet<string>? inputs)
     {
         ArgumentNullException.ThrowIfNull(bundle);
         if (!bundle.Files.TryGetValue(ManifestFile, out var manifestBytes))
@@ -165,7 +177,7 @@ public sealed class KnowledgePack
         {
             if (!bundle.Files.TryGetValue(file, out var bytes)) { problems.Add($"The seed file '{file}' is missing."); continue; }
             foreach (var proposal in Bound(manifest.Ontology, Lines(file, bytes,
-                line => new PackSource { Id = manifest.Id, Version = manifest.Version.Value, Digest = bundle.Digest, File = file, Line = line }, problems)))
+                line => new PackSource { Id = manifest.Id, Version = manifest.Version.Value, Digest = bundle.Digest, File = file, Line = line }, problems, inputs)))
             {
                 var at = proposal.Source.Excerpt!;
                 foreach (var error in ModuleProposalAdmission.AdmitSeed(manifest, proposal)) problems.Add(at + ": " + error);
@@ -270,7 +282,10 @@ public sealed class KnowledgePack
         })];
     }
 
-    internal static List<ModuleProposal> Lines(string file, ReadOnlyMemory<byte> bytes, Func<int, PackSource> source, List<string> problems)
+    // inputs: as Open's; null refuses a line's confidenceMicro and sourceKey (review F09, H2 and M3: a snapshot and a bundle
+    // took them with no cap, and a sourceKey that named nothing).
+    internal static List<ModuleProposal> Lines(string file, ReadOnlyMemory<byte> bytes, Func<int, PackSource> source, List<string> problems,
+        IReadOnlySet<string>? inputs = null)
     {
         var records = new List<ModuleProposal>();
         var lines = Utf8(bytes, file).Split('\n');
@@ -284,19 +299,19 @@ public sealed class KnowledgePack
                 continue;
             }
             if (Encoding.UTF8.GetByteCount(line) > MaximumLineBytes) { problems.Add(at + $": longer than {MaximumLineBytes} bytes."); continue; }
-            if (Record(line, at, source(index + 1), problems) is { } proposal) records.Add(proposal);
+            if (Record(line, at, source(index + 1), problems, inputs) is { } proposal) records.Add(proposal);
         }
         return records;
     }
 
-    private static ModuleProposal? Record(string line, string at, PackSource source, List<string> problems)
+    private static ModuleProposal? Record(string line, string at, PackSource source, List<string> problems, IReadOnlySet<string>? inputs)
     {
         try
         {
             using var document = JsonDocument.Parse(line, new JsonDocumentOptions { MaxDepth = 8 });
             var root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object) { problems.Add(at + ": a seed record is a JSON object."); return null; }
-            var unknown = root.EnumerateObject().Select(p => p.Name).Where(n => n is not ("type" or "key" or "properties" or "links") && !PackRegistry.LifeFields.Contains(n)).ToArray();
+            var unknown = root.EnumerateObject().Select(p => p.Name).Where(n => n is not ("type" or "key" or "properties" or "links") && !PackRegistry.LifeFields.Contains(n) && !PackRegistry.TrustFields.Contains(n)).ToArray();
             if (unknown.Length > 0) { problems.Add(at + ": unknown field " + string.Join(", ", unknown) + "."); return null; }
             if (!root.TryGetProperty("type", out var type) || type.ValueKind != JsonValueKind.String
                 || !root.TryGetProperty("key", out var key) || key.ValueKind != JsonValueKind.String)
@@ -349,10 +364,30 @@ public sealed class KnowledgePack
                 supersedes.AddRange(superseded.EnumerateArray().Select(k => k.GetString()!));
                 if (supersedes.Distinct(StringComparer.Ordinal).Count() != supersedes.Count) { problems.Add(at + ": supersedes names a key twice."); return null; }
             }
+            // Its trust (feature 09, R-CORE-137): a confidence in millionths, and the derivation input it came from; only where the
+            // caller caps them.
+            if (inputs is null && (root.TryGetProperty("confidenceMicro", out _) || root.TryGetProperty("sourceKey", out _)))
+            { problems.Add(at + ": only a signed knowledge pack's records carry confidenceMicro and sourceKey; nothing here caps them by their sources and signers."); return null; }
+            int? confidence = null;
+            if (root.TryGetProperty("confidenceMicro", out var micro))
+            {
+                if (micro.ValueKind != JsonValueKind.Number || !micro.TryGetInt64(out var m) || m is < 0 or > ModuleConfidence.Full)
+                { problems.Add(at + $": confidenceMicro is an integer from 0 to {ModuleConfidence.Full}."); return null; }
+                confidence = (int)m;
+            }
+            string? sourceKey = null;
+            if (root.TryGetProperty("sourceKey", out var named))
+            {
+                if (named.ValueKind != JsonValueKind.String || named.GetString() is not { Length: > 0 } name || name.EnumerateRunes().Count() > 256)
+                { problems.Add(at + ": sourceKey names an input of the pack's derivation, 1 to 256 characters."); return null; }
+                if (!inputs!.Contains(name)) { problems.Add(at + $": sourceKey '{name}' names no input of META/derivation.json."); return null; }
+                sourceKey = name;
+            }
             return new ModuleProposal
             {
                 Type = type.GetString()!, Key = key.GetString()!, Properties = properties.AsReadOnly(), Links = links.AsReadOnly(),
                 Source = new ProposalSource { Excerpt = at, Pack = source }, Life = life, Supersedes = supersedes.AsReadOnly(),
+                ConfidenceMicro = confidence, SourceKey = sourceKey,
             };
         }
         catch (JsonException e) { problems.Add(at + ": not valid JSON (" + e.Message + ")."); return null; }

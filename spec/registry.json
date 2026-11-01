@@ -301,7 +301,8 @@
         "roles",
         "notBefore",
         "notAfter",
-        "webId"
+        "webId",
+        "confidenceMicro"
       ]
     },
     "trustRevoked": {
@@ -337,6 +338,44 @@
         "type",
         "key",
         "keyHash"
+      ]
+    },
+    "derivation": {
+      "fields": [
+        "format",
+        "inputs",
+        "tool",
+        "model",
+        "promptDigest",
+        "parameters",
+        "parent",
+        "actions"
+      ]
+    },
+    "derivationInput": {
+      "fields": [
+        "digest",
+        "name",
+        "licence",
+        "confidenceMicro"
+      ]
+    },
+    "derivationTool": {
+      "fields": [
+        "name",
+        "version"
+      ]
+    },
+    "derivationModel": {
+      "fields": [
+        "id",
+        "version"
+      ]
+    },
+    "derivationParent": {
+      "fields": [
+        "id",
+        "digest"
       ]
     }
   },
@@ -958,6 +997,10 @@
     "lifecycles": [
       "pinned",
       "refreshes"
+    ],
+    "trustFields": [
+      "confidenceMicro",
+      "sourceKey"
     ]
   },
   "embeddings": {
@@ -1099,6 +1142,18 @@
     "roles": [
       "publisher",
       "revoker"
+    ]
+  },
+  "derivation": {
+    "about": "Feature 09: what a pack was made from, inside its signed content, and how far each source is trusted.",
+    "path": "META/derivation.json",
+    "format": "agentmemory.pack.derivation/1",
+    "actions": [
+      "extract",
+      "consolidate",
+      "redact",
+      "translate",
+      "import"
     ]
   }
 }

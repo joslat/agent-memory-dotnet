@@ -360,6 +360,9 @@ internal static class PackVerifier
             yield return $"A pack marked {manifest.Protection} must carry META/seal.json.";
         // The pack card is read strictly by every verifier, so it shows the same everywhere (§15).
         if (files.TryGetValue(PackCard.FileName, out var card) && PackCard.Parse(card).Problem is { } cardProblem) yield return cardProblem;
+        // What the pack was made from, read strictly by every verifier (feature 09, R-CORE-136).
+        if (files.TryGetValue(PackDerivation.FileName, out var derivation) && PackDerivation.Parse(derivation).Problem is { } derivationProblem)
+            yield return derivationProblem;
     }
 
     /// <summary>A composite names the same members in pack.json, members.json and its lock (v1.2 §5).</summary>

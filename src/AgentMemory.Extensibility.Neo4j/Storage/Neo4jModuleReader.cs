@@ -88,6 +88,8 @@ public sealed class Neo4jModuleReader : IModuleReader
                         // view lists versions, whatever their life.
                         var record = Record(module.Id, type, data, links);
                         if (admitted.Selection != ModuleRecordSelection.History && !ModuleRecordLife.IsLive(record.Life, frozenContext.ValidAsOfUtc ?? _clock.GetUtcNow())) continue;
+                        // Nor one below the host's confidence floor (feature 09, review H4), before the limit too.
+                        if (!AgentMemory.Extensibility.Packs.ModuleConfidence.Clears(record.ConfidenceMicro, frozenContext.MinimumConfidenceMicro)) continue;
                         records.Add(record);
                         if (records.Count == admitted.Limit) break;
                     }
@@ -153,6 +155,7 @@ public sealed class Neo4jModuleReader : IModuleReader
         Key = Text(row, "key") ?? throw new ModuleRecordRefusal("Stored record has no logical key."), OwnerId = Text(row, "owner_id"),
         CreatedAtUtc = Timestamp(row, "created_at") ?? throw new ModuleRecordRefusal("Stored record has no creation time."),
         InvalidatedAtUtc = Timestamp(row, "invalidated_at"), Links = links, Life = Life(row),
+        ConfidenceMicro = row.TryGetValue("confidence_micro", out var confidence) && confidence is not null ? (int)confidence.As<long>() : null,
         SourceSessionId = Text(row, "source_session_id") ?? throw new ModuleRecordRefusal("Stored record has no source session."),
         Source = new()
         {

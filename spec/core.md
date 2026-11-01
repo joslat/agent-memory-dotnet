@@ -871,6 +871,35 @@ predicate type `urn:agentmemory:pack:erasure-receipt:v1` naming only the erasure
 > Why: tombstones are known; a signed erasure bound to the pack's identity, held to the trust policy's roles, and read alike
 > by both verifiers, is what a host can act on without trusting the channel it came through.
 
+## 17b. Derivation
+
+What a pack was made from, so a host can see where its records came from and trust them no further than that.
+
+**R-CORE-136.** A pack MAY carry `META/derivation.json`, inside its signed content. When present, every verifier MUST read it
+strictly and refuse the pack unless it is canonical (RFC 8785) and holds exactly `format` (`agentmemory.pack.derivation/1`),
+`inputs` (1 to 256 objects of a `digest`, `sha256:` and exactly 64 lowercase hexadecimal characters and nothing after them,
+a distinct `name` that is a display-safe line (§15) of 1 to 256 characters, and optionally a `licence`, a display-safe line of
+1 to 128, and a `confidenceMicro`, an integer from 0 to 1,000,000), `tool` (a `name` and a `version`, each a display-safe
+line of 1 to 128 characters), and `actions` (distinct, of `extract`, `consolidate`, `redact`, `translate` and `import`); and
+optionally `model` (an `id`, a display-safe line of 1 to 256 characters, and optionally a `version` of 1 to 128), `promptDigest`
+(a digest), `parameters` (at most 64 members, each a key of 1 to 128 characters and a value of 1 to 1,024, both display-safe
+lines) and `parent` (a pack `id` and the `digest` of its file list). A parent is information, never trust: a derived pack is
+admitted on its own signatures.
+
+**R-CORE-137.** A knowledge pack's record line MAY carry `confidenceMicro` (an integer from 0 to 1,000,000) and `sourceKey`
+(the `name` of an input of the pack's derivation; a key that names none refuses the pack). A snapshot's record lines and a
+module bundle's carry neither, and a host MUST refuse one that does. A trust policy key that signs packs (as publisher, curator
+or assurer) MAY carry `confidenceMicro`; every verifier MUST refuse a policy where another key does. When a host loads a pack it
+MUST give each record the least of its own confidence, its source input's, and its signers': for each role the policy
+requires, the cap of the most trusted key that signed the pack in that role, and of those the least; a part that is absent
+caps nothing. It MUST NOT offer a record at a higher confidence. A host MAY set a floor: then no view and no walk offers a
+record below it, a record without a confidence counting as 1,000,000, and a store MUST leave such records out before it
+applies a limit, as it does a record not live. A framed record that has a confidence states it. The confidence is fixed when
+the pack is loaded: a changed trust policy reaches records already imported when the pack is imported again.
+
+> Why: inside the signed content, the derivation is part of the pack's identity and cannot be swapped; canonical, a number has
+> one spelling, so both verifiers read the same confidence.
+
 ## 18. Limits
 
 The limits of the standard class. Text lengths are characters (code points).

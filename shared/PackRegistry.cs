@@ -60,6 +60,12 @@ internal static class PackRegistry
     internal static readonly IReadOnlySet<string> ErasureRoles = Set("erasure", "roles");
     /// <summary>A record line's life members (feature 07), beside type, key, properties and links.</summary>
     internal static readonly IReadOnlySet<string> LifeFields = Set("records", "lifeFields");
+    /// <summary>A record line's trust members (feature 09): its own confidence, and the derivation input it came from.</summary>
+    internal static readonly IReadOnlySet<string> TrustFields = Set("records", "trustFields");
+    /// <summary>What a derivation says was done to its inputs (feature 09).</summary>
+    internal static readonly IReadOnlySet<string> DerivationActions = Set("derivation", "actions");
+    /// <summary>Where a pack's derivation is, inside its signed content, and the format it names (feature 09).</summary>
+    internal static readonly string DerivationFile = Path("derivation", "path").GetString()!, DerivationFormat = Path("derivation", "format").GetString()!;
     /// <summary>The lifecycles a type may declare (feature 07): pinned never ages, refreshes ends ttlDays after validFrom.</summary>
     internal static readonly IReadOnlySet<string> Lifecycles = Set("records", "lifecycles");
     /// <summary>The targets met at or below their value (feature 04 review, M6); every other target is met at or above it.</summary>

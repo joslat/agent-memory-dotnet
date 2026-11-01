@@ -289,6 +289,43 @@ public sealed partial class ModuleRecordWriteIntegrationTests
         }
     }
 
+    [Fact]
+    public async Task NeoKeepsARecordsConfidenceCappedByItsSignerAndAChangedCapIsANewVersion()
+    {
+        // Feature 09 (R-CORE-137): the host computes each record's confidence once, at load, and the store keeps it; loaded under
+        // another trust policy, the same records are new versions with the new cap.
+        PackTrust Capped(int? cap)
+        {
+            var policy = JsonNode.Parse(PackAuthoring.TrustPolicy(AmpackKey.PublicKeyPem, "io.agentmemory", "io.example"))!;
+            if (cap is { } c) policy["keys"]![0]!["confidenceMicro"] = c;
+            return PackTrust.Parse(Encoding.UTF8.GetBytes(policy.ToJsonString()));
+        }
+        var archive = PackAuthoring.Build(PackAuthoring.FromModuleBundle(RealBundle("MartialArts")), AmpackKey.PrivateKeyPem);
+        var capped = PackLoader.Load(archive, Capped(600_000));
+        var importer = new KnowledgePackImporter(new Neo4jKnowledgePackStore(fixture.TransactionRunner));
+        try
+        {
+            await importer.ImportAsync(capped.Knowledge!);
+            using var services = Policies();
+            var views = new ModuleViews(capped.Knowledge!.Resolution,
+                new Neo4jModuleReader(fixture.TransactionRunner, capped.Knowledge.Resolution, capped.Id, services.GetRequiredService<IMemoryIsolationPolicy>()));
+            var lea = new ModuleReadContext { Scope = MemoryScope.For("lea") };
+            async Task<ModuleRecord> Shodan() => (await views.EvaluateWithArgumentsAsync("kata", new() { Search = "Heian Shodan" }, lea)).Items
+                .Single(i => i.Record.Key == "shotokan/heian-shodan").Record;
+            (await Shodan()).ConfidenceMicro.Should().Be(600_000);
+            var first = (await Shodan()).Id;
+
+            await importer.ImportAsync(PackLoader.Load(archive, Capped(null)).Knowledge!);
+            var uncapped = await Shodan();
+            uncapped.ConfidenceMicro.Should().BeNull("under a policy that caps nothing, nothing caps it");
+            uncapped.Id.Should().NotBe(first, "a changed confidence is a new version");
+        }
+        finally
+        {
+            await importer.RemoveAsync(capped.Manifest);
+        }
+    }
+
     private static async Task<ContextEnvelope> CompileAsync(IServiceProvider provider, ContextRequest request)
     {
         await using var scope = provider.CreateAsyncScope();

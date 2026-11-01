@@ -71,7 +71,7 @@ public sealed class TraversalContributor : IContextContributor
             Provenance = new()
             {
                 RecordModuleId = i.Record.ModuleId, RecordType = i.Record.Type, RecordVersionId = i.Record.Id, RecordKey = i.Record.Key,
-                CreatedAtUtc = i.Record.CreatedAtUtc, InvalidatedAtUtc = i.Record.InvalidatedAtUtc, SourceSessionId = i.Record.SourceSessionId,
+                ConfidenceMicro = i.Record.ConfidenceMicro, CreatedAtUtc = i.Record.CreatedAtUtc, InvalidatedAtUtc = i.Record.InvalidatedAtUtc, SourceSessionId = i.Record.SourceSessionId,
                 SourceMessageIds = Array.AsReadOnly(i.Record.Source.MessageIds.ToArray()), SourcePack = i.Record.Source.Pack, Via = i.Via
             }
         }).ToList().AsReadOnly()) };

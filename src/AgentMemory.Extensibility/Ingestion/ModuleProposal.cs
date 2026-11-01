@@ -51,6 +51,13 @@ public sealed record ModuleProposal
     public Reading.ModuleRecordLife? Life { get; init; }
     /// <summary>The keys of records of its type, in the same pack, that this pack record supersedes (feature 07): resolved at read.</summary>
     public IReadOnlyList<string> Supersedes { get; init; } = [];
+    /// <summary>
+    /// How far the record is trusted, in millionths (feature 09): its own on a record line; once a host loads its pack, the least of
+    /// its own, its source input's and its signer's. Null when nothing caps it.
+    /// </summary>
+    public int? ConfidenceMicro { get; init; }
+    /// <summary>The input of the pack's derivation the record came from (feature 09): a name in <c>META/derivation.json</c>.</summary>
+    public string? SourceKey { get; init; }
 }
 
 /// <summary>Outgoing relationship; its target type is fixed by the declaring module's ontology.</summary>

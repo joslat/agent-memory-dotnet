@@ -110,6 +110,7 @@ SHAPES = ("envelope-extra-field", "entry-extra-key", "entry-without-sig", "keyid
 # Review 5, L6 (root RJ): a refused vector proves its rule only if it is refused for that rule. Each vector named here must be
 # refused by both verifiers with the reason given (a pattern on each one's output); one refused for another reason fails.
 REASONS = {
+    "derivation-prompt-digest-trailing-newline": ("promptDigest is sha256: and 64 lowercase", "promptDigest is sha256: and 64 lowercase"),
     "json-file-over-1-mib": ("larger than 1 MiB", "larger than 1 MiB"),
     "jsonl-line-over-1-mib": ("longer than 1 MiB", "longer than 1 MiB"),
     "files-list-over-2-mib": ("larger than 2 MiB", "larger than 2 MiB"),
@@ -230,6 +231,11 @@ def main():
     key = serialization.load_pem_private_key(pem, password=None)
     policy = {"format": "agentmemory.pack.trust/1.1", "keys": [entry]}
     (OUT / "trust.json").write_text(json.dumps(policy, separators=(",", ":")), encoding="utf-8")
+    # Feature 09: a signing key may carry a confidence cap; one that signs no pack may not (review 09, M1). Written here, before
+    # any vector reads them.
+    for name_, keys_ in {"trust-confidence-capped.json": [dict(entry, confidenceMicro=300000)],
+                         "trust-confidence-on-an-evaluator.json": [dict(entry, roles=["evaluator"], confidenceMicro=300000)]}.items():
+        (OUT / name_).write_text(json.dumps({**policy, "keys": keys_}, separators=(",", ":")), encoding="utf-8")
     other_scope = {"format": "agentmemory.pack.trust/1.1", "keys": [dict(entry, idPrefixes=["io.other"])]}
     (OUT / "trust-other-scope.json").write_text(json.dumps(other_scope, separators=(",", ":")), encoding="utf-8")
     # PACK-conformance-v12: a key's window and the revocations' freshness, as host policies.
@@ -962,6 +968,42 @@ def main():
                  "audience": "The team.", "domain": "notes", "references": ["https://example.com/notes"]}
     vectors["card-valid-full"] = (with_card(full_card), "trust.json", "verified")
     vectors["card-absent"] = (signed({k: v for k, v in content.items() if k != "card.json"}), "trust.json", "verified")
+    # Feature 09: META/derivation.json, inside the signed content, canonical and strict in both verifiers.
+    def with_derivation(derivation_, raw=None):
+        return signed({**content, "META/derivation.json": raw if raw is not None else py.canonical(derivation_).encode("utf-8")})
+    a_digest = "sha256:" + "ab" * 32
+    derivation = {"format": "agentmemory.pack.derivation/1", "inputs": [{"digest": a_digest, "name": "handbook", "licence": "CC-BY-4.0",
+                  "confidenceMicro": 900000}], "tool": {"name": "notes-extractor", "version": "1.2.0"}, "model": {"id": "example-model", "version": "2026-10"},
+                  "promptDigest": a_digest, "parameters": {"temperature": "0"}, "parent": {"id": "com.example.handbook", "digest": a_digest},
+                  "actions": ["extract", "redact"]}
+    vectors["derivation-valid"] = (with_derivation(derivation), "trust.json", "verified")
+    vectors["derivation-minimal"] = (with_derivation({"format": "agentmemory.pack.derivation/1", "inputs": [{"digest": a_digest, "name": "handbook"}],
+                                                      "tool": {"name": "t", "version": "1"}, "actions": ["import"]}), "trust.json", "verified")
+    vectors["derivation-not-canonical"] = (with_derivation(None, raw=json.dumps(derivation, indent=1).encode("utf-8")), "trust.json", "refused")
+    vectors["derivation-extra-field"] = (with_derivation({**derivation, "note": "x"}), "trust.json", "refused")
+    vectors["derivation-confidence-above-a-million"] = (with_derivation({**derivation, "inputs": [{**derivation["inputs"][0], "confidenceMicro": 1000001}]}), "trust.json", "refused")
+    vectors["derivation-confidence-negative"] = (with_derivation({**derivation, "inputs": [{**derivation["inputs"][0], "confidenceMicro": -1}]}), "trust.json", "refused")
+    vectors["derivation-confidence-a-string"] = (with_derivation({**derivation, "inputs": [{**derivation["inputs"][0], "confidenceMicro": "900000"}]}), "trust.json", "refused")
+    vectors["derivation-input-twice"] = (with_derivation({**derivation, "inputs": derivation["inputs"] * 2}), "trust.json", "refused")
+    vectors["derivation-no-inputs"] = (with_derivation({**derivation, "inputs": []}), "trust.json", "refused")
+    vectors["derivation-digest-uppercase"] = (with_derivation({**derivation, "inputs": [{**derivation["inputs"][0], "digest": a_digest.upper()}]}), "trust.json", "refused")
+    vectors["derivation-action-unknown"] = (with_derivation({**derivation, "actions": ["invent"]}), "trust.json", "refused")
+    vectors["derivation-action-twice"] = (with_derivation({**derivation, "actions": ["extract", "extract"]}), "trust.json", "refused")
+    vectors["derivation-tool-without-version"] = (with_derivation({**derivation, "tool": {"name": "t"}}), "trust.json", "refused")
+    vectors["derivation-parent-bad-id"] = (with_derivation({**derivation, "parent": {"id": "Not An Id", "digest": a_digest}}), "trust.json", "refused")
+    vectors["derivation-name-with-a-newline"] = (with_derivation({**derivation, "inputs": [{**derivation["inputs"][0], "name": "hand\nbook"}]}), "trust.json", "refused")
+    vectors["trust-key-confidence-capped"] = (signed(content), "trust-confidence-capped.json", "verified")
+    vectors["trust-key-confidence-on-an-evaluator"] = (signed(content), "trust-confidence-on-an-evaluator.json", "refused")
+    # Review 09: a digest ends where its 64 hexadecimal characters end, in both verifiers (a trailing line feed is no digest).
+    vectors["derivation-digest-trailing-newline"] = (with_derivation({**derivation, "inputs": [{**derivation["inputs"][0], "digest": a_digest + "\n"}]}), "trust.json", "refused")
+    vectors["derivation-prompt-digest-trailing-newline"] = (with_derivation({**derivation, "promptDigest": a_digest + "\n"}), "trust.json", "refused")
+    vectors["derivation-parent-digest-trailing-newline"] = (with_derivation({**derivation, "parent": {"id": "com.example.handbook", "digest": a_digest + "\n"}}), "trust.json", "refused")
+    vectors["derivation-confidence-zero"] = (with_derivation({**derivation, "inputs": [{**derivation["inputs"][0], "confidenceMicro": 0}]}), "trust.json", "verified")
+    vectors["derivation-confidence-a-million"] = (with_derivation({**derivation, "inputs": [{**derivation["inputs"][0], "confidenceMicro": 1000000}]}), "trust.json", "verified")
+    vectors["derivation-confidence-a-boolean"] = (with_derivation({**derivation, "inputs": [{**derivation["inputs"][0], "confidenceMicro": True}]}), "trust.json", "refused")
+    vectors["derivation-model-empty"] = (with_derivation({**derivation, "model": {}}), "trust.json", "refused")
+    vectors["derivation-licence-empty"] = (with_derivation({**derivation, "inputs": [{**derivation["inputs"][0], "licence": ""}]}), "trust.json", "refused")
+    vectors["derivation-parameter-a-number"] = (with_derivation({**derivation, "parameters": {"temperature": 0}}), "trust.json", "refused")
     # Feature 06: whenToUse is written for the model and shown every turn: display text of at most 400 characters.
     vectors["card-when-to-use"] = (with_card({**full_card, "whenToUse": "Ask for the team's notes when a question names the team or its projects."}), "trust.json", "verified")
     vectors["card-when-to-use-400-emoji"] = (with_card({**full_card, "whenToUse": chr(0x1F600) * 400}), "trust.json", "verified")

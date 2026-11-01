@@ -8,7 +8,7 @@ namespace AgentMemory.Packs.Format;
 /// packs, the publisher WebID the operator bound it to after reading that WebID's profile (federated packs §4).
 /// </summary>
 internal sealed record TrustedKey(string KeyId, string PublicKeyPem, IReadOnlyList<string> IdPrefixes, IReadOnlyList<string> Roles,
-    DateTimeOffset? NotBefore, DateTimeOffset? NotAfter, string? WebId = null);
+    DateTimeOffset? NotBefore, DateTimeOffset? NotAfter, string? WebId = null, int? ConfidenceMicro = null);
 
 /// <summary>A revoked key. With <see cref="CompromisedAt"/>, signatures from before that moment may still count once a timestamp proves them.</summary>
 internal sealed record RevokedKey(string KeyId, DateTimeOffset? CompromisedAt);
@@ -147,7 +147,15 @@ internal sealed partial record TrustPolicy
                     // A revoker signs revocation lists only, and revocation authority stays where v1.2 settled it.
                     if (roles.Contains(Revocations.Role)) throw new InvalidDataException($"Key {Dsse.Short(keyId)} is a revoker; a WebID binds publishing keys only.");
                 }
-                keys.Add(new TrustedKey(keyId, pem, prefixes, roles, Time(k, "notBefore"), Time(k, "notAfter"), webId));
+                // The most confidence a record this key signed is given (feature 09): millionths, 0 to 1,000,000.
+                int? confidence = null;
+                if (k.TryGetProperty("confidenceMicro", out var micro))
+                    confidence = micro.ValueKind == JsonValueKind.Number && micro.TryGetInt64(out var m) && m is >= 0 and <= PackDerivation.MaximumConfidenceMicro
+                        ? (int)m : throw new FormatException($"Key {Dsse.Short(keyId)}'s confidenceMicro is an integer from 0 to {PackDerivation.MaximumConfidenceMicro}.");
+                // It caps what the key signs, so only a key that signs packs carries one (review F09, M1).
+                if (confidence is not null && !roles.Any(Dsse.Roles.Contains))
+                    throw new InvalidDataException($"Key {Dsse.Short(keyId)} signs no pack, so it carries no confidenceMicro.");
+                keys.Add(new TrustedKey(keyId, pem, prefixes, roles, Time(k, "notBefore"), Time(k, "notAfter"), webId, confidence));
             }
         var revokedDigests = new List<string>();
         var revokedKeys = new List<RevokedKey>();

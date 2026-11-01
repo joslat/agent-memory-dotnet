@@ -545,6 +545,78 @@
    "is a revoker; a WebID binds publishing keys only",
    "a revoker key is never bound to a WebID"
   ],
+  "derivation-not-canonical": [
+   "is not canonical (RFC",
+   "is not canonical (RFC"
+  ],
+  "derivation-extra-field": [
+   "holds other fields than a derivation",
+   "holds other fields than a derivation"
+  ],
+  "derivation-confidence-above-a-million": [
+   "characters, and optionally a licence and a confidenceMicro of",
+   "characters, and optionally a licence and a confidenceMicro of"
+  ],
+  "derivation-confidence-negative": [
+   "characters, and optionally a licence and a confidenceMicro of",
+   "characters, and optionally a licence and a confidenceMicro of"
+  ],
+  "derivation-confidence-a-string": [
+   "characters, and optionally a licence and a confidenceMicro of",
+   "characters, and optionally a licence and a confidenceMicro of"
+  ],
+  "derivation-digest-uppercase": [
+   "characters, and optionally a licence and a confidenceMicro of",
+   "characters, and optionally a licence and a confidenceMicro of"
+  ],
+  "derivation-action-unknown": [
+   "actions are distinct, of consolidate, extract, import, redact, translate",
+   "actions are distinct, of consolidate, extract, import, redact, translate"
+  ],
+  "derivation-action-twice": [
+   "actions are distinct, of consolidate, extract, import, redact, translate",
+   "actions are distinct, of consolidate, extract, import, redact, translate"
+  ],
+  "derivation-tool-without-version": [
+   "names its tool as a name and a version, each",
+   "names its tool as a name and a version, each"
+  ],
+  "derivation-parent-bad-id": [
+   "names its parent as a pack id and the digest of its file list",
+   "names its parent as a pack id and the digest of its file list"
+  ],
+  "derivation-name-with-a-newline": [
+   "characters, and optionally a licence and a confidenceMicro of",
+   "characters, and optionally a licence and a confidenceMicro of"
+  ],
+  "trust-key-confidence-on-an-evaluator": [
+   "signs no pack, so it carries no confidenceMicro",
+   "a trusted key that signs no pack carries no confidenceMicro"
+  ],
+  "derivation-digest-trailing-newline": [
+   "characters, and optionally a licence and a confidenceMicro of",
+   "characters, and optionally a licence and a confidenceMicro of"
+  ],
+  "derivation-parent-digest-trailing-newline": [
+   "names its parent as a pack id and the digest of its file list",
+   "names its parent as a pack id and the digest of its file list"
+  ],
+  "derivation-confidence-a-boolean": [
+   "characters, and optionally a licence and a confidenceMicro of",
+   "characters, and optionally a licence and a confidenceMicro of"
+  ],
+  "derivation-model-empty": [
+   "names its model as an id and, optionally, a version",
+   "names its model as an id and, optionally, a version"
+  ],
+  "derivation-licence-empty": [
+   "characters, and optionally a licence and a confidenceMicro of",
+   "characters, and optionally a licence and a confidenceMicro of"
+  ],
+  "derivation-parameter-a-number": [
+   "parameters is an object of at most",
+   "parameters is an object of at most"
+  ],
   "card-unknown-field": [
    "card.json has an unknown field",
    "card.json holds other fields than a pack card"

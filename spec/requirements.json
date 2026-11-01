@@ -1437,6 +1437,36 @@
    ]
   },
   {
+   "id": "R-CORE-136",
+   "doc": "core.md",
+   "section": "17b",
+   "level": "MUST",
+   "summary": "A pack MAY carry `META/derivation.json`, inside its signed content. When present, every verifier MUST read it strictly and refuse the pack unless it is canonical (RFC 8785) and holds exactly `format` (`agentmemory.pack.derivation/1`), `inputs` (1 to 256 objects of a `digest`, `sha256:` and exactly 64 lowercase hexadecimal characters and nothing after them, a distinct `name` that is a display-safe line (§15) of 1 to 256 characters, and optionally a `licence`, a display-safe line of 1 to 128, and a `confidenceMicro`, an integer from 0 to 1,000,000), `tool` (a `name` and a `version`, each a display-safe line of 1 to 128 characters), and `actions` (distinct, of `extract`, `consolidate`, `redact`, `translate` and `import`); and optionally `model` (an `id`, a display-safe line of 1 to 256 characters, and optionally a `version` of 1 to 128), `promptDigest` (a digest), `parameters` (at most 64 members, each a key of 1 to 128 characters and a value of 1 to 1,024, both display-safe lines) and `parent` (a pack `id` and the `digest` of its file list). A parent is information, never trust: a derived pack is admitted on its own signatures.",
+   "verifiedBy": [
+    "kit:derivation-valid",
+    "kit:derivation-not-canonical",
+    "kit:derivation-confidence-above-a-million"
+   ]
+  },
+  {
+   "id": "R-CORE-137",
+   "doc": "core.md",
+   "section": "17b",
+   "level": "MUST",
+   "summary": "A knowledge pack's record line MAY carry `confidenceMicro` (an integer from 0 to 1,000,000) and `sourceKey` (the `name` of an input of the pack's derivation; a key that names none refuses the pack). A snapshot's record lines and a module bundle's carry neither, and a host MUST refuse one that does. A trust policy key that signs packs (as publisher, curator or assurer) MAY carry `confidenceMicro`; every verifier MUST refuse a policy where another key does. When a host loads a pack it MUST give each record the least of its own confidence, its source input's, and its signers': for each role the policy requires, the cap of the most trusted key that signed the pack in that role, and of those the least; a part that is absent caps nothing. It MUST NOT offer a record at a higher confidence. A host MAY set a floor: then no view and no walk offers a record below it, a record without a confidence counting as 1,000,000, and a store MUST leave such records out before it applies a limit, as it does a record not live. A framed record that has a confidence states it. The confidence is fixed when the pack is loaded: a changed trust policy reaches records already imported when the pack is imported again.",
+   "verifiedBy": [
+    "unit:ConfidenceTests.The_effective_confidence_never_exceeds_any_of_its_parts",
+    "unit:ConfidenceTests.A_host_trusts_a_record_no_further_than_its_source_and_its_signer",
+    "unit:ConfidenceTests.A_source_key_that_names_no_input_refuses_the_pack",
+    "unit:ConfidenceTests.The_floor_leaves_out_records_below_it_and_the_frame_says_how_far_a_record_is_trusted",
+    "unit:ConfidenceTests.Every_role_the_policy_requires_caps_a_record_through_its_most_trusted_signer",
+    "unit:ConfidenceTests.A_store_keeps_the_floor_before_its_limit_and_the_host_s_floor_reaches_it",
+    "unit:ConfidenceTests.A_walk_neither_seeds_from_nor_offers_a_record_below_the_floor",
+    "unit:ConfidenceTests.Only_a_signed_pack_s_records_carry_a_confidence_and_a_source_key",
+    "unit:ConfidenceTests.Nothing_but_the_importer_writes_a_confidence_and_a_module_cannot_declare_its_stored_name"
+   ]
+  },
+  {
    "id": "R-CORE-126",
    "doc": "core.md",
    "section": "16",

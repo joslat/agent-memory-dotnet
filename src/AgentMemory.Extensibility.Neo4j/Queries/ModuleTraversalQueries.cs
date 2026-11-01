@@ -54,11 +54,12 @@ internal static class ModuleTraversalQueries
 
     /// <summary>
     /// A record live in world time at <c>$validAt</c> (feature 07, R-HOST-058): the Cypher twin of ModuleRecordLife.IsLive, held to
-    /// it by the store-agreement tests, applied before the store's own cuts.
+    /// it by the store-agreement tests, applied before the store's own cuts; and at or above the confidence floor <c>$floor</c>
+    /// (feature 09, review H3), a record with none counting as full: the twin of ModuleConfidence.Clears.
     /// </summary>
     internal static string LiveAt(string n) =>
         "(" + n + ".valid_from IS NULL OR " + n + ".valid_from <= datetime($validAt)) AND (" + n + ".valid_to IS NULL OR " + n + ".valid_to > datetime($validAt)) "
-        + "AND (" + n + ".expires_at IS NULL OR " + n + ".expires_at > datetime($validAt))";
+        + "AND (" + n + ".expires_at IS NULL OR " + n + ".expires_at > datetime($validAt)) AND coalesce(" + n + ".confidence_micro, 1000000) >= $floor";
 
     // The link count the limit is checked against, as the in-memory store counts it (review 2, 3): the store's degree first,
     // read without the links; only past the limit the distinct live records in scope at the other end, at most $over of them.

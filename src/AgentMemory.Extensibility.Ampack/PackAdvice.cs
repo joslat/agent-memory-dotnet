@@ -75,6 +75,8 @@ public static class PackAdvice
             Add("certificate.untrusted", $"It carries {pack.Certificates.Count} evaluation certificate(s), none from a key this host trusts as evaluator for it: they inform, and admit nothing.");
         else if (manifest.Trial is not null && PackCertificates.Admit(pack, now).Decision is not null)
             Add("certificate.admits", "A trusted certificate covers its declared trial: where this host trusts certificates for its namespace, it can go on without a trial here (ampack admit).");
+        if (pack.Kind == "knowledge" && !pack.HasDerivation)
+            Add("derivation.missing", "It says nothing of what it was made from (META/derivation.json): a host cannot cap its records' confidence by their sources, nor see the pack it was derived from.");
         if (pack.Kind == "knowledge" && string.IsNullOrWhiteSpace(manifest.Display?.Description))
             Add("display.description", "It has no description: hosts and composers can show only its id.");
         if (manifest.Traversal is { } walk && walk.Anchors.Count == 0)

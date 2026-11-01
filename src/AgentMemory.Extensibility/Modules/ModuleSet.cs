@@ -138,7 +138,7 @@ public sealed class ModuleSet
         var set = new ModuleSet(resolution, modules.AsReadOnly(), composition.CompositionFingerprint!, fingerprint, store,
             registrations, switchedOff)
         {
-            ChatClient = builder.ChatClient, Priorities = priorities.AsReadOnly(), Erasures = [.. builder.Erasures],
+            ChatClient = builder.ChatClient, Priorities = priorities.AsReadOnly(), Erasures = [.. builder.Erasures], MinimumConfidenceMicro = builder.MinimumConfidenceMicro,
             Slots = [.. builder.Modules.SelectMany(m => Enumerable.Repeat(m.Manifest.Id, m.Contributors.Count))],
         };
         var log = services.GetService<ILoggerFactory>()?.CreateLogger<ModuleSet>();
@@ -233,13 +233,16 @@ public sealed class ModuleSet
             .CreateReader(services, Resolution, moduleId);
         // A view may read its dependencies' types: an expired dependency's records leave its answers too (review 2, M2's twin).
         // Every read also keeps only the records live in world time at its pin (feature 07).
-        return new LiveReader(reader, Live(services), services.GetService<TimeProvider>() ?? TimeProvider.System, Erased);
+        return new LiveReader(reader, Live(services), services.GetService<TimeProvider>() ?? TimeProvider.System, Erased, MinimumConfidenceMicro);
     }
 
     // Drops the records of modules that are not live now, and the records not live in world time at the read's valid-time pin
     // (feature 07, R-CORE-128; the host's now when it names none), whatever the store returned.
     /// <summary>The verified erasures this host holds (feature 08): no view or walk offers a record they name.</summary>
     internal IReadOnlyList<Packs.ModuleErasure> Erasures { get; init; } = [];
+
+    /// <summary>The host's confidence floor in millionths (feature 09): no view or walk offers a record below it.</summary>
+    internal int? MinimumConfidenceMicro { get; init; }
 
     // Whether an erasure this host holds names the record (feature 08, R-CORE-134), whatever the store still holds.
     internal bool Erased(ModuleRecord record) => ErasedBy(Erasures, record);
@@ -248,7 +251,8 @@ public sealed class ModuleSet
     internal static bool ErasedBy(IReadOnlyList<Packs.ModuleErasure> erasures, ModuleRecord record) =>
         erasures.Count != 0 && erasures.Any(e => e.Names(record.Source, record.Type, record.Key));
 
-    internal sealed class LiveReader(IModuleReader inner, Func<string, bool>? live, TimeProvider clock, Func<ModuleRecord, bool>? erased = null) : IModuleReader
+    internal sealed class LiveReader(IModuleReader inner, Func<string, bool>? live, TimeProvider clock, Func<ModuleRecord, bool>? erased = null,
+        int? minimumConfidence = null) : IModuleReader
     {
         public string CallerModuleId => inner.CallerModuleId;
 
@@ -256,18 +260,28 @@ public sealed class ModuleSet
         {
             // The store is asked at the pin, else the host's now, so it keeps the live records before its limit; kept here too, for
             // a store that does not (review F07, M1).
+            // The host's floor goes to the store the same way, so a store keeps it before its limit too (review F09, H4); the higher
+            // of the host's and the caller's.
             var at = context.ValidAsOfUtc ?? clock.GetUtcNow();
-            var result = await inner.FindAsync(query, context with { ValidAsOfUtc = at }, cancellationToken).ConfigureAwait(false);
+            var floor = Higher(minimumConfidence, context.MinimumConfidenceMicro);
+            var result = await inner.FindAsync(query, context with { ValidAsOfUtc = at, MinimumConfidenceMicro = floor }, cancellationToken).ConfigureAwait(false);
             bool Keep(ModuleRecord r) => (live is null || live(r.ModuleId)) && (query.Selection == ModuleRecordSelection.History || ModuleRecordLife.IsLive(r.Life, at))
-                && erased?.Invoke(r) != true;
+                && erased?.Invoke(r) != true
+                && Packs.ModuleConfidence.Clears(r.ConfidenceMicro, floor);
             return result.Records.All(Keep) ? result : result with { Records = [.. result.Records.Where(Keep)] };
         }
     }
 
+    internal static int? Higher(int? a, int? b) => a is { } x && b is { } y ? Math.Max(x, y) : a ?? b;
+
     /// <summary>The traversal walk shared by every module's traversal contributor in one service scope (CMP-1).</summary>
+    // The floor holds in the walk as in a view (review F09, H3): the stores keep it before their cuts, and the walk where it seeds,
+    // steers and offers.
     internal Context.Traversal.TraversalService Traversal(IServiceProvider services) =>
         _traversal.GetValue(services, s => new Context.Traversal.TraversalService(Resolution, Store?.CreateTraversalReader(s, Resolution), Live(s),
-            s.GetService<TimeProvider>() ?? TimeProvider.System, Erasures.Count == 0 ? null : r => !Erased(r)));
+            s.GetService<TimeProvider>() ?? TimeProvider.System,
+            Erasures.Count == 0 && MinimumConfidenceMicro is null ? null : r => !Erased(r) && Packs.ModuleConfidence.Clears(r.ConfidenceMicro, MinimumConfidenceMicro),
+            MinimumConfidenceMicro));
 
     // Whether a module may take part in a walk now: a pack past its validUntil goes silent in the walk as its contributors
     // do (review 1, M2), so it neither spends the walk's budgets nor leads it to other modules' records.

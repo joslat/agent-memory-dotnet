@@ -30,9 +30,14 @@ public sealed class Neo4jModuleTraversalReader : IModuleTraversalReader
     private readonly ModuleMigrator _migrator;
     private readonly ModuleRecordLinks _links;
 
-    // The valid time a traversal keeps records at (feature 07): the read's pin, else now; every statement names it.
+    // The valid time a traversal keeps records at (feature 07): the read's pin, else now; and the confidence floor (feature 09),
+    // none being 0; every statement names both.
     private static Dictionary<string, object?> ValidAt(ModuleReadContext context) =>
-        new() { ["validAt"] = (context.ValidAsOfUtc ?? DateTimeOffset.UtcNow).ToUniversalTime().ToString("O", System.Globalization.CultureInfo.InvariantCulture) };
+        new()
+        {
+            ["validAt"] = (context.ValidAsOfUtc ?? DateTimeOffset.UtcNow).ToUniversalTime().ToString("O", System.Globalization.CultureInfo.InvariantCulture),
+            ["floor"] = context.MinimumConfidenceMicro ?? 0,
+        };
 
     /// <summary>Binds a reader without database work.</summary>
     public Neo4jModuleTraversalReader(INeo4jTransactionRunner runner, ModuleResolution resolution, IMemoryIsolationPolicy isolationPolicy,

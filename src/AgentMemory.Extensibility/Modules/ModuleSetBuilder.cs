@@ -48,6 +48,20 @@ public sealed class ModuleSetBuilder
         Erasures.AddRange(erasures);
         return this;
     }
+
+    internal int? MinimumConfidenceMicro { get; private set; }
+
+    /// <summary>
+    /// Leaves out of every view and walk the records whose effective confidence (feature 09, R-CORE-137) is below
+    /// <paramref name="micro"/> millionths. A record nothing caps has full confidence.
+    /// </summary>
+    public ModuleSetBuilder UseMinimumConfidence(int micro)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(micro);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(micro, Packs.ModuleConfidence.Full);
+        MinimumConfidenceMicro = micro;
+        return this;
+    }
     internal IReadOnlyList<string> CertificateTrust => _certificateTrust;
     internal IReadOnlyList<ModuleConsentGrant> ConsentGrants => _consentGrants;
     private readonly List<ModuleConsentGrant> _consentGrants = [];

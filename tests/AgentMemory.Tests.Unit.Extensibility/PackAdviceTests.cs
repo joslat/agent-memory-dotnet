@@ -21,7 +21,10 @@ public sealed class PackAdviceTests
           "whenToUse": "Ask it for a technique's steps or a lesson's notes when a question names a technique, a kata or a lesson." }
         """;
 
-    private static LoadedPack Load(Action<JsonObject>? change = null, string? trial = null, string? card = Card)
+    // What the sample pack was made from (feature 09), so each test reads only its own advice.
+    private const string Derivation = """{"actions":["extract"],"format":"agentmemory.pack.derivation/1","inputs":[{"digest":"sha256:abababababababababababababababababababababababababababababababab","name":"syllabus"}],"tool":{"name":"dojo-notes","version":"1.0.0"}}""";
+
+    private static LoadedPack Load(Action<JsonObject>? change = null, string? trial = null, string? card = Card, bool derived = true)
     {
         var source = new Dictionary<string, byte[]>(PackAuthoring.FromModuleBundle(Directory.EnumerateFiles(MartialArts, "*", SearchOption.AllDirectories).ToDictionary(
             f => Path.GetRelativePath(MartialArts, f).Replace(Path.DirectorySeparatorChar, '/'), File.ReadAllBytes, StringComparer.Ordinal)), StringComparer.Ordinal);
@@ -33,11 +36,20 @@ public sealed class PackAdviceTests
             source["pack.json"] = Encoding.UTF8.GetBytes(manifest.ToJsonString());
         }
         if (trial is not null) source["evals/trial.json"] = Encoding.UTF8.GetBytes(trial);
+        if (derived) source["META/derivation.json"] = Encoding.UTF8.GetBytes(Derivation);
         var trust = PackTrust.Parse(Encoding.UTF8.GetBytes(PackAuthoring.TrustPolicy(Key.PublicKeyPem, "io.agentmemory")));
         return PackLoader.Load(PackAuthoring.Build(source, Key.PrivateKeyPem), trust);
     }
 
     private static IEnumerable<string> Rules(LoadedPack pack, DateTimeOffset? now = null) => PackAdvice.Of(pack, now ?? DateTimeOffset.UtcNow).Select(a => a.Rule);
+
+    [Fact]
+    public void A_knowledge_pack_that_says_nothing_of_what_it_was_made_from_is_advised()
+    {
+        // Feature 09: a host caps a record's confidence by its source only when the pack names its sources.
+        Rules(Load(derived: false)).Should().Contain("derivation.missing");
+        Rules(Load()).Should().NotContain("derivation.missing");
+    }
 
     [Fact]
     public void A_countersignature_keeps_the_digest_and_counts_where_the_policy_trusts_the_role()

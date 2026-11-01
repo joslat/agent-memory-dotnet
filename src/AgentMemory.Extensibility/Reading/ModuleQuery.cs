@@ -64,6 +64,11 @@ public sealed record ModuleReadContext
     public DateTimeOffset? SystemAsOfUtc { get; init; }
     /// <summary>Valid-time pin. Module records do not support it and return NotApplicable.</summary>
     public DateTimeOffset? ValidAsOfUtc { get; init; }
+    /// <summary>
+    /// The host's confidence floor in millionths (feature 09, R-CORE-137): a store keeps out every record below it, a record with
+    /// no confidence counting as full, before its limit, as it keeps out a record not live. Null keeps every record.
+    /// </summary>
+    public int? MinimumConfidenceMicro { get; init; }
 }
 
 /// <summary>Explicit distinction between a refused read, a successful empty read and an unsupported clock.</summary>

@@ -13,8 +13,11 @@ public static class ContextFrames
     /// <summary>The frame's attributes, in order; never empty, so a module item is never rendered bare.</summary>
     public static IReadOnlyList<KeyValuePair<string, string>> Of(ContextModuleBinding? binding, ContextItemProvenance? provenance)
     {
+        // A capped record says how far it is trusted (feature 09), so the model weighs it.
         if (provenance is { SourcePack: { } pack })
-            return [new("pack", pack.Id), new("version", pack.Version), new("type", provenance.RecordType), new("key", provenance.RecordKey)];
+            return provenance.ConfidenceMicro is { } capped
+                ? [new("pack", pack.Id), new("version", pack.Version), new("type", provenance.RecordType), new("key", provenance.RecordKey), new("confidence", Packs.ModuleConfidence.Shown(capped))]
+                : [new("pack", pack.Id), new("version", pack.Version), new("type", provenance.RecordType), new("key", provenance.RecordKey)];
         var frame = new List<KeyValuePair<string, string>> { new("module", provenance?.RecordModuleId ?? binding?.ModuleId ?? "unknown") };
         if (binding is not null && (provenance is null || provenance.RecordModuleId == binding.ModuleId)) frame.Add(new("version", binding.ModuleVersion));
         if ((provenance?.RecordType ?? binding?.SectionType) is { } type) frame.Add(new("type", type));

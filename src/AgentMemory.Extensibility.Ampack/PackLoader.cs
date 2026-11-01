@@ -171,6 +171,8 @@ public sealed record LoadedPack
     /// id. An import applies them before it writes, and the records they name stay out of every read of this pack.
     /// </summary>
     public IReadOnlyList<ModuleErasure> Erasures { get; internal init; } = [];
+    /// <summary>Whether it says what it was made from (feature 09): <c>META/derivation.json</c>, inside its signed content.</summary>
+    public bool HasDerivation { get; internal init; }
     /// <summary>For a snapshot pack, its verified record files, read by <see cref="PackLoader.ToSnapshot"/>.</summary>
     internal IReadOnlyDictionary<string, ReadOnlyMemory<byte>> RecordFiles { get; init; } = new Dictionary<string, ReadOnlyMemory<byte>>();
 }
@@ -288,8 +290,11 @@ public static class PackLoader
                 Id = pack.Id, Version = pack.Version, Digest = pack.Digest, KeyId = pack.Signatures[0].KeyId, Signer = BundleSigner.Developer,
                 Files = files,
             };
-            try { knowledge = KnowledgePack.Open(bundle); }
+            // A record's sourceKey names an input of its derivation (feature 09); the reader refuses one that names none.
+            var derivation = pack.Files.TryGetValue(PackDerivation.FileName, out var derived) ? PackDerivation.Parse(derived).Derivation : null;
+            try { knowledge = KnowledgePack.Open(bundle, (derivation?.Inputs.Select(i => i.Name) ?? []).ToHashSet(StringComparer.Ordinal)); }
             catch (KnowledgePackException e) { throw new PackLoadException(e.Problems); }
+            knowledge = Trusted(knowledge, derivation, pack, trust.Policy);
         }
         string? snapshotSource = null;
         var recordFiles = new Dictionary<string, ReadOnlyMemory<byte>>(StringComparer.Ordinal);
@@ -314,6 +319,7 @@ public static class PackLoader
             // keys too (review 1, H2).
             Certificates = PackCertificates.Read(pack, ledger is null ? trust.Policy : ledger.Ledger.Apply(trust.Policy), DateTimeOffset.UtcNow),
             Erasures = PackErasures.Read(pack, ledger is null ? trust.Policy : ledger.Ledger.Apply(trust.Policy), DateTimeOffset.UtcNow),
+            HasDerivation = pack.Files.ContainsKey(PackDerivation.FileName),
             // An absent file is null, not empty: a plain null would convert, through byte[], to an empty and present ReadOnlyMemory.
             Tests = pack.Files.TryGetValue(PackTests.FileName, out var tests) ? new ReadOnlyMemory<byte>(tests) : (ReadOnlyMemory<byte>?)null,
         };
@@ -344,6 +350,23 @@ public static class PackLoader
         foreach (var time in times)
             if (time is { } value && (earliest is null || value < earliest)) earliest = value;
         return earliest;
+    }
+
+    // Each record's confidence capped by where it came from (feature 09, R-CORE-137): the least of its own, its source input's in
+    // META/derivation.json and its signer's in this host's trust policy. The reader refused a sourceKey that names no input.
+    private static KnowledgePack Trusted(KnowledgePack knowledge, PackDerivation? derivation, VerifiedPack pack, TrustPolicy policy)
+    {
+        // Each role the policy requires vouches through the most trusted key that signed in it, and the pack is trusted no further
+        // than its least trusted required role (review F09, M1: publishers alone); a key without a cap caps nothing.
+        var roles = policy.RequiredRoles.Select(role => pack.Signatures.Where(s => s.Role == role)
+            .Select(s => policy.Find(s.KeyId)?.ConfidenceMicro ?? ModuleConfidence.Full).DefaultIfEmpty(ModuleConfidence.Full).Max()).ToList();
+        int? signer = roles.Count != 0 && roles.Min() is var least && least < ModuleConfidence.Full ? least : null;
+        var records = knowledge.Proposals.Select(r =>
+        {
+            var source = r.SourceKey is { } name ? derivation?.Input(name)?.ConfidenceMicro : null;
+            return ModuleConfidence.Effective(r.ConfidenceMicro, source, signer) is var effective && effective == r.ConfidenceMicro ? r : r with { ConfidenceMicro = effective };
+        }).ToList();
+        return knowledge.WithProposals(records.AsReadOnly());
     }
 
     // What a pack uses that this host cannot enforce yet refuses it, rather than loading it as if it were open (PACK-review

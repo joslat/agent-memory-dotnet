@@ -2096,6 +2096,84 @@
   ],
   "erasure-reason-a-list": [
    "R-CORE-131"
+  ],
+  "derivation-valid": [
+   "R-CORE-136"
+  ],
+  "derivation-minimal": [
+   "R-CORE-136"
+  ],
+  "derivation-not-canonical": [
+   "R-CORE-136"
+  ],
+  "derivation-extra-field": [
+   "R-CORE-136"
+  ],
+  "derivation-confidence-above-a-million": [
+   "R-CORE-136"
+  ],
+  "derivation-confidence-negative": [
+   "R-CORE-136"
+  ],
+  "derivation-confidence-a-string": [
+   "R-CORE-136"
+  ],
+  "derivation-input-twice": [
+   "R-CORE-136"
+  ],
+  "derivation-no-inputs": [
+   "R-CORE-136"
+  ],
+  "derivation-digest-uppercase": [
+   "R-CORE-136"
+  ],
+  "derivation-action-unknown": [
+   "R-CORE-136"
+  ],
+  "derivation-action-twice": [
+   "R-CORE-136"
+  ],
+  "derivation-tool-without-version": [
+   "R-CORE-136"
+  ],
+  "derivation-parent-bad-id": [
+   "R-CORE-136"
+  ],
+  "derivation-name-with-a-newline": [
+   "R-CORE-136"
+  ],
+  "derivation-parameter-a-number": [
+   "R-CORE-136"
+  ],
+  "derivation-digest-trailing-newline": [
+   "R-CORE-136"
+  ],
+  "derivation-prompt-digest-trailing-newline": [
+   "R-CORE-136"
+  ],
+  "derivation-parent-digest-trailing-newline": [
+   "R-CORE-136"
+  ],
+  "derivation-confidence-zero": [
+   "R-CORE-136"
+  ],
+  "derivation-confidence-a-million": [
+   "R-CORE-136"
+  ],
+  "derivation-confidence-a-boolean": [
+   "R-CORE-136"
+  ],
+  "derivation-model-empty": [
+   "R-CORE-136"
+  ],
+  "derivation-licence-empty": [
+   "R-CORE-136"
+  ],
+  "trust-key-confidence-capped": [
+   "R-CORE-137"
+  ],
+  "trust-key-confidence-on-an-evaluator": [
+   "R-CORE-137"
   ]
  }
 }

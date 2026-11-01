@@ -954,6 +954,8 @@ def verify(files, policy, now):
     manifest_checks(manifest, content, now)
     if CARD in content:
         read_card(content[CARD])
+    if DERIVATION in content:
+        read_derivation(content[DERIVATION])
     digest = "sha256:" + hashlib.sha256(list_bytes).hexdigest()
     if digest in policy.get("revoked", {}).get("digests", []):
         raise Refused("the pack is revoked")
@@ -1324,6 +1326,63 @@ def read_embeddings(content):
         for (value,) in struct.iter_unpack(top, data):
             if value & mask == mask:
                 raise Refused("an embeddings tensor holds a NaN or infinite value")
+
+
+DERIVATION = REGISTRY["derivation"]["path"]
+DERIVATION_FORMAT = REGISTRY["derivation"]["format"]
+DERIVATION_ACTIONS = set(REGISTRY["derivation"]["actions"])
+DIGEST = re.compile(r"sha256:[0-9a-f]{64}", re.ASCII)
+MAX_CONFIDENCE_MICRO = 1_000_000
+
+
+def is_digest(value):
+    return isinstance(value, str) and DIGEST.fullmatch(value) is not None
+
+
+def read_derivation(data):
+    """What a pack was made from (feature 09, R-CORE-136): canonical and strict, as .NET's PackDerivation."""
+    d = profile(data, integers_only=True)
+    if canonical(d).encode("utf-8") != data:
+        raise Refused("META/derivation.json is not canonical (RFC 8785)")
+    if not isinstance(d, dict) or set(d) - SHAPE["derivation"]:
+        raise Refused("META/derivation.json holds other fields than a derivation")
+    if d.get("format") != DERIVATION_FORMAT:
+        raise Refused(f"META/derivation.json must name format '{DERIVATION_FORMAT}'")
+    inputs = d.get("inputs")
+    if not isinstance(inputs, list) or not 1 <= len(inputs) <= 256:
+        raise Refused("META/derivation.json names 1 to 256 inputs")
+    names = set()
+    for i in inputs:
+        micro = i.get("confidenceMicro", 0) if isinstance(i, dict) else None
+        if (not isinstance(i, dict) or set(i) - SHAPE["derivationInput"] or not is_digest(i.get("digest")) or not is_line(i.get("name"), 256)
+                or ("licence" in i and not is_line(i["licence"], 128))
+                or not isinstance(micro, int) or isinstance(micro, bool) or not 0 <= micro <= MAX_CONFIDENCE_MICRO):
+            raise Refused("META/derivation.json: an input is a digest, a name of 1 to 256 characters, and optionally a licence and a confidenceMicro of 0 to 1000000")
+        if i["name"] in names:
+            raise Refused(f"META/derivation.json names the input '{i['name']}' twice")
+        names.add(i["name"])
+    tool = d.get("tool")
+    if not isinstance(tool, dict) or set(tool) - SHAPE["derivationTool"] or not is_line(tool.get("name"), 128) or not is_line(tool.get("version"), 128):
+        raise Refused("META/derivation.json names its tool as a name and a version, each 1 to 128 characters")
+    model = d.get("model", {"id": "x"})
+    if not isinstance(model, dict) or set(model) - SHAPE["derivationModel"] or not is_line(model.get("id"), 256) \
+            or ("version" in model and not is_line(model["version"], 128)):
+        raise Refused("META/derivation.json names its model as an id and, optionally, a version")
+    if "promptDigest" in d and not is_digest(d["promptDigest"]):
+        raise Refused("META/derivation.json: promptDigest is sha256: and 64 lowercase hexadecimal characters")
+    parameters = d.get("parameters", {})
+    if not isinstance(parameters, dict) or len(parameters) > 64 \
+            or not all(is_line(k, 128) and isinstance(v, str) and is_line(v, 1024) for k, v in parameters.items()):
+        raise Refused("META/derivation.json: parameters is an object of at most 64 texts")
+    parent = d.get("parent", {"id": "com.example.absent", "digest": "sha256:" + "0" * 64})
+    if not isinstance(parent, dict) or set(parent) - SHAPE["derivationParent"] or not isinstance(parent.get("id"), str) \
+            or not valid_id(parent["id"]) or not is_digest(parent.get("digest")):
+        raise Refused("META/derivation.json names its parent as a pack id and the digest of its file list")
+    actions = d.get("actions")
+    if not isinstance(actions, list) or not actions or not all(isinstance(a, str) and a in DERIVATION_ACTIONS for a in actions) \
+            or len(set(actions)) != len(actions):
+        raise Refused("META/derivation.json: actions are distinct, of " + ", ".join(sorted(DERIVATION_ACTIONS)))
+    return d
 
 
 def read_card(data):
@@ -1733,6 +1792,12 @@ def load_policy(raw):
             raise Refused("a revoker key holds that role alone")
         if "evaluator" in roles and len(roles) > 1:
             raise Refused("an evaluator key holds that role alone")
+        micro = key.get("confidenceMicro", 0)
+        if not isinstance(micro, int) or isinstance(micro, bool) or not 0 <= micro <= MAX_CONFIDENCE_MICRO:
+            raise Refused("a trusted key's confidenceMicro is an integer from 0 to 1000000")
+        # It caps what the key signs, so only a key that signs packs carries one (review F09, M1).
+        if "confidenceMicro" in key and not set(roles) & ROLES:
+            raise Refused("a trusted key that signs no pack carries no confidenceMicro")
         # One PUBLIC KEY block and nothing else, as .NET reads it (review 2: a private key, or several blocks, read differently).
         if not isinstance(key["publicKey"], str) or not PUBLIC_PEM.fullmatch(key["publicKey"]):
             raise Refused("a trusted key's publicKey is not one PEM 'PUBLIC KEY' block and nothing else")

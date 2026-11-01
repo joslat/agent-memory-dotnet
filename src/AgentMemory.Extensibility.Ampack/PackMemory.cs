@@ -101,7 +101,7 @@ public sealed partial class PackMemory : IModuleTraversalReader
                 var stored = new ModuleRecord
                 {
                     ModuleId = manifest.Id, Type = record.Type, Id = IdOf(manifest.Id, record.Type, record.Key), Key = record.Key,
-                    CreatedAtUtc = loadedAt, Properties = record.Properties, SourceSessionId = "pack", Source = record.Source, Life = record.Life,
+                    CreatedAtUtc = loadedAt, Properties = record.Properties, SourceSessionId = "pack", Source = record.Source, Life = record.Life, ConfidenceMicro = record.ConfidenceMicro,
                 };
                 memory._byId[stored.Id] = stored;
             }
@@ -358,6 +358,7 @@ public sealed partial class PackMemory : IModuleTraversalReader
             var now = context.ValidAsOfUtc ?? DateTimeOffset.UtcNow;
             var found = memory.OfType(module.Id, type.Name)
                 .Where(r => AgentMemory.Extensibility.Reading.ModuleRecordLife.IsLive(r.Life, now))
+                .Where(r => ModuleConfidence.Clears(r.ConfidenceMicro, context.MinimumConfidenceMicro))
                 .Where(r => admitted.Key is null || r.Key == admitted.Key)
                 .Where(r => admitted.Where.All(f => Holds(r, f, type.Properties[f.Property].Type)))
                 .Where(r => admitted.Links.All(l => r.Links.Any(x => x.Relation == l.Relation && x.TargetId == l.TargetId)));
@@ -404,7 +405,7 @@ public sealed partial class PackMemory : IModuleTraversalReader
         // and one record could cost seconds).
         var quality = (query with { Values = values }).Matcher();
         var found = OfType(module.Id, query.Type)
-            .Where(r => ModuleRecordLife.IsLive(r.Life, at))
+            .Where(r => ModuleRecordLife.IsLive(r.Life, at) && ModuleConfidence.Clears(r.ConfidenceMicro, context.MinimumConfidenceMicro))
             .Select(r => { cancellationToken.ThrowIfCancellationRequested(); return r; })
             .Select(r => (Record: r, Quality: Text(r, query.Property) is { } value ? quality(value) : 0))
             .Where(p => p.Quality > 0)
@@ -451,7 +452,7 @@ public sealed partial class PackMemory : IModuleTraversalReader
                 continue;
             }
             // Only neighbours live at the walk's valid time, before the fan-out cut (feature 07 review, M2).
-            IEnumerable<(ModuleRecord Record, int Degree)> reached = links.Where(r => ModuleRecordLife.IsLive(r.Life, at)).Select(r => (r, Degree(relation.Name, r, query.Direction)));
+            IEnumerable<(ModuleRecord Record, int Degree)> reached = links.Where(r => ModuleRecordLife.IsLive(r.Life, at) && ModuleConfidence.Clears(r.ConfidenceMicro, context.MinimumConfidenceMicro)).Select(r => (r, Degree(relation.Name, r, query.Direction)));
             var ranked = reached
                 .Select(p => (p.Record, p.Degree, Hits: Hits(p.Record, text, words)))
                 .OrderByDescending(p => p.Hits).ThenBy(p => p.Degree).ThenBy(p => p.Record, Context.Traversal.TraversalOrder.Records).Take(fanOut);

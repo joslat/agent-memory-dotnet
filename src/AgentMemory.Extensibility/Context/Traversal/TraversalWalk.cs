@@ -103,7 +103,7 @@ internal static class TraversalWalk
     // live definition's module, so they seeded and steered, and were hidden only after the walk).
     internal static async Task<TraversalResult> RunAsync(ModuleResolution resolution, IModuleTraversalReader reader, ContextRequest request,
         CancellationToken cancellationToken, TimeSpan? timeBudget = null, Func<string, bool>? live = null, Func<ModuleRecord, bool>? liveRecord = null,
-        TimeProvider? time = null)
+        TimeProvider? time = null, int? minimumConfidence = null)
     {
         var anchors = Anchors(request.Anchors);
         if (anchors.Count == 0) return TraversalResult.Empty;
@@ -113,7 +113,7 @@ internal static class TraversalWalk
         var context = new ModuleReadContext
         {
             Scope = request.ResolvedScope ?? (request.Owner is null ? null : MemoryScope.For(request.Owner)),
-            SessionId = request.SessionId, SystemAsOfUtc = request.SystemAsOf, ValidAsOfUtc = at,
+            SessionId = request.SessionId, SystemAsOfUtc = request.SystemAsOf, ValidAsOfUtc = at, MinimumConfidenceMicro = minimumConfidence,
         };
         var modules = resolution.Modules.Where(m => m.Traversal is not null && m.Ontology is not null && (live?.Invoke(m.Id) ?? true)).ToList();
         var best = new Dictionary<string, TraversalItem>(StringComparer.Ordinal);
@@ -381,7 +381,7 @@ internal static class TraversalOrder
 /// <summary>One walk per request, shared by every module's traversal contributor in it (CMP-1).</summary>
 [Experimental("AMEXT001")]
 internal sealed class TraversalService(ModuleResolution resolution, IModuleTraversalReader? reader, Func<string, bool>? live = null, TimeProvider? time = null,
-    Func<ModuleRecord, bool>? liveRecord = null)
+    Func<ModuleRecord, bool>? liveRecord = null, int? minimumConfidence = null)
 {
     private readonly ConditionalWeakTable<ContextRequest, Task<TraversalResult>> _walks = new();
 
@@ -391,7 +391,8 @@ internal sealed class TraversalService(ModuleResolution resolution, IModuleTrave
     internal Task<TraversalResult> WalkAsync(ContextRequest request, CancellationToken cancellationToken) =>
         reader is null || request.Anchors.Count == 0
             ? Task.FromResult(TraversalResult.Empty)
-            : _walks.GetValue(request, r => TraversalWalk.RunAsync(resolution, reader, r, cancellationToken, live: live, liveRecord: liveRecord, time: time));
+            : _walks.GetValue(request, r => TraversalWalk.RunAsync(resolution, reader, r, cancellationToken, live: live, liveRecord: liveRecord, time: time,
+                minimumConfidence: minimumConfidence));
 }
 
 /// <summary>
