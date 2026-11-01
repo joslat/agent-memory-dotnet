@@ -197,6 +197,7 @@ internal static partial class Program
                 "erasure" => ErasureCommand(options),
                 "aggregate" => AggregateCommand(options),
                 "import" => Import(options),
+                "export" => Export(options),
                 "listing" => Listing(options),
                 "erase" => Erase(options),
                 "admit" => Admit(options),
@@ -273,6 +274,7 @@ internal static partial class Program
         ["aggregate"] = ["aggregate", "out", "activations", "host-key", "key", "from", "to", .. TrustOptions],
         ["import"] = ["id", "version", "owner", "key", "out", "mapping", "source", "git", "mem-trust"],
         ["listing"] = ["format", "url", "name", "at", "out", .. TrustOptions],
+        ["export"] = ["out", "mem-key", "at", .. TrustOptions],
         ["erase"] = ["erased", "reason", "plain-keys", "out", .. SignerOptions],
         ["admit"] = ["host-signing-key", "activations", .. TrustOptions],
         ["gate"] = [.. GateOptions, .. TrustOptions],
@@ -286,7 +288,7 @@ internal static partial class Program
     {
         ["init"] = 1, ["lint"] = 1, ["build"] = 1, ["sign"] = 1, ["verify"] = 1, ["inspect"] = 1, ["diff"] = 2, ["keygen"] = 0,
         ["revoke"] = 1, ["ledger"] = 0, ["sign-bytes"] = 0, ["migrate"] = 1, ["evidence"] = 0, ["scan"] = 1, ["countersign"] = 1,
-        ["install"] = 1, ["uninstall"] = 1, ["list"] = 0, ["receipt"] = 3, ["certify"] = 1, ["certificate"] = 2, ["erasure"] = 2, ["aggregate"] = 2, ["import"] = 2, ["listing"] = 1, ["erase"] = 1, ["admit"] = 1,
+        ["install"] = 1, ["uninstall"] = 1, ["list"] = 0, ["receipt"] = 3, ["certify"] = 1, ["certificate"] = 2, ["erasure"] = 2, ["aggregate"] = 2, ["import"] = 2, ["listing"] = 1, ["export"] = 2, ["erase"] = 1, ["admit"] = 1,
         ["solid"] = 2, ["trust"] = 2,
     };
 

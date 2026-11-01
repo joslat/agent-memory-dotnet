@@ -85,6 +85,27 @@ public sealed class PackImportsMemTests
     }
 
     [Fact]
+    public void An_export_is_canonical_reproducible_and_imports_back_under_its_signature()
+    {
+        var pack = PackLoader.Load(Import(Bundle()).Archive, PackTrust.Parse(Encoding.UTF8.GetBytes(PackAuthoring.TrustPolicy(Key.PublicKeyPem, "com.example"))));
+        var at = new DateTimeOffset(2026, 11, 1, 0, 0, 0, TimeSpan.Zero);
+        var first = PackExports.ToMem(pack, at, "test/1", m => (Convert.FromHexString(PublicKey), SHA512.HashData(m)));
+        var second = PackExports.ToMem(pack, at, "test/1", m => (Convert.FromHexString(PublicKey), SHA512.HashData(m)));
+        first.Files.Keys.Should().BeEquivalentTo(second.Files.Keys);
+        foreach (var (path, bytes) in first.Files) bytes.Should().Equal(second.Files[path], $"{path} is the same bytes each time");
+        first.Episodes.Should().Be(1);
+        first.Notes.Should().ContainSingle(n => n.Contains("salted hash"), "the import's erasure names its record by hash, which a tombstone cannot carry");
+
+        var manifest = Encoding.UTF8.GetString(first.Files["manifest.json"]);
+        manifest.Should().NotContain(" ").And.StartWith("{\"bundleDigest\":");
+        Encoding.UTF8.GetString(first.Files["items/episode.jsonl"]).Should().EndWith("}\n").And.Contain("\"details\":\"Kept episode.\"").And.Contain("\"importance\":0.5");
+
+        var back = Import(new Dictionary<string, byte[]>(first.Files, StringComparer.Ordinal), new HashSet<string> { PublicKey });
+        back.Records.Should().Be(1);
+        Derivation(back.Archive).Should().Contain("(trusted)");
+    }
+
+    [Fact]
     public void A_signature_is_recorded_as_trusted_only_under_a_trusted_key_and_trust_requires_one()
     {
         Derivation(Import(Bundle(signed: true)).Archive).Should().Contain("not trusted here");
