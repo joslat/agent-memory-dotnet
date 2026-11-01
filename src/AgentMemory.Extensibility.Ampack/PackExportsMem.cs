@@ -161,5 +161,6 @@ public static class PackExports
 
     private static string Second(DateTimeOffset t) => t.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);
 
-    private static string Hex(byte[] bytes) => Convert.ToHexStringLower(bytes);
+    // ToHexString().ToLowerInvariant(): this package targets net8.0, which has no ToHexStringLower.
+    private static string Hex(byte[] bytes) => Convert.ToHexString(bytes).ToLowerInvariant();
 }
