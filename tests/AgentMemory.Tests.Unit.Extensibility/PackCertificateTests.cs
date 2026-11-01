@@ -61,6 +61,20 @@ public sealed class PackCertificateTests : IDisposable
         PackLoader.Load(PackAuthoring.Countersign(certified, curator.PrivateKeyPem, "curator", Trust()), Trust()).Certificates.Should().ContainSingle().Which.Trusted.Should().BeTrue();
     }
 
+#pragma warning disable AMEXT001
+    [Fact]
+    public void A_listing_cites_a_certificate_only_from_a_key_the_host_names_as_evaluator()
+    {
+        var (built, pack) = Built();
+        var certified = Certify(built, pack);
+        static int Cited(LoadedPack loaded) =>
+            System.Text.Json.Nodes.JsonNode.Parse(PackListings.A2a(loaded, "https://agents.example/memory").Json)!["capabilities"]!["extensions"]![0]!["params"]!["certificates"]!.AsArray().Count;
+
+        Cited(PackLoader.Load(certified, Trust())).Should().Be(1);
+        Cited(PackLoader.Load(certified, Trust(evaluator: false))).Should().Be(0, "a certificate the host does not trust is never cited");
+    }
+#pragma warning restore AMEXT001
+
     [Fact]
     public void A_certificate_from_a_key_the_host_does_not_name_as_evaluator_informs_but_admits_nothing()
     {

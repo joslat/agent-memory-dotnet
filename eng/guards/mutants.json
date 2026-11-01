@@ -2073,6 +2073,96 @@
    "sha256": "e3586f8d57cea6946ce7e5579d47c2cc4f822976ba5ff11e64619b67061f7240"
   },
   {
+   "id": "mem-digest-unchecked",
+   "rule": "MEM-VERIFIED-WHOLE-TOMBSTONES-FIRST",
+   "door": "build",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackImportsMem.cs",
+   "edits": [
+    {
+     "old": "if (content.LongLength != bytes || Hex(SHA256.HashData(content)) != sha)",
+     "new": "if (content.LongLength != bytes && bytes < 0)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackImportsMemTests",
+   "sha256": "714d0c2919f0e56b63f2cfbf62fcee0e34e5378ac1bb2150ab3509ded7be8b6d"
+  },
+  {
+   "id": "mem-tombstone-not-applied",
+   "rule": "MEM-VERIFIED-WHOLE-TOMBSTONES-FIRST",
+   "door": "build",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackImportsMem.cs",
+   "edits": [
+    {
+     "old": "if (removed.ContainsKey(key) || kind == \"chunk\"",
+     "new": "if (kind == \"chunk\""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackImportsMemTests",
+   "sha256": "7d28f77b956280526838226ac0bff30443cff12c82c5b584cea1174330c437c7"
+  },
+  {
+   "id": "mem-untrusted-key-accepted",
+   "rule": "MEM-VERIFIED-WHOLE-TOMBSTONES-FIRST",
+   "door": "build",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackImportsMem.cs",
+   "edits": [
+    {
+     "old": "if (trusted is { Count: > 0 } && !trusted.Contains(key))",
+     "new": "if (trusted is { Count: > 0 } && trusted.Count < 0)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackImportsMemTests",
+   "sha256": "d594c872bfac5b83271b315d90f98ee556da476430e7198150a53b9e14d4bb64"
+  },
+  {
+   "id": "mem-export-keys-unsorted",
+   "rule": "MEM-EXPORT-CANONICAL",
+   "door": "build",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackExportsMem.cs",
+   "edits": [
+    {
+     "old": "foreach (var (k, v) in o.OrderBy(p => p.Key, StringComparer.Ordinal))",
+     "new": "foreach (var (k, v) in o)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackImportsMemTests",
+   "sha256": "ccd3f0b883603c529b4bf2690b7b0caa4bf18ee1158a12a4485d2d1c7aa94081"
+  },
+  {
+   "id": "mesh-superseded-imported",
+   "rule": "IMPORT-SAYS-WHAT-IT-DROPPED",
+   "door": "build",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackImportsMesh.cs",
+   "edits": [
+    {
+     "old": "if (Str(entry, \"lifecycle\") is \"superseded\")",
+     "new": "if (Str(entry, \"lifecycle\") is \"never-superseded\")"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackImportsMeshTests",
+   "sha256": "d2a0524aa1d645344a546c95b70c7e99d6d79d13350c098b498ce3da72231010"
+  },
+  {
+   "id": "listing-cites-untrusted",
+   "rule": "LISTING-CITES-ONLY-TRUSTED",
+   "door": "build",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackListings.cs",
+   "edits": [
+    {
+     "old": "pack.Certificates.Where(c => c.Trusted && c.Passed)",
+     "new": "pack.Certificates.Where(c => c.Passed)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackCertificateTests.A_listing_cites",
+   "sha256": "98d36551635af04990ce1492e21ee56f044a651a867563878c8c67d2d6002656"
+  },
+  {
    "id": "resource-off-served",
    "rule": "SERVE-RESOURCES-ONE-DOOR",
    "door": "serve",
