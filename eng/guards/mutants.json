@@ -1803,6 +1803,36 @@
    "sha256": "efe754fff30ac3a2c44f16174f6cfe22666f9bdee235838a9f011817ec84aa49"
   },
   {
+   "id": "shadow-contributes",
+   "rule": "TRIAL-OVER-TIME",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility/Modules/ShadowTrial.cs",
+   "edits": [
+    {
+     "old": "        return new ContextContributionResult\n        {\n            OmissionReason = ContextOmissionReason.Denied,",
+     "new": "        return result with\n        {\n            OmissionReason = null,"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ModuleActivationTests.A_module_that_runs_dark",
+   "sha256": "bd102ef21d15332342ffce9b9dd6498921f9cb55e07ea15183c929a5f1f72ca7"
+  },
+  {
+   "id": "shadow-not-wired",
+   "rule": "TRIAL-OVER-TIME",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility/Modules/ModuleSet.cs",
+   "edits": [
+    {
+     "old": "? new ShadowContributor(c, shadow.Key, shadow.Value.Recorder, shadow.Value.Locate, services.GetService<TimeProvider>() ?? TimeProvider.System) : c)];",
+     "new": "? c : c)];"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ModuleActivationTests.A_module_that_runs_dark",
+   "sha256": "63184600ae32899beaa05145d8b1c8c690c530dc4deca5fc147412f00b0ec90e"
+  },
+  {
    "id": "expiry-not-live",
    "rule": "TRIAL-OVER-TIME",
    "door": "serve",

@@ -53,6 +53,21 @@ public sealed class ModuleSetBuilder
 
     internal ModelEndpoint Endpoint { get; private set; } = ModelEndpoint.External;
 
+    internal Dictionary<string, (IShadowRecorder Recorder, Func<Context.ContextItem, string?>? Locate)> Shadows { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Runs a module dark (feature 11, R2, a shadow trial): its contributors run on every live turn, and what they would offer goes
+    /// to <paramref name="recorder"/> on this host, never into the context. <paramref name="locate"/> gives what the host's labeller
+    /// matches an offer by (for a code map's test, its file); the log holds record ids, keys and that, never record text.
+    /// </summary>
+    public ModuleSetBuilder UseShadow(string moduleId, IShadowRecorder recorder, Func<Context.ContextItem, string?>? locate = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(moduleId);
+        ArgumentNullException.ThrowIfNull(recorder);
+        Shadows[moduleId] = (recorder, locate);
+        return this;
+    }
+
     /// <summary>
     /// States where the host's model runs (feature 10, R-CORE-139). A pack whose usage policy does not allow its text to reach a
     /// model of this class (<c>rehydrate:local</c>, <c>rehydrate:private</c> or <c>rehydrate:external</c>) is withheld from

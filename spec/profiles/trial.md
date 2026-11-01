@@ -304,6 +304,12 @@ The record carries each part's evidence, and a host MUST recheck each admitted p
 A walk MUST follow, from the anchors, only the relations admitted, decided where it chooses them, and MUST NOT offer an
 anchor's own record unless `(anchor)` is admitted.
 
+**R-TRIAL-053.** A host MAY run a pack dark (a shadow trial, feature 11): its contributors run on live turns, and what they would
+offer MUST go to a log on the host and MUST NOT reach the context. The log holds each turn's time, anchors and offers by record
+id, key, type, the first relation of the reason path and the host's locator, never record text, and never leaves the host. A
+decision made from it MUST be the same decision as any trial's, on as many labelled turns as the trial runs, each labelled by
+the trial's rule for an expected result, and records `history: "shadow"`.
+
 ## 8. Upgrades
 
 **R-TRIAL-040.** With `upgrade.noRegression`, a new version MUST switch on only if it does no worse than the

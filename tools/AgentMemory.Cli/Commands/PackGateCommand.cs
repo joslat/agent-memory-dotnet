@@ -34,7 +34,7 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     public async Task<int> ExecuteAsync(string? packId, string? repo, string? hostKeyPath, string? activationsFolder, string? variant, string? outputPath,
-        string? packPath = null, string? trustPath = null, string? previousPath = null, string history = "parent", bool partial = false)
+        string? packPath = null, string? trustPath = null, string? previousPath = null, string history = "parent", bool partial = false, string? shadowPath = null)
     {
         if (packId != CodeMapPack.Id)
         {
@@ -135,6 +135,7 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
             }
         }
         var root = Path.GetFullPath(repo ?? ".");
+        if (shadowPath is not null) return DecideFromShadow(shadowPath, root, manifest, trial, asPack?.Digest, activationsFolder, hostKey);
         var tasks = HistoryTasks(root, trial.Tasks, history, out var spacing);
         output.WriteLine($"{manifest.Id} {manifest.Version}{(variant is null ? "" : " (" + variant + ")")}: {tasks.Count} tasks from this repository's history, "
             + (history == "parent" ? "each at its commit's parent (map and grep as they stood before the change)" : "against the repository as it is now (head)"));
@@ -332,6 +333,58 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
             scope.ServiceProvider.GetRequiredService<INeo4jTransactionRunner>(), set.Resolution).ApplyAsync("pack trial").ConfigureAwait(false);
         if (applied.Problems.Count != 0) throw new InvalidOperationException("module migrations failed: " + string.Join("; ", applied.Problems));
         return provider;
+    }
+
+    // A shadow trial (feature 11, R2): the pack ran dark on live turns; each turn is labelled by the code-history rule, the tests the
+    // next commit after it that touched one of its anchor paths changed, and the latest of as many labelled turns as the trial runs
+    // are its tasks, against nothing (the pack offered nothing to those turns). The same exact decision, recorded as "shadow".
+    private int DecideFromShadow(string shadowPath, string root, ModuleManifest manifest, ModuleTrial trial, string? packDigest,
+        string activationsFolder, ECDsa hostKey)
+    {
+        if (trial.Baseline == "host")
+        {
+            output.WriteLine("error: a shadow trial is measured against nothing; this trial's baseline is the host's own retrieval, which the log does not hold.");
+            return 2;
+        }
+        IReadOnlyList<ShadowTurn> turns;
+        try { turns = [.. ShadowLogFile.Read(shadowPath).Where(t => t.ModuleId == manifest.Id)]; }
+        catch (Exception e) when (e is InvalidDataException or IOException)
+        {
+            output.WriteLine("error: " + e.Message);
+            return 2;
+        }
+        var commits = HistoryTasks(root, PackTrialGate.HistoryWindow, "parent", out _);
+        var labelled = turns.Select(t =>
+        {
+            var paths = t.Anchors.Where(a => a.StartsWith("path:", StringComparison.Ordinal)).Select(a => a[5..]).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            return (Turn: t, Outcome: commits.Where(c => c.At > t.At && c.Anchors.Any(paths.Contains)).MinBy(c => c.At));
+        }).Where(l => l.Outcome is not null).OrderByDescending(l => l.Turn.At).Take(trial.Tasks).ToList();
+        output.WriteLine($"{manifest.Id} {manifest.Version}: {turns.Count} shadow turns, {labelled.Count} labelled by a later commit (a trial runs {trial.Tasks})");
+        if (labelled.Count < trial.Tasks)
+        {
+            output.WriteLine($"  not yet: {trial.Tasks - labelled.Count} more labelled turns are needed.");
+            return 1;
+        }
+        var per = labelled.Select(l =>
+        {
+            var offered = l.Turn.Offers.Select(o => o.Locator).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            return new PackTrialTask(offered.Count, offered.Count(f => l.Outcome!.Tests.Contains(f, StringComparer.OrdinalIgnoreCase)));
+        }).ToList();
+        var withArm = new PackTrialMeasurement
+        {
+            Tasks = per.Count, Hits = per.Count(t => t.Correct > 0), Offered = per.Sum(t => t.Offered), Correct = per.Sum(t => t.Correct), P95Ms = 0,
+            PerTask = per, MaximumOffered = manifest.Traversal?.MaxItems,
+        };
+        var withoutArm = new PackTrialMeasurement
+        {
+            Tasks = per.Count, Hits = 0, Offered = 0, Correct = 0, P95Ms = 0, PerTask = [.. per.Select(_ => new PackTrialTask(0, 0))], MaximumOffered = 0,
+        };
+        var decision = PackTrialGate.Decide(manifest, withArm, withoutArm, DateTimeOffset.UtcNow, packDigest) with { History = "shadow" };
+        var record = PackActivationFolder.Write(activationsFolder, decision, hostKey);
+        output.WriteLine($"  shadow   hit {withArm.HitRate:0.000} ({withArm.Hits}/{withArm.Tasks}), precision {withArm.Precision:0.000} ({withArm.Correct}/{withArm.Offered})");
+        output.WriteLine($"  decision {(decision.Active ? "ON" : "OFF")}: {decision.Reason}");
+        output.WriteLine($"  signed   {record}");
+        return decision.Active ? 0 : 1;
     }
 
     // One task through one arm: the test files it offered, how many were right, and how long the compile took.

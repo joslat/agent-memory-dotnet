@@ -140,7 +140,7 @@ public sealed class ModuleSet
             registrations, switchedOff)
         {
             ChatClient = builder.ChatClient, Priorities = priorities.AsReadOnly(), Erasures = [.. builder.Erasures], MinimumConfidenceMicro = builder.MinimumConfidenceMicro,
-            Endpoint = builder.Endpoint, PackPolicies = builder.PackPolicies.ToDictionary(p => p.Digest, p => p.Allows, StringComparer.Ordinal),
+            Endpoint = builder.Endpoint, Shadows = new Dictionary<string, (IShadowRecorder, Func<ContextItem, string?>?)>(builder.Shadows, StringComparer.Ordinal), PackPolicies = builder.PackPolicies.ToDictionary(p => p.Digest, p => p.Allows, StringComparer.Ordinal),
             Slots = [.. builder.Modules.SelectMany(m => Enumerable.Repeat(m.Manifest.Id, m.Contributors.Count))],
         };
         var log = services.GetService<ILoggerFactory>()?.CreateLogger<ModuleSet>();
@@ -162,7 +162,10 @@ public sealed class ModuleSet
             ? new PrioritizedContributor(c, p.Value) : c)
           .Select(c => _registrations.FirstOrDefault(r => r.OffAfter is not null && ModuleIdentity.IsOwnedId(r.Manifest.Id, c.Descriptor.Id)) is { } expiring
             ? new ExpiringContributor(c, expiring.OffAfter!.Value, services.GetService<TimeProvider>() ?? TimeProvider.System,
-                expiring.OffAfter == expiring.DecisionExpires ? "its trial decision expired" : "the pack was valid until then") : c)];
+                expiring.OffAfter == expiring.DecisionExpires ? "its trial decision expired" : "the pack was valid until then") : c)
+          // A module that runs dark: its offers are recorded, never contributed (feature 11, R2).
+          .Select(c => Shadows.FirstOrDefault(s => ModuleIdentity.IsOwnedId(s.Key, c.Descriptor.Id)) is { Key: not null } shadow
+            ? new ShadowContributor(c, shadow.Key, shadow.Value.Recorder, shadow.Value.Locate, services.GetService<TimeProvider>() ?? TimeProvider.System) : c)];
 
     /// <summary>
     /// The module of each contributor slot the host registered (<see cref="CountContributors"/>: every contributor of every
@@ -249,6 +252,10 @@ public sealed class ModuleSet
 
     /// <summary>The host's confidence floor in millionths (feature 09): no view or walk offers a record below it.</summary>
     internal int? MinimumConfidenceMicro { get; init; }
+
+    /// <summary>The modules that run dark, each with its recorder and locator (feature 11).</summary>
+    internal IReadOnlyDictionary<string, (IShadowRecorder Recorder, Func<ContextItem, string?>? Locate)> Shadows { get; init; } =
+        new Dictionary<string, (IShadowRecorder, Func<ContextItem, string?>?)>();
 
     /// <summary>Where the host's model runs (feature 10).</summary>
     internal ModelEndpoint Endpoint { get; init; } = ModelEndpoint.External;

@@ -72,6 +72,52 @@ public sealed class ModuleActivationTests
             Task.FromResult<ContextSection?>(new(Descriptor.SectionTypes.First(), Descriptor.Id, 1, [new("one", Text ?? "item")]));
     }
 
+    private sealed class Recorder : IShadowRecorder
+    {
+        public List<ShadowTurn> Turns { get; } = [];
+        public ValueTask RecordAsync(ShadowTurn turn, CancellationToken cancellationToken = default) { Turns.Add(turn); return ValueTask.CompletedTask; }
+    }
+
+    // A contributor whose item names the record it came from, as a pack's contributors do.
+    private sealed class Offering(string id) : IContextContributor
+    {
+        public ContextContributorDescriptor Descriptor { get; } = new(id, new HashSet<string> { id });
+        public ValueTask<bool> AppliesAsync(ContextRequest request, CancellationToken cancellationToken) => ValueTask.FromResult(true);
+        public Task<ContextSection?> ContributeAsync(ContextRequest request, CancellationToken cancellationToken) =>
+            Task.FromResult<ContextSection?>(new(id, id, 1, [new("one", "the plan for Lyon")
+            {
+                Provenance = new ContextItemProvenance
+                {
+                    RecordModuleId = Topics, RecordType = "TopicsNote", RecordVersionId = "v1", RecordKey = "lyon", CreatedAtUtc = DateTimeOffset.UnixEpoch,
+                    SourceSessionId = "pack", ViaRelation = "TOPICS_ABOUT:out",
+                },
+            }]));
+    }
+
+    [Fact]
+    public async Task A_module_that_runs_dark_records_what_it_would_offer_and_never_contributes_it()
+    {
+        // Feature 11 (R2): a shadow trial's offers go to the host's recorder, never into the context, and never with their text.
+        var recorder = new Recorder();
+        var services = Services();
+        services.AddAgentMemoryModules(m => m
+            .Add(Manifest(Topics), b => b.AddContextContributor(_ => new Offering(Topics + ":open")))
+            .Add(Manifest(Reviews), b => b.AddContextContributor(_ => new Contributor(Reviews + ":open") { Text = "Review the Lyon plan" }))
+            .UseShadow(Topics, recorder, item => "notes/" + item.Provenance!.RecordKey + ".md"));
+        using var provider = Build(services);
+        using var scope = provider.CreateScope();
+        var envelope = await scope.ServiceProvider.GetRequiredService<IContextCompiler>()
+            .CompileAsync(new ContextRequest { SessionId = "s", Owner = "owner", Query = "what is next?", Anchors = [ContextAnchor.Path("plans/lyon.md")] });
+
+        envelope.Sections.Should().ContainSingle().Which.Items.Single().Text.Should().Be("Review the Lyon plan");
+        var turn = recorder.Turns.Should().ContainSingle().Subject;
+        turn.ModuleId.Should().Be(Topics);
+        turn.Anchors.Should().Equal("path:plans/lyon.md");
+        turn.Offers.Should().ContainSingle().Which.Should().BeEquivalentTo(new ShadowOffer
+            { RecordId = "v1", Key = "lyon", Type = "TopicsNote", ViaRelation = "TOPICS_ABOUT:out", Locator = "notes/lyon.md" });
+        System.Text.Json.JsonSerializer.Serialize(turn).Should().NotContain("the plan for Lyon", "a shadow log never holds record text");
+    }
+
     private sealed class Provider(string id) : IIngestionProvider
     {
         public IngestionProviderDescriptor Descriptor { get; } = new() { Id = id };
