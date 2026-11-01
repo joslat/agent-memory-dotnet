@@ -449,6 +449,9 @@
       },
       "addedP95Ms": {
         "field": "addedP95Ms"
+      },
+      "noHarm": {
+        "field": "noHarmMicro"
       }
     },
     "upgradeFields": [
@@ -741,6 +744,9 @@
     "atMost": [
       "addedP95Ms",
       "safety"
+    ],
+    "hostOnly": [
+      "noHarm"
     ]
   },
   "certificate": {
@@ -885,6 +891,11 @@
         "max": 1000000
       },
       "hitRateMicro": {
+        "unit": "micro",
+        "min": 0,
+        "max": 1000000
+      },
+      "noHarmMicro": {
         "unit": "micro",
         "min": 0,
         "max": 1000000

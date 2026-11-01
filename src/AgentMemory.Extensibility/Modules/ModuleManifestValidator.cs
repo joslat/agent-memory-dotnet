@@ -248,7 +248,9 @@ internal sealed class ModuleManifestValidator
     private void ValidateTrial(ModuleTrial trial)
     {
         const string path = "$.trial";
-        if (trial.Measure != "test-impact") Error(path + ".measure", "expected test-impact");
+        // Feature 12: retrieval (recorded questions and the record keys later used) beside test-impact.
+        if (trial.Measure is not ("test-impact" or "retrieval")) Error(path + ".measure", "expected test-impact or retrieval");
+        if (trial.Targets?.NoHarmMicro is not null && trial.Measure != "retrieval") Error(path + ".targets.noHarmMicro", "noHarm is a retrieval trial's target");
         if (trial.Tasks is < ModuleTrial.MinimumTasks or > ModuleTrial.MaximumTasks) Error(path + ".tasks", "expected 10 to 200");
         if (trial.Baseline is not { } baseline || !PackRegistry.Baselines.Contains(baseline)) Error(path + ".baseline", "expected host or none");
         if (trial.ConfidencePermille is { } confidence && PackNumbers.Problem("confidencePermille", confidence) is { } wrong) Error(path + ".confidencePermille", wrong);

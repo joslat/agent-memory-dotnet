@@ -1543,6 +1543,9 @@ def main():
         # Review 7, G3: no regression is a host's own comparison; a certificate carries no arm for it.
         "certificate-no-regression-target": (carrying(certificate(certified, checks=[{"target": "noRegression.hitRate", "requiredMicro": 0, "observedMicro": 0, "met": True}])),
                                              certificate_path, None, "trust-evaluator.json", "refused"),
+        # Feature 12: noHarm is a host's own target; a certificate that certifies it is refused by both verifiers.
+        "certificate-checks-no-harm": (carrying(certificate(certified, checks=[{"target": "noHarm", "requiredMicro": 900000, "observedMicro": 950000, "met": True}])),
+                                       certificate_path, None, "trust-evaluator.json", "refused"),
         "certificate-confidence-unknown": (carrying(certificate(certified, trial_={"measure": "test-impact", "baseline": "none", "confidencePermille": 800, "taskSource": "x"})),
                                            certificate_path, None, "trust-evaluator.json", "refused"),
         # Feature 02: a unit field is an integer written as one; 950.0 is a known confidence written with a fraction.

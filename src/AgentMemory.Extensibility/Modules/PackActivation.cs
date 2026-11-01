@@ -24,6 +24,15 @@ public sealed record PackTrialMeasurement
     /// <summary>The p95 compile time, in milliseconds.</summary>
     public required double P95Ms { get; init; }
     /// <summary>
+    /// For a retrieval trial (feature 12), the abstention tasks run (their expected result is nothing), apart from <see cref="Tasks"/>,
+    /// and how many of them the arm offered nothing on. Null for a trial without abstention tasks.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? Abstentions { get; init; }
+    /// <summary>The abstention tasks the arm offered nothing on.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? Quiet { get; init; }
+    /// <summary>
     /// Each task's offered and correct items, in task order, when the runner kept them (PACK-gate-stats-2): the items one task
     /// offers are correlated, so precision's confidence bound treats each task as one cluster. Their sums must be
     /// <see cref="Offered"/> and <see cref="Correct"/>, one per task, and the tasks with a correct item are <see cref="Hits"/>.
@@ -214,6 +223,15 @@ public sealed record PackActivation
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<PackTrialPart>? Parts { get; init; }
+    /// <summary>
+    /// For a retrieval trial (feature 12), the host's task file: <c>sha256:</c> over its exact bytes, so the decision names the
+    /// tasks it ran on without revealing them. Null for a trial drawn from code history.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TaskFile { get; init; }
+    /// <summary>For a retrieval trial, each ability's arm with the pack, reported beside the decision and not gating it.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyDictionary<string, PackTrialMeasurement>? Abilities { get; init; }
 }
 
 /// <summary>The activation records a host has, by pack.</summary>
@@ -806,6 +824,17 @@ public static partial class PackTrialGate
             return new(target, required, Math.Ceiling(upper * PackNumbers.One) / PackNumbers.One,
                 MeetsRate(safety.Probes - safety.Followed, safety.Probes, (int)Math.Round(c * 1000), 1 - most), Math.Round(shown, 6));
         }
+        if (target == "noHarm")
+        {
+            // Met when the share of abstention tasks the pack stayed quiet on is at least the target: its estimate, or under a
+            // confidence its exact lower bound (Clopper-Pearson), decided as a rate is. No abstention tasks, no pass.
+            if (with.Abstentions is not { } n || n <= 0 || with.Quiet is not { } q || q < 0 || q > n) return new(target, required, 0, false);
+            var least = Q.Of(checked((long)Math.Round(required * PackNumbers.One)), PackNumbers.One);
+            var shown = (double)q / n;
+            if (confidence is not { } c) return new(target, required, Math.Round(shown, 6), Q.Of(q, n) >= least);
+            return new(target, required, Math.Floor(RateLower(q, n, c) * PackNumbers.One) / PackNumbers.One,
+                MeetsRate(q, n, (int)Math.Round(c * 1000), least), Math.Round(shown, 6));
+        }
         if (target == "addedP95Ms")
         {
             // In whole microseconds, as a certificate records latency (review 7, G9: 300.3 - 50.1 is 250.20000000000002 in binary,
@@ -1135,6 +1164,7 @@ public static partial class PackTrialGate
             AtLeast("precision", F(f.PrecisionMicro), F(t.PrecisionMicro));
             AtLeast("lift", F(f.LiftMicro), F(t.LiftMicro));
             AtLeast("precisionLift", F(f.PrecisionLiftMicro), F(t.PrecisionLiftMicro));
+            AtLeast("noHarm", F(f.NoHarmMicro), F(t.NoHarmMicro));
             if (f.AddedP95Ms is { } budget)
             {
                 if (t.AddedP95Ms is not { } added) gaps.Add($"no addedP95Ms target, {S(budget)} required");
@@ -1181,6 +1211,7 @@ public static partial class PackTrialGate
             AtLeast("precision", F(f.PrecisionMicro));
             AtLeast("lift", F(f.LiftMicro));
             AtLeast("precisionLift", F(f.PrecisionLiftMicro));
+            AtLeast("noHarm", F(f.NoHarmMicro));
             if (f.AddedP95Ms is { } budget)
             {
                 if (Checked("addedP95Ms") is not { } added) gaps.Add($"no addedP95Ms checked, {S(budget)} required");

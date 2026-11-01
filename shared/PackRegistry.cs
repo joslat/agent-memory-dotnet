@@ -49,6 +49,8 @@ internal static class PackRegistry
     internal static readonly IReadOnlySet<string> TrialFields = Set("trial", "fields");
     /// <summary>The trial's target names, as a certificate's checks name them.</summary>
     internal static readonly IReadOnlySet<string> Targets = new HashSet<string>(Path("trial", "targets").EnumerateObject().Select(p => p.Name), StringComparer.Ordinal);
+    /// <summary>The targets a host decides on its own and no certificate certifies (feature 12: noHarm needs abstention counts no certificate arm holds).</summary>
+    internal static readonly IReadOnlySet<string> HostOnlyTargets = Set("trial", "hostOnly");
     /// <summary>The field of <c>evals/trial.json</c>'s targets that holds each target, by target name (its unit is in its name).</summary>
     internal static readonly IReadOnlyDictionary<string, string> TargetFields = Path("trial", "targets").EnumerateObject()
         .ToDictionary(p => p.Name, p => p.Value.GetProperty("field").GetString()!, StringComparer.Ordinal);

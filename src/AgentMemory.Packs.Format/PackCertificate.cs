@@ -47,7 +47,7 @@ internal sealed partial record PackCertificate(string Id, string Version, string
     /// passed on that host, which a certificate carries no arm for, so a certificate never states it (review 7, G3: one issued
     /// from an upgrade trial carried those checks and could never be admitted).
     /// </summary>
-    internal static readonly IReadOnlySet<string> Targets = PackRegistry.Targets.Concat(PackRegistry.CostFields.Keys).ToHashSet(StringComparer.Ordinal);
+    internal static readonly IReadOnlySet<string> Targets = PackRegistry.Targets.Except(PackRegistry.HostOnlyTargets).Concat(PackRegistry.CostFields.Keys).ToHashSet(StringComparer.Ordinal);
     /// <summary>The cost targets (feature 05), whose checks show an exact bound: met exactly when it reaches the target.</summary>
     internal static readonly IReadOnlySet<string> CostTargets = PackRegistry.CostFields.Keys.ToHashSet(StringComparer.Ordinal);
     /// <summary>The most bytes one task may record offering.</summary>

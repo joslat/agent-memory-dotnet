@@ -109,7 +109,7 @@ internal static class ModuleManifestReader
             Targets = new ModuleTrialTargets
             {
                 HitRateMicro = Target("hitRate"), PrecisionMicro = Target("precision"), LiftMicro = Target("lift"),
-                PrecisionLiftMicro = Target("precisionLift"), AddedP95Ms = Target("addedP95Ms"),
+                PrecisionLiftMicro = Target("precisionLift"), AddedP95Ms = Target("addedP95Ms"), NoHarmMicro = Target("noHarm"),
             },
         };
     }

@@ -41,7 +41,7 @@ this document.
 
 | Field | Meaning |
 |---|---|
-| `measure` | What is measured: `test-impact`; `retrieval` (expected keys for recorded questions) is reserved |
+| `measure` | What is measured: `test-impact` (code changes), or `retrieval` (recorded questions and the record keys later used) |
 | `tasks` | How many tasks the host draws from its own history |
 | `baseline` | What "without the pack" means: `host` (the host's existing retrieval: search, or grep for code) or `none` |
 | `targets` | The targets, each of which must be met |
@@ -58,10 +58,11 @@ The targets:
 | `lift` | liftMicro |
 | `precisionLift` | precisionLiftMicro |
 | `addedP95Ms` | addedP95Ms |
+| `noHarm` | noHarmMicro |
 <!-- /registry -->
 
-**R-TRIAL-002.** `measure` MUST be `test-impact`; `retrieval` is reserved, and a host that does not implement it MUST
-refuse a trial that declares it.
+**R-TRIAL-002.** `measure` MUST be `test-impact` or `retrieval`; a host that does not implement the one a trial declares MUST
+refuse it.
 
 **R-TRIAL-003.** `tasks` MUST be 10 to 200 (default 40), and at least 10 tasks MUST be found for a trial to decide
 anything.
@@ -309,6 +310,17 @@ offer MUST go to a log on the host and MUST NOT reach the context. The log holds
 id, key, type, the first relation of the reason path and the host's locator, never record text, and never leaves the host. A
 decision made from it MUST be the same decision as any trial's, on as many labelled turns as the trial runs, each labelled by
 the trial's rule for an expected result, and records `history: "shadow"`.
+
+**R-TRIAL-054.** A retrieval trial (feature 12) runs on a host's task file, `agentmemory.trial.tasks/1`: tasks of a question,
+the instant it was asked (UTC, to the second), optionally its path or symbol anchors and its ability (`fact`, `update`,
+`temporal`, `multi-session`, `abstain`), and the keys of the records later used in answering it. The file MUST stay on the
+host and MUST NOT enter a pack; the decision MUST name it by `sha256:` over its exact bytes. A task is a hit when the pack
+offered one of its expected keys. A decision MAY report each ability's arm; it does not gate.
+
+**R-TRIAL-055.** A task that expects no keys is an abstention task, and only a task of ability `abstain` is one. Abstention
+tasks are counted apart from the trial's tasks; the target `noHarm` (`noHarmMicro`) is met when the share of them on which
+the pack offered nothing is at least the target, decided as a rate is. `noHarm` is a host's own target: a certificate MUST
+NOT certify it, and every verifier MUST refuse a certificate that does.
 
 ## 8. Upgrades
 

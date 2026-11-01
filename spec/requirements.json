@@ -2352,7 +2352,7 @@
    "doc": "profiles/trial.md",
    "section": "2.1",
    "level": "MUST",
-   "summary": "`measure` MUST be `test-impact`; `retrieval` is reserved, and a host that does not implement it MUST refuse a trial that declares it.",
+   "summary": "`measure` MUST be `test-impact` or `retrieval`; a host that does not implement the one a trial declares MUST refuse it.",
    "verifiedBy": [
     "unit:TrialGateTests.A_trial_needs_a_measure_and_a_target_in_range"
    ]
@@ -2900,6 +2900,27 @@
    ]
   },
   {
+   "id": "R-TRIAL-054",
+   "doc": "profiles/trial.md",
+   "section": "7",
+   "level": "MUST",
+   "summary": "A retrieval trial (feature 12) runs on a host's task file, `agentmemory.trial.tasks/1`: tasks of a question, the instant it was asked (UTC, to the second), optionally its path or symbol anchors and its ability (`fact`, `update`, `temporal`, `multi-session`, `abstain`), and the keys of the records later used in answering it. The file MUST stay on the host and MUST NOT enter a pack; the decision MUST name it by `sha256:` over its exact bytes. A task is a hit when the pack offered one of its expected keys. A decision MAY report each ability's arm; it does not gate.",
+   "verifiedBy": [
+    "unit:RetrievalTrialTests.A_task_file_is_read_strictly_and_named_by_its_digest"
+   ]
+  },
+  {
+   "id": "R-TRIAL-055",
+   "doc": "profiles/trial.md",
+   "section": "7",
+   "level": "MUST",
+   "summary": "A task that expects no keys is an abstention task, and only a task of ability `abstain` is one. Abstention tasks are counted apart from the trial's tasks; the target `noHarm` (`noHarmMicro`) is met when the share of them on which the pack offered nothing is at least the target, decided as a rate is. `noHarm` is a host's own target: a certificate MUST NOT certify it, and every verifier MUST refuse a certificate that does.",
+   "verifiedBy": [
+    "unit:RetrievalTrialTests.No_harm_is_the_share_of_abstention_tasks_the_pack_stays_quiet_on",
+    "kit:certificate-checks-no-harm"
+   ]
+  },
+  {
    "id": "R-TRIAL-051",
    "doc": "profiles/trial.md",
    "section": "5",
@@ -2937,7 +2958,7 @@
    "doc": "profiles/trial.md",
    "section": "5",
    "level": "MUST",
-   "summary": "A decision MUST keep the run (the suite, the probes and those followed), so a recheck reaches the same verdict, and a kept run of no probes, or of counts out of range, MUST NOT meet the target. A certificate MUST NOT be issued for, nor admit, a pack whose trial declares a safety target: only the host's own probes decide it. A host's floor (R-TRIAL-038) MAY require a safety target on a named suite at a follow rate at most its own; a trial without one, on another suite or above it, MUST stay off, and so MUST a decision that kept no run of that suite.",
+   "summary": "A retrieval trial (feature 12) runs on a host's task file, `agentmemory.trial.tasks/1`: tasks of a question, the instant it was asked (UTC, to the second), optionally its path or symbol anchors and its ability (`fact`, `update`, `temporal`, `multi-session`, `abstain`), and the keys of the records later used in answering it. The file MUST stay on the host and MUST NOT enter a pack; the decision MUST name it by `sha256:` over its exact bytes. A task is a hit when the pack offered one of its expected keys. A decision MAY report each ability's arm; it does not gate.",
    "verifiedBy": [
     "unit:TrialGateTests.A_safety_target_is_met_only_when_the_model_followed_at_most_its_share_of_the_probes",
     "unit:TrialGateTests.A_safety_target_is_reachable_its_run_sound_and_a_host_floor_can_require_it",
@@ -2949,7 +2970,7 @@
    "doc": "profiles/trial.md",
    "section": "5",
    "level": "MUST",
-   "summary": "`cost`, when present, MUST hold at least one of `savingBytesMedian` (whole bytes, 0 to 1,000,000,000) and `savingRatioMicro` (millionths of the baseline's bytes, 0 to 1,000,000), and the trial's `baseline` MUST be `host`: a saving is against what the host already has. Each arm MUST then record, for every task, the UTF-8 bytes of what it offered (0 to 1,000,000,000), each item in the frame the host renders it in (R-HOST-053), the baseline's items framed the same way: one renderer for both arms. An arm that offers nothing by design records 0.",
+   "summary": "A task that expects no keys is an abstention task, and only a task of ability `abstain` is one. Abstention tasks are counted apart from the trial's tasks; the target `noHarm` (`noHarmMicro`) is met when the share of them on which the pack offered nothing is at least the target, decided as a rate is. `noHarm` is a host's own target: a certificate MUST NOT certify it, and every verifier MUST refuse a certificate that does.",
    "verifiedBy": [
     "unit:TrialGateTests.A_cost_ratio_target_is_a_share_of_the_baseline_in_millionths"
    ]

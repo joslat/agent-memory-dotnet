@@ -1077,6 +1077,10 @@
    "A certificate check names a known target, requiredMicro and observedMicro as integers, and met",
    "a certificate check names a known target, requiredMicro and observedMicro as integers, and met"
   ],
+  "certificate-checks-no-harm": [
+   "A certificate check names a known target, requiredMicro and observedMicro as integers, and met",
+   "a certificate check names a known target, requiredMicro and observedMicro as integers, and met"
+  ],
   "certificate-evaluator-two-lines": [
    "The certificate names its evaluator as one line of",
    "the certificate names its evaluator as one line of"

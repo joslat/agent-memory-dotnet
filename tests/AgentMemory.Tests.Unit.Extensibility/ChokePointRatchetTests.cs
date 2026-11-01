@@ -40,6 +40,7 @@ public sealed class ChokePointRatchetTests
     private const string Parser = "a parser of the format, which bounds its input or is reached only with bytes the format bounds";
     private const string Authoring = "authoring: reads the author's own sources before any pack exists";
     private const string Verified = "reads content only after the pack is authenticated, or bytes already bounded by its caller";
+    private const string HostFile = "a host's own file (a shadow log, a task file), never a pack's content, written and read only by the host";
 
     // (file, api, sites, reason). Counts are exact: add a site and this fails until it is listed, remove one and it fails until
     // the count drops.
@@ -72,6 +73,10 @@ public sealed class ChokePointRatchetTests
         ("src/AgentMemory.Packs.Format/PackCard.cs", "json parse", 1, Parser),
         ("src/AgentMemory.Packs.Format/PackDerivation.cs", "json parse", 1, Parser),
         ("src/AgentMemory.Packs.Format/PackPolicy.cs", "json parse", 1, Parser),
+        ("src/AgentMemory.Extensibility/Modules/RetrievalTasks.cs", "file read", 1, HostFile),
+        ("src/AgentMemory.Extensibility/Modules/RetrievalTasks.cs", "json parse", 1, HostFile),
+        ("src/AgentMemory.Extensibility/Modules/ShadowTrial.cs", "file read", 1, HostFile),
+        ("src/AgentMemory.Extensibility/Modules/ShadowTrial.cs", "json parse", 1, HostFile),
         ("src/AgentMemory.Packs.Format/PackCertificate.cs", "json parse", 4, Parser),
         ("src/AgentMemory.Packs.Format/PackEmbeddings.cs", "json parse", 2, Parser),
         ("src/AgentMemory.Packs.Format/PackErasure.cs", "json parse", 2, Parser),

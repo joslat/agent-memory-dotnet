@@ -183,6 +183,13 @@ public sealed record ModuleTrialTargets
     public long? PrecisionLiftMicro { get; init; }
     /// <summary>The most p95 latency the pack may add to a compile, in whole milliseconds, 1 to 60,000.</summary>
     public long? AddedP95Ms { get; init; }
+    /// <summary>
+    /// For a retrieval trial (feature 12), the least share of abstention tasks (those whose expected result is nothing) on which
+    /// the pack offers nothing, in millionths. A host's own target: no certificate certifies it. Left out when absent, so a
+    /// manifest without it keeps its declarations digest.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public long? NoHarmMicro { get; init; }
 
     /// <summary>
     /// Each target given, as the gate checks it: a rate or a lift as a fraction of one, the added latency in milliseconds.
@@ -198,5 +205,6 @@ public sealed record ModuleTrialTargets
         if (LiftMicro is { } lift) yield return ("lift", lift);
         if (PrecisionLiftMicro is { } precisionLift) yield return ("precisionLift", precisionLift);
         if (AddedP95Ms is { } added) yield return ("addedP95Ms", added);
+        if (NoHarmMicro is { } quiet) yield return ("noHarm", quiet);
     }
 }

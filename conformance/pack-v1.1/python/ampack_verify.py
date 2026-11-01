@@ -72,7 +72,8 @@ BASELINES = set(REGISTRY["certificate"]["baselines"])
 TARGETS = set(REGISTRY["trial"]["targets"])
 # The cost targets (feature 05), whose certificate checks show an exact bound: met exactly when it reaches the target.
 COST_TARGETS = set(REGISTRY["trial"]["costTargets"])
-CERTIFICATE_TARGETS = TARGETS | COST_TARGETS
+# A host-only target (feature 12: noHarm) is decided by the host alone; no certificate certifies it, as .NET.
+CERTIFICATE_TARGETS = (TARGETS - set(REGISTRY["trial"]["hostOnly"])) | COST_TARGETS
 CERTIFICATE_MAX_TASK_BYTES = 1_000_000_000
 HISTORY_WINDOW = 2000  # the most recent eligible commits a trial draws its tasks from (review 7, G5)
 CONFIDENCES = set(REGISTRY["units"]["fields"]["confidencePermille"]["values"])
