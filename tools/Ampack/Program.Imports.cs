@@ -45,8 +45,8 @@ internal static partial class Program
             }
             else if (kind == "folder")
             {
-                var (files, commits) = MemoryFolder(file, o.Flag("git"));
-                result = PackImports.FromFolder(files, commits, id, version, owner, key);
+                var (files, commits, renames) = MemoryFolder(file, o.Flag("git"));
+                result = PackImports.FromFolder(files, commits, id, version, owner, key, renames);
                 // A file git gave no date (never committed, or its name was not read): said, not silent (review 15-17, F4).
                 if (commits is not null)
                     foreach (var undated in files.Keys.Where(k => k.EndsWith(".md", StringComparison.OrdinalIgnoreCase) && !commits.ContainsKey(k)).Order(StringComparer.Ordinal))
@@ -134,7 +134,7 @@ internal static partial class Program
     // a link or reparse point (refused, as a pack folder refuses them: review 15-17, F6), and with --git each file's first
     // commit, by its author date, from one 'git log' read exactly (review 15-17, F4, F5, F10: names unquoted and in UTF-8,
     // renames not detected so a renamed file dates from its rename, each commit marked by a NUL no path holds).
-    private static (Dictionary<string, byte[]> Files, Dictionary<string, DateTimeOffset>? Commits) MemoryFolder(string folder, bool git)
+    private static (Dictionary<string, byte[]> Files, Dictionary<string, DateTimeOffset>? Commits, List<FolderRename>? Renames) MemoryFolder(string folder, bool git)
     {
         var top = new DirectoryInfo(folder);
         if (!top.Exists) throw new UsageException($"'{folder}' is not a folder.");
@@ -154,14 +154,37 @@ internal static partial class Program
             }
         }
         Walk(top, "");
-        if (!git) return (files, null);
+        if (!git) return (files, null, null);
+        // Each path's first commit, for every .md path git has seen added: a current file's start, and an old path's start
+        // when the file was later renamed. Newest first, so a path's last mention is its first commit.
+        var commits = new Dictionary<string, DateTimeOffset>(StringComparer.Ordinal);
+        var at = DateTimeOffset.MinValue;
+        foreach (var line in Git(full, folder, 64L << 20, false, "log", "--no-renames", "--diff-filter=A", "--format=%x00%aI", "--name-only", "--relative", "--", "."))
+            if (line[0] == '\0') at = DateTimeOffset.Parse(line[1..], System.Globalization.CultureInfo.InvariantCulture);
+            else if (line.EndsWith(".md", StringComparison.OrdinalIgnoreCase)) commits[line] = at;
+        // Renames (R3), each with its commit, the old path and the new, and the old file's bytes just before: at most 1,000.
+        var renames = new List<FolderRename>();
+        var commit = "";
+        foreach (var line in Git(full, folder, 64L << 20, false, "log", "-M", "--diff-filter=R", "--format=%x00%H %aI", "--name-status", "--relative", "--", "."))
+        {
+            if (line[0] == '\0') { (commit, at) = (line[1..41], DateTimeOffset.Parse(line[42..], System.Globalization.CultureInfo.InvariantCulture)); continue; }
+            if (line.Split('\t') is not [var status, var from, var to] || !status.StartsWith('R') || !from.EndsWith(".md", StringComparison.OrdinalIgnoreCase) || !to.EndsWith(".md", StringComparison.OrdinalIgnoreCase)) continue;
+            if (renames.Count == 1000) throw new UsageException("--git: the folder's history holds more than 1,000 renames of .md files.");
+            var before = string.Join('\n', Git(full, folder, 1 << 20, true, "show", $"{commit}^:./{from}"));
+            renames.Add(new FolderRename(from, to, at, System.Text.Encoding.UTF8.GetBytes(before)));
+        }
+        return (files, commits, renames);
+    }
+
+    // git's output in the folder, line by line (empty lines kept when asked), at most `limit` characters; refused when git fails or is missing.
+    private static List<string> Git(string full, string folder, long limit, bool keepEmpty, params string[] args)
+    {
         var start = new System.Diagnostics.ProcessStartInfo("git")
         {
             RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false,
             StandardOutputEncoding = System.Text.Encoding.UTF8, StandardErrorEncoding = System.Text.Encoding.UTF8,
         };
-        foreach (var a in new[] { "-c", "core.quotePath=false", "-c", "i18n.logOutputEncoding=UTF-8", "-C", full, "log", "--no-renames", "--diff-filter=A",
-                     "--format=%x00%aI", "--name-only", "--relative", "--", "." })
+        foreach (var a in new[] { "-c", "core.quotePath=false", "-c", "i18n.logOutputEncoding=UTF-8", "-C", full }.Concat(args))
             start.ArgumentList.Add(a);
         System.Diagnostics.Process process;
         try { process = System.Diagnostics.Process.Start(start) ?? throw new UsageException("git could not be started."); }
@@ -169,17 +192,18 @@ internal static partial class Program
         using (process)
         {
             var errors = process.StandardError.ReadToEndAsync();
-            var output = process.StandardOutput.ReadToEnd();
+            var buffer = new char[81920];
+            var output = new System.Text.StringBuilder();
+            for (int n; (n = process.StandardOutput.Read(buffer, 0, buffer.Length)) > 0;)
+            {
+                if (output.Length + n > limit) { process.Kill(); throw new UsageException($"--git: git's output in '{folder}' is larger than an import reads."); }
+                output.Append(buffer, 0, n);
+            }
             process.WaitForExit();
             if (process.ExitCode != 0)
-                throw new UsageException($"--git: git log failed in '{folder}': {Shown(errors.Result.Trim(), 300)}");
-            var commits = new Dictionary<string, DateTimeOffset>(StringComparer.Ordinal);
-            var at = DateTimeOffset.MinValue;
-            // Newest first, so a path's last mention is its first commit.
-            foreach (var line in output.Split('\n').Select(l => l.TrimEnd('\r')).Where(l => l.Length > 0))
-                if (line[0] == '\0') at = DateTimeOffset.Parse(line[1..], System.Globalization.CultureInfo.InvariantCulture);
-                else if (files.ContainsKey(line)) commits[line] = at;
-            return (files, commits);
+                throw new UsageException($"--git: git {args[0]} failed in '{folder}': {Shown(errors.Result.Trim(), 300)}");
+            var lines = output.ToString().Split('\n').Select(l => l.TrimEnd('\r'));
+            return keepEmpty ? [.. lines] : [.. lines.Where(l => l.Length > 0)];
         }
     }
 }

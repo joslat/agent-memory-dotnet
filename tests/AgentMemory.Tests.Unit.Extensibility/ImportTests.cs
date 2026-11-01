@@ -54,6 +54,30 @@ public sealed class ImportTests
     }
 
     [Fact]
+    public void A_renamed_file_keeps_its_old_path_as_a_note_that_ends_where_the_rename_begins()
+    {
+        var files = new Dictionary<string, byte[]>(StringComparer.Ordinal) { ["release-plan.md"] = Encoding.UTF8.GetBytes("The plan, now dated.") };
+        var commits = new Dictionary<string, DateTimeOffset>
+        {
+            ["plan.md"] = new(2026, 1, 1, 10, 0, 0, TimeSpan.Zero), ["release-plan.md"] = new(2026, 2, 1, 10, 0, 0, TimeSpan.Zero),
+        };
+        var renames = new[] { new FolderRename("plan.md", "release-plan.md", new(2026, 2, 1, 10, 0, 0, TimeSpan.Zero), Encoding.UTF8.GetBytes("The plan.")) };
+
+        var result = PackImports.FromFolder(files, commits, "com.example.folder", "1.0.0", "Example Owner", Key.PrivateKeyPem, renames);
+        result.Records.Should().Be(2);
+        var records = PackLoader.Load(result.Archive, Trust()).Knowledge!.Proposals.ToDictionary(p => p.Key);
+        records["plan.md"].Properties["text"].GetString().Should().Be("The plan.");
+        records["plan.md"].Life!.ValidFromUtc.Should().Be(new DateTimeOffset(2026, 1, 1, 10, 0, 0, TimeSpan.Zero));
+        records["plan.md"].Life!.ValidToUtc.Should().Be(new DateTimeOffset(2026, 2, 1, 10, 0, 0, TimeSpan.Zero), "the old path ends where the rename begins");
+        records["release-plan.md"].Supersedes.Should().Equal("plan.md");
+
+        // A path in use again keeps no history: the file there is its own note.
+        files["plan.md"] = Encoding.UTF8.GetBytes("A new plan at the old path.");
+        PackImports.FromFolder(files, commits, "com.example.folder", "1.0.0", "Example Owner", Key.PrivateKeyPem, renames)
+            .Skipped.Should().Contain(s => s.Contains("in use again"));
+    }
+
+    [Fact]
     public void A_memory_folder_imports_one_note_a_file_with_strict_front_matter_and_dates_from_git()
     {
         var files = new Dictionary<string, byte[]>(StringComparer.Ordinal)

@@ -44,6 +44,10 @@ public sealed record ImportMapping(string Source, string Records, string Key, st
 [Experimental("AMEXT001")]
 public sealed record ImportResult(byte[] Archive, int Records, IReadOnlyDictionary<string, int> Dropped, IReadOnlyList<string> Skipped, IReadOnlyList<string> Findings);
 
+/// <summary>A file git saw renamed (feature 16, R3): its old path, its new one, when, and the old file's bytes just before.</summary>
+[Experimental("AMEXT001")]
+public sealed record FolderRename(string From, string To, DateTimeOffset At, byte[] Before);
+
 /// <summary>
 /// Imports (feature 15): another tool's memory export becomes a knowledge pack of built-in <c>note</c> records, with a derivation
 /// naming the source by its digest (<c>actions: import</c>) and a card saying where it came from, signed by whoever imports
@@ -120,6 +124,8 @@ public static partial class PackImports
     /// the file); its life fields (<c>validFrom</c>, <c>validTo</c>, <c>expiresAt</c>, <c>reviewBy</c>) are kept and every other
     /// key is reported as dropped. <paramref name="firstCommits"/> gives a file's first commit, the <c>validFrom</c> of a file
     /// that names none. <c>[[wikilinks]]</c> stay in the text; a link to a note the folder does not hold is reported.
+    /// A file git saw renamed keeps its history (R3): each old path is a note of the text it held just before the rename, from
+    /// its own first commit, and the note at the new path supersedes it, so the old one ends where the rename begins.
     /// </summary>
     /// <remarks>The derivation names the source by a digest over each file's path and digest.</remarks>
     /// <param name="files">Each file's path relative to the folder, with '/' between its parts, and its bytes.</param>
@@ -128,8 +134,9 @@ public static partial class PackImports
     /// <param name="version">The pack's version.</param>
     /// <param name="owner">The owner the card names.</param>
     /// <param name="signingKeyPem">The importer's signing key.</param>
+    /// <param name="renames">The renames git saw, or null without git history.</param>
     public static ImportResult FromFolder(IReadOnlyDictionary<string, byte[]> files, IReadOnlyDictionary<string, DateTimeOffset>? firstCommits,
-        string id, string version, string owner, string signingKeyPem)
+        string id, string version, string owner, string signingKeyPem, IReadOnlyList<FolderRename>? renames = null)
     {
         ArgumentNullException.ThrowIfNull(files);
         var names = files.Keys.Where(p => p.EndsWith(".md", StringComparison.OrdinalIgnoreCase)).Order(StringComparer.Ordinal).ToList();
@@ -166,7 +173,30 @@ public static partial class PackImports
             lines.Add((name, body.Trim(), life.Count == 0 ? null : life));
         }
         if (names.Count == 0) throw new InvalidDataException("The folder holds no .md file.");
-        return Write([.. source], lines, skipped, dropped, "folder" + (firstCommits is null ? "" : " with git dates"), "a Markdown folder", id, version, owner, signingKeyPem);
+
+        // Renames, oldest first: the old path a note of what it held, superseded by the note at the new path.
+        var supersedes = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var rename in (renames ?? []).OrderBy(r => r.At))
+        {
+            var held = lines.Select(l => l.Key).ToHashSet(StringComparer.Ordinal);
+            if (held.Contains(rename.From)) { skipped.Add($"'{rename.From}': renamed to '{rename.To}', and its path is in use again (no history kept)"); continue; }
+            if (supersedes.ContainsKey(rename.To)) { skipped.Add($"'{rename.To}': renamed into twice (only the first kept)"); continue; }
+            var at = rename.At.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture);
+            foreach (var part in new[] { Encoding.UTF8.GetBytes(rename.From + "\n" + rename.To), SHA256.HashData(rename.Before), Encoding.UTF8.GetBytes(at) })
+            {
+                source.AddRange(BitConverter.GetBytes(part.Length));
+                source.AddRange(part);
+            }
+            var (_, body, problem) = FrontMatter(Decoded(rename.Before).Replace("\r\n", "\n"));
+            if (problem is not null || string.IsNullOrWhiteSpace(body)) { skipped.Add($"'{rename.From}': its text before the rename {(problem is null ? "is empty" : "has front matter refused: " + problem)}"); continue; }
+            var life = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (firstCommits?.TryGetValue(rename.From, out var added) == true && added < rename.At)
+                life["validFrom"] = added.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture);
+            lines.Add((rename.From, body.Trim(), life.Count == 0 ? null : life));
+            supersedes[rename.To.Normalize(NormalizationForm.FormC)] = rename.From;
+        }
+        return Write([.. source], lines, skipped, dropped, "folder" + (firstCommits is null ? "" : " with git dates"), "a Markdown folder", id, version, owner, signingKeyPem,
+            supersedes: supersedes);
     }
 
     // The strict front matter (R2): '---' lines around 'key: value' lines; a value is a plain or double-quoted string with no
@@ -197,11 +227,12 @@ public static partial class PackImports
 
     private static ImportResult Write(byte[] source, List<(string Key, string Text, IReadOnlyDictionary<string, string>? Life)> entries, List<string> skipped,
         IReadOnlyDictionary<string, int> dropped, JsonNode mapping, string sourceName, string id, string version, string owner, string signingKeyPem,
-        string sourceSignature = "absent", IReadOnlyDictionary<string, string>? extra = null, IReadOnlyList<(string Key, DateTimeOffset At)>? erased = null)
+        string sourceSignature = "absent", IReadOnlyDictionary<string, string>? extra = null, IReadOnlyList<(string Key, DateTimeOffset At)>? erased = null,
+        IReadOnlyDictionary<string, string>? supersedes = null)
     {
         var kind = mapping is JsonValue ? mapping.GetValue<string>() : "json";
         var seen = new HashSet<string>(StringComparer.Ordinal);
-        var records = new StringBuilder();
+        var kept = new List<JsonObject>();
         var written = 0;
         foreach (var (key, text, life) in entries)
         {
@@ -216,12 +247,25 @@ public static partial class PackImports
             if (written == AgentMemory.Extensibility.Packs.KnowledgePack.MaximumRecords) { skipped.Add($"'{k}': a pack holds at most {AgentMemory.Extensibility.Packs.KnowledgePack.MaximumRecords} records"); continue; }
             var line = new JsonObject { ["type"] = "note", ["key"] = k, ["properties"] = new JsonObject { ["text"] = text.Normalize(NormalizationForm.FormC) } };
             foreach (var (field, at) in life ?? new Dictionary<string, string>()) line[field] = at;
-            var json = line.ToJsonString();
-            if (Encoding.UTF8.GetByteCount(json) > AgentMemory.Extensibility.Packs.KnowledgePack.MaximumLineBytes) { skipped.Add($"'{k}': longer than a record holds ({AgentMemory.Extensibility.Packs.KnowledgePack.MaximumLineBytes / 1024} KiB)"); continue; }
-            records.Append(json).Append('\n');
+            if (Encoding.UTF8.GetByteCount(line.ToJsonString()) > AgentMemory.Extensibility.Packs.KnowledgePack.MaximumLineBytes) { skipped.Add($"'{k}': longer than a record holds ({AgentMemory.Extensibility.Packs.KnowledgePack.MaximumLineBytes / 1024} KiB)"); continue; }
+            kept.Add(line);
             written++;
         }
         if (written == 0) throw new InvalidDataException("The source holds no entry with text to import.");
+        // A supersession only between two records the pack holds: the loader refuses a pack whose record supersedes one it lacks.
+        var keys = kept.Select(l => l["key"]!.GetValue<string>()).ToHashSet(StringComparer.Ordinal);
+        foreach (var line in kept)
+            if (supersedes?.TryGetValue(line["key"]!.GetValue<string>(), out var older) == true)
+            {
+                var o = older.Normalize(NormalizationForm.FormC);
+                if (!keys.Contains(o)) { skipped.Add($"'{line["key"]!.GetValue<string>()}': supersedes '{Shown(o)}', which was not written"); continue; }
+                line["supersedes"] = new JsonArray(o);
+                if (Encoding.UTF8.GetByteCount(line.ToJsonString()) <= AgentMemory.Extensibility.Packs.KnowledgePack.MaximumLineBytes) continue;
+                line.Remove("supersedes");
+                skipped.Add($"'{line["key"]!.GetValue<string>()}': its supersession of '{Shown(o)}' would take it past what a record holds");
+            }
+        var records = new StringBuilder();
+        foreach (var line in kept) records.Append(line.ToJsonString()).Append('\n');
         var digest = "sha256:" + Convert.ToHexString(SHA256.HashData(source)).ToLowerInvariant();
         var manifest = new JsonObject
         {

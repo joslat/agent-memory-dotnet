@@ -2058,6 +2058,21 @@
    "sha256": "ab7db7fd7bed5b66191e123b9c231d696efd102151350aa6edd5d31ae216e02a"
   },
   {
+   "id": "folder-rename-forgotten",
+   "rule": "FOLDER-FRONT-MATTER-STRICT",
+   "door": "build",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackImports.cs",
+   "edits": [
+    {
+     "old": "            supersedes[rename.To.Normalize(NormalizationForm.FormC)] = rename.From;",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ImportTests.A_renamed_file",
+   "sha256": "31435f984f56f158dd81853dc81e318863b7143d0a61bca9589089cb9cff59d1"
+  },
+  {
    "id": "import-loader-rules-skipped",
    "rule": "IMPORT-SAYS-WHAT-IT-DROPPED",
    "door": "build",
