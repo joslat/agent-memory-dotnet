@@ -292,6 +292,10 @@ tasks a decision ran, not on what its pack declares, and a floor's targets MUST 
 **R-TRIAL-039.** Every door that shows or serves what a host composes (a gate report, a server) MUST take the same
 gate options, the floor among them, and decide by the same rule as the host.
 
+**R-TRIAL-051.** A host's floor MAY give a decision a number of days (feature 11). A decision older than that MUST NOT count:
+the pack stays off until it is trialled again, and a pack kept on by a decision MUST go silent when its days end, checked
+while the host runs, as a pack past its `validUntil` does.
+
 ## 8. Upgrades
 
 **R-TRIAL-040.** With `upgrade.noRegression`, a new version MUST switch on only if it does no worse than the

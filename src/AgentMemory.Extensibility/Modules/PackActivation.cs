@@ -968,8 +968,9 @@ public static partial class PackTrialGate
     /// host made trials mandatory, a module that declares none is left off; a module that needs one left off is left off too.
     /// </summary>
     internal static (IReadOnlyList<ModuleRegistration> On, IReadOnlyList<SwitchedOffModule> Off) Apply(IReadOnlyList<ModuleRegistration> registrations,
-        IPackActivations? activations, PackTrialPolicy? policy = null)
+        IPackActivations? activations, PackTrialPolicy? policy = null, DateTimeOffset? now = null)
     {
+        var at = now ?? DateTimeOffset.UtcNow;
         if (activations is null) return (registrations, []);
         policy ??= PackTrialPolicy.None;
         var (mandatory, certificateTrust, floor) = (policy.Mandatory, policy.CertificateTrust, policy.Floor);
@@ -1006,6 +1007,14 @@ public static partial class PackTrialGate
                 : setAside is not null ? setAside
                 : activations.Find(manifest.Id, manifest.Version) is not null ? "its trial ran on other content; trial it again"
                 : "no trial on this host yet";
+            // A decision counts for as many days as the host's floor says (feature 11, R1): past them, off until trialled again;
+            // within them, the module goes silent when they end, checked as the host runs.
+            if (reason is null && decision is not null && floor?.ExpireAfterDays is { } days)
+            {
+                var expires = decision.DecidedAt.AddDays(days);
+                if (at > expires) reason = $"its trial decision of {decision.DecidedAt.ToUniversalTime():yyyy-MM-dd} expired after {days} days, as this host requires; trial it again";
+                else registration.DecisionExpires = expires;
+            }
             if (reason is not null) off[manifest.Id] = new SwitchedOffModule(manifest.Id, manifest.Version.ToString(), reason);
         }
         for (var changed = off.Count > 0; changed;)

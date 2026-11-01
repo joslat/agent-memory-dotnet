@@ -2871,9 +2871,19 @@
   {
    "id": "R-TRIAL-051",
    "doc": "profiles/trial.md",
+   "section": "7",
+   "level": "MUST",
+   "summary": "A host's floor MAY give a decision a number of days (feature 11). A decision older than that MUST NOT count: the pack stays off until it is trialled again, and a pack kept on by a decision MUST go silent when its days end, checked while the host runs, as a pack past its `validUntil` does.",
+   "verifiedBy": [
+    "unit:TrialGateTests.A_decision_counts_for_the_days_the_host_s_floor_gives_it_and_then_switches_the_pack_off"
+   ]
+  },
+  {
+   "id": "R-TRIAL-051",
+   "doc": "profiles/trial.md",
    "section": "5",
    "level": "MUST",
-   "summary": "Whether a target is met MUST be decided exactly, in rational arithmetic, never in floating point. An estimate is a ratio of counts. Clopper-Pearson's bound reaches t when P(X ≥ x) at rate t is at most 1 − confidence. A bound of the form mean − q·se (the hedged, paired and clustered bounds) reaches t when mean − t ≥ 0 and (mean − t)² ≥ q²·se². Fieller's lower root of a θ² + b θ + c (a > 0) reaches t when a t² + b t + c ≥ 0 and 2 a t ≤ −b. The quantiles and the hedge weights MUST be those of the table below, each decimal read exactly as written, and beyond 60 degrees of freedom Cornish-Fisher in z, as stated below it. Every clamp of a bound MUST be kept: Fieller's bound is 0 when a ≤ 0, the estimate when the discriminant is negative, and otherwise the lesser of its lower root and the estimate; every bound is then clamped to [0, 1], a difference's to [−1, 1]. Floating point MAY show a bound; it MUST NOT decide one.",
+   "summary": "A host's floor MAY give a decision a number of days (feature 11). A decision older than that MUST NOT count: the pack stays off until it is trialled again, and a pack kept on by a decision MUST go silent when its days end, checked while the host runs, as a pack past its `validUntil` does.",
    "verifiedBy": [
     "unit:TrialStatisticsTests.Every_exact_verdict_is_the_reference_s",
     "unit:TrialStatisticsTests.A_bound_exactly_at_its_target_is_decided_the_same_everywhere",
@@ -4033,10 +4043,20 @@
    "doc": "profiles/permissions.md",
    "section": "2",
    "level": "MUST",
-   "summary": "A host that cannot enforce a usage policy MUST refuse a pack that carries one, with the refusal words the registry gives this profile; a declared policy MUST NOT load as if it were absent.",
+   "summary": "A reader or host that does not implement this profile MUST refuse a pack that carries a usage policy; a declared policy MUST NOT load as if it were absent.",
    "verifiedBy": [
-    "unit:PackReviewFindingsTests.A_pack_that_carries_code_or_a_usage_policy_is_refused_until_the_host_enforces_them",
     "unit:PackProfilesTests.A_host_refuses_exactly_the_profiles_the_registry_marks_not_implemented_in_their_own_words"
+   ]
+  },
+  {
+   "id": "R-PERM-002",
+   "doc": "profiles/permissions.md",
+   "section": "2",
+   "level": "MUST",
+   "summary": "A Permissions Host MUST meet R-CORE-138 and R-CORE-139: it reads the policy strictly, asks it at the time it acts at every door it has, and offers no record whose policy it does not hold.",
+   "verifiedBy": [
+    "unit:PolicyTests.A_module_set_withholds_a_pack_s_records_from_a_model_its_policy_keeps_them_from",
+    "unit:AmpackCommandLineTests.Serve_refuses_a_pack_whose_usage_policy_does_not_let_this_host_export_it"
    ]
   },
   {

@@ -117,6 +117,11 @@ public sealed record PackTrialFloor
     /// <summary>The fewest tasks a trial runs.</summary>
     public int Tasks { get; init; } = ModuleTrial.MinimumTasks;
     /// <summary>
+    /// How many days a decision counts (feature 11, R1): after that the pack is off until it is trialled again, checked while
+    /// the host runs as a pack's <c>validUntil</c> is. Null: a decision counts until its pack changes.
+    /// </summary>
+    public int? ExpireAfterDays { get; init; }
+    /// <summary>
     /// Each target named here the trial must declare, at least as strict: a rate, precision or lift at least this high, an
     /// added latency at most this.
     /// </summary>

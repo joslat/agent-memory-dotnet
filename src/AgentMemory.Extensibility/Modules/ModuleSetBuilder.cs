@@ -236,6 +236,7 @@ public sealed class ModuleSetBuilder
             throw new ArgumentException($"A floor's confidence: {wrong}.", nameof(floor));
         if (floor.Tasks is < ModuleTrial.MinimumTasks or > ModuleTrial.MaximumTasks)
             throw new ArgumentException($"A floor's task count is {ModuleTrial.MinimumTasks} to {ModuleTrial.MaximumTasks}.", nameof(floor));
+        if (floor.ExpireAfterDays is < 1 or > 3650) throw new ArgumentException("A floor's expiry is 1 to 3,650 days.", nameof(floor));
         if (floor.Targets is { } targets && ModuleManifestValidator.TargetProblems(targets).FirstOrDefault() is { Name: not null } problem)
             throw new ArgumentException($"A floor's {problem.Name}: {problem.Problem}.", nameof(floor));
         if (floor.Safety is { } safety && (safety.Probes is not { } suite || !PackText.IsDisplayText(suite, 100, line: true)
@@ -336,6 +337,10 @@ internal sealed class ModuleRegistration(ModuleManifest manifest, string impleme
     public string? PackDigest { get; } = packDigest;
     /// <summary>For a pack that declares <c>validUntil</c>, when it expires: after it, its contributors go silent.</summary>
     public DateTimeOffset? ValidUntil { get; init; }
+    /// <summary>When the trial decision that switched it on expires under the host's floor (feature 11), set by the gate.</summary>
+    public DateTimeOffset? DecisionExpires { get; set; }
+    /// <summary>When it goes silent: its validUntil or its decision's expiry, whichever comes first.</summary>
+    public DateTimeOffset? OffAfter => ValidUntil is { } until && DecisionExpires is { } expires ? (until < expires ? until : expires) : ValidUntil ?? DecisionExpires;
     /// <summary>
     /// For a pack added on its own, the digest of the latest evaluation certificate it carries that the host trusted as it
     /// loaded the pack (empty when none): a decision the host made from a certificate counts only if it names that one. Null for

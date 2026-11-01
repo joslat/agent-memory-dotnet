@@ -1713,6 +1713,36 @@
    "sha256": "41ca82777e9db6d4cac36a0647b58be6beefdc738f6079585827dfadd3395d34"
   },
   {
+   "id": "decision-never-expires",
+   "rule": "TRIAL-OVER-TIME",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "if (at > expires) reason =",
+     "new": "if (false && at > expires) reason ="
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~TrialGateTests.A_decision_counts_for_the_days",
+   "sha256": "3af2cda78b30b40c6c3d863793cbd2e9ba2ef680a0c6730c3badb8fea3522adb"
+  },
+  {
+   "id": "expiry-not-live",
+   "rule": "TRIAL-OVER-TIME",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "                else registration.DecisionExpires = expires;\n",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~TrialGateTests.A_decision_counts_for_the_days",
+   "sha256": "334608c7fd863ccf3adcc62f22c5c44054e8520af8ad6e55857eea5c597c2467"
+  },
+  {
    "id": "policy-allow-beats-deny",
    "rule": "POLICY-AT-THE-DOOR",
    "door": "definition",

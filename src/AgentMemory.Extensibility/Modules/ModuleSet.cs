@@ -61,7 +61,8 @@ public sealed class ModuleSet
     {
         var policy = PackTrialPolicy.Of(builder);
         if (policy.Problems(decisions: builder.Activations is not null) is { Count: > 0 } invalid) throw new ModuleActivationException(invalid);
-        var (registrations, switchedOff) = PackTrialGate.Apply(builder.Modules, builder.Activations, policy);
+        var (registrations, switchedOff) = PackTrialGate.Apply(builder.Modules, builder.Activations, policy,
+            (services.GetService<TimeProvider>() ?? TimeProvider.System).GetUtcNow());
         var store = builder.Store;
         var provider = store?.Provider ?? "none";
         var profile = builder.Profile?.Without(switchedOff.Select(o => o.ModuleId).ToHashSet(StringComparer.Ordinal)) ?? ImplicitProfile(registrations, provider);
@@ -159,8 +160,9 @@ public sealed class ModuleSet
             foreach (var section in descriptor.SectionTypes) Owned(module, "section", section);
         }).Select(c => Priorities.FirstOrDefault(p => ModuleIdentity.IsOwnedId(p.Key, c.Descriptor.Id)) is { Key: not null } p
             ? new PrioritizedContributor(c, p.Value) : c)
-          .Select(c => _registrations.FirstOrDefault(r => r.ValidUntil is not null && ModuleIdentity.IsOwnedId(r.Manifest.Id, c.Descriptor.Id)) is { } expiring
-            ? new ExpiringContributor(c, expiring.ValidUntil!.Value, services.GetService<TimeProvider>() ?? TimeProvider.System) : c)];
+          .Select(c => _registrations.FirstOrDefault(r => r.OffAfter is not null && ModuleIdentity.IsOwnedId(r.Manifest.Id, c.Descriptor.Id)) is { } expiring
+            ? new ExpiringContributor(c, expiring.OffAfter!.Value, services.GetService<TimeProvider>() ?? TimeProvider.System,
+                expiring.OffAfter == expiring.DecisionExpires ? "its trial decision expired" : "the pack was valid until then") : c)];
 
     /// <summary>
     /// The module of each contributor slot the host registered (<see cref="CountContributors"/>: every contributor of every
@@ -206,7 +208,7 @@ public sealed class ModuleSet
     /// A contributor of a pack that declares <c>validUntil</c> (PACK-staleness): once the host's clock passes it, the pack
     /// contributes nothing, and says why, even in a host that loaded it while it was valid.
     /// </summary>
-    private sealed class ExpiringContributor(IContextContributor inner, DateTimeOffset validUntil, TimeProvider clock) : IContextContributor
+    private sealed class ExpiringContributor(IContextContributor inner, DateTimeOffset validUntil, TimeProvider clock, string why) : IContextContributor
     {
         public ContextContributorDescriptor Descriptor => inner.Descriptor;
         public ValueTask<bool> AppliesAsync(ContextRequest request, CancellationToken cancellationToken) => inner.AppliesAsync(request, cancellationToken);
@@ -217,7 +219,9 @@ public sealed class ModuleSet
                 ? Task.FromResult(new ContextContributionResult
                 {
                     OmissionReason = ContextOmissionReason.Denied,
-                    Detail = $"The pack was valid until {validUntil.ToUniversalTime():yyyy-MM-dd HH:mm:ss}Z; this host switched it off.",
+                    Detail = why == "its trial decision expired"
+                        ? $"Its trial decision expired at {validUntil.ToUniversalTime():yyyy-MM-dd HH:mm:ss}Z (this host's floor); this host switched it off until it is trialled again."
+                        : $"The pack was valid until {validUntil.ToUniversalTime():yyyy-MM-dd HH:mm:ss}Z; this host switched it off.",
                 })
                 : inner.ContributeResultAsync(request, cancellationToken);
         private bool Expired => clock.GetUtcNow() > validUntil;
@@ -307,7 +311,7 @@ public sealed class ModuleSet
     // do (review 1, M2), so it neither spends the walk's budgets nor leads it to other modules' records.
     private Func<string, bool>? Live(IServiceProvider services)
     {
-        var expiring = _registrations.Where(r => r.ValidUntil is not null).ToDictionary(r => r.Manifest.Id, r => r.ValidUntil!.Value, StringComparer.Ordinal);
+        var expiring = _registrations.Where(r => r.OffAfter is not null).ToDictionary(r => r.Manifest.Id, r => r.OffAfter!.Value, StringComparer.Ordinal);
         if (expiring.Count == 0) return null;
         var clock = services.GetService<TimeProvider>() ?? TimeProvider.System;
         // Valid through the instant itself, off after it, as every twin reads validUntil (review 2: the walk dropped a pack at

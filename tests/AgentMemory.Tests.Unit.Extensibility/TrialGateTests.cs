@@ -458,6 +458,28 @@ public sealed class TrialGateTests : IDisposable
     }
 
     [Fact]
+    public void A_decision_counts_for_the_days_the_host_s_floor_gives_it_and_then_switches_the_pack_off()
+    {
+        // Feature 11 (R1): past its days a decision no longer counts, at composition; within them the module goes silent when
+        // they end, through the live check validUntil has.
+        Write(PackTrialGate.Decide(Trialled, Arm(30, 32, 77, 60), Arm(0, 0, 0, 30), Now), _host);
+        var activations = new PackActivationFolder(_folder, PublicKey());
+        (IReadOnlyList<ModuleRegistration> On, IReadOnlyList<SwitchedOffModule> Off) Gate(int days, DateTimeOffset at)
+        {
+            var builder = new ModuleSetBuilder().Add(Trialled, _ => { }).Add(Dependent, _ => { }).RequireTrials(activations).RequireTrialsFor(Base)
+                .RequireTrialFloor(new PackTrialFloor { ExpireAfterDays = days });
+            return PackTrialGate.Apply(builder.Modules, activations, PackTrialPolicy.Of(builder), at);
+        }
+        var expired = Gate(3, Now.AddDays(4));
+        expired.Off.Single(o => o.ModuleId == Base).Reason.Should().Contain("expired after 3 days");
+        expired.Off.Should().Contain(o => o.ModuleId == Top, "what needs it is off too");
+        var kept = Gate(3, Now.AddDays(1));
+        kept.Off.Should().BeEmpty();
+        kept.On.Single(r => r.Manifest.Id == Base).OffAfter.Should().Be(Now.AddDays(3), "it goes silent when its decision expires");
+        FluentActions.Invoking(() => new ModuleSetBuilder().RequireTrialFloor(new PackTrialFloor { ExpireAfterDays = 0 })).Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
     public void A_failed_trial_keeps_the_pack_off_with_its_reason()
     {
         Write(PackTrialGate.Decide(Trialled, Arm(8, 9, 70, 60), Arm(0, 0, 0, 30), Now), _host);

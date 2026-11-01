@@ -166,7 +166,7 @@ internal static partial class Program
 
     // The options of the host's trial gate, the same at every tool door that applies it (review 8, G3).
     private static readonly string[] GateOptions =
-        ["activations", "host-key", "require-trials-for", "trust-certificates-for", "floor-confidence", "floor-tasks", "floor-targets"];
+        ["activations", "host-key", "require-trials-for", "trust-certificates-for", "floor-confidence", "floor-tasks", "floor-targets", "floor-expire-days"];
 
     // The host's trial gate as every tool door applies it (review 8, G3: gate and serve each read their own options, and neither
     // read a floor, so both showed and served packs a host with a floor keeps off): where trials are required, where
@@ -179,11 +179,16 @@ internal static partial class Program
         catch (ArgumentException e) { throw new UsageException(e.Message); }
     }
 
-    // --floor-confidence, --floor-tasks and --floor-targets (name=value, comma-separated): the host's floor, or null without one.
+    // --floor-confidence, --floor-tasks, --floor-targets (name=value, comma-separated) and --floor-expire-days (feature 11): the
+    // host's floor, or null without one.
     private static PackTrialFloor? Floor(Options o)
     {
-        var (confidence, tasks, targets) = (o.Value("floor-confidence"), o.Value("floor-tasks"), o.Value("floor-targets"));
-        if (confidence is null && tasks is null && targets is null) return null;
+        var (confidence, tasks, targets, expire) = (o.Value("floor-confidence"), o.Value("floor-tasks"), o.Value("floor-targets"), o.Value("floor-expire-days"));
+        if (confidence is null && tasks is null && targets is null && expire is null) return null;
+        int? days = null;
+        if (expire is not null)
+            days = int.TryParse(expire, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var d) && d is >= 1 and <= 3650
+                ? d : throw new UsageException("--floor-expire-days is a whole number of days from 1 to 3650.");
         // People write decimals here; each is read exactly, into the trial's integers (feature 02).
         int? least = null;
         if (confidence is not null)
@@ -215,6 +220,6 @@ internal static partial class Program
                 };
             }
         }
-        return new PackTrialFloor { ConfidencePermille = least, Tasks = fewest, Targets = goals };
+        return new PackTrialFloor { ConfidencePermille = least, Tasks = fewest, Targets = goals, ExpireAfterDays = days };
     }
 }
