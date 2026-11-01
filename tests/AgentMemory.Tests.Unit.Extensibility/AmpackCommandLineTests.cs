@@ -779,4 +779,73 @@ public sealed class AmpackCommandLineTests : IDisposable
         }
         (await errors).Should().Contain("ampack serve: 1 pack(s), 93 records");
     }
+
+    [Fact]
+    public async Task Serve_tells_a_subscribed_client_when_a_packs_status_changes_and_refuses_any_other_subscription()
+    {
+        Done("keygen", "--out", "keys", "--name", "publisher", "--prefix", "io.agentmemory");
+        File.WriteAllText(At("trust.json"), PackAuthoring.TrustPolicy(File.ReadAllText(At("keys", "publisher.pub.pem")), "io.agentmemory"));
+        Done("migrate", Path.Combine(Packs, "MartialArts"), "--out", "martialarts");
+        // A pack that goes off a few seconds after the server starts: its status changes while the client is subscribed.
+        var until = DateTimeOffset.UtcNow.AddSeconds(12).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture);
+        File.WriteAllText(At("martialarts", "pack.json"), File.ReadAllText(At("martialarts", "pack.json")).Replace("\"tier\"", $"\"validUntil\": \"{until}\",\n  \"tier\"", StringComparison.Ordinal));
+        Done("build", "martialarts", "--out", "martialarts.ampack", "--key", At("keys", "publisher.key.pem"));
+
+        var start = new ProcessStartInfo("dotnet")
+        {
+            UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true,
+            WorkingDirectory = _root,
+        };
+        foreach (var arg in new[] { Tool, "serve", "martialarts.ampack", "--policy", "trust.json" }) start.ArgumentList.Add(arg);
+        using var server = Process.Start(start)!;
+        var errors = server.StandardError.ReadToEndAsync();
+        var notified = new List<JsonObject>();
+        try
+        {
+            async Task<JsonNode> Next(Func<JsonObject, bool> wanted, TimeSpan within)
+            {
+                using var timeout = new CancellationTokenSource(within);
+                while (true)
+                {
+                    var line = await server.StandardOutput.ReadLineAsync(timeout.Token) ?? throw new InvalidOperationException("ampack serve closed its output.");
+                    if (JsonNode.Parse(line) is not JsonObject message) continue;
+                    if (message["id"] is null) notified.Add(message);
+                    if (wanted(message)) return message;
+                }
+            }
+            async Task<JsonNode> Call(int id, string method, JsonNode? parameters)
+            {
+                var request = new JsonObject { ["jsonrpc"] = "2.0", ["id"] = id, ["method"] = method };
+                if (parameters is not null) request["params"] = parameters;
+                await server.StandardInput.WriteLineAsync(request.ToJsonString());
+                await server.StandardInput.FlushAsync();
+                return await Next(m => m["id"]?.GetValue<int>() == id, TimeSpan.FromSeconds(30));
+            }
+            string Read(JsonNode response) => response["result"]!["contents"]![0]!["text"]!.GetValue<string>();
+
+            var hello = await Call(1, "initialize", new JsonObject
+            {
+                ["protocolVersion"] = "2025-06-18", ["capabilities"] = new JsonObject(),
+                ["clientInfo"] = new JsonObject { ["name"] = "test", ["version"] = "1" },
+            });
+            hello["result"]!["capabilities"]!["resources"]!["subscribe"]!.GetValue<bool>().Should().BeTrue();
+            await server.StandardInput.WriteLineAsync("""{"jsonrpc":"2.0","method":"notifications/initialized"}""");
+
+            const string uri = "ampack://status/io.agentmemory.packs.martialarts";
+            JsonNode.Parse(Read(await Call(2, "resources/read", new JsonObject { ["uri"] = uri })))!.AsArray().Single()!["served"]!.GetValue<bool>().Should().BeTrue();
+            (await Call(3, "resources/subscribe", new JsonObject { ["uri"] = uri }))["error"].Should().BeNull();
+            (await Call(4, "resources/subscribe", new JsonObject { ["uri"] = "ampack://sha256:00/card" }))["error"].Should().NotBeNull("only a status can be subscribed to");
+
+            var update = await Next(m => m["method"]?.GetValue<string>() == "notifications/resources/updated", TimeSpan.FromSeconds(40));
+            update["params"]!["uri"]!.GetValue<string>().Should().Be(uri);
+            JsonNode.Parse(Read(await Call(5, "resources/read", new JsonObject { ["uri"] = uri })))!.AsArray().Single()!["served"]!.GetValue<bool>()
+                .Should().BeFalse("the pack's validUntil passed while the client was subscribed");
+        }
+        finally
+        {
+            if (!server.HasExited) server.Kill(entireProcessTree: true);
+            await server.WaitForExitAsync();
+        }
+        await errors;
+    }
 }

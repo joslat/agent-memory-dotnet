@@ -2208,6 +2208,21 @@
    "sha256": "96d441553d7269492c44623d6e5881142df55ebc7903013c86a85ad0d3d85c45"
   },
   {
+   "id": "status-change-untold",
+   "rule": "SERVE-RESOURCES-ONE-DOOR",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackStatusWatch.cs",
+   "edits": [
+    {
+     "old": "if (now == seen || !_seen.TryUpdate(uri, now, seen)) continue;",
+     "new": "if (now.Length >= 0) continue;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackStatusWatchTests",
+   "sha256": "8145387fdb27c95330d20ee5515e9b5f36447c0a4919065414f905dec161504a"
+  },
+  {
    "id": "folder-off-served",
    "rule": "SERVE-RESOURCES-ONE-DOOR",
    "door": "serve",

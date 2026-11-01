@@ -5,6 +5,8 @@ using AgentMemory.Extensibility.Context;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using ModelContextProtocol;
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 
 namespace Ampack;
@@ -26,10 +28,44 @@ internal static class Serve
         builder.Services.AddMcpServer(o => o.ServerInfo = new() { Name = "ampack", Version = typeof(Serve).Assembly.GetName().Version?.ToString() ?? "0" })
             .WithStdioServerTransport()
             .WithTools<PackTools>()
-            .WithResources<PackResourceTemplates>();
+            .WithResources<PackResourceTemplates>()
+            // A pack's status can be subscribed to (feature 17, R1); nothing else can.
+            .WithSubscribeToResourcesHandler((request, _) =>
+            {
+                var uri = request.Params?.Uri ?? "";
+                if (!Watch.Subscribe(uri, id => PackResourceTemplates.Status(mount, id)))
+                    throw new McpException($"Only a pack's status ({PackStatusWatch.Prefix}<pack id>) can be subscribed to.");
+                StartWatching(request.Server, mount);
+                return ValueTask.FromResult(new EmptyResult());
+            })
+            .WithUnsubscribeFromResourcesHandler((request, _) =>
+            {
+                Watch.Unsubscribe(request.Params?.Uri ?? "");
+                return ValueTask.FromResult(new EmptyResult());
+            });
         Console.Error.WriteLine($"ampack serve: {mount.Packs.Count} pack(s), {mount.Memory.Count:N0} records, MCP on standard input and output.");
         builder.Build().Run();
         return 0;
+    }
+
+    private static readonly PackStatusWatch Watch = new();
+    private static int _watching;
+
+    /// <summary>How often a subscribed status is checked for a change.</summary>
+    internal static TimeSpan StatusCheck { get; set; } = TimeSpan.FromSeconds(2);
+
+    // Once, on the first subscription: check the subscribed statuses on a timer and tell the client which changed.
+    private static void StartWatching(McpServer server, PackMount mount)
+    {
+        if (Interlocked.Exchange(ref _watching, 1) == 1) return;
+        _ = Task.Run(async () =>
+        {
+            using var timer = new PeriodicTimer(StatusCheck);
+            while (await timer.WaitForNextTickAsync())
+                foreach (var uri in Watch.Changed(id => PackResourceTemplates.Status(mount, id)))
+                    try { await server.SendNotificationAsync(NotificationMethods.ResourceUpdatedNotification, new ResourceUpdatedNotificationParams { Uri = uri }); }
+                    catch (Exception e) when (e is IOException or ObjectDisposedException or InvalidOperationException) { Console.Error.WriteLine($"ampack serve: could not send a status update: {e.Message}"); return; }
+        });
     }
 }
 
