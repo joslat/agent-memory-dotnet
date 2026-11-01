@@ -7,7 +7,7 @@ using AgentMemory.Extensibility.Context;
 namespace AgentMemory.Extensibility.Modules;
 
 /// <summary>
-/// One task of a retrieval trial (feature 12, R-TRIAL-054): a recorded question, when it was asked, its anchors, and the record
+/// One task of a retrieval trial (feature 12, R-TRIAL-062): a recorded question, when it was asked, its anchors, and the record
 /// keys later used in answering it. A task whose expected keys are none is an abstention task: the pack should offer nothing.
 /// </summary>
 [Experimental("AMEXT001")]

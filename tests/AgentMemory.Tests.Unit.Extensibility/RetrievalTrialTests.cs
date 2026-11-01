@@ -6,7 +6,7 @@ using Xunit;
 
 namespace AgentMemory.Tests.Unit.Extensibility;
 
-/// <summary>Feature 12: retrieval trials on a host's recorded questions (R-TRIAL-054, R-TRIAL-055).</summary>
+/// <summary>Feature 12: retrieval trials on a host's recorded questions (R-TRIAL-062, R-TRIAL-063).</summary>
 public sealed class RetrievalTrialTests
 {
     private static readonly ModuleManifest Retrieval = ModuleManifest.Parse(

@@ -2869,7 +2869,7 @@
    ]
   },
   {
-   "id": "R-TRIAL-051",
+   "id": "R-TRIAL-059",
    "doc": "profiles/trial.md",
    "section": "7",
    "level": "MUST",
@@ -2879,7 +2879,7 @@
    ]
   },
   {
-   "id": "R-TRIAL-052",
+   "id": "R-TRIAL-060",
    "doc": "profiles/trial.md",
    "section": "7",
    "level": "MUST",
@@ -2890,7 +2890,7 @@
    ]
   },
   {
-   "id": "R-TRIAL-053",
+   "id": "R-TRIAL-061",
    "doc": "profiles/trial.md",
    "section": "7",
    "level": "MUST",
@@ -2900,7 +2900,7 @@
    ]
   },
   {
-   "id": "R-TRIAL-054",
+   "id": "R-TRIAL-062",
    "doc": "profiles/trial.md",
    "section": "7",
    "level": "MUST",
@@ -2910,7 +2910,7 @@
    ]
   },
   {
-   "id": "R-TRIAL-055",
+   "id": "R-TRIAL-063",
    "doc": "profiles/trial.md",
    "section": "7",
    "level": "MUST",
@@ -2925,7 +2925,7 @@
    "doc": "profiles/trial.md",
    "section": "5",
    "level": "MUST",
-   "summary": "A host's floor MAY give a decision a number of days (feature 11). A decision older than that MUST NOT count: the pack stays off until it is trialled again, and a pack kept on by a decision MUST go silent when its days end, checked while the host runs, as a pack past its `validUntil` does.",
+   "summary": "Whether a target is met MUST be decided exactly, in rational arithmetic, never in floating point. An estimate is a ratio of counts. Clopper-Pearson's bound reaches t when P(X ≥ x) at rate t is at most 1 − confidence. A bound of the form mean − q·se (the hedged, paired and clustered bounds) reaches t when mean − t ≥ 0 and (mean − t)² ≥ q²·se². Fieller's lower root of a θ² + b θ + c (a > 0) reaches t when a t² + b t + c ≥ 0 and 2 a t ≤ −b. The quantiles and the hedge weights MUST be those of the table below, each decimal read exactly as written, and beyond 60 degrees of freedom Cornish-Fisher in z, as stated below it. Every clamp of a bound MUST be kept: Fieller's bound is 0 when a ≤ 0, the estimate when the discriminant is negative, and otherwise the lesser of its lower root and the estimate; every bound is then clamped to [0, 1], a difference's to [−1, 1]. Floating point MAY show a bound; it MUST NOT decide one.",
    "verifiedBy": [
     "unit:TrialStatisticsTests.Every_exact_verdict_is_the_reference_s",
     "unit:TrialStatisticsTests.A_bound_exactly_at_its_target_is_decided_the_same_everywhere",
@@ -2937,7 +2937,7 @@
    "doc": "profiles/trial.md",
    "section": "5",
    "level": "MUST",
-   "summary": "A decision MAY admit a pack in part (feature 11): each part is the first relation of the reason paths of the offers it made (`NAME:out` or `NAME:in`), or `(anchor)` for the anchors' own records, measured on the trial's tasks; a part is admitted when it meets every target alone at the trial's confidence corrected for the number of parts (Bonferroni on alpha: the least confidence the statistic's tables hold at or above `1 - (1 - c) / parts`; none admitted when the tables hold none). The record carries each part's evidence, and a host MUST recheck each admitted part from it as it rechecks a whole decision. A walk MUST follow, from the anchors, only the relations admitted, decided where it chooses them, and MUST NOT offer an anchor's own record unless `(anchor)` is admitted.",
+   "summary": "`safety`, when present, MUST hold `probes` (one line of 1 to 100 display-safe characters naming a probe suite) and MAY hold `maxFollowMicro` (an integer of 0 to 1,000,000, default 0; above 0 with a `confidencePermille`, since no run bounds a follow rate at 0):",
    "verifiedBy": [
     "unit:TrialGateTests.A_safety_target_is_met_only_when_the_model_followed_at_most_its_share_of_the_probes",
     "unit:TrialGateTests.A_safety_target_is_reachable_its_run_sound_and_a_host_floor_can_require_it"
@@ -2948,7 +2948,7 @@
    "doc": "profiles/trial.md",
    "section": "5",
    "level": "MUST",
-   "summary": "A host MAY run a pack dark (a shadow trial, feature 11): its contributors run on live turns, and what they would offer MUST go to a log on the host and MUST NOT reach the context. The log holds each turn's time, anchors and offers by record id, key, type, the first relation of the reason path and the host's locator, never record text, and never leaves the host. A decision made from it MUST be the same decision as any trial's, on as many labelled turns as the trial runs, each labelled by the trial's rule for an expected result, and records `history: \"shadow\"`.",
+   "summary": "A host MUST run the named suite with its own probes (injection prompts placed as records of the pack) and count the probes whose planted instruction the model followed; the target MUST be met only when that share is at most `maxFollowMicro` millionths: its estimate without a `confidencePermille`, and otherwise its upper bound, one less Clopper-Pearson's lower bound of the probes not followed, decided exactly (R-TRIAL-051). Without a run of that suite, the target MUST NOT be met.",
    "verifiedBy": [
     "unit:TrialGateTests.A_safety_target_is_met_only_when_the_model_followed_at_most_its_share_of_the_probes"
    ]
@@ -2958,7 +2958,7 @@
    "doc": "profiles/trial.md",
    "section": "5",
    "level": "MUST",
-   "summary": "A retrieval trial (feature 12) runs on a host's task file, `agentmemory.trial.tasks/1`: tasks of a question, the instant it was asked (UTC, to the second), optionally its path or symbol anchors and its ability (`fact`, `update`, `temporal`, `multi-session`, `abstain`), and the keys of the records later used in answering it. The file MUST stay on the host and MUST NOT enter a pack; the decision MUST name it by `sha256:` over its exact bytes. A task is a hit when the pack offered one of its expected keys. A decision MAY report each ability's arm; it does not gate.",
+   "summary": "A decision MUST keep the run (the suite, the probes and those followed), so a recheck reaches the same verdict, and a kept run of no probes, or of counts out of range, MUST NOT meet the target. A certificate MUST NOT be issued for, nor admit, a pack whose trial declares a safety target: only the host's own probes decide it. A host's floor (R-TRIAL-038) MAY require a safety target on a named suite at a follow rate at most its own; a trial without one, on another suite or above it, MUST stay off, and so MUST a decision that kept no run of that suite.",
    "verifiedBy": [
     "unit:TrialGateTests.A_safety_target_is_met_only_when_the_model_followed_at_most_its_share_of_the_probes",
     "unit:TrialGateTests.A_safety_target_is_reachable_its_run_sound_and_a_host_floor_can_require_it",
@@ -2970,7 +2970,7 @@
    "doc": "profiles/trial.md",
    "section": "5",
    "level": "MUST",
-   "summary": "A task that expects no keys is an abstention task, and only a task of ability `abstain` is one. Abstention tasks are counted apart from the trial's tasks; the target `noHarm` (`noHarmMicro`) is met when the share of them on which the pack offered nothing is at least the target, decided as a rate is. `noHarm` is a host's own target: a certificate MUST NOT certify it, and every verifier MUST refuse a certificate that does.",
+   "summary": "`cost`, when present, MUST hold at least one of `savingBytesMedian` (whole bytes, 0 to 1,000,000,000) and `savingRatioMicro` (millionths of the baseline's bytes, 0 to 1,000,000), and the trial's `baseline` MUST be `host`: a saving is against what the host already has. Each arm MUST then record, for every task, the UTF-8 bytes of what it offered (0 to 1,000,000,000), each item in the frame the host renders it in (R-HOST-053), the baseline's items framed the same way: one renderer for both arms. An arm that offers nothing by design records 0.",
    "verifiedBy": [
     "unit:TrialGateTests.A_cost_ratio_target_is_a_share_of_the_baseline_in_millionths"
    ]

@@ -115,9 +115,18 @@ def main(argv: list[str]) -> int:
     requirements_path = HERE / "requirements.json"
     requirements = json.loads(requirements_path.read_text(encoding="utf-8"))
     texts = {}
+    defined = {}
     for path in sorted(HERE.rglob("*.md")):
         for m in PARAGRAPH.finditer(path.read_text(encoding="utf-8").replace("\r\n", "\n")):
             texts[m.group(1)] = " ".join(m.group(2).split())
+            defined.setdefault(m.group(1), []).append(path.name)
+    # An id is defined once, in the spec and in requirements.json (feature 12: new requirements reused five ids, unnoticed).
+    ids = [r["id"] for r in requirements["requirements"]]
+    twice = sorted({i for i in ids if ids.count(i) > 1} | {i for i, where in defined.items() if len(where) > 1})
+    for rid in twice:
+        print(f"{rid}: defined more than once")
+    if twice:
+        return 1
     stale = [r["id"] for r in requirements["requirements"] if texts.get(r["id"]) != r["summary"]]
     if check:
         for name in differs:

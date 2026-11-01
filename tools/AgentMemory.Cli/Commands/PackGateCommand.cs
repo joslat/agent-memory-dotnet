@@ -34,7 +34,7 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     public async Task<int> ExecuteAsync(string? packId, string? repo, string? hostKeyPath, string? activationsFolder, string? variant, string? outputPath,
-        string? packPath = null, string? trustPath = null, string? previousPath = null, string history = "parent", bool partial = false, string? shadowPath = null)
+        string? packPath = null, string? trustPath = null, string? previousPath = null, string history = "parent", bool partial = false, string? shadowPath = null, string? tasksPath = null)
     {
         if (packId != CodeMapPack.Id)
         {
@@ -136,6 +136,7 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
         }
         var root = Path.GetFullPath(repo ?? ".");
         if (shadowPath is not null) return DecideFromShadow(shadowPath, root, manifest, trial, asPack?.Digest, activationsFolder, hostKey);
+        if (trial.Measure == "retrieval") return await RetrievalAsync(tasksPath, pack, manifest, trial, activationsFolder, hostKey).ConfigureAwait(false);
         var tasks = HistoryTasks(root, trial.Tasks, history, out var spacing);
         output.WriteLine($"{manifest.Id} {manifest.Version}{(variant is null ? "" : " (" + variant + ")")}: {tasks.Count} tasks from this repository's history, "
             + (history == "parent" ? "each at its commit's parent (map and grep as they stood before the change)" : "against the repository as it is now (head)"));
@@ -333,6 +334,102 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
             scope.ServiceProvider.GetRequiredService<INeo4jTransactionRunner>(), set.Resolution).ApplyAsync("pack trial").ConfigureAwait(false);
         if (applied.Problems.Count != 0) throw new InvalidOperationException("module migrations failed: " + string.Join("; ", applied.Problems));
         return provider;
+    }
+
+    // A retrieval trial (feature 12): a knowledge pack on the host's recorded questions. The pack is imported once; each task is
+    // compiled as of its own time with it and without it (baseline none: the host offers nothing of the pack's without it); a
+    // task is a hit when the pack offered one of its expected keys; abstention tasks are counted apart (noHarm); each ability's arm
+    // is reported; the decision names the task file by its digest.
+    private async Task<int> RetrievalAsync(string? tasksPath, LoadedPack? pack, ModuleManifest manifest, ModuleTrial trial, string activationsFolder, ECDsa hostKey)
+    {
+        if (tasksPath is null || pack?.Knowledge is not { } knowledge)
+        {
+            output.WriteLine("error: a retrieval trial runs a knowledge pack (--pack, --trust) on the host's task file (--tasks <file>).");
+            return 2;
+        }
+        if (trial.Baseline == "host")
+        {
+            output.WriteLine("error: a retrieval trial is measured against nothing here; the host's own retrieval does not hold the pack's keys.");
+            return 2;
+        }
+        RetrievalTaskFile file;
+        try { file = RetrievalTaskFile.Read(await File.ReadAllBytesAsync(tasksPath).ConfigureAwait(false)); }
+        catch (Exception e) when (e is InvalidDataException or IOException)
+        {
+            output.WriteLine("error: " + e.Message);
+            return 2;
+        }
+        var answerable = file.Tasks.Where(t => !t.Abstains).OrderByDescending(t => t.At).Take(trial.Tasks).ToList();
+        var abstaining = file.Tasks.Where(t => t.Abstains).OrderByDescending(t => t.At).Take(trial.Tasks).ToList();
+        output.WriteLine($"{manifest.Id} {manifest.Version}: {answerable.Count} tasks and {abstaining.Count} abstention tasks from {tasksPath} ({file.Digest})");
+        if (answerable.Count < trial.Tasks)
+        {
+            output.WriteLine($"  not yet: the trial runs {trial.Tasks} tasks; the file holds {answerable.Count} that expect a key.");
+            return 1;
+        }
+        await using var with = await ProviderAsync(m => m.UseNeo4jStore().AddPack(pack)).ConfigureAwait(false);
+        await using var without = await ProviderAsync(m => m.UseNeo4jStore()).ConfigureAwait(false);
+        var importer = new AgentMemory.Extensibility.Packs.KnowledgePackImporter(
+            new AgentMemory.Extensibility.Neo4j.Storage.Neo4jKnowledgePackStore(with.GetRequiredService<INeo4jTransactionRunner>()));
+        await importer.ImportAsync(knowledge).ConfigureAwait(false);
+        try
+        {
+            async Task<(List<string> Offered, double Ms)> Offers(IServiceProvider provider, RetrievalTask task)
+            {
+                await using var scope = provider.CreateAsyncScope();
+                var watch = Stopwatch.StartNew();
+                var envelope = await scope.ServiceProvider.GetRequiredService<IContextCompiler>().CompileAsync(new ContextRequest
+                {
+                    SessionId = "pack-trial", Owner = "pack-trial", Query = task.Question, Anchors = [.. task.Anchors], AsOf = task.At,
+                }).ConfigureAwait(false);
+                var keys = envelope.Sections.SelectMany(s => s.Items).Where(i => i.Provenance?.RecordModuleId == manifest.Id)
+                    .Select(i => i.Provenance!.RecordKey).Distinct(StringComparer.Ordinal).ToList();
+                return (keys, watch.Elapsed.TotalMilliseconds);
+            }
+            var rows = new List<(RetrievalTask Task, int Offered, int Right, double Ms, double BaseMs)>();
+            foreach (var task in answerable.Concat(abstaining))
+            {
+                await Offers(with, task).ConfigureAwait(false); // a first compile warms the store's caches
+                var (offered, ms) = await Offers(with, task).ConfigureAwait(false);
+                var (_, baseMs) = await Offers(without, task).ConfigureAwait(false);
+                rows.Add((task, offered.Count, offered.Count(k => task.Expected.Contains(k, StringComparer.Ordinal)), ms, baseMs));
+            }
+            static double P95(IEnumerable<double> times)
+            {
+                var sorted = times.Order().ToArray();
+                return sorted.Length == 0 ? 0 : Math.Round(sorted[Math.Min(sorted.Length - 1, (int)Math.Ceiling(0.95 * sorted.Length) - 1)], 1);
+            }
+            var tasks = rows.Where(r => !r.Task.Abstains).ToList();
+            var quiet = rows.Count(r => r.Task.Abstains && r.Offered == 0);
+            PackTrialMeasurement Arm(IReadOnlyList<(RetrievalTask Task, int Offered, int Right, double Ms, double BaseMs)> of) => new()
+            {
+                Tasks = of.Count, Hits = of.Count(r => r.Right > 0), Offered = of.Sum(r => r.Offered), Correct = of.Sum(r => r.Right), P95Ms = P95(of.Select(r => r.Ms)),
+                PerTask = [.. of.Select(r => new PackTrialTask(r.Offered, r.Right))], MaximumOffered = null, // views have no declared cap: bounds take no cap
+            };
+            var withArm = Arm(tasks) with { Abstentions = abstaining.Count == 0 ? null : abstaining.Count, Quiet = abstaining.Count == 0 ? null : quiet };
+            var withoutArm = new PackTrialMeasurement
+            {
+                Tasks = tasks.Count, Hits = 0, Offered = 0, Correct = 0, P95Ms = P95(tasks.Select(r => r.BaseMs)), PerTask = [.. tasks.Select(_ => new PackTrialTask(0, 0))],
+                MaximumOffered = 0, Abstentions = abstaining.Count == 0 ? null : abstaining.Count, Quiet = abstaining.Count == 0 ? null : abstaining.Count,
+            };
+            var abilities = tasks.Where(r => r.Task.Ability is not null).GroupBy(r => r.Task.Ability!, StringComparer.Ordinal)
+                .ToDictionary(g => g.Key, g => Arm([.. g]), StringComparer.Ordinal);
+            var decision = PackTrialGate.Decide(manifest, withArm, withoutArm, DateTimeOffset.UtcNow, pack.Digest) with
+            {
+                History = "tasks", TaskFile = file.Digest, Abilities = abilities.Count == 0 ? null : abilities,
+            };
+            var record = PackActivationFolder.Write(activationsFolder, decision, hostKey);
+            output.WriteLine($"  with     hit {withArm.HitRate:0.000} ({withArm.Hits}/{withArm.Tasks}), precision {withArm.Precision:0.000} ({withArm.Correct}/{withArm.Offered})"
+                + (abstaining.Count == 0 ? "" : $", quiet on {quiet}/{abstaining.Count} abstention tasks"));
+            foreach (var (ability, arm) in abilities.OrderBy(a => a.Key, StringComparer.Ordinal))
+                output.WriteLine($"  {ability,-13} hit {arm.HitRate:0.000} ({arm.Hits}/{arm.Tasks})");
+            foreach (var check in decision.Checks)
+                output.WriteLine($"  {(check.Met ? "met " : "MISS")}  {check.Target} {check.Observed} (target {check.Required})");
+            output.WriteLine($"  decision {(decision.Active ? "ON" : "OFF")}: {decision.Reason}");
+            output.WriteLine($"  signed   {record}");
+            return decision.Active ? 0 : 1;
+        }
+        finally { await importer.RemoveAsync(knowledge.Manifest).ConfigureAwait(false); }
     }
 
     // A shadow trial (feature 11, R2): the pack ran dark on live turns; each turn is labelled by the code-history rule, the tests the

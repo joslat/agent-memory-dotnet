@@ -293,11 +293,11 @@ tasks a decision ran, not on what its pack declares, and a floor's targets MUST 
 **R-TRIAL-039.** Every door that shows or serves what a host composes (a gate report, a server) MUST take the same
 gate options, the floor among them, and decide by the same rule as the host.
 
-**R-TRIAL-051.** A host's floor MAY give a decision a number of days (feature 11). A decision older than that MUST NOT count:
+**R-TRIAL-059.** A host's floor MAY give a decision a number of days (feature 11). A decision older than that MUST NOT count:
 the pack stays off until it is trialled again, and a pack kept on by a decision MUST go silent when its days end, checked
 while the host runs, as a pack past its `validUntil` does.
 
-**R-TRIAL-052.** A decision MAY admit a pack in part (feature 11): each part is the first relation of the reason paths of the
+**R-TRIAL-060.** A decision MAY admit a pack in part (feature 11): each part is the first relation of the reason paths of the
 offers it made (`NAME:out` or `NAME:in`), or `(anchor)` for the anchors' own records, measured on the trial's tasks; a part is
 admitted when it meets every target alone at the trial's confidence corrected for the number of parts (Bonferroni on alpha:
 the least confidence the statistic's tables hold at or above `1 - (1 - c) / parts`; none admitted when the tables hold none).
@@ -305,19 +305,19 @@ The record carries each part's evidence, and a host MUST recheck each admitted p
 A walk MUST follow, from the anchors, only the relations admitted, decided where it chooses them, and MUST NOT offer an
 anchor's own record unless `(anchor)` is admitted.
 
-**R-TRIAL-053.** A host MAY run a pack dark (a shadow trial, feature 11): its contributors run on live turns, and what they would
+**R-TRIAL-061.** A host MAY run a pack dark (a shadow trial, feature 11): its contributors run on live turns, and what they would
 offer MUST go to a log on the host and MUST NOT reach the context. The log holds each turn's time, anchors and offers by record
 id, key, type, the first relation of the reason path and the host's locator, never record text, and never leaves the host. A
 decision made from it MUST be the same decision as any trial's, on as many labelled turns as the trial runs, each labelled by
 the trial's rule for an expected result, and records `history: "shadow"`.
 
-**R-TRIAL-054.** A retrieval trial (feature 12) runs on a host's task file, `agentmemory.trial.tasks/1`: tasks of a question,
+**R-TRIAL-062.** A retrieval trial (feature 12) runs on a host's task file, `agentmemory.trial.tasks/1`: tasks of a question,
 the instant it was asked (UTC, to the second), optionally its path or symbol anchors and its ability (`fact`, `update`,
 `temporal`, `multi-session`, `abstain`), and the keys of the records later used in answering it. The file MUST stay on the
 host and MUST NOT enter a pack; the decision MUST name it by `sha256:` over its exact bytes. A task is a hit when the pack
 offered one of its expected keys. A decision MAY report each ability's arm; it does not gate.
 
-**R-TRIAL-055.** A task that expects no keys is an abstention task, and only a task of ability `abstain` is one. Abstention
+**R-TRIAL-063.** A task that expects no keys is an abstention task, and only a task of ability `abstain` is one. Abstention
 tasks are counted apart from the trial's tasks; the target `noHarm` (`noHarmMicro`) is met when the share of them on which
 the pack offered nothing is at least the target, decided as a rate is. `noHarm` is a host's own target: a certificate MUST
 NOT certify it, and every verifier MUST refuse a certificate that does.

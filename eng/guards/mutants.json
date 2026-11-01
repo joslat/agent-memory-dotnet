@@ -1833,6 +1833,66 @@
    "sha256": "63184600ae32899beaa05145d8b1c8c690c530dc4deca5fc147412f00b0ec90e"
   },
   {
+   "id": "abstention-always-quiet",
+   "rule": "RETRIEVAL-TRIAL",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "return new(target, required, Math.Round(shown, 6), Q.Of(q, n) >= least);",
+     "new": "return new(target, required, Math.Round(shown, 6), true);"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~RetrievalTrialTests",
+   "sha256": "ebde9f2c244518dbf10114d7a42c9642611dbc05b43672bd41bdf2c9b57a880c"
+  },
+  {
+   "id": "task-file-lenient",
+   "rule": "RETRIEVAL-TRIAL",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Modules/RetrievalTasks.cs",
+   "edits": [
+    {
+     "old": "if ((ability == \"abstain\") != (expected.Count == 0)) throw Bad(",
+     "new": "if (false) throw Bad("
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~RetrievalTrialTests",
+   "sha256": "6cd5b4c0c79cc79b7aadc06c9f814d041f41ab38c226234a4623cf8c40d2ebc7"
+  },
+  {
+   "id": "certificate-certifies-no-harm",
+   "rule": "RETRIEVAL-TRIAL",
+   "door": "verify",
+   "file": "src/AgentMemory.Packs.Format/PackCertificate.cs",
+   "edits": [
+    {
+     "old": "PackRegistry.Targets.Except(PackRegistry.HostOnlyTargets).Concat(",
+     "new": "PackRegistry.Targets.Concat("
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "12b492fcde0519612b3c2464861596b21ac273e873b0caa02aa254d3be2f9163"
+  },
+  {
+   "id": "python-certificate-certifies-no-harm",
+   "rule": "RETRIEVAL-TRIAL",
+   "door": "verify",
+   "file": "conformance/pack-v1.1/python/ampack_verify.py",
+   "edits": [
+    {
+     "old": "CERTIFICATE_TARGETS = (TARGETS - set(REGISTRY[\"trial\"][\"hostOnly\"])) | COST_TARGETS",
+     "new": "CERTIFICATE_TARGETS = TARGETS | COST_TARGETS"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "9dac14f141f895877dff7d5888db9ba3205ee306310199d81dad7d2c06a9f90e"
+  },
+  {
    "id": "expiry-not-live",
    "rule": "TRIAL-OVER-TIME",
    "door": "serve",
