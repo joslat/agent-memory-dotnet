@@ -7,8 +7,7 @@ use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
-use miniz_oxide::inflate::core::{decompress, inflate_flags, DecompressorOxide};
-use miniz_oxide::inflate::TINFLStatus;
+use zlib_rs::{Inflate, InflateError, InflateFlush, Status};
 
 use crate::text::safe_path;
 use crate::{refuse, R};
@@ -53,23 +52,20 @@ pub fn crc32(data: &[u8]) -> u32 {
 }
 
 /// A raw deflate stream inflated to exactly `size` bytes, ending exactly at the end of `raw`.
+/// Inflated by zlib's own rules (raw deflate, window bits -15), as the other verifiers' zlib inflates it (review 18, H1).
 fn inflate(raw: &[u8], size: usize, name: &str) -> R<Vec<u8>> {
     let mut out = vec![0u8; size + 1];
-    let mut state = DecompressorOxide::new();
-    let flags = inflate_flags::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
-    let (status, consumed, written) = decompress(&mut state, raw, &mut out, 0, flags);
-    match status {
-        TINFLStatus::Done => {}
-        TINFLStatus::HasMoreOutput => refuse!("entry '{name}' does not inflate to its declared size"),
-        TINFLStatus::NeedsMoreInput | TINFLStatus::FailedCannotMakeProgress => {
-            refuse!("entry '{name}' does not inflate to its declared size")
-        }
-        _ => refuse!("entry '{name}' is not a valid deflate stream"),
+    let mut stream = Inflate::new(false, 15);
+    match stream.decompress(raw, &mut out, InflateFlush::Finish) {
+        Ok(Status::StreamEnd) => {}
+        Err(InflateError::DataError) => refuse!("entry '{name}' is not a valid deflate stream"),
+        _ => refuse!("entry '{name}' does not inflate to its declared size"),
     }
+    let (consumed, written) = (stream.total_in(), stream.total_out() as usize);
     if written != size {
         refuse!("entry '{name}' does not inflate to its declared size");
     }
-    if consumed != raw.len() {
+    if consumed != raw.len() as u64 {
         refuse!("entry '{name}' has bytes after the end of its deflate stream");
     }
     out.truncate(size);
@@ -150,7 +146,8 @@ pub fn read_zip(devices: &[String], data: &[u8]) -> R<Files> {
         }
         let start = cursor + 30 + nlen;
         let ratio_bad = method == 8 && (if csize == 0 { size > 0 } else { (size / csize) as u64 > MAX_RATIO });
-        if start + csize > cd_start || size as u64 > MAX_FILE || ratio_bad || (method == 0 && csize != size) {
+        // Checked: on wasm32 a stated size of 0xFFFFFFFF wrapped the sum and panicked the slice below (review 18, H2).
+        if start.checked_add(csize).map_or(true, |end| end > cd_start) || size as u64 > MAX_FILE || ratio_bad || (method == 0 && csize != size) {
             refuse!("entry '{name}' breaks a size rule");
         }
         unpacked += size as u64;

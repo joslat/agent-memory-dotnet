@@ -16,7 +16,8 @@ impl Guest for Reader {
         };
         match ampack_core::verify_archive(&archive, &policy, &[], now) {
             Ok(out) => {
-                let mut profiles: Vec<String> = out.profiles.iter().map(|(n, _)| n.clone()).collect();
+                // A profile this reader does not implement is named as such, as the command line names it (review 18, L2).
+                let mut profiles: Vec<String> = out.profiles.iter().map(|(n, i)| if *i { n.clone() } else { alloc_name(n) }).collect();
                 if profiles.is_empty() {
                     profiles.push("core".into());
                 }
@@ -29,12 +30,13 @@ impl Guest for Reader {
                     profiles,
                 })
             }
-            Err(e) => Verdict::Refused(e.0),
+            // Shown as the command line shows it: a line break or control in pack text cannot fake a line (review 18, L1).
+            Err(e) => Verdict::Refused(ampack_core::text::shown(&e.0)),
         }
     }
 
     fn inspect(archive: Vec<u8>) -> Result<Summary, String> {
-        let i = ampack_core::inspect(&archive).map_err(|e| e.0)?;
+        let i = ampack_core::inspect(&archive).map_err(|e| ampack_core::text::shown(&e.0))?;
         Ok(Summary {
             files: i.files as u32,
             bytes: i.bytes,
@@ -49,3 +51,9 @@ impl Guest for Reader {
 }
 
 export!(Reader);
+
+fn alloc_name(name: &str) -> String {
+    let mut s = String::from(name);
+    s.push_str(" (not implemented by this reader)");
+    s
+}

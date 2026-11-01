@@ -37,17 +37,65 @@ def ampack(*args, env=None):
     return r.returncode, (r.stdout + r.stderr).strip()
 
 
-def write_deflated_zip(files, junk=None, unfinished=()):
+def odd_deflate(content):
+    """Review 18, H1: the content in stored blocks, then a final dynamic block whose distance code is one code of length 2,
+    an incomplete set zlib refuses ("invalid distances set") and a lenient inflater accepted."""
+    bits, out = [0, 0], bytearray()
+
+    def put(value, n):
+        bits[0] |= value << bits[1]
+        bits[1] += n
+        while bits[1] >= 8:
+            out.append(bits[0] & 255)
+            bits[0] >>= 8
+            bits[1] -= 8
+
+    def huff(code, n):
+        put(int(format(code, f"0{n}b")[::-1], 2), n)
+
+    def flush():
+        if bits[1]:
+            out.append(bits[0] & 255)
+            bits[0] = bits[1] = 0
+
+    for i in range(0, len(content), 65535):
+        chunk = content[i:i + 65535]
+        put(0, 1)
+        put(0, 2)
+        flush()
+        out.extend(struct.pack("<HH", len(chunk), len(chunk) ^ 0xFFFF) + chunk)
+    put(1, 1)
+    put(2, 2)
+    put(0, 5)
+    put(0, 5)
+    put(14, 4)
+    lengths = {18: 1, 1: 2, 2: 2}
+    for symbol in [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1]:
+        put(lengths.get(symbol, 0), 3)
+    huff(0, 1)
+    put(138 - 11, 7)
+    huff(0, 1)
+    put(118 - 11, 7)
+    huff(2, 2)
+    huff(3, 2)
+    huff(0, 1)
+    flush()
+    return bytes(out)
+
+
+def write_deflated_zip(files, junk=None, unfinished=(), streams=None, sizes=None):
     """The strict profile with every entry deflated (method 8); `junk` maps a name to bytes appended after its deflate stream,
-    and an entry named in `unfinished` ends with a sync flush: all its data, no final block."""
+    and an entry named in `unfinished` ends with a sync flush: all its data, no final block. `streams` maps a name to its
+    deflate bytes as given; `sizes` to a compressed size stated instead of the real one."""
     out, central = bytearray(), []
     for name in sorted(files):
         data, nb = files[name], name.encode("ascii")
         packer = zlib.compressobj(9, zlib.DEFLATED, -15)
-        packed = packer.compress(data) + packer.flush(zlib.Z_SYNC_FLUSH if name in unfinished else zlib.Z_FINISH) + (junk or {}).get(name, b"")
+        packed = (streams or {}).get(name) or packer.compress(data) + packer.flush(zlib.Z_SYNC_FLUSH if name in unfinished else zlib.Z_FINISH) + (junk or {}).get(name, b"")
         crc, off = zlib.crc32(data) & 0xFFFFFFFF, len(out)
-        out += b"PK\x03\x04" + struct.pack("<HHHHHIIIHH", 20, 0, 8, 0, 0x21, crc, len(packed), len(data), len(nb), 0) + nb + packed
-        central.append((nb, crc, len(packed), len(data), off))
+        stated = (sizes or {}).get(name, len(packed))
+        out += b"PK\x03\x04" + struct.pack("<HHHHHIIIHH", 20, 0, 8, 0, 0x21, crc, stated, len(data), len(nb), 0) + nb + packed
+        central.append((nb, crc, stated, len(data), off))
     start = len(out)
     for nb, crc, csize, size, off in central:
         out += b"PK\x01\x02" + struct.pack("<HHHHHHIIIHHHHHII", 20, 20, 0, 8, 0, 0x21, crc, csize, size, len(nb), 0, 0, 0, 0, 0, off) + nb
@@ -937,6 +985,10 @@ def main():
     damaged = bytearray(write_deflated_zip(s))
     damaged[30 + struct.unpack_from("<H", damaged, 26)[0]] = 0xFF
     raw["deflate-damaged"] = (bytes(damaged), "trust.json", "refused")
+    # Review 18, H1: a stream zlib refuses must be refused by every reader, whatever its inflater.
+    raw["deflate-incomplete-distance-code"] = (write_deflated_zip(s, streams={"pack.json": odd_deflate(s["pack.json"])}), "trust.json", "refused")
+    # Review 18, H2: a compressed size of 0xFFFFFFFF, which wrapped a 32-bit sum and crashed the component.
+    raw["zip-compressed-size-wraps-32-bit"] = (write_deflated_zip({"a": b""}, streams={"a": b"\x03\x00"}, sizes={"a": 0xFFFFFFFF}), "trust.json", "refused")
     # Review 6, L6 and I8: the archive limits, each beside its control.
     zeros = signed({**content, "assets/zeros.bin": bytes(1 << 20)})
     raw["archive-ratio-over-250"] = (write_deflated_zip(zeros), "trust.json", "refused")

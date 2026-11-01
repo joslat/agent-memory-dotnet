@@ -13,4 +13,6 @@ opt-level = "s"
 lto = true
 codegen-units = 1
 panic = "abort"
+# A size that wraps is a refusal, never a silent wrong answer (review 18, H2: usize is 32 bits on wasm32).
+overflow-checks = true
 strip = true

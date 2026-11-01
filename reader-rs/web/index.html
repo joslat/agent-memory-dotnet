@@ -43,8 +43,9 @@
       const verdict = verifier.verify(pack, policy, at);
       if (verdict.tag !== "verified") return show("no", "Refused: " + String(verdict.val ?? ""));
       const summary = verifier.inspect(pack);
-      // The pack's own words are data: shown as text, never as markup.
-      show("ok", "Verified at " + at + "\n\n" + JSON.stringify(summary, (k, x) => typeof x === "bigint" ? Number(x) : x, 2));
+      // The pack's own words are data: shown as text, never as markup. The profiles say which this reader does not implement.
+      const big = (k, x) => typeof x === "bigint" ? Number(x) : x;
+      show("ok", "Verified at " + at + "\n\n" + JSON.stringify({ verified: verdict.val, archive: summary }, big, 2));
     } catch (e) { show("no", "The reader could not run: " + e); }
   });
 </script>

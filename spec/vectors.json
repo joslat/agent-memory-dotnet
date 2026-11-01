@@ -2303,6 +2303,14 @@
   ],
   "aggregate-trials-above-tasks": [
    "R-CORE-140"
+  ],
+  "deflate-incomplete-distance-code": [
+   "R-CORE-018",
+   "R-CORE-002"
+  ],
+  "zip-compressed-size-wraps-32-bit": [
+   "R-CORE-019",
+   "R-CORE-002"
   ]
  }
 }
