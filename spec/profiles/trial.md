@@ -296,6 +296,14 @@ gate options, the floor among them, and decide by the same rule as the host.
 the pack stays off until it is trialled again, and a pack kept on by a decision MUST go silent when its days end, checked
 while the host runs, as a pack past its `validUntil` does.
 
+**R-TRIAL-052.** A decision MAY admit a pack in part (feature 11): each part is the first relation of the reason paths of the
+offers it made (`NAME:out` or `NAME:in`), or `(anchor)` for the anchors' own records, measured on the trial's tasks; a part is
+admitted when it meets every target alone at the trial's confidence corrected for the number of parts (Bonferroni on alpha:
+the least confidence the statistic's tables hold at or above `1 - (1 - c) / parts`; none admitted when the tables hold none).
+The record carries each part's evidence, and a host MUST recheck each admitted part from it as it rechecks a whole decision.
+A walk MUST follow, from the anchors, only the relations admitted, decided where it chooses them, and MUST NOT offer an
+anchor's own record unless `(anchor)` is admitted.
+
 ## 8. Upgrades
 
 **R-TRIAL-040.** With `upgrade.noRegression`, a new version MUST switch on only if it does no worse than the

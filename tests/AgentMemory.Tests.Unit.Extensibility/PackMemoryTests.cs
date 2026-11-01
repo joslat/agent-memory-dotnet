@@ -87,6 +87,31 @@ public sealed class PackMemoryTests
     }
 
     [Fact]
+    public async Task A_partly_admitted_pack_s_walk_follows_only_its_admitted_relations_and_offers_only_admitted_anchors()
+    {
+        // Feature 11 (R3): the filter is where the walk chooses its relations, so the budgets go to admitted parts.
+        const string store = "scip-dotnet nuget Acme.Map . Acme/Map/MapStore#";
+        var builder = new CodeMapBuilder();
+        builder.AddProject("src/Map/Map.csproj", "Acme.Map");
+        builder.AddFile("src/Map/MapStore.cs", "src/Map/Map.csproj");
+        builder.AddFile("tests/MapStoreTests.cs", null);
+        builder.AddSymbol(store, "MapStore", "Acme.Map.MapStore", CodeMapSymbolKind.Class, "Acme.Map", "src/Map/MapStore.cs", 3, ["Close", "Remove"]);
+        builder.AddTest("scip-dotnet nuget Acme.Map.Tests . Acme/Map/Tests/MapStoreTests#Remove_keeps_history().", "MapStoreTests.Remove_keeps_history",
+            "tests/MapStoreTests.cs", 7, "xunit", [store]);
+        var memory = PackMemory.From([], [builder.Build("git:abc1234")]);
+        var request = new ContextRequest { SessionId = "s", Owner = "lea", Query = "remove keeps history", Anchors = [ContextAnchor.Path("src/Map/MapStore.cs")] };
+        Task<TraversalResult> Walk(Func<string, string?, bool>? admitted) => TraversalWalk.RunAsync(memory.Resolution, memory, request, CancellationToken.None, admitted: admitted);
+
+        var whole = await Walk(null);
+        var test = whole.Items.Single(i => i.Record.Type == CodeMapPack.TestType);
+        var part = test.Part!;
+        part.Should().MatchRegex(@"\A[A-Z_]+:(in|out)\z");
+        whole.Items.Should().Contain(i => i.Part == null, "the anchor's own record");
+        (await Walk((_, p) => p != part)).Items.Should().NotContain(i => i.Part == part, "a relation not admitted starts no path");
+        (await Walk((_, p) => p != null)).Items.Should().NotContain(i => i.Part == null).And.Contain(i => i.Part == part, "anchors not admitted are walked from, not offered");
+    }
+
+    [Fact]
     public async Task Review1_M2_a_module_that_is_not_live_neither_seeds_steers_nor_offers_in_a_walk()
     {
         const string store = "scip-dotnet nuget Acme.Map . Acme/Map/MapStore#";

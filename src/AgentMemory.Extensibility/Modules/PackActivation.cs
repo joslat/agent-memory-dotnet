@@ -82,6 +82,25 @@ public sealed record PackTrialTask(int Offered, int Correct)
 }
 
 /// <summary>
+/// One part of a pack, measured on its own (feature 11, R3): the first relation of the offers' reason paths, or <c>(anchor)</c>;
+/// its arm, the trial's arm without the pack, the corrected confidence it was decided at, and whether it passed alone.
+/// </summary>
+[Experimental("AMEXT001")]
+public sealed record PackTrialPart
+{
+    /// <summary><c>NAME:out</c>, <c>NAME:in</c> or <c>(anchor)</c>.</summary>
+    public required string Part { get; init; }
+    /// <summary>What the part offered, task by task.</summary>
+    public required PackTrialMeasurement With { get; init; }
+    /// <summary>The trial's arm without the pack.</summary>
+    public required PackTrialMeasurement Without { get; init; }
+    /// <summary>The confidence the part was decided at: the trial's, corrected for the number of parts (Bonferroni).</summary>
+    public double? Confidence { get; init; }
+    /// <summary>Whether it met every target alone.</summary>
+    public required bool Admitted { get; init; }
+}
+
+/// <summary>
 /// One target checked: what was required, what the decision used (a confidence lower bound when the trial asks for one),
 /// whether it held, and the plain estimate beside a bound.
 /// </summary>
@@ -189,6 +208,12 @@ public sealed record PackActivation
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public PackDecisionBasis? Basis { get; init; }
+    /// <summary>
+    /// For a decision that admits the pack in part (feature 11, R3), every part measured, each with its own evidence; the gate
+    /// admits the parts that pass alone, rechecked as the whole is. Null when the decision is for the whole pack.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<PackTrialPart>? Parts { get; init; }
 }
 
 /// <summary>The activation records a host has, by pack.</summary>
@@ -634,6 +659,52 @@ public static partial class PackTrialGate
 
     private static readonly Regex PackDigestPattern = new("^sha256:[0-9a-f]{64}\\z", RegexOptions.CultureInvariant);
 
+    /// <summary>The part an anchor's own record belongs to (feature 11).</summary>
+    public const string AnchorPart = "(anchor)";
+
+    /// <summary>
+    /// A decision that may admit a pack in part (feature 11, R3): the whole pack when it passes; otherwise each part decided alone
+    /// on its own arm, at the trial's confidence corrected for the number of parts (Bonferroni: the next confidence the exact
+    /// tables hold at or above 1 - (1 - c) / parts), and admitted where it passes. With no such confidence, no part is admitted.
+    /// </summary>
+    public static PackActivation DecideParts(ModuleManifest manifest, PackTrialMeasurement with, PackTrialMeasurement without,
+        IReadOnlyDictionary<string, PackTrialMeasurement> parts, DateTimeOffset decidedAt, string? packDigest = null)
+    {
+        ArgumentNullException.ThrowIfNull(parts);
+        var whole = Decide(manifest, with, without, decidedAt, packDigest);
+        if (whole.Active || parts.Count == 0) return whole;
+        var (possible, permille) = Corrected(manifest.Trial!.ConfidencePermille, parts.Count);
+        var corrected = manifest with { Trial = manifest.Trial with { ConfidencePermille = permille } };
+        var decided = parts.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => new PackTrialPart
+        {
+            Part = p.Key, With = p.Value, Without = without, Confidence = Level(permille),
+            Admitted = possible && Decide(corrected, p.Value, without, decidedAt).Active,
+        }).ToList();
+        var admitted = decided.Where(p => p.Admitted).Select(p => p.Part).ToList();
+        return whole with
+        {
+            Active = admitted.Count != 0, Parts = decided,
+            Reason = admitted.Count != 0
+                ? $"admitted in part: {string.Join(", ", admitted)}, each alone at confidence {Level(permille)?.ToString(CultureInfo.InvariantCulture) ?? "none (estimates)"} for {parts.Count} parts"
+                : whole.Reason + (possible ? "; no part passes alone at the corrected confidence" : $"; {parts.Count} parts need a confidence the exact tables do not hold"),
+        };
+    }
+
+    // The trial's confidence corrected for this many parts (Bonferroni on alpha): the least the tables hold at or above
+    // 1 - (1 - c) / parts. Without a confidence the targets are estimates, which no correction changes.
+    internal static (bool Possible, int? Permille) Corrected(int? permille, int parts)
+    {
+        if (permille is not { } p || parts <= 1) return (true, permille);
+        var alpha = (1000 - p) / (double)parts;
+        return PackRegistry.Quantiles.Keys.Where(q => 1000 - q <= alpha + 1e-9).Order().FirstOrDefault() is var least && least != 0 ? (true, least) : (false, null);
+    }
+
+    /// <summary>The parts of a partial decision that still pass alone, rechecked from their own evidence; null for a whole decision.</summary>
+    internal static IReadOnlySet<string>? HeldParts(PackActivation decision) =>
+        decision.Parts is not { } parts ? null
+            : parts.Where(p => p.Admitted && Unmet(decision with { With = p.With, Without = p.Without, Confidence = p.Confidence, Parts = null, Previous = null }) is null)
+                .Select(p => p.Part).ToHashSet(StringComparer.Ordinal);
+
     /// <summary>
     /// Checks every target of the manifest's trial against the two arms; the pack goes on only if all are met. Give
     /// <paramref name="packDigest"/> when the trial ran a pack, so the decision binds to its content and not only to its declarations.
@@ -936,6 +1007,9 @@ public static partial class PackTrialGate
 
         static string? Why(PackActivation decision)
         {
+            // A partial decision holds while one admitted part does, each rechecked from its own evidence (feature 11).
+            if (decision.Parts is not null)
+                return decision.Active && HeldParts(decision) is { Count: 0 } ? "no admitted part holds under its own evidence" : null;
             if (decision.With is not { } with) return "its record carries no measurement";
             if (with.Tasks < ModuleTrial.MinimumTasks) return $"only {with.Tasks} tasks; a trial needs {ModuleTrial.MinimumTasks}";
             IReadOnlyList<PackTrialCheck> again;
@@ -1009,6 +1083,8 @@ public static partial class PackTrialGate
                 : "no trial on this host yet";
             // A decision counts for as many days as the host's floor says (feature 11, R1): past them, off until trialled again;
             // within them, the module goes silent when they end, checked as the host runs.
+            // Admitted in part (feature 11, R3): the parts that still hold, rechecked from their own evidence.
+            if (reason is null && decision is not null) registration.AdmittedParts = HeldParts(decision);
             if (reason is null && decision is not null && floor?.ExpireAfterDays is { } days)
             {
                 var expires = decision.DecidedAt.AddDays(days);

@@ -339,6 +339,11 @@ internal sealed class ModuleRegistration(ModuleManifest manifest, string impleme
     public DateTimeOffset? ValidUntil { get; init; }
     /// <summary>When the trial decision that switched it on expires under the host's floor (feature 11), set by the gate.</summary>
     public DateTimeOffset? DecisionExpires { get; set; }
+    /// <summary>
+    /// For a pack its decision admitted in part (feature 11, R3), the parts admitted: relations as <c>NAME:out</c> or
+    /// <c>NAME:in</c>, and <c>(anchor)</c> for the anchors' own records; null when the whole pack is admitted. Set by the gate.
+    /// </summary>
+    public IReadOnlySet<string>? AdmittedParts { get; set; }
     /// <summary>When it goes silent: its validUntil or its decision's expiry, whichever comes first.</summary>
     public DateTimeOffset? OffAfter => ValidUntil is { } until && DecisionExpires is { } expires ? (until < expires ? until : expires) : ValidUntil ?? DecisionExpires;
     /// <summary>

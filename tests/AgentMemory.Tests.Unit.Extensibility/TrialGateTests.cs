@@ -480,6 +480,34 @@ public sealed class TrialGateTests : IDisposable
     }
 
     [Fact]
+    public void A_pack_that_fails_whole_is_admitted_in_the_parts_that_pass_alone_at_a_corrected_confidence()
+    {
+        // Feature 11 (R3): Bonferroni on alpha, rounded up to a confidence the exact tables hold, or none.
+        PackTrialGate.Corrected(950, 2).Should().Be((true, 975));
+        PackTrialGate.Corrected(950, 5).Should().Be((true, 990));
+        PackTrialGate.Corrected(950, 6).Should().Be((false, (int?)null), "no table is strict enough for six parts");
+        PackTrialGate.Corrected(null, 3).Should().Be((true, (int?)null), "estimates need no correction");
+
+        var weak = Arm(8, 9, 70, 60);
+        var parts = new Dictionary<string, PackTrialMeasurement>(StringComparer.Ordinal) { ["CODEMAP_TESTS:in"] = Arm(30, 32, 77, 60), ["(anchor)"] = weak };
+        var decision = PackTrialGate.DecideParts(Trialled, weak, Arm(0, 0, 0, 30), parts, Now);
+        decision.Active.Should().BeTrue();
+        decision.Reason.Should().StartWith("admitted in part: CODEMAP_TESTS:in");
+        decision.Parts.Should().HaveCount(2).And.ContainSingle(p => p.Admitted);
+        PackTrialGate.Unmet(decision).Should().BeNull("its admitted part holds on its own evidence");
+        PackTrialGate.HeldParts(decision).Should().BeEquivalentTo(["CODEMAP_TESTS:in"]);
+        var forged = decision with { Parts = [.. decision.Parts!.Select(p => p with { Admitted = true, With = weak })] };
+        PackTrialGate.Unmet(forged).Should().NotBeNull("a part admitted on evidence that does not hold is taken back");
+        PackTrialGate.DecideParts(Trialled, Arm(30, 32, 77, 60), Arm(0, 0, 0, 30), parts, Now).Parts.Should().BeNull("a pack that passes whole is admitted whole");
+
+        // Signed and read back, the gate admits the module with exactly its held parts, which the walk then follows.
+        Write(decision, _host);
+        var activations = new PackActivationFolder(_folder, PublicKey());
+        var builder = new ModuleSetBuilder().Add(Trialled, _ => { }).RequireTrials(activations);
+        PackTrialGate.Apply(builder.Modules, activations, PackTrialPolicy.Of(builder), Now).On.Single().AdmittedParts.Should().BeEquivalentTo(["CODEMAP_TESTS:in"]);
+    }
+
+    [Fact]
     public void A_failed_trial_keeps_the_pack_off_with_its_reason()
     {
         Write(PackTrialGate.Decide(Trialled, Arm(8, 9, 70, 60), Arm(0, 0, 0, 30), Now), _host);

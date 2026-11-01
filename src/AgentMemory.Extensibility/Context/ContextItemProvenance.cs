@@ -38,6 +38,8 @@ public sealed record ContextItemProvenance
     public DateTimeOffset? InvalidatedAtUtc { get; init; }
     /// <summary>How traversal context reached the record, from the turn's anchor (CMP-1); null for an item a view found.</summary>
     public string? Via { get; init; }
+    /// <summary>The first relation of that path, <c>NAME:out</c> or <c>NAME:in</c> (feature 11): the part of the pack that offered it.</summary>
+    public string? ViaRelation { get; init; }
     /// <summary>The record's effective confidence in millionths (feature 09): capped by its source and signer; null when nothing caps it.</summary>
     public int? ConfidenceMicro { get; init; }
     /// <summary>The original source session.</summary>

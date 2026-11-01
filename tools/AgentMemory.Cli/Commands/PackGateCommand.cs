@@ -34,7 +34,7 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     public async Task<int> ExecuteAsync(string? packId, string? repo, string? hostKeyPath, string? activationsFolder, string? variant, string? outputPath,
-        string? packPath = null, string? trustPath = null, string? previousPath = null, string history = "parent")
+        string? packPath = null, string? trustPath = null, string? previousPath = null, string history = "parent", bool partial = false)
     {
         if (packId != CodeMapPack.Id)
         {
@@ -220,7 +220,10 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
         string record;
         try
         {
-            decision = PackTrialGate.Decide(manifest, withArm, withoutArm, DateTimeOffset.UtcNow, asPack?.Digest, previous) with { History = history };
+            // --partial (feature 11, R3): a pack that fails whole may be admitted in the parts that pass alone; an upgrade is judged whole.
+            decision = (partial && previous is null
+                ? PackTrialGate.DecideParts(manifest, withArm, withoutArm, withRun.Parts(tasks.Count, withArm), DateTimeOffset.UtcNow, asPack?.Digest)
+                : PackTrialGate.Decide(manifest, withArm, withoutArm, DateTimeOffset.UtcNow, asPack?.Digest, previous)) with { History = history };
             // One writer for every signed record (review 1, M5): named so two decisions never share a file, written whole or not at all.
             record = PackActivationFolder.Write(activationsFolder, decision, hostKey);
         }
@@ -348,11 +351,21 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
         var parts = items.GroupBy(x => $"{x.Item.Provenance!.RecordType}{(x.Item.Provenance.Via is null ? " (anchor)" : "")}")
             .ToDictionary(g => g.Key, g => new { items = g.Count(), bytes = g.Sum(x => PackTrialRender.Bytes(x.Section, x.Item)),
                 textBytes = g.Sum(x => (long)System.Text.Encoding.UTF8.GetByteCount(x.Item.Text)) });
-        return new TaskOutcome(task, files, files.Count(f => task.Tests.Contains(f, StringComparer.OrdinalIgnoreCase)), ms, ms, bytes) { Parts = parts };
+        // What each part offered (feature 11, R3): by the first relation of each offer's reason path, an anchor's own record apart.
+        var byPart = envelope.Sections.SelectMany(s => s.Items)
+            .Where(i => i.Provenance?.RecordModuleId == CodeMapPack.Id && i.Provenance.RecordType == CodeMapPack.TestType && i.Provenance.Via is not null)
+            .GroupBy(i => i.Provenance!.ViaRelation ?? PackTrialGate.AnchorPart, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g =>
+            {
+                var offered = g.Select(i => TestFile().Match(i.Text)).Where(m => m.Success).Select(m => m.Groups[1].Value).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                return (Offered: offered.Count, Right: offered.Count(f => task.Tests.Contains(f, StringComparer.OrdinalIgnoreCase)));
+            }, StringComparer.Ordinal);
+        return new TaskOutcome(task, files, files.Count(f => task.Tests.Contains(f, StringComparer.OrdinalIgnoreCase)), ms, ms, bytes) { Parts = parts, ByPart = byPart };
     }
 
     private sealed record TaskOutcome(HistoryTask Task, IReadOnlyList<string> Offered, int Right, double Milliseconds, double? Timed, long Bytes)
     {
+        public IReadOnlyDictionary<string, (int Offered, int Right)> ByPart { get; init; } = new Dictionary<string, (int, int)>();
         public object? Parts { get; init; }
     }
 
@@ -362,6 +375,19 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
         private List<TaskOutcome> _outcomes = [];
 
         public void Add(TaskOutcome outcome) => _outcomes.Add(outcome);
+
+        // Each part's arm on the same tasks (feature 11): what that part offered and got right, task by task; the walk's time and cap
+        // are the whole arm's.
+        public IReadOnlyDictionary<string, PackTrialMeasurement> Parts(int tasks, PackTrialMeasurement whole) =>
+            _outcomes.SelectMany(o => o.ByPart.Keys).Distinct(StringComparer.Ordinal).ToDictionary(part => part, part =>
+            {
+                var per = _outcomes.Select(o => o.ByPart.TryGetValue(part, out var x) ? x : (Offered: 0, Right: 0)).ToList();
+                return whole with
+                {
+                    Tasks = tasks, Hits = per.Count(x => x.Right > 0), Offered = per.Sum(x => x.Offered), Correct = per.Sum(x => x.Right),
+                    PerTask = [.. per.Select(x => new PackTrialTask(x.Offered, x.Right))],
+                };
+            }, StringComparer.Ordinal);
 
         // Back into the order the tasks were drawn (most recent first), when they were run oldest first.
         public void Order(IReadOnlyList<HistoryTask> tasks) =>

@@ -305,7 +305,12 @@ public sealed class ModuleSet
             s.GetService<TimeProvider>() ?? TimeProvider.System,
             r => !Erased(r) && !Withheld(r, (s.GetService<TimeProvider>() ?? TimeProvider.System).GetUtcNow())
                 && Packs.ModuleConfidence.Clears(r.ConfidenceMicro, MinimumConfidenceMicro),
-            MinimumConfidenceMicro));
+            MinimumConfidenceMicro, _registrations.Any(r => r.AdmittedParts is not null) ? Admitted : null));
+
+    // Whether a module's decision admitted this part of it (feature 11, R3): a relation it starts a path with, or (null) an anchor's
+    // own record. A module admitted whole admits every part.
+    internal bool Admitted(string module, string? part) =>
+        _registrations.FirstOrDefault(r => r.Manifest.Id == module)?.AdmittedParts is not { } parts || parts.Contains(part ?? PackTrialGate.AnchorPart);
 
     // Whether a module may take part in a walk now: a pack past its validUntil goes silent in the walk as its contributors
     // do (review 1, M2), so it neither spends the walk's budgets nor leads it to other modules' records.

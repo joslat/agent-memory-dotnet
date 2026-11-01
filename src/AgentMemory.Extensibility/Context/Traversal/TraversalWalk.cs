@@ -16,6 +16,14 @@ namespace AgentMemory.Extensibility.Context.Traversal;
 [Experimental("AMEXT001")]
 internal sealed record TraversalItem(ModuleRecord Record, long Score, string Via, int Hops, int Matches = 0, int SharedBy = 1)
 {
+    /// <summary>The first relation of its reason path, <c>NAME:out</c> or <c>NAME:in</c> (feature 11); null for an anchor's own record.</summary>
+    internal string? Part { get; init; }
+    /// <summary>The module that declares that relation; null for an anchor's own record.</summary>
+    internal string? PartModule { get; init; }
+
+    /// <summary>A declared relation as a part of a pack (feature 11, R3): its name and direction.</summary>
+    internal static string PartOf(ModuleTraversalRelation declared) => declared.Name + (declared.Direction == ModuleTraversalDirection.Out ? ":out" : ":in");
+
     /// <summary>The order a walk offers records in: the path's score, raised by each question word the record's text holds.</summary>
     internal long Rank => Score * (1 + Matches);
 }
@@ -103,7 +111,7 @@ internal static class TraversalWalk
     // live definition's module, so they seeded and steered, and were hidden only after the walk).
     internal static async Task<TraversalResult> RunAsync(ModuleResolution resolution, IModuleTraversalReader reader, ContextRequest request,
         CancellationToken cancellationToken, TimeSpan? timeBudget = null, Func<string, bool>? live = null, Func<ModuleRecord, bool>? liveRecord = null,
-        TimeProvider? time = null, int? minimumConfidence = null)
+        TimeProvider? time = null, int? minimumConfidence = null, Func<string, string?, bool>? admitted = null)
     {
         var anchors = Anchors(request.Anchors);
         if (anchors.Count == 0) return TraversalResult.Empty;
@@ -232,6 +240,9 @@ internal static class TraversalWalk
                 foreach (var declared in module.Traversal!.Relations)
                 {
                     if (Spent()) break;
+                    // A partly admitted pack (feature 11, R3): only the relations its decision admitted start a path, decided where
+                    // the walk chooses them, so the budgets go to admitted parts.
+                    if (hop == 1 && admitted is not null && !admitted(module.Id, TraversalItem.PartOf(declared))) continue;
                     var relation = module.Ontology!.Relations.Single(r => r.Name == declared.Name);
                     if (Consent(resolution, module, relation) is { } refusal)
                     {
@@ -265,7 +276,10 @@ internal static class TraversalWalk
                         var verb = Verb(module, declared.Name);
                         var via = parent.Via + " → " + (declared.Direction == ModuleTraversalDirection.Out
                             ? verb + " " + Label(edge.To) : Label(edge.To) + " " + verb + " it");
-                        reached.Add((new TraversalItem(edge.To, score, via, hop, Matches(edge.To), Math.Max(1, edge.Degree)), parent.Record));
+                        reached.Add((new TraversalItem(edge.To, score, via, hop, Matches(edge.To), Math.Max(1, edge.Degree))
+                        {
+                            Part = hop == 1 ? TraversalItem.PartOf(declared) : parent.Part, PartModule = hop == 1 ? module.Id : parent.PartModule,
+                        }, parent.Record));
                     }
                     // The walk makes the fan-out cut, by the format's order: most matches, then most specific, then the format's order
                     // (review 7, W7: each store made it with its own copy of the order, so a store that returned more, as the spec
@@ -290,7 +304,8 @@ internal static class TraversalWalk
             .SetTag(ModuleTelemetry.TraversalVisited, spent.Visited)
             .SetTag(ModuleTelemetry.TraversalElapsedMs, Math.Round(spent.Elapsed.TotalMilliseconds, 1))
             .SetTag(ModuleTelemetry.TraversalStoppedBy, spent.StoppedBy ?? "none");
-        return new([.. best.Values.OrderByDescending(i => i.Rank).ThenBy(i => i.SharedBy).ThenBy(i => i.Hops)
+        // An anchor's own record is offered only where its module's decision admitted anchors (feature 11), before any cut.
+        return new([.. best.Values.Where(i => admitted is null || admitted(i.PartModule ?? i.Record.ModuleId, i.Part)).OrderByDescending(i => i.Rank).ThenBy(i => i.SharedBy).ThenBy(i => i.Hops)
             .ThenBy(i => i.Record, TraversalOrder.Records)], problems.AsReadOnly(), spent);
     }
 
@@ -381,7 +396,7 @@ internal static class TraversalOrder
 /// <summary>One walk per request, shared by every module's traversal contributor in it (CMP-1).</summary>
 [Experimental("AMEXT001")]
 internal sealed class TraversalService(ModuleResolution resolution, IModuleTraversalReader? reader, Func<string, bool>? live = null, TimeProvider? time = null,
-    Func<ModuleRecord, bool>? liveRecord = null, int? minimumConfidence = null)
+    Func<ModuleRecord, bool>? liveRecord = null, int? minimumConfidence = null, Func<string, string?, bool>? admitted = null)
 {
     private readonly ConditionalWeakTable<ContextRequest, Task<TraversalResult>> _walks = new();
 
@@ -392,7 +407,7 @@ internal sealed class TraversalService(ModuleResolution resolution, IModuleTrave
         reader is null || request.Anchors.Count == 0
             ? Task.FromResult(TraversalResult.Empty)
             : _walks.GetValue(request, r => TraversalWalk.RunAsync(resolution, reader, r, cancellationToken, live: live, liveRecord: liveRecord, time: time,
-                minimumConfidence: minimumConfidence));
+                minimumConfidence: minimumConfidence, admitted: admitted));
 }
 
 /// <summary>

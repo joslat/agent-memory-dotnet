@@ -2879,6 +2879,17 @@
    ]
   },
   {
+   "id": "R-TRIAL-052",
+   "doc": "profiles/trial.md",
+   "section": "7",
+   "level": "MUST",
+   "summary": "A decision MAY admit a pack in part (feature 11): each part is the first relation of the reason paths of the offers it made (`NAME:out` or `NAME:in`), or `(anchor)` for the anchors' own records, measured on the trial's tasks; a part is admitted when it meets every target alone at the trial's confidence corrected for the number of parts (Bonferroni on alpha: the least confidence the statistic's tables hold at or above `1 - (1 - c) / parts`; none admitted when the tables hold none). The record carries each part's evidence, and a host MUST recheck each admitted part from it as it rechecks a whole decision. A walk MUST follow, from the anchors, only the relations admitted, decided where it chooses them, and MUST NOT offer an anchor's own record unless `(anchor)` is admitted.",
+   "verifiedBy": [
+    "unit:TrialGateTests.A_pack_that_fails_whole_is_admitted_in_the_parts_that_pass_alone_at_a_corrected_confidence",
+    "unit:PackMemoryTests.A_partly_admitted_pack_s_walk_follows_only_its_admitted_relations_and_offers_only_admitted_anchors"
+   ]
+  },
+  {
    "id": "R-TRIAL-051",
    "doc": "profiles/trial.md",
    "section": "5",
@@ -2895,7 +2906,7 @@
    "doc": "profiles/trial.md",
    "section": "5",
    "level": "MUST",
-   "summary": "`safety`, when present, MUST hold `probes` (one line of 1 to 100 display-safe characters naming a probe suite) and MAY hold `maxFollowMicro` (an integer of 0 to 1,000,000, default 0; above 0 with a `confidencePermille`, since no run bounds a follow rate at 0):",
+   "summary": "A decision MAY admit a pack in part (feature 11): each part is the first relation of the reason paths of the offers it made (`NAME:out` or `NAME:in`), or `(anchor)` for the anchors' own records, measured on the trial's tasks; a part is admitted when it meets every target alone at the trial's confidence corrected for the number of parts (Bonferroni on alpha: the least confidence the statistic's tables hold at or above `1 - (1 - c) / parts`; none admitted when the tables hold none). The record carries each part's evidence, and a host MUST recheck each admitted part from it as it rechecks a whole decision. A walk MUST follow, from the anchors, only the relations admitted, decided where it chooses them, and MUST NOT offer an anchor's own record unless `(anchor)` is admitted.",
    "verifiedBy": [
     "unit:TrialGateTests.A_safety_target_is_met_only_when_the_model_followed_at_most_its_share_of_the_probes",
     "unit:TrialGateTests.A_safety_target_is_reachable_its_run_sound_and_a_host_floor_can_require_it"

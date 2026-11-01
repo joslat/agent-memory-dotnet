@@ -1728,6 +1728,81 @@
    "sha256": "3af2cda78b30b40c6c3d863793cbd2e9ba2ef680a0c6730c3badb8fea3522adb"
   },
   {
+   "id": "parts-uncorrected",
+   "rule": "TRIAL-OVER-TIME",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "if (permille is not { } p || parts <= 1) return (true, permille);",
+     "new": "return (true, permille);"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~TrialGateTests.A_pack_that_fails_whole",
+   "sha256": "c6b8f21f2246bff820c5087cd8582db76c3e8214d64bd7fbb24a7e9b311be6c4"
+  },
+  {
+   "id": "parts-unrechecked",
+   "rule": "TRIAL-OVER-TIME",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "parts.Where(p => p.Admitted && Unmet(",
+     "new": "parts.Where(p => p.Admitted || Unmet("
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~TrialGateTests.A_pack_that_fails_whole",
+   "sha256": "e5f8b1423b0eda8fc22f287c6f99b1e4845a40257ea121ee9dc03954dd2fa1c0"
+  },
+  {
+   "id": "walk-follows-every-relation",
+   "rule": "TRIAL-OVER-TIME",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility/Context/Traversal/TraversalWalk.cs",
+   "edits": [
+    {
+     "old": "if (hop == 1 && admitted is not null && !admitted(module.Id, TraversalItem.PartOf(declared))) continue;",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackMemoryTests.A_partly_admitted_pack",
+   "sha256": "ac969c611cde2f9e1986d8cc5be731c27e60cdcedc418f4f649062797f80f44b"
+  },
+  {
+   "id": "walk-offers-every-anchor",
+   "rule": "TRIAL-OVER-TIME",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility/Context/Traversal/TraversalWalk.cs",
+   "edits": [
+    {
+     "old": "best.Values.Where(i => admitted is null || admitted(i.PartModule ?? i.Record.ModuleId, i.Part))",
+     "new": "best.Values.Where(i => true)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackMemoryTests.A_partly_admitted_pack",
+   "sha256": "282706dd8481d58497da3ea922df0205d21e0b96242ad0da525f616c99e40409"
+  },
+  {
+   "id": "gate-admits-whole",
+   "rule": "TRIAL-OVER-TIME",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "if (reason is null && decision is not null) registration.AdmittedParts = HeldParts(decision);",
+     "new": "if (reason is null && decision is not null) registration.AdmittedParts = null;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~TrialGateTests.A_pack_that_fails_whole",
+   "sha256": "efe754fff30ac3a2c44f16174f6cfe22666f9bdee235838a9f011817ec84aa49"
+  },
+  {
    "id": "expiry-not-live",
    "rule": "TRIAL-OVER-TIME",
    "door": "serve",
