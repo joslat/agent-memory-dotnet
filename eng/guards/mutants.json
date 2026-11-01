@@ -1998,6 +1998,51 @@
    "sha256": "b3a3f66e6ed54f9d630cf93395b349361353b44e2ccd8bde1c7151d8bb2210af"
   },
   {
+   "id": "folder-anchor-passes",
+   "rule": "FOLDER-FRONT-MATTER-STRICT",
+   "door": "build",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackImports.cs",
+   "edits": [
+    {
+     "old": "value.IndexOfAny(['&', '*', '!',",
+     "new": "value.IndexOfAny(['*', '!',"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ImportTests",
+   "sha256": "60e7144aba5a80429cfe852fa987ac242b49162a045cfbe11bf241f8fe72d180"
+  },
+  {
+   "id": "folder-nesting-passes",
+   "rule": "FOLDER-FRONT-MATTER-STRICT",
+   "door": "build",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackImports.cs",
+   "edits": [
+    {
+     "old": "if (!m.Success) return (null, \"\", $\"'{Shown(line)}' is not a 'key: value' line\");",
+     "new": "if (!m.Success) continue;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ImportTests",
+   "sha256": "3a91b37051138c7f5807a9ac5744f2ed1cf2c527c23921eba57f299e992dc483"
+  },
+  {
+   "id": "folder-git-over-front",
+   "rule": "FOLDER-FRONT-MATTER-STRICT",
+   "door": "build",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackImports.cs",
+   "edits": [
+    {
+     "old": "if (!life.ContainsKey(\"validFrom\") && firstCommits?.TryGetValue(name, out var first) == true)",
+     "new": "if (firstCommits?.TryGetValue(name, out var first) == true)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ImportTests",
+   "sha256": "18f71190f96533aad7cc791fa7a57a7940b7fb62ce61efda2cb41e43f0257b30"
+  },
+  {
    "id": "expiry-not-live",
    "rule": "TRIAL-OVER-TIME",
    "door": "serve",

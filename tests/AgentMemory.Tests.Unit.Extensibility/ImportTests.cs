@@ -53,6 +53,34 @@ public sealed class ImportTests
         FluentActions.Invoking(() => PackImports.FromText("\n\n"u8.ToArray(), "x", "com.example.empty", "1.0.0", "o", Key.PrivateKeyPem)).Should().Throw<InvalidDataException>();
     }
 
+    [Fact]
+    public void A_memory_folder_imports_one_note_a_file_with_strict_front_matter_and_dates_from_git()
+    {
+        var files = new Dictionary<string, byte[]>(StringComparer.Ordinal)
+        {
+            ["people/ana.md"] = Encoding.UTF8.GetBytes("---\nvalidFrom: 2026-09-01\nrole: \"lead\"\n---\nAna leads [[projects/atlas]] and knows [[bob]].\n"),
+            ["projects/atlas.md"] = Encoding.UTF8.GetBytes("Atlas ships in November.\r\n"),
+            ["anchor.md"] = Encoding.UTF8.GetBytes("---\nbase: &a x\n---\nRefused.\n"),
+            ["nested.md"] = Encoding.UTF8.GetBytes("---\nowner:\n  name: x\n---\nRefused.\n"),
+            ["empty.md"] = Encoding.UTF8.GetBytes("---\ntitle: nothing\n---\n"),
+            ["notes.txt"] = Encoding.UTF8.GetBytes("not markdown"),
+        };
+        var commits = new Dictionary<string, DateTimeOffset> { ["projects/atlas.md"] = new(2026, 8, 3, 10, 0, 0, TimeSpan.Zero), ["people/ana.md"] = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero) };
+
+        var result = PackImports.FromFolder(files, commits, "com.example.memory-folder", "1.0.0", "Example Owner", Key.PrivateKeyPem);
+
+        result.Records.Should().Be(2);
+        result.Skipped.Should().Contain(s => s.StartsWith("'anchor.md': front matter refused")).And.Contain(s => s.StartsWith("'nested.md': front matter refused"))
+            .And.Contain(s => s.StartsWith("'empty.md': no text")).And.Contain(s => s.Contains("'bob'"));
+        result.Skipped.Should().NotContain(s => s.Contains("projects/atlas'"), "a link to a note the folder holds is not reported");
+        result.Dropped.Should().ContainKey("front matter 'role'");
+        var notes = PackLoader.Load(result.Archive, Trust()).Knowledge!.Proposals;
+        notes.Select(n => n.Key).Should().Equal("people/ana.md", "projects/atlas.md");
+        notes[0].Properties["text"].GetString().Should().Be("Ana leads [[projects/atlas]] and knows [[bob]].");
+        notes[0].Life!.ValidFromUtc.Should().Be(new DateTimeOffset(2026, 9, 1, 0, 0, 0, TimeSpan.Zero), "front matter wins over git");
+        notes[1].Life!.ValidFromUtc.Should().Be(new DateTimeOffset(2026, 8, 3, 10, 0, 0, TimeSpan.Zero), "a file that names no date dates from its first commit");
+    }
+
     private static string Root()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);

@@ -270,7 +270,7 @@ internal static partial class Program
         ["certificate"] = ["certificate", .. TrustOptions],
         ["erasure"] = ["erasure", "out", .. SignerOptions, .. TrustOptions],
         ["aggregate"] = ["aggregate", "out", "activations", "host-key", "key", "from", "to", .. TrustOptions],
-        ["import"] = ["id", "version", "owner", "key", "out", "mapping", "source"],
+        ["import"] = ["id", "version", "owner", "key", "out", "mapping", "source", "git"],
         ["erase"] = ["erased", "reason", "plain-keys", "out", .. SignerOptions],
         ["admit"] = ["host-signing-key", "activations", .. TrustOptions],
         ["gate"] = [.. GateOptions, .. TrustOptions],
@@ -1280,7 +1280,7 @@ internal sealed class UsageException(string message) : Exception(message);
 /// <summary>Positional arguments, <c>--name value</c> options and <c>--flag</c> switches.</summary>
 internal sealed class Options
 {
-    private static readonly HashSet<string> Flags = new(StringComparer.Ordinal) { "stored", "safety", "record", "allow-downgrade", "explain", "json", "p1363", "allow-remote", "print-config", "retire-revocations", "allow-loopback-http", "no-recheck", "help" };
+    private static readonly HashSet<string> Flags = new(StringComparer.Ordinal) { "stored", "safety", "record", "allow-downgrade", "explain", "json", "p1363", "allow-remote", "print-config", "retire-revocations", "allow-loopback-http", "no-recheck", "git", "help" };
     // The options that take several values, each given on its own.
     private static readonly HashSet<string> Repeatable = new(StringComparer.Ordinal) { "revocations" };
     private readonly List<string> _positional = [];

@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using AgentMemory.Packs.Format;
 
 namespace AgentMemory.Extensibility.Ampack;
@@ -69,7 +70,7 @@ public static class PackImports
         var dropped = new SortedDictionary<string, int>(StringComparer.Ordinal);
         var taken = new HashSet<string>(StringComparer.Ordinal) { mapping.Key, mapping.Text };
         if (mapping.ValidFrom is { } from) taken.Add(from);
-        var lines = new List<(string Key, string Text, string? ValidFrom)>();
+        var lines = new List<(string Key, string Text, IReadOnlyDictionary<string, string>? Life)>();
         var skipped = new List<string>();
         var index = 0;
         foreach (var entry in entries)
@@ -80,7 +81,7 @@ public static class PackImports
             var text = Scalar(fields[mapping.Text]);
             if (string.IsNullOrWhiteSpace(text)) { skipped.Add($"entry {index}: no text in '{mapping.Text}'"); continue; }
             var key = Scalar(fields[mapping.Key]) is { Length: > 0 } given ? given : KeyOf(text);
-            lines.Add((key, text, mapping.ValidFrom is { } f ? Instant(Scalar(fields[f])) : null));
+            lines.Add((key, text, mapping.ValidFrom is { } f && Instant(Scalar(fields[f])) is { } at ? new Dictionary<string, string> { ["validFrom"] = at } : null));
         }
         return Write(source, lines, skipped, dropped, "json", mapping.Source, id, version, owner, signingKeyPem);
     }
@@ -90,22 +91,96 @@ public static class PackImports
     {
         ArgumentNullException.ThrowIfNull(source);
         var lines = Encoding.UTF8.GetString(source).Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0)
-            .Select(l => (Key: KeyOf(l), Text: l, ValidFrom: (string?)null)).ToList();
+            .Select(l => (Key: KeyOf(l), Text: l, Life: (IReadOnlyDictionary<string, string>?)null)).ToList();
         return Write(source, lines, [], new SortedDictionary<string, int>(), "text", sourceName, id, version, owner, signingKeyPem);
     }
 
-    private static ImportResult Write(byte[] source, List<(string Key, string Text, string? ValidFrom)> entries, List<string> skipped,
+    /// <summary>
+    /// Imports a Markdown memory folder (feature 16): each <c>.md</c> file becomes a note keyed by its relative path, its body the
+    /// text. Front matter is a strict subset (<c>key: value</c> lines, a string, an integer or a date; anything else refuses
+    /// the file); its life fields (<c>validFrom</c>, <c>validTo</c>, <c>expiresAt</c>, <c>reviewBy</c>) are kept and every other
+    /// key is reported as dropped. <paramref name="firstCommits"/> gives a file's first commit, the <c>validFrom</c> of a file
+    /// that names none. <c>[[wikilinks]]</c> stay in the text; a link to a note the folder does not hold is reported.
+    /// </summary>
+    /// <remarks>The derivation names the source by a digest over each file's path and digest.</remarks>
+    /// <param name="files">Each file's path relative to the folder, with '/' between its parts, and its bytes.</param>
+    /// <param name="firstCommits">Each file's first commit, or null without git history.</param>
+    /// <param name="id">The pack's id.</param>
+    /// <param name="version">The pack's version.</param>
+    /// <param name="owner">The owner the card names.</param>
+    /// <param name="signingKeyPem">The importer's signing key.</param>
+    public static ImportResult FromFolder(IReadOnlyDictionary<string, byte[]> files, IReadOnlyDictionary<string, DateTimeOffset>? firstCommits,
+        string id, string version, string owner, string signingKeyPem)
+    {
+        ArgumentNullException.ThrowIfNull(files);
+        var names = files.Keys.Where(p => p.EndsWith(".md", StringComparison.OrdinalIgnoreCase)).Order(StringComparer.Ordinal).ToList();
+        var known = new HashSet<string>(names.SelectMany(p => new[] { p[..^3], Path.GetFileNameWithoutExtension(p) }), StringComparer.OrdinalIgnoreCase);
+        var dropped = new SortedDictionary<string, int>(StringComparer.Ordinal);
+        var skipped = new List<string>();
+        var lines = new List<(string Key, string Text, IReadOnlyDictionary<string, string>? Life)>();
+        var source = new List<byte>();
+        foreach (var name in names)
+        {
+            var bytes = files[name];
+            source.AddRange(Encoding.UTF8.GetBytes(name + "\n"));
+            source.AddRange(SHA256.HashData(bytes));
+            var (front, body, problem) = FrontMatter(Encoding.UTF8.GetString(bytes).Replace("\r\n", "\n"));
+            if (problem is not null) { skipped.Add($"'{name}': front matter refused: {problem}"); continue; }
+            if (string.IsNullOrWhiteSpace(body)) { skipped.Add($"'{name}': no text"); continue; }
+            var life = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var (k, v) in front!)
+            {
+                if (k is "validFrom" or "validTo" or "expiresAt" or "reviewBy" && Instant(v) is { } at && Regex.IsMatch(v, @"^\d{4}-\d{2}-\d{2}")) life[k] = at;
+                else dropped["front matter '" + k + "'"] = dropped.GetValueOrDefault("front matter '" + k + "'") + 1;
+            }
+            if (!life.ContainsKey("validFrom") && firstCommits?.TryGetValue(name, out var first) == true)
+                life["validFrom"] = first.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture);
+            foreach (Match link in Regex.Matches(body, @"\[\[([^\[\]|#\n]{1,200})(?:[|#][^\[\]\n]{0,200})?\]\]"))
+                if (!known.Contains(link.Groups[1].Value.Trim())) skipped.Add($"'{name}': a link to '{link.Groups[1].Value.Trim()}', which the folder does not hold (kept as text)");
+            lines.Add((name, body.Trim(), life.Count == 0 ? null : life));
+        }
+        if (names.Count == 0) throw new InvalidDataException("The folder holds no .md file.");
+        return Write([.. source], lines, skipped, dropped, "folder", "a Markdown folder", id, version, owner, signingKeyPem);
+    }
+
+    // The strict front matter (R2): '---' lines around 'key: value' lines; a value is a plain or double-quoted string with no
+    // escapes, an integer or a date. Indentation, anchors, aliases, tags, flow and block collections, comments, multi-line
+    // values and a repeated key are refused, so no YAML parser's surprises reach a pack.
+    private static (List<(string Key, string Value)>? Front, string Body, string? Problem) FrontMatter(string text)
+    {
+        if (!text.StartsWith("---\n", StringComparison.Ordinal)) return ([], text, null);
+        var end = text.IndexOf("\n---\n", 3, StringComparison.Ordinal);
+        if (end < 0 && text.EndsWith("\n---", StringComparison.Ordinal)) end = text.Length - 4;
+        if (end < 0) return (null, "", "no closing '---'");
+        var pairs = new List<(string, string)>();
+        foreach (var line in end <= 4 ? [] : text[4..end].Split('\n'))
+        {
+            var m = Regex.Match(line, @"^([A-Za-z][A-Za-z0-9_]{0,63}): (.{1,1000})$");
+            if (!m.Success) return (null, "", $"'{Shown(line)}' is not a 'key: value' line");
+            var value = m.Groups[2].Value.TrimEnd();
+            if (value.Length >= 2 && value[0] == '"' && value[^1] == '"' && value[1..^1].IndexOfAny(['"', '\\']) < 0) value = value[1..^1];
+            else if (value.IndexOfAny(['&', '*', '!', '[', ']', '{', '}', '|', '>', '#', '"', '\'', '`', '%', '@']) >= 0 || value.StartsWith('-') && !Regex.IsMatch(value, @"^-\d+$") || value.Contains(": "))
+                return (null, "", $"'{m.Groups[1].Value}' holds YAML beyond a string, an integer or a date");
+            if (pairs.Any(p => p.Item1 == m.Groups[1].Value)) return (null, "", $"'{m.Groups[1].Value}' is repeated");
+            pairs.Add((m.Groups[1].Value, value));
+        }
+        return (pairs, text[Math.Min(text.Length, end + 5)..], null);
+    }
+
+    private static string Shown(string text) => text.Length <= 60 ? text : text[..60] + "...";
+
+    private static ImportResult Write(byte[] source, List<(string Key, string Text, IReadOnlyDictionary<string, string>? Life)> entries, List<string> skipped,
         IReadOnlyDictionary<string, int> dropped, string kind, string sourceName, string id, string version, string owner, string signingKeyPem)
     {
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var records = new StringBuilder();
         var written = 0;
-        foreach (var (key, text, validFrom) in entries)
+        foreach (var (key, text, life) in entries)
         {
             var k = key.Normalize(NormalizationForm.FormC);
             if (!seen.Add(k)) { skipped.Add($"'{k}': a repeated key, its first entry kept"); continue; }
             var line = new JsonObject { ["type"] = "note", ["key"] = k, ["properties"] = new JsonObject { ["text"] = text.Normalize(NormalizationForm.FormC) } };
-            if (validFrom is not null) line["validFrom"] = validFrom;
+            foreach (var (field, at) in life ?? new Dictionary<string, string>()) line[field] = at;
             records.Append(line.ToJsonString()).Append('\n');
             written++;
         }
