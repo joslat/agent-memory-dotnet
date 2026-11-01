@@ -429,6 +429,12 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
             per is { Count: > 0 } ? per.Select(t => (double)(t.OfferedBytes ?? 0)).Order().ElementAt(per.Count / 2) : 0;
         output.WriteLine($"  code map hit {withArm.HitRate:0.000} ({withArm.Hits}/{withArm.Tasks}), precision {withArm.Precision:0.000} ({withArm.Correct}/{withArm.Offered}), median context {Median(withArm.PerTask).ToString("N0", System.Globalization.CultureInfo.InvariantCulture)} bytes a task");
         output.WriteLine($"  grep     hit {withoutArm.HitRate:0.000} ({withoutArm.Hits}/{withoutArm.Tasks}), precision {withoutArm.Precision:0.000} ({withoutArm.Correct}/{withoutArm.Offered}), median context {Median(withoutArm.PerTask).ToString("N0", System.Globalization.CultureInfo.InvariantCulture)} bytes a task");
+        // The context saved against grep, with its exact 95% bound, and each arm's correct items per 1,000 bytes (R2).
+        static string Efficiency(PackTrialMeasurement arm) =>
+            (arm.PerTask?.Sum(t => t.OfferedBytes ?? 0) is > 0 and var total ? arm.Correct * 1000.0 / total : 0).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
+        var (saved, savedBound) = PackTrialGate.Saving(withArm, withoutArm, 0.95);
+        output.WriteLine($"  saving   {saved.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)} bytes a task against grep (median; 95% bound "
+            + $"{savedBound.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)}); correct per 1,000 bytes: code map {Efficiency(withArm)}, grep {Efficiency(withoutArm)}");
         foreach (var check in decision.Checks)
             output.WriteLine($"  {(check.Met ? "met " : "MISS")}  {check.Target} {check.Observed}{(check.Estimate is { } e ? $" (bound; estimate {e})" : "")} (target {check.Required})");
         output.WriteLine($"  decision {(decision.Active ? "ON" : "OFF")}: {decision.Reason}");

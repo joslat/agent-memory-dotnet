@@ -290,6 +290,8 @@ def main():
     vectors["key-scoped-elsewhere"] = (dict(base), "trust-other-scope.json", "refused")
     vectors["crlf-record"] = (signed({**content, record: content[record].replace(b"\n", b"\r\n")}), "trust.json", "refused")
     vectors["bom-manifest"] = (signed({**content, "pack.json": b"\xef\xbb\xbf" + content["pack.json"]}), "trust.json", "refused")
+    # Completeness review (02): a lone surrogate, escaped, is not text; the JSON profile refuses it in every verifier.
+    vectors["json-lone-surrogate-escape"] = (signed({**content, record: b'{"key":"a","properties":{"text":"\\ud800"}}\n'}), "trust.json", "refused")
     vectors["duplicate-key-record"] = (signed({**content, record: b'{"key":"a","key":"b"}\n'}), "trust.json", "refused")
     vectors["device-name-path"] = (signed({**content, "records/CON.jsonl": b'{"key":"c"}\n'}), "trust.json", "refused")
     vectors["pack-json-names-other-id"] = (signed(content, pid_="io.example.other"), "trust.json", "refused")
@@ -1585,6 +1587,8 @@ def main():
         "aggregate-under-another-version": (aggregate(certified, version="9.9.9"), "trust-evaluator.json", "refused"),
         "aggregate-with-a-task-name": (aggregate(certified, tasks_=["When is the Lyon review?"]), "trust-evaluator.json", "refused"),
         "aggregate-check-with-a-path": (aggregate(certified, checks=[{**one_check, "path": "src/Map.cs"}]), "trust-evaluator.json", "refused"),
+        # Completeness review (13): a rate over tasks counts no more trials than the aggregate's tasks.
+        "aggregate-trials-above-tasks": (aggregate(certified, checks=[{**one_check, "trials": 41}]), "trust-evaluator.json", "refused"),
         "aggregate-successes-above-trials": (aggregate(certified, checks=[{**one_check, "successes": 41}]), "trust-evaluator.json", "refused"),
         "aggregate-bound-disagrees-with-met": (aggregate(certified, checks=[{**one_check, "boundMicro": 400000}]), "trust-evaluator.json", "refused"),
         "aggregate-noisy-with-a-bound": (aggregate(certified, mechanism="discrete-laplace", epsilonMilli=1000), "trust-evaluator.json", "refused"),

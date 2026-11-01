@@ -268,7 +268,7 @@ internal static partial class Program
         ["certify"] = ["activations", "host-key", "evaluator", "task-source", "aef", "tool", "tool-version", "out", .. SignerOptions, .. TrustOptions],
         ["certificate"] = ["certificate", .. TrustOptions],
         ["erasure"] = ["erasure", "out", .. SignerOptions, .. TrustOptions],
-        ["aggregate"] = ["aggregate", "out", "activations", "host-key", "key", .. TrustOptions],
+        ["aggregate"] = ["aggregate", "out", "activations", "host-key", "key", "from", "to", .. TrustOptions],
         ["erase"] = ["erased", "reason", "plain-keys", "out", .. SignerOptions],
         ["admit"] = ["host-signing-key", "activations", .. TrustOptions],
         ["gate"] = [.. GateOptions, .. TrustOptions],

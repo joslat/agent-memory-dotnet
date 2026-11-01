@@ -150,6 +150,8 @@ internal sealed record PackAggregate(string Id, string Version, string Digest, s
             // Counts never below zero; without noise, successes within trials, and a bound that says what met says.
             if (successes < 0 || trials < 0) return (null, "An aggregate's counts are never negative.");
             if (!noisy && successes > trials) return (null, "An aggregate check's successes are within its trials.");
+            // A rate over tasks counts no more trials than the tasks (completeness review, 13).
+            if (target is "hitRate" or "lift" && trials > tasks) return (null, "An aggregate check of a rate over tasks counts no more trials than its tasks.");
             var atMost = PackRegistry.AtMost.Contains(target);
             if (bound is { } holds && (atMost ? holds <= required : holds >= required) != met.GetBoolean())
                 return (null, "An aggregate check's met disagrees with its bound and its requiredMicro.");

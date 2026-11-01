@@ -2297,6 +2297,12 @@
   ],
   "aggregate-under-another-version": [
    "R-CORE-140"
+  ],
+  "json-lone-surrogate-escape": [
+   "R-CORE-027"
+  ],
+  "aggregate-trials-above-tasks": [
+   "R-CORE-140"
   ]
  }
 }

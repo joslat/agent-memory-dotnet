@@ -41,7 +41,15 @@ internal static partial class Program
         var pem = Text(o.Required("key"), "The signing key");
         if (decision is null || decision.PackDigest != loaded.Digest) return Report([$"This host holds no decision for {loaded.Id} {loaded.Version} ({loaded.Digest})."], "");
         var output = o.Value("out") ?? throw new UsageException("aggregate create needs --out <file>.");
-        File.WriteAllBytes(output, PackAggregates.Create(loaded, decision, pem));
+        // The window the tasks were drawn from, when the operator gives it (completeness review, 13); else the decision's instant.
+        DateTimeOffset? At(string name) => o.Value(name) is { } text
+            ? DateTimeOffset.TryParseExact(text, "yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out var t)
+                ? t : throw new UsageException($"--{name} is an instant in UTC to the second, as 2026-10-01T00:00:00Z.")
+            : null;
+        var (from, to) = (At("from"), At("to"));
+        if (from > to) throw new UsageException("--from is not after --to.");
+        File.WriteAllBytes(output, PackAggregates.Create(loaded, decision, pem, from, to));
         Console.WriteLine($"Aggregate of {loaded.Id} {loaded.Version}: exact counts, shared with your consent\n  wrote   {output}");
         return 0;
     }

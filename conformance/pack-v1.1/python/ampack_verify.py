@@ -1869,6 +1869,8 @@ def read_aggregate(payload):
             raise Refused("an aggregate's counts are never negative")
         if not noisy and c["successes"] > c["trials"]:
             raise Refused("an aggregate check's successes are within its trials")
+        if c["target"] in ("hitRate", "lift") and c["trials"] > tasks:
+            raise Refused("an aggregate check of a rate over tasks counts no more trials than its tasks")
         if "boundMicro" in c and ((c["boundMicro"] <= c["requiredMicro"]) if c["target"] in AT_MOST else (c["boundMicro"] >= c["requiredMicro"])) != c["met"]:
             raise Refused("an aggregate check's met disagrees with its bound and its requiredMicro")
         if c["target"] in seen:

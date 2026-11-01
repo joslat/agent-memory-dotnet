@@ -587,6 +587,10 @@ fn read_aggregate(ctx: &Ctx, payload: &[u8]) -> R<(Obj, Ticks)> {
         if !noisy && successes > trials {
             refuse!("an aggregate check's successes are within its trials");
         }
+        // A rate over tasks counts no more trials than the tasks, as .NET and Python (completeness review, 13).
+        if (target == "hitRate" || target == "lift") && trials > p.get("tasks").and_then(Value::as_int).unwrap_or(0) {
+            refuse!("an aggregate check of a rate over tasks counts no more trials than its tasks");
+        }
         if let Some(b) = bound {
             let within = if holds(&reg.at_most, target) { b <= required } else { b >= required };
             if within != met {

@@ -21,6 +21,10 @@
    "starts with a byte order mark",
    "a JSON file has a BOM or a carriage return"
   ],
+  "json-lone-surrogate-escape": [
+   "has a string with an unpaired surrogate at $.properties.text",
+   "a JSON string has an unpaired surrogate"
+  ],
   "device-name-path": [
    "is not a safe pack path",
    "is not in the profile"
@@ -960,6 +964,10 @@
   "aggregate-check-with-a-path": [
    "An aggregate check names a known target, its successes, trials and requiredMicro as integers, and met",
    "an aggregate check names a known target, its successes, trials and requiredMicro as integers, and met"
+  ],
+  "aggregate-trials-above-tasks": [
+   "An aggregate check of a rate over tasks counts no more trials than its tasks",
+   "an aggregate check of a rate over tasks counts no more trials than its tasks"
   ],
   "aggregate-successes-above-trials": [
    "successes are within its trials",

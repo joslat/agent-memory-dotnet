@@ -892,6 +892,17 @@ public static partial class PackTrialGate
     // lesser of the even clusters' and the odd ones', each set a burst apart and so independent (review F05, H1: clusters'
     // medians tested together passed 5.9% at 95%; eng/trial-statistics/cost_bursts.py holds the level). No bound: one unit under
     // the target. Met exactly when the bound reaches the target, so a verifier checks the shown value with no statistics.
+    /// <summary>
+    /// The context the pack saves against the arm without it, task by task (feature 05's rule): the median saving in bytes and,
+    /// at <paramref name="confidence"/>, its exact sign-test lower bound, for a report that names no cost target (feature 14).
+    /// </summary>
+    /// <exception cref="ArgumentException">An arm does not carry each task's offered bytes.</exception>
+    public static (double Median, double Bound) Saving(PackTrialMeasurement with, PackTrialMeasurement without, double confidence)
+    {
+        var check = CostCheck("savingBytes", 0, confidence, with, without, 0);
+        return (check.Estimate ?? check.Observed, check.Observed);
+    }
+
     private static PackTrialCheck CostCheck(string target, double required, double? confidence, PackTrialMeasurement with, PackTrialMeasurement without, long fixedBytes)
     {
         var (a, b) = Paired(with, without);

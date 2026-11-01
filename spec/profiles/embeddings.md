@@ -1,5 +1,7 @@
 # Ampack Embeddings profile
 
+**Version 1, draft.** Conformance class: **Embeddings Host**. Requirement ids: `R-EMB-nnn`. Key words as in Core §1.2.
+
 ## 1. Introduction
 
 ### 1.1 Scope

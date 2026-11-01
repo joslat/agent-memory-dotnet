@@ -1,14 +1,15 @@
 # Annex: status (informative)
 
 This annex says what the reference implementation in this repository builds today. It is informative: nothing here is a
-requirement, and it changes as the implementation does. Status as of 31 October 2026.
+requirement, and it changes as the implementation does. Status as of 1 November 2026.
 
 ## Readers and the conformance kit
 
-- Two independent verifiers implement Core and the profiles marked implemented in `registry.json`: a .NET verifier
-  (`ampack verify`) and a Python verifier (`conformance/pack-v1.1/python/ampack_verify.py`, standard library plus one
-  cryptography package).
-- The conformance kit (`conformance/pack-v1.1/run_vectors.py`) builds 367 named vectors, each expected to verify or to be
+- Three verifiers implement Core and the profiles marked implemented in `registry.json`: a .NET verifier
+  (`ampack verify`), a Python verifier (`conformance/pack-v1.1/python/ampack_verify.py`, standard library plus one
+  cryptography package), and a Rust reader (`reader-rs/`, `ampack-rs`, also built as a WebAssembly component), written
+  later against the same kit; `conformance/pack-v1.1/run_third.py` runs it on every vector.
+- The conformance kit (`conformance/pack-v1.1/run_vectors.py`) builds 512 named vectors, each expected to verify or to be
   refused, and requires both verifiers to reach the expected outcome, each refused vector for its own rule (its reason is
   pinned). On every verified vector both verifiers must also derive the same profiles from the registry's map.
 - A differential fuzzer mutates archives, deflated bytes, single JSON and JSONL files, `validUntil` forms, edge paths, the
@@ -29,12 +30,21 @@ requirement, and it changes as the implementation does. Status as of 31 October 
 | Compose | Built: composite locks, pack sets, nesting four deep, consent for walks and links, host grants |
 | Certify | Built: certificates, the AEF run beside them, certificate trust per namespace |
 | Federation | Built in both verifiers, with publication receipts and a Solid adapter on WAC and ACP |
-| Protection, Code, Permissions | Declared only; refused at load until enforced |
+| Embeddings | Built in both verifiers and the Rust reader; a host uses vectors only on an exact model match |
+| Permissions | Built: the usage policy in all three verifiers; read at verify, export and rehydrate at serve, rehydrate in the module set; every record names its policy |
+| Protection, Code | Declared only; refused at load until enforced |
+
+Beyond the profiles, Core carries the signed-content documents (the card, the derivation, the usage policy) and the
+statements beside a pack (certificates, publication receipts, erasures, trial aggregates), each read alike by every
+verifier. Hosts also hold record lives and lifecycles, confidence capped by source and signer, decisions that expire,
+shadow trials, and retrieval trials on a host task file.
 
 ## Tools
 
 The `ampack` command builds, signs, verifies, inspects and lints packs, and also: keygen, init (knowledge, definition),
-lock, migrate, set, test, gate, admit, certify, certificate verify, receipt verify, ledger, and serve. Every command is
+lock, migrate, set, test, gate, admit, certify, certificate verify, receipt verify, ledger, erase, erasure verify and
+receipt, aggregate create and verify, and serve (with `--print-config` for MCP clients). `agentmemory trial` runs the code
+map's trial on a C# repository in memory, with no database. Every command is
 tested as a process.
 
 `ampack serve` mounts verified packs in an in-process engine and serves them over MCP (standard input and output) and a
