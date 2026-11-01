@@ -377,6 +377,20 @@
         "id",
         "digest"
       ]
+    },
+    "policy": {
+      "fields": [
+        "format",
+        "rules"
+      ]
+    },
+    "policyRule": {
+      "fields": [
+        "audience",
+        "allow",
+        "deny",
+        "notAfter"
+      ]
     }
   },
   "members": {
@@ -827,7 +841,7 @@
       "refusal": "{id} carries code (tier {code}); this host runs declarative (E0) packs only."
     },
     "permissions": {
-      "implemented": false,
+      "implemented": true,
       "files": [
         "policy.json"
       ],
@@ -1155,5 +1169,40 @@
       "translate",
       "import"
     ]
+  },
+  "policy": {
+    "about": "Feature 10: what a receiver may do with a pack, per audience, inside its signed content; deny wins.",
+    "path": "policy.json",
+    "format": "agentmemory.pack.policy/1",
+    "verbs": [
+      "read",
+      "derive",
+      "export",
+      "redact",
+      "rehydrate:local",
+      "rehydrate:private",
+      "rehydrate:external",
+      "train"
+    ],
+    "doors": {
+      "read": "load",
+      "export": "serve",
+      "rehydrate:local": "provider",
+      "rehydrate:private": "provider",
+      "rehydrate:external": "provider",
+      "derive": "none yet",
+      "redact": "none yet",
+      "train": "none yet"
+    },
+    "odrl": {
+      "read": "odrl:read",
+      "derive": "odrl:derive",
+      "export": "odrl:distribute",
+      "redact": "odrl:anonymize",
+      "rehydrate:local": "odrl:use",
+      "rehydrate:private": "odrl:use",
+      "rehydrate:external": "odrl:use",
+      "train": "odrl:use"
+    }
   }
 }

@@ -66,6 +66,9 @@ internal static class PackRegistry
     internal static readonly IReadOnlySet<string> DerivationActions = Set("derivation", "actions");
     /// <summary>Where a pack's derivation is, inside its signed content, and the format it names (feature 09).</summary>
     internal static readonly string DerivationFile = Path("derivation", "path").GetString()!, DerivationFormat = Path("derivation", "format").GetString()!;
+    /// <summary>Where a pack's usage policy is, inside its signed content, the format it names, and its verbs (feature 10).</summary>
+    internal static readonly string PolicyFile = Path("policy", "path").GetString()!, PolicyFormat = Path("policy", "format").GetString()!;
+    internal static readonly IReadOnlySet<string> PolicyVerbs = Set("policy", "verbs");
     /// <summary>The lifecycles a type may declare (feature 07): pinned never ages, refreshes ends ttlDays after validFrom.</summary>
     internal static readonly IReadOnlySet<string> Lifecycles = Set("records", "lifecycles");
     /// <summary>The targets met at or below their value (feature 04 review, M6); every other target is met at or above it.</summary>

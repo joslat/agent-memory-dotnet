@@ -593,7 +593,7 @@ its extensions, or one of its values of a field (a field that is absent takes it
 | `federation` | yes |  |  | `federation` |  |  |
 | `protection` | no |  |  |  | `protection`: `audience`, `licensed`, `attested`, `hosted` | {id} is protected as '{protection}'; this host opens 'open' packs only. |
 | `code` | no | `queries.json`, `queries/`, `components.json`, `components/` |  |  | `code`: `E1`, `E2` | {id} carries code (tier {code}); this host runs declarative (E0) packs only. |
-| `permissions` | no | `policy.json` |  |  |  | {id} carries a usage policy (policy.json); this host cannot enforce one yet, so it does not load the pack. |
+| `permissions` | yes | `policy.json` |  |  |  | {id} carries a usage policy (policy.json); this host cannot enforce one yet, so it does not load the pack. |
 | `embeddings` | yes | `embeddings/` |  |  |  |  |
 <!-- /registry -->
 
@@ -899,6 +899,28 @@ the pack is loaded: a changed trust policy reaches records already imported when
 
 > Why: inside the signed content, the derivation is part of the pack's identity and cannot be swapped; canonical, a number has
 > one spelling, so both verifiers read the same confidence.
+
+### 17c. Usage policy (Permissions profile)
+
+**R-CORE-138.** A pack MAY carry `policy.json`, inside its signed content; a pack that does uses the Permissions profile. Every
+verifier MUST read it strictly and refuse the pack unless it is canonical (RFC 8785) and holds exactly `format`
+(`agentmemory.pack.policy/1`) and `rules`: 1 to 64 objects, each an `audience` of 1 to 16 distinct entries (`*`, everyone, or
+a WebID), optionally `allow` and `deny` (distinct verbs of `read`, `derive`, `export`, `redact`, `rehydrate:local`,
+`rehydrate:private`, `rehydrate:external` and `train`; at least one verb between them), and optionally `notAfter` (an instant
+in UTC to the second). A verb is allowed for a host when a rule whose audience names everyone or one of the host's WebIDs
+allows it and has not ended (now is at or before its `notAfter`), and no such rule denies it, ended or not: deny wins, and an
+ended rule stops granting but never stops refusing. A verifier MUST refuse a pack its policy does not let the host read.
+
+**R-CORE-139.** A host MUST ask the policy at the door where each verb's action happens, and MUST NOT act when the verb is not
+allowed: `export` where it serves a pack's records to another program, and `rehydrate:<class>` where it sends a record's text
+to a model, by the class of the endpoint its operator states (`local`, `private` or `external`; an endpoint of unstated class
+is `external`). `derive`, `redact` and `train` are declared; a host that derives from, redacts or trains on a pack asks them
+too. Each verb maps to an ODRL action: `read` to `odrl:read`, `derive` to `odrl:derive`, `export` to `odrl:distribute`,
+`redact` to `odrl:anonymize`, and `rehydrate:*` and `train` to `odrl:use` with the endpoint class or the training purpose as
+its constraint.
+
+> Why: a pack's owner says what a receiver may do, and a host enforces it where the action is, not by trusting the receiver's
+> code to remember; inside the signed content, the policy cannot be swapped.
 
 ## 18. Limits
 

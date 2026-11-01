@@ -1467,6 +1467,28 @@
    ]
   },
   {
+   "id": "R-CORE-138",
+   "doc": "core.md",
+   "section": "17c",
+   "level": "MUST",
+   "summary": "A pack MAY carry `policy.json`, inside its signed content; a pack that does uses the Permissions profile. Every verifier MUST read it strictly and refuse the pack unless it is canonical (RFC 8785) and holds exactly `format` (`agentmemory.pack.policy/1`) and `rules`: 1 to 64 objects, each an `audience` of 1 to 16 distinct entries (`*`, everyone, or a WebID), optionally `allow` and `deny` (distinct verbs of `read`, `derive`, `export`, `redact`, `rehydrate:local`, `rehydrate:private`, `rehydrate:external` and `train`; at least one verb between them), and optionally `notAfter` (an instant in UTC to the second). A verb is allowed for a host when a rule whose audience names everyone or one of the host's WebIDs allows it and has not ended (now is at or before its `notAfter`), and no such rule denies it, ended or not: deny wins, and an ended rule stops granting but never stops refusing. A verifier MUST refuse a pack its policy does not let the host read.",
+   "verifiedBy": [
+    "unit:PolicyTests.Deny_wins_and_an_ended_rule_stops_granting_but_never_stops_refusing",
+    "unit:PolicyTests.A_rule_for_named_WebIDs_speaks_only_to_a_host_acting_as_one_of_them"
+   ]
+  },
+  {
+   "id": "R-CORE-139",
+   "doc": "core.md",
+   "section": "17c",
+   "level": "MUST",
+   "summary": "A host MUST ask the policy at the door where each verb's action happens, and MUST NOT act when the verb is not allowed: `export` where it serves a pack's records to another program, and `rehydrate:<class>` where it sends a record's text to a model, by the class of the endpoint its operator states (`local`, `private` or `external`; an endpoint of unstated class is `external`). `derive`, `redact` and `train` are declared; a host that derives from, redacts or trains on a pack asks them too. Each verb maps to an ODRL action: `read` to `odrl:read`, `derive` to `odrl:derive`, `export` to `odrl:distribute`, `redact` to `odrl:anonymize`, and `rehydrate:*` and `train` to `odrl:use` with the endpoint class or the training purpose as its constraint.",
+   "verifiedBy": [
+    "unit:PolicyTests.A_module_set_withholds_a_pack_s_records_from_a_model_its_policy_keeps_them_from",
+    "unit:AmpackCommandLineTests.Serve_refuses_a_pack_whose_usage_policy_does_not_let_this_host_export_it"
+   ]
+  },
+  {
    "id": "R-CORE-126",
    "doc": "core.md",
    "section": "16",

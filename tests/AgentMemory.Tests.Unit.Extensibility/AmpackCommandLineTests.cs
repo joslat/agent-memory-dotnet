@@ -536,6 +536,20 @@ public sealed class AmpackCommandLineTests : IDisposable
     }
 
     [Fact]
+    public void Serve_refuses_a_pack_whose_usage_policy_does_not_let_this_host_export_it()
+    {
+        // Feature 10 (R-CORE-139): serving hands a pack's records to another program, the export door.
+        Done("keygen", "--out", "keys", "--name", "publisher", "--prefix", "io.agentmemory", "--policy", "trust.json");
+        Done("migrate", Path.Combine(Packs, "MartialArts"), "--out", "martialarts");
+        File.WriteAllText(At("martialarts", "policy.json"), """{"format":"agentmemory.pack.policy/1","rules":[{"allow":["read"],"audience":["*"]}]}""");
+        Done("build", "martialarts", "--out", "martialarts.ampack", "--key", At("keys", "publisher.key.pem"));
+        Done("verify", "martialarts.ampack", "--policy", "trust.json").Should().Contain("permissions");
+        var (exit, output) = Ampack("serve", "martialarts.ampack", "--policy", "trust.json");
+        exit.Should().NotBe(0);
+        output.Should().Contain("does not let this host export it");
+    }
+
+    [Fact]
     public async Task Serve_answers_over_REST_with_the_same_answers_as_its_MCP_tools()
     {
         Done("keygen", "--out", "keys", "--name", "publisher", "--prefix", "io.agentmemory", "--policy", "trust.json");

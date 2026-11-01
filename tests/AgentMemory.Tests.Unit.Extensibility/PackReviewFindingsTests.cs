@@ -57,17 +57,18 @@ public sealed class PackReviewFindingsTests : IDisposable
     }
 
     [Fact]
-    public void A_pack_that_carries_code_or_a_usage_policy_is_refused_until_the_host_enforces_them()
+    public void A_pack_that_carries_code_is_refused_until_the_host_runs_it_and_a_malformed_usage_policy_by_every_reader()
     {
         var code = Source();
         Set(code, "code", "E2");
         FluentActions.Invoking(() => PackLoader.Load(PackAuthoring.Build(code, _key.PrivateKeyPem), Trust())).Should().Throw<PackLoadException>()
             .Which.Problems.Should().Contain(p => p.Contains("carries code (tier E2)", StringComparison.Ordinal));
 
+        // Feature 10: the Permissions profile is implemented, so a usage policy is read, strictly, by the writer as by every reader.
         var policy = Source();
         policy["policy.json"] = """{"purpose":["study"],"noExport":true}"""u8.ToArray();
-        FluentActions.Invoking(() => PackLoader.Load(PackAuthoring.Build(policy, _key.PrivateKeyPem), Trust())).Should().Throw<PackLoadException>()
-            .Which.Problems.Should().Contain(p => p.Contains("usage policy", StringComparison.Ordinal));
+        FluentActions.Invoking(() => PackAuthoring.Build(policy, _key.PrivateKeyPem)).Should().Throw<PackLoadException>()
+            .Which.Problems.Should().Contain(p => p.StartsWith("policy.json", StringComparison.Ordinal));
     }
 
     [Fact]

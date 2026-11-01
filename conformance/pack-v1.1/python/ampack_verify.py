@@ -956,6 +956,7 @@ def verify(files, policy, now):
         read_card(content[CARD])
     if DERIVATION in content:
         read_derivation(content[DERIVATION])
+    usage = read_policy(content[POLICY]) if POLICY in content else None
     digest = "sha256:" + hashlib.sha256(list_bytes).hexdigest()
     if digest in policy.get("revoked", {}).get("digests", []):
         raise Refused("the pack is revoked")
@@ -973,6 +974,9 @@ def verify(files, policy, now):
         host = policy.get("host", {}).get("webIds", [])
         if federation["audience"] is not None and not any(h in federation["audience"] for h in host):
             raise Refused("the pack is not published for this host")
+    # The read door (feature 10): as .NET, beside the audience.
+    if usage is not None and not policy_allows(usage, "read", policy.get("host", {}).get("webIds", []), now):
+        raise Refused("the pack's usage policy (policy.json) does not let this host read it now")
     # Records are parsed only once the signatures hold, as .NET parses them (review 1, L3; review 4: Python parsed every line
     # of an unsigned pack first), each line found in place rather than split into copies.
     for p, b in content.items():
@@ -1383,6 +1387,59 @@ def read_derivation(data):
             or len(set(actions)) != len(actions):
         raise Refused("META/derivation.json: actions are distinct, of " + ", ".join(sorted(DERIVATION_ACTIONS)))
     return d
+
+
+POLICY = REGISTRY["policy"]["path"]
+POLICY_FORMAT = REGISTRY["policy"]["format"]
+POLICY_VERBS = set(REGISTRY["policy"]["verbs"])
+
+
+def read_policy(data):
+    """What a receiver may do with a pack (feature 10, R-CORE-138): canonical and strict, as .NET's PackPolicy."""
+    d = profile(data, integers_only=True)
+    if canonical(d).encode("utf-8") != data:
+        raise Refused("policy.json is not canonical (RFC 8785)")
+    if not isinstance(d, dict) or set(d) - SHAPE["policy"]:
+        raise Refused("policy.json holds other fields than a usage policy")
+    if d.get("format") != POLICY_FORMAT:
+        raise Refused(f"policy.json must name format '{POLICY_FORMAT}'")
+    rules = d.get("rules")
+    if not isinstance(rules, list) or not 1 <= len(rules) <= 64:
+        raise Refused("policy.json holds 1 to 64 rules")
+    read = []
+    for r in rules:
+        if not isinstance(r, dict) or set(r) - SHAPE["policyRule"]:
+            raise Refused("policy.json: a rule holds an audience, and allow, deny and notAfter only")
+        audience = r.get("audience")
+        if not isinstance(audience, list) or not 1 <= len(audience) <= 16 \
+                or not all(isinstance(a, str) and (a == "*" or valid_webid(a)) for a in audience) or len(set(audience)) != len(audience):
+            raise Refused("policy.json: a rule's audience is 1 to 16 distinct entries, each '*' or a WebID")
+        verbs = {}
+        for name in ("allow", "deny"):
+            given = r.get(name, [])
+            if not isinstance(given, list) or not all(isinstance(v, str) and v in POLICY_VERBS for v in given) or len(set(given)) != len(given):
+                raise Refused("policy.json: allow and deny are distinct verbs, of " + ", ".join(sorted(POLICY_VERBS)))
+            verbs[name] = set(given)
+        if not verbs["allow"] and not verbs["deny"]:
+            raise Refused("policy.json: a rule allows or denies at least one verb")
+        not_after = None
+        if "notAfter" in r:
+            end = r["notAfter"]
+            if not isinstance(end, str) or not SIGNED_AT.fullmatch(end):
+                raise Refused("policy.json: a rule's notAfter is an instant in UTC to the second")
+            try:
+                not_after = datetime.strptime(end, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+            except ValueError:
+                raise Refused("policy.json: a rule's notAfter is an instant in UTC to the second")
+        read.append({"audience": set(audience), "allow": verbs["allow"], "deny": verbs["deny"], "notAfter": not_after})
+    return read
+
+
+def policy_allows(rules, verb, identities, now):
+    """Deny wins; a rule's denials outlive its grants (a past notAfter ends what it allowed, never what it refused)."""
+    applying = [r for r in rules if "*" in r["audience"] or r["audience"] & set(identities)]
+    return not any(verb in r["deny"] for r in applying) \
+        and any(verb in r["allow"] and (r["notAfter"] is None or now <= r["notAfter"]) for r in applying)
 
 
 def read_card(data):

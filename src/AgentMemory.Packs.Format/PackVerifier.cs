@@ -157,6 +157,16 @@ internal static class PackVerifier
                 .. federation.Purpose is { } purpose ? [$"purpose: {purpose}"] : Array.Empty<string>()]));
         }
 
+        // The read door (feature 10): a pack whose usage policy does not let this host read it now is refused, as one published
+        // for another audience is.
+        if (content.Files.TryGetValue(PackPolicy.FileName, out var usage) && PackPolicy.Parse(usage).Policy is { } usagePolicy)
+        {
+            var readable = usagePolicy.Allows("read", policy.HostWebIds, now);
+            if (!readable) problems.Add($"The pack's usage policy ({PackPolicy.FileName}) does not let this host read it now.");
+            explain?.Invoke(new("usage policy", readable, readable ? [$"{usagePolicy.Rules.Count} rule(s); this host may read it"]
+                : [$"The pack's usage policy ({PackPolicy.FileName}) does not let this host read it now."]));
+        }
+
         var ledgerRefusal = ledger?.Refusal(list.Id, list.Version, digest, allowDowngrade);
         if (ledgerRefusal is not null) problems.Add(ledgerRefusal);
         if (ledger is not null)
@@ -363,6 +373,8 @@ internal static class PackVerifier
         // What the pack was made from, read strictly by every verifier (feature 09, R-CORE-136).
         if (files.TryGetValue(PackDerivation.FileName, out var derivation) && PackDerivation.Parse(derivation).Problem is { } derivationProblem)
             yield return derivationProblem;
+        // What a receiver may do with it, read strictly by every verifier (feature 10, R-CORE-138).
+        if (files.TryGetValue(PackPolicy.FileName, out var usage) && PackPolicy.Parse(usage).Problem is { } policyProblem) yield return policyProblem;
     }
 
     /// <summary>A composite names the same members in pack.json, members.json and its lock (v1.2 §5).</summary>

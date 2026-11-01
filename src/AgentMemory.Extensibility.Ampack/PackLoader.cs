@@ -171,6 +171,9 @@ public sealed record LoadedPack
     /// id. An import applies them before it writes, and the records they name stay out of every read of this pack.
     /// </summary>
     public IReadOnlyList<ModuleErasure> Erasures { get; internal init; } = [];
+    // Its usage policy (feature 10), as signed with it, and the WebIDs this host acts as, from the trust it loaded under.
+    internal PackPolicy? UsagePolicy { get; init; }
+    internal IReadOnlyList<string> HostWebIds { get; init; } = [];
     /// <summary>Whether it says what it was made from (feature 09): <c>META/derivation.json</c>, inside its signed content.</summary>
     public bool HasDerivation { get; internal init; }
     /// <summary>For a snapshot pack, its verified record files, read by <see cref="PackLoader.ToSnapshot"/>.</summary>
@@ -320,6 +323,8 @@ public static class PackLoader
             Certificates = PackCertificates.Read(pack, ledger is null ? trust.Policy : ledger.Ledger.Apply(trust.Policy), DateTimeOffset.UtcNow),
             Erasures = PackErasures.Read(pack, ledger is null ? trust.Policy : ledger.Ledger.Apply(trust.Policy), DateTimeOffset.UtcNow),
             HasDerivation = pack.Files.ContainsKey(PackDerivation.FileName),
+            UsagePolicy = pack.Files.TryGetValue(PackPolicy.FileName, out var usage) ? PackPolicy.Parse(usage).Policy : null,
+            HostWebIds = trust.Policy.HostWebIds,
             // An absent file is null, not empty: a plain null would convert, through byte[], to an empty and present ReadOnlyMemory.
             Tests = pack.Files.TryGetValue(PackTests.FileName, out var tests) ? new ReadOnlyMemory<byte>(tests) : (ReadOnlyMemory<byte>?)null,
         };
@@ -376,6 +381,19 @@ public static class PackLoader
         [.. PackProfiles.Used(pack.Files.Keys, pack.Manifest).Where(p => !p.Implemented).Select(p => PackProfiles.Refusal(p, pack.Manifest))];
 
     /// <summary>
+    /// Asks a pack's usage policy before any view or walk offers the records it carried (feature 10, R-CORE-139): for a snapshot
+    /// pack whose records a host imports, as <see cref="AddPack"/> does for the packs it adds. A pack with no policy changes nothing.
+    /// </summary>
+    public static ModuleSetBuilder UsePackPolicy(this ModuleSetBuilder builder, LoadedPack pack)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(pack);
+        if (pack.UsagePolicy is not null && builder.PackPolicies.All(p => p.PackId != pack.Id))
+            builder.PackPolicies.Add((pack.Id, (verb, now) => PolicyGate.Allows(pack, verb, now)));
+        return builder;
+    }
+
+    /// <summary>
     /// Composes a loaded pack: a knowledge pack with a search contributor per view (its records import with
     /// <see cref="KnowledgePackImporter"/>); a definition pack as a data-only module whose records the host's importer
     /// writes. Either is named in the fingerprint by its digest and signers. A pack that declares a trial still needs a passing
@@ -391,6 +409,8 @@ public static class PackLoader
             : builder.AddDefinitionPack(pack.Manifest, pack.Digest, string.Join(", ", pack.Signers), priority, pack.ValidUntil);
         // The pack's verified erasures: no view or walk offers what they name (feature 08).
         if (pack.Erasures.Count != 0) added.UseErasures(pack.Erasures);
+        // Its usage policy: no view or walk offers its records to a model it keeps them from (feature 10).
+        added.UsePackPolicy(pack);
         // The latest certificate this host trusts now, as it loaded the pack: a decision it made from a certificate counts only
         // while that certificate travels with the pack, is trusted, and no newer trusted one stands beside it (review 1, M1;
         // review 2, L3).

@@ -110,6 +110,10 @@ SHAPES = ("envelope-extra-field", "entry-extra-key", "entry-without-sig", "keyid
 # Review 5, L6 (root RJ): a refused vector proves its rule only if it is refused for that rule. Each vector named here must be
 # refused by both verifiers with the reason given (a pattern on each one's output); one refused for another reason fails.
 REASONS = {
+    "policy-no-rules": ("policy.json holds 1 to 64 rules", "policy.json holds 1 to 64 rules"),
+    "policy-audience-empty": ("audience is 1 to 16 distinct entries", "audience is 1 to 16 distinct entries"),
+    "policy-audience-not-a-webid": ("audience is 1 to 16 distinct entries", "audience is 1 to 16 distinct entries"),
+    "policy-audience-twice": ("audience is 1 to 16 distinct entries", "audience is 1 to 16 distinct entries"),
     "derivation-prompt-digest-trailing-newline": ("promptDigest is sha256: and 64 lowercase", "promptDigest is sha256: and 64 lowercase"),
     "json-file-over-1-mib": ("larger than 1 MiB", "larger than 1 MiB"),
     "jsonl-line-over-1-mib": ("longer than 1 MiB", "longer than 1 MiB"),
@@ -992,6 +996,36 @@ def main():
     vectors["derivation-tool-without-version"] = (with_derivation({**derivation, "tool": {"name": "t"}}), "trust.json", "refused")
     vectors["derivation-parent-bad-id"] = (with_derivation({**derivation, "parent": {"id": "Not An Id", "digest": a_digest}}), "trust.json", "refused")
     vectors["derivation-name-with-a-newline"] = (with_derivation({**derivation, "inputs": [{**derivation["inputs"][0], "name": "hand\nbook"}]}), "trust.json", "refused")
+    # Feature 10: policy.json, inside the signed content, canonical and strict in both verifiers; the read door at verify.
+    def with_policy(rules_, raw=None, **extra):
+        body = {"format": "agentmemory.pack.policy/1", "rules": rules_, **extra}
+        return signed({**content, "policy.json": raw if raw is not None else py.canonical(body).encode("utf-8")})
+    everyone_reads = {"audience": ["*"], "allow": ["read", "export"], "deny": ["rehydrate:external"]}
+    vectors["policy-valid"] = (with_policy([everyone_reads]), "trust.json", "verified")
+    vectors["policy-export-denied-read-allowed"] = (with_policy([{"audience": ["*"], "allow": ["read"], "deny": ["export"]}]), "trust.json", "verified")
+    vectors["policy-deny-beats-allow"] = (with_policy([{"audience": ["*"], "allow": ["read"]}, {"audience": ["*"], "deny": ["read"]}]), "trust.json", "refused")
+    vectors["policy-read-ended"] = (with_policy([{"audience": ["*"], "allow": ["read"], "notAfter": "2020-01-01T00:00:00Z"}]), "trust.json", "refused")
+    vectors["policy-read-ended-another-rule-grants"] = (with_policy([{"audience": ["*"], "allow": ["read"], "notAfter": "2020-01-01T00:00:00Z"},
+                                                                     {"audience": ["*"], "allow": ["read"]}]), "trust.json", "verified")
+    vectors["policy-ended-denial-still-denies"] = (with_policy([{"audience": ["*"], "allow": ["read"]},
+                                                                {"audience": ["*"], "deny": ["read"], "notAfter": "2020-01-01T00:00:00Z"}]), "trust.json", "refused")
+    vectors["policy-read-for-another-host"] = (with_policy([{"audience": ["https://other.example/profile#me"], "allow": ["read"]}]), "trust.json", "refused")
+    vectors["policy-read-not-granted"] = (with_policy([{"audience": ["*"], "allow": ["export"]}]), "trust.json", "refused")
+    vectors["policy-unknown-verb"] = (with_policy([{"audience": ["*"], "allow": ["read", "sell"]}]), "trust.json", "refused")
+    vectors["policy-verb-twice"] = (with_policy([{"audience": ["*"], "allow": ["read", "read"]}]), "trust.json", "refused")
+    vectors["policy-rule-allows-nothing"] = (with_policy([{"audience": ["*"]}, everyone_reads]), "trust.json", "refused")
+    vectors["policy-no-rules"] = (with_policy([]), "trust.json", "refused")
+    vectors["policy-audience-empty"] = (with_policy([{"audience": [], "allow": ["read"]}]), "trust.json", "refused")
+    vectors["policy-audience-not-a-webid"] = (with_policy([{"audience": ["partner x"], "allow": ["read"]}]), "trust.json", "refused")
+    vectors["policy-audience-twice"] = (with_policy([{"audience": ["*", "*"], "allow": ["read"]}]), "trust.json", "refused")
+    vectors["policy-not-after-with-an-offset"] = (with_policy([{"audience": ["*"], "allow": ["read"], "notAfter": "2030-01-01T00:00:00+01:00"}]), "trust.json", "refused")
+    vectors["policy-not-after-fraction"] = (with_policy([{"audience": ["*"], "allow": ["read"], "notAfter": "2030-01-01T00:00:00.5Z"}]), "trust.json", "refused")
+    vectors["policy-extra-field"] = (with_policy([everyone_reads], note="x"), "trust.json", "refused")
+    vectors["policy-rule-extra-field"] = (with_policy([{**everyone_reads, "purpose": "x"}]), "trust.json", "refused")
+    vectors["policy-not-canonical"] = (with_policy(None, raw=json.dumps({"format": "agentmemory.pack.policy/1", "rules": [everyone_reads]}, indent=1).encode("utf-8")),
+                                       "trust.json", "refused")
+    vectors["policy-format-other"] = (with_policy(None, raw=py.canonical({"format": "agentmemory.pack.policy/2", "rules": [everyone_reads]}).encode("utf-8")),
+                                      "trust.json", "refused")
     vectors["trust-key-confidence-capped"] = (signed(content), "trust-confidence-capped.json", "verified")
     vectors["trust-key-confidence-on-an-evaluator"] = (signed(content), "trust-confidence-on-an-evaluator.json", "refused")
     # Review 09: a digest ends where its 64 hexadecimal characters end, in both verifiers (a trailing line feed is no digest).

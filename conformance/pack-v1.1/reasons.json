@@ -589,6 +589,62 @@
    "characters, and optionally a licence and a confidenceMicro of",
    "characters, and optionally a licence and a confidenceMicro of"
   ],
+  "policy-deny-beats-allow": [
+   "usage policy (policy.json) does not let this host read it now",
+   "usage policy (policy.json) does not let this host read it now"
+  ],
+  "policy-read-ended": [
+   "usage policy (policy.json) does not let this host read it now",
+   "usage policy (policy.json) does not let this host read it now"
+  ],
+  "policy-ended-denial-still-denies": [
+   "usage policy (policy.json) does not let this host read it now",
+   "usage policy (policy.json) does not let this host read it now"
+  ],
+  "policy-read-for-another-host": [
+   "usage policy (policy.json) does not let this host read it now",
+   "usage policy (policy.json) does not let this host read it now"
+  ],
+  "policy-read-not-granted": [
+   "usage policy (policy.json) does not let this host read it now",
+   "usage policy (policy.json) does not let this host read it now"
+  ],
+  "policy-unknown-verb": [
+   "allow and deny are distinct verbs, of derive, export, read, redact",
+   "allow and deny are distinct verbs, of derive, export, read, redact"
+  ],
+  "policy-verb-twice": [
+   "allow and deny are distinct verbs, of derive, export, read, redact",
+   "allow and deny are distinct verbs, of derive, export, read, redact"
+  ],
+  "policy-rule-allows-nothing": [
+   "a rule allows or denies at least one verb",
+   "a rule allows or denies at least one verb"
+  ],
+  "policy-not-after-with-an-offset": [
+   "notAfter is an instant in UTC to the second",
+   "notAfter is an instant in UTC to the second"
+  ],
+  "policy-not-after-fraction": [
+   "notAfter is an instant in UTC to the second",
+   "notAfter is an instant in UTC to the second"
+  ],
+  "policy-extra-field": [
+   "policy.json holds other fields than a usage policy",
+   "policy.json holds other fields than a usage policy"
+  ],
+  "policy-rule-extra-field": [
+   "a rule holds an audience, and allow, deny and notAfter only",
+   "a rule holds an audience, and allow, deny and notAfter only"
+  ],
+  "policy-not-canonical": [
+   "policy.json is not canonical (RFC",
+   "policy.json is not canonical (RFC"
+  ],
+  "policy-format-other": [
+   "policy.json must name format",
+   "policy.json must name format"
+  ],
   "trust-key-confidence-on-an-evaluator": [
    "signs no pack, so it carries no confidenceMicro",
    "a trusted key that signs no pack carries no confidenceMicro"

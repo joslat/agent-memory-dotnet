@@ -51,6 +51,24 @@ public sealed class ModuleSetBuilder
 
     internal int? MinimumConfidenceMicro { get; private set; }
 
+    internal ModelEndpoint Endpoint { get; private set; } = ModelEndpoint.External;
+
+    /// <summary>
+    /// States where the host's model runs (feature 10, R-CORE-139). A pack whose usage policy does not allow its text to reach a
+    /// model of this class (<c>rehydrate:local</c>, <c>rehydrate:private</c> or <c>rehydrate:external</c>) is withheld from
+    /// every view and walk. Unstated, the endpoint is external.
+    /// </summary>
+    public ModuleSetBuilder UseModelEndpoint(ModelEndpoint endpoint)
+    {
+        if (!Enum.IsDefined(endpoint)) throw new ArgumentOutOfRangeException(nameof(endpoint));
+        Endpoint = endpoint;
+        return this;
+    }
+
+    // The packs whose usage policy this host asks before offering their records (feature 10): by pack id, whether a verb is
+    // allowed at an instant. Registered by the pack loader, for the packs it adds and the snapshot packs whose records it carries.
+    internal List<(string PackId, Func<string, DateTimeOffset, bool> Allows)> PackPolicies { get; } = [];
+
     /// <summary>
     /// Leaves out of every view and walk the records whose effective confidence (feature 09, R-CORE-137) is below
     /// <paramref name="micro"/> millionths. A record nothing caps has full confidence.

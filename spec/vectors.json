@@ -2174,6 +2174,69 @@
   ],
   "trust-key-confidence-on-an-evaluator": [
    "R-CORE-137"
+  ],
+  "policy-valid": [
+   "R-CORE-138"
+  ],
+  "policy-export-denied-read-allowed": [
+   "R-CORE-138"
+  ],
+  "policy-deny-beats-allow": [
+   "R-CORE-138"
+  ],
+  "policy-read-ended": [
+   "R-CORE-138"
+  ],
+  "policy-read-ended-another-rule-grants": [
+   "R-CORE-138"
+  ],
+  "policy-ended-denial-still-denies": [
+   "R-CORE-138"
+  ],
+  "policy-read-for-another-host": [
+   "R-CORE-138"
+  ],
+  "policy-read-not-granted": [
+   "R-CORE-138"
+  ],
+  "policy-unknown-verb": [
+   "R-CORE-138"
+  ],
+  "policy-verb-twice": [
+   "R-CORE-138"
+  ],
+  "policy-rule-allows-nothing": [
+   "R-CORE-138"
+  ],
+  "policy-no-rules": [
+   "R-CORE-138"
+  ],
+  "policy-audience-empty": [
+   "R-CORE-138"
+  ],
+  "policy-audience-not-a-webid": [
+   "R-CORE-138"
+  ],
+  "policy-audience-twice": [
+   "R-CORE-138"
+  ],
+  "policy-not-after-with-an-offset": [
+   "R-CORE-138"
+  ],
+  "policy-not-after-fraction": [
+   "R-CORE-138"
+  ],
+  "policy-extra-field": [
+   "R-CORE-138"
+  ],
+  "policy-rule-extra-field": [
+   "R-CORE-138"
+  ],
+  "policy-not-canonical": [
+   "R-CORE-138"
+  ],
+  "policy-format-other": [
+   "R-CORE-138"
   ]
  }
 }

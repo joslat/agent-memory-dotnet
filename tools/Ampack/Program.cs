@@ -1000,6 +1000,10 @@ internal static partial class Program
                 ? new AgentMemory.Extensibility.Modules.ModuleConsentGrant(module, into)
                 : throw new UsageException($"--grant {g}: give <module>=<into>, the module whose relation reaches into the other's records.")).ToList();
             var mount = AgentMemory.Extensibility.Ampack.PackMemory.Mount(archives, trust, gate, grants);
+            // The export door (feature 10, R-CORE-139): serving hands a pack's records to another program.
+            var kept = mount.Packs.Where(p => !AgentMemory.Extensibility.Ampack.PolicyGate.Allows(p, "export", DateTimeOffset.UtcNow))
+                .Select(p => $"{p.Id}: its usage policy (policy.json) does not let this host export it, so it is not served.").ToList();
+            if (kept.Count != 0) return Report(kept, "");
             // Review 1, I9: a pack that declares a trial, served with no gate, is said to be served ungated.
             if (gate is null)
                 foreach (var pack in mount.Packs.Where(p => p.Manifest.Trial is not null))

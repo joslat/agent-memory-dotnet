@@ -139,6 +139,7 @@ public sealed class ModuleSet
             registrations, switchedOff)
         {
             ChatClient = builder.ChatClient, Priorities = priorities.AsReadOnly(), Erasures = [.. builder.Erasures], MinimumConfidenceMicro = builder.MinimumConfidenceMicro,
+            Endpoint = builder.Endpoint, PackPolicies = builder.PackPolicies.ToDictionary(p => p.PackId, p => p.Allows, StringComparer.Ordinal),
             Slots = [.. builder.Modules.SelectMany(m => Enumerable.Repeat(m.Manifest.Id, m.Contributors.Count))],
         };
         var log = services.GetService<ILoggerFactory>()?.CreateLogger<ModuleSet>();
@@ -233,7 +234,8 @@ public sealed class ModuleSet
             .CreateReader(services, Resolution, moduleId);
         // A view may read its dependencies' types: an expired dependency's records leave its answers too (review 2, M2's twin).
         // Every read also keeps only the records live in world time at its pin (feature 07).
-        return new LiveReader(reader, Live(services), services.GetService<TimeProvider>() ?? TimeProvider.System, Erased, MinimumConfidenceMicro);
+        var clock = services.GetService<TimeProvider>() ?? TimeProvider.System;
+        return new LiveReader(reader, Live(services), clock, r => Erased(r) || Withheld(r, clock.GetUtcNow()), MinimumConfidenceMicro);
     }
 
     // Drops the records of modules that are not live now, and the records not live in world time at the read's valid-time pin
@@ -243,6 +245,21 @@ public sealed class ModuleSet
 
     /// <summary>The host's confidence floor in millionths (feature 09): no view or walk offers a record below it.</summary>
     internal int? MinimumConfidenceMicro { get; init; }
+
+    /// <summary>Where the host's model runs (feature 10).</summary>
+    internal ModelEndpoint Endpoint { get; init; } = ModelEndpoint.External;
+
+    /// <summary>The usage policies this host asks, by pack id (feature 10).</summary>
+    internal IReadOnlyDictionary<string, Func<string, DateTimeOffset, bool>> PackPolicies { get; init; } = new Dictionary<string, Func<string, DateTimeOffset, bool>>();
+
+    /// <summary>The verb a record's text needs to reach this host's model: <c>rehydrate:</c> and the endpoint's class.</summary>
+    internal string RehydrateVerb => "rehydrate:" + Endpoint.ToString().ToLowerInvariant();
+
+    // Whether the usage policy of the pack that carried the record (its carrier's, else its own, as an erasure names it) keeps
+    // its text from this host's model now (feature 10, R-CORE-139).
+    internal bool Withheld(ModuleRecord record, DateTimeOffset now) =>
+        PackPolicies.Count != 0 && (record.Source?.Pack?.Carrier?.Id ?? record.Source?.Pack?.Id) is { } pack
+        && PackPolicies.TryGetValue(pack, out var allows) && !allows(RehydrateVerb, now);
 
     // Whether an erasure this host holds names the record (feature 08, R-CORE-134), whatever the store still holds.
     internal bool Erased(ModuleRecord record) => ErasedBy(Erasures, record);
@@ -280,7 +297,9 @@ public sealed class ModuleSet
     internal Context.Traversal.TraversalService Traversal(IServiceProvider services) =>
         _traversal.GetValue(services, s => new Context.Traversal.TraversalService(Resolution, Store?.CreateTraversalReader(s, Resolution), Live(s),
             s.GetService<TimeProvider>() ?? TimeProvider.System,
-            Erasures.Count == 0 && MinimumConfidenceMicro is null ? null : r => !Erased(r) && Packs.ModuleConfidence.Clears(r.ConfidenceMicro, MinimumConfidenceMicro),
+            Erasures.Count == 0 && MinimumConfidenceMicro is null && PackPolicies.Count == 0 ? null
+                : r => !Erased(r) && !Withheld(r, (s.GetService<TimeProvider>() ?? TimeProvider.System).GetUtcNow())
+                    && Packs.ModuleConfidence.Clears(r.ConfidenceMicro, MinimumConfidenceMicro),
             MinimumConfidenceMicro));
 
     // Whether a module may take part in a walk now: a pack past its validUntil goes silent in the walk as its contributors
