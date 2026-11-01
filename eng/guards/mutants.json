@@ -1915,12 +1915,12 @@
    "edits": [
     {
      "old": "if (manifest.Kind is \"composite\" or \"set\" && all.Contains(PackPolicy.FileName))",
-     "new": "if (false)"
+     "new": "if (manifest.Kind is \"composite\" or \"set\" && all.Contains(PackPolicy.FileName) && manifest.Kind == \"none\")"
     }
    ],
    "project": "kit",
    "filter": "",
-   "sha256": "27c66c41e249cc4e47391e58c0bcb95074b3463ccc0b4d3bc441a3d14bd20836"
+   "sha256": "e9e13942ca0ac85498d2829ede340ef295faffbfbf20a70eb9b8c6e54a7bd7a0"
   },
   {
    "id": "python-set-policy-allowed",

@@ -1209,7 +1209,7 @@ def main():
         failures += not agree
         results.append({"vector": name, "expected": expected, "dotnet": dotnet, "python": python, "agree": agree,
                         "dotnetSays": dn_text.splitlines()[0] if dn_text else "", "pythonSays": pr.stdout.strip().splitlines()[0] if pr.stdout.strip() else pr.stderr.strip()[-200:],
-                        "sha256": hashlib.sha256(files).hexdigest()})
+                        "sha256": hashlib.sha256(files).hexdigest(), "kind": "pack", "policy": policy_file, "revocations": documents})
         print(f"{'ok  ' if agree else 'FAIL'} {name:34} expected {expected:8} dotnet {dotnet:8} python {python}")
     # Publication receipts: each verified by `ampack receipt verify` and by the Python verifier's --receipt.
     here = "https://supplier-a.example/ampack/handoff.ampack"
@@ -1298,7 +1298,7 @@ def main():
         failures += not agree
         results.append({"vector": name, "expected": expected, "dotnet": dotnet, "python": python, "agree": agree,
                         "dotnetSays": dn_text.splitlines()[0] if dn_text else "", "pythonSays": pr.stdout.strip().splitlines()[-1] if pr.stdout.strip() else pr.stderr.strip()[-200:],
-                        "sha256": hashlib.sha256(pack_bytes + receipt_bytes).hexdigest()})
+                        "sha256": hashlib.sha256(pack_bytes + receipt_bytes).hexdigest(), "kind": "receipt", "policy": policy_file, "location": location})
         print(f"{'ok  ' if agree else 'FAIL'} {name:34} expected {expected:8} dotnet {dotnet:8} python {python}")
     # Evaluation certificates (v1.2 §16): each verified by `ampack certificate verify` and by the Python verifier's --certificate.
     code, text = ampack("keygen", "--out", str(work / "keys"), "--name", "evaluator", "--role", "evaluator", "--prefix", "io.example")
@@ -1568,7 +1568,8 @@ def main():
         failures += not agree
         results.append({"vector": name, "expected": expected, "dotnet": dotnet, "python": python, "agree": agree,
                         "dotnetSays": dn_text.splitlines()[0] if dn_text else "", "pythonSays": pr.stdout.strip().splitlines()[-1] if pr.stdout.strip() else pr.stderr.strip()[-200:],
-                        "sha256": hashlib.sha256(pack_bytes + (external or b"")).hexdigest()})
+                        "sha256": hashlib.sha256(pack_bytes + (external or b"")).hexdigest(), "kind": "certificate", "policy": policy_file,
+                        "document": Path(target).name if Path(target).is_absolute() else target})
         print(f"{'ok  ' if agree else 'FAIL'} {name:34} expected {expected:8} dotnet {dotnet:8} python {python}")
     # Feature 08: erasures, signed by a key trusted as publisher or revoker for the pack's id, verified by both.
     def erasure(signer, pid_=pid, records=None, reason="withdrawn", salt="0123456789abcdef0123456789abcdef", extra=None, issued="2026-10-31T12:00:00Z"):
@@ -1624,7 +1625,8 @@ def main():
         failures += not agree
         results.append({"vector": name, "expected": expected, "dotnet": dotnet, "python": python, "agree": agree,
                         "dotnetSays": dn_text.splitlines()[0] if dn_text else "", "pythonSays": pr.stdout.strip().splitlines()[-1] if pr.stdout.strip() else pr.stderr.strip()[-200:],
-                        "sha256": hashlib.sha256(pack_bytes + (external or b"")).hexdigest()})
+                        "sha256": hashlib.sha256(pack_bytes + (external or b"")).hexdigest(), "kind": "erasure", "policy": policy_file,
+                        "document": Path(target).name if Path(target).is_absolute() else target})
         print(f"{'ok  ' if agree else 'FAIL'} {name:34} expected {expected:8} dotnet {dotnet:8} python {python}")
     # Feature 01: every vector names the spec requirements it tests (spec/vectors.json); one the spec does not map fails here.
     vector_map_path = HERE.parent.parent / "spec" / "vectors.json"

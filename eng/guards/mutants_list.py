@@ -407,7 +407,7 @@ MUTANTS = [
       [("        foreach (var member in family.AllMembers) added.UseErasures(member.Erasures).UsePackPolicy(member);\n", "")],
       EXT, name("A_family_member_s_usage_policy")),
     m("set-policy-allowed", "POLICY-AT-THE-DOOR", "verify", "src/AgentMemory.Packs.Format/PackVerifier.cs",
-      [('if (manifest.Kind is "composite" or "set" && all.Contains(PackPolicy.FileName))', "if (false)")],
+      [('if (manifest.Kind is "composite" or "set" && all.Contains(PackPolicy.FileName))', 'if (manifest.Kind is "composite" or "set" && all.Contains(PackPolicy.FileName) && manifest.Kind == "none")')],
       "kit"),
     m("python-set-policy-allowed", "POLICY-AT-THE-DOOR", "verify", "conformance/pack-v1.1/python/ampack_verify.py",
       [('        if REGISTRY["policy"]["path"] in content:\n', "        if False:\n")],

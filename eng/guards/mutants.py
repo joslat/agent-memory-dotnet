@@ -38,10 +38,16 @@ def recover():
     # A run that was killed while a file was broken: put the copy back before anything else.
     if not RESTORE.exists():
         return
+    # Only while the file still holds the broken text: once it was restored or changed since (by hand, by git), the copy is
+    # older than the file and writing it back would undo that work (feature 10: a stale copy reverted a fix made after the kill).
     for meta in RESTORE.glob("*.json"):
         info = json.loads(meta.read_text(encoding="utf-8"))
-        (ROOT / info["file"]).write_bytes((RESTORE / info["copy"]).read_bytes())
-        print(f"restored {info['file']} from a killed run", flush=True)
+        target = ROOT / info["file"]
+        if "broken" in info and target.exists() and hashlib.sha256(target.read_bytes()).hexdigest() == info["broken"]:
+            target.write_bytes((RESTORE / info["copy"]).read_bytes())
+            print(f"restored {info['file']} from a killed run", flush=True)
+        else:
+            print(f"left {info['file']} as it is: it no longer holds a killed run's broken text, so its saved copy is stale", flush=True)
     shutil.rmtree(RESTORE)
 
 
@@ -115,7 +121,8 @@ def main():
         path = ROOT / mutant["file"]
         RESTORE.mkdir(exist_ok=True)
         (RESTORE / (mutant["id"] + ".copy")).write_bytes(raw)
-        (RESTORE / (mutant["id"] + ".json")).write_text(json.dumps({"file": mutant["file"], "copy": mutant["id"] + ".copy"}), encoding="utf-8")
+        (RESTORE / (mutant["id"] + ".json")).write_text(json.dumps({"file": mutant["file"], "copy": mutant["id"] + ".copy",
+                                                                    "broken": hashlib.sha256(changed).hexdigest()}), encoding="utf-8")
         started = time.time()
         try:
             path.write_bytes(changed)
