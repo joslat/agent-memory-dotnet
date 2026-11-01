@@ -945,6 +945,14 @@
    "A publication receipt is for a federated pack; this pack names no publisher or audience",
    "a publication receipt is for a federated pack"
   ],
+  "aggregate-under-another-id": [
+   "The aggregate is of io.example.other",
+   "the aggregate is of another pack"
+  ],
+  "aggregate-under-another-version": [
+   "The aggregate is of io.example.notes",
+   "the aggregate is of another pack"
+  ],
   "aggregate-with-a-task-name": [
    "no task, question, record or path has a place in it",
    "no task, question, record or path has a place in it"
@@ -960,14 +968,6 @@
   "aggregate-bound-disagrees-with-met": [
    "met disagrees with its bound and its requiredMicro",
    "met disagrees with its bound and its requiredMicro"
-  ],
-  "aggregate-noisy-with-a-bound": [
-   "boundMicro is an integer, without noise",
-   "boundMicro is an integer, without noise"
-  ],
-  "aggregate-noisy-without-epsilon": [
-   "An aggregate with noise names its epsilonMilli",
-   "an aggregate with noise names its epsilonMilli"
   ],
   "aggregate-negative-count": [
    "counts are never negative",

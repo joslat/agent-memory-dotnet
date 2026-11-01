@@ -13,7 +13,7 @@ namespace AgentMemory.Tests.Unit.Extensibility;
 public sealed class AggregateTests
 {
     [Fact]
-    public void An_aggregate_carries_counts_and_verdicts_and_no_text_and_noise_hides_the_counts()
+    public void An_aggregate_carries_counts_and_verdicts_and_no_text_and_names_only_its_own_pack()
     {
         var publisher = PackAuthoring.CreateKey();
         var evaluator = PackAuthoring.CreateKey();
@@ -37,19 +37,18 @@ public sealed class AggregateTests
         var decision = PackTrialGate.Decide(pack.Manifest, arm, none, DateTimeOffset.UtcNow, pack.Digest) with { Reason = "a reason that names src/secret/Plan.cs" };
 
         var exact = PackAggregates.Create(pack, decision, evaluator.PrivateKeyPem);
-        var (read, problems) = PackAggregate.Verify(exact, pack.Digest, trust.Policy, DateTimeOffset.UtcNow);
+        var (read, problems) = PackAggregate.Verify(exact, pack.Id, pack.Version, pack.Digest, trust.Policy, DateTimeOffset.UtcNow);
         problems.Should().BeEmpty();
         read!.Checks.Should().ContainSingle().Which.Should().Be(new AggregateCheck("hitRate", 7, 10, 500000, read.Checks[0].BoundMicro, true));
         read.Mechanism.Should().Be("none");
         var payload = Encoding.UTF8.GetString(Dsse.FromBase64(JsonNode.Parse(exact)!["payload"]!.GetValue<string>())!);
         payload.Should().NotContain("secret").And.NotContain("Lyon").And.NotContain("lyon-review", "an aggregate copies no text from the decision or the pack");
 
-        var noisy = PackAggregate.Verify(PackAggregates.Create(pack, decision, evaluator.PrivateKeyPem, epsilonMilli: 500), pack.Digest, trust.Policy, DateTimeOffset.UtcNow).Aggregate!;
-        noisy.Mechanism.Should().Be("discrete-laplace");
-        noisy.Checks[0].BoundMicro.Should().BeNull("noise makes a bound approximate, so none is stated");
-        noisy.Checks[0].Successes.Should().BeGreaterThanOrEqualTo(0);
+        // Review 11-13, H6: of this pack in every name it gives, not only its digest.
+        PackAggregate.Verify(exact, "com.example.other", pack.Version, pack.Digest, trust.Policy, DateTimeOffset.UtcNow).Aggregate.Should().BeNull();
+        PackAggregate.Verify(exact, pack.Id, "9.9.9", pack.Digest, trust.Policy, DateTimeOffset.UtcNow).Aggregate.Should().BeNull();
 
-        PackAggregate.Verify(PackAggregates.Create(pack, decision, publisher.PrivateKeyPem), pack.Digest, trust.Policy, DateTimeOffset.UtcNow)
+        PackAggregate.Verify(PackAggregates.Create(pack, decision, publisher.PrivateKeyPem), pack.Id, pack.Version, pack.Digest, trust.Policy, DateTimeOffset.UtcNow)
             .Aggregate.Should().BeNull("a publisher key is not trusted as evaluator");
     }
 }

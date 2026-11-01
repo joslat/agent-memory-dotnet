@@ -2291,6 +2291,12 @@
   ],
   "aggregate-by-a-publisher-key": [
    "R-CORE-140"
+  ],
+  "aggregate-under-another-id": [
+   "R-CORE-140"
+  ],
+  "aggregate-under-another-version": [
+   "R-CORE-140"
   ]
  }
 }

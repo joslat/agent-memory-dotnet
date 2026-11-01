@@ -1497,9 +1497,9 @@
    "doc": "core.md",
    "section": "17d",
    "level": "MUST",
-   "summary": "A host MAY share what a trial showed, never what it ran on, as a trial aggregate: a DSSE envelope of an in-toto statement of `urn:agentmemory:pack:trial-aggregate:v1` whose subject is the pack's file list and whose predicate holds exactly the pack's `id`, `version` and `digest`, the `measure`, the number of `tasks`, a `window` (`from` and `to`, instants in UTC to the second), the `mechanism` (`none`, or `discrete-laplace` with `epsilonMilli`, 1 to 100,000), the `decision` (`sha256:` over the decision record's statement) and, per target, its `successes` and `trials`, its `requiredMicro`, its `boundMicro` (without noise only) and whether it was `met`, and `passed`. It names no task, question, record or path: every verifier MUST refuse a member the registry does not give. With noise, each count carries integer discrete-Laplace noise and no bound is stated, so a reader treats it as approximate. Every verifier MUST refuse an aggregate whose counts are negative, whose successes exceed their trials without noise, whose `met` disagrees with its bound, whose `passed` is not whether every check was met, which is of another pack, or which no key the reader trusts as evaluator for the pack's id signed. A host MUST share one only with its operator's consent, per pack and per recipient.",
+   "summary": "A host MAY share what a trial showed, never what it ran on, as a trial aggregate: a DSSE envelope of an in-toto statement of `urn:agentmemory:pack:trial-aggregate:v1` whose subject is the pack's file list and whose predicate holds exactly the pack's `id`, `version` and `digest`, the `measure`, the number of `tasks`, a `window` (`from` and `to`, instants in UTC to the second), the `mechanism` (`none`: exact counts), the `decision` (`sha256:` over the decision record's statement) and, per target, its `successes` and `trials`, its `requiredMicro`, its `boundMicro` and whether it was `met`, and `passed`. It names no task, question, record or path: every verifier MUST refuse a member the registry does not give. Every verifier MUST refuse an aggregate whose mechanism the registry does not list, whose counts are negative or whose successes exceed their trials, whose `met` disagrees with its bound, whose `passed` is not whether every check was met, whose `id`, `version` or `digest` is not the pack's, or which no key the reader trusts as evaluator for the pack's id signed. A host MUST share one only with its operator's consent, per pack and per recipient.",
    "verifiedBy": [
-    "unit:AggregateTests.An_aggregate_carries_counts_and_verdicts_and_no_text_and_noise_hides_the_counts",
+    "unit:AggregateTests.An_aggregate_carries_counts_and_verdicts_and_no_text_and_names_only_its_own_pack",
     "kit:aggregate-with-a-task-name",
     "kit:aggregate-bound-disagrees-with-met"
    ]
@@ -2895,9 +2895,9 @@
    "doc": "profiles/trial.md",
    "section": "7",
    "level": "MUST",
-   "summary": "A decision MAY admit a pack in part (feature 11): each part is the first relation of the reason paths of the offers it made (`NAME:out` or `NAME:in`), or `(anchor)` for the anchors' own records, measured on the trial's tasks; a part is admitted when it meets every target alone at the trial's confidence corrected for the number of parts (Bonferroni on alpha: the least confidence the statistic's tables hold at or above `1 - (1 - c) / parts`; none admitted when the tables hold none). The record carries each part's evidence, and a host MUST recheck each admitted part from it as it rechecks a whole decision. A walk MUST follow, from the anchors, only the relations admitted, decided where it chooses them, and MUST NOT offer an anchor's own record unless `(anchor)` is admitted.",
+   "summary": "A decision MAY report a pack's parts (feature 11): each part is the first relation of the reason paths of the offers it made (`NAME:out` or `NAME:in`), or `(anchor)` for the anchors' own records, measured on the trial's tasks and decided alone at the trial's confidence corrected for the number of parts (Bonferroni on alpha: the least confidence the statistic's tables hold at or above `1 - (1 - c) / parts`). The record carries each part's evidence. A host MUST NOT admit a pack in part on such a report: the union of the parts that would go live is not what was measured. A walk that is given admitted parts follows, from the anchors, only those relations, decided where it chooses them.",
    "verifiedBy": [
-    "unit:TrialGateTests.A_pack_that_fails_whole_is_admitted_in_the_parts_that_pass_alone_at_a_corrected_confidence",
+    "unit:TrialGateTests.A_pack_that_fails_whole_reports_the_parts_that_pass_alone_and_admits_none",
     "unit:PackMemoryTests.A_partly_admitted_pack_s_walk_follows_only_its_admitted_relations_and_offers_only_admitted_anchors"
    ]
   },
@@ -2906,7 +2906,7 @@
    "doc": "profiles/trial.md",
    "section": "7",
    "level": "MUST",
-   "summary": "A host MAY run a pack dark (a shadow trial, feature 11): its contributors run on live turns, and what they would offer MUST go to a log on the host and MUST NOT reach the context. The log holds each turn's time, anchors and offers by record id, key, type, the first relation of the reason path and the host's locator, never record text, and never leaves the host. A decision made from it MUST be the same decision as any trial's, on as many labelled turns as the trial runs, each labelled by the trial's rule for an expected result, and records `history: \"shadow\"`.",
+   "summary": "A host MAY run a pack dark (a shadow trial, feature 11). A dark pack is composed but not judged by the trial gate, and is out of every live view and walk: it neither offers, seeds, steers nor spends a live walk's budgets. Its contributors run on their own walk, and what they would offer on every turn, offered or not, MUST go to a log on the host and MUST NOT reach the context. The log holds each turn's id, time, anchors, the pack's digest and version, the contributor's time, and its offers by record id, key, type, the first relation of the reason path and the host's locator, never record text, and never leaves the host. A decision made from it MUST be the same decision as any trial's, for exactly the pack the turns name, on one turn per labelled outcome, as many as the trial runs, and records `history: \"shadow\"`.",
    "verifiedBy": [
     "unit:ModuleActivationTests.A_module_that_runs_dark_records_what_it_would_offer_and_never_contributes_it"
    ]

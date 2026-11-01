@@ -36,7 +36,7 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
     public async Task<int> ExecuteAsync(string? packId, string? repo, string? hostKeyPath, string? activationsFolder, string? variant, string? outputPath,
         string? packPath = null, string? trustPath = null, string? previousPath = null, string history = "parent", bool partial = false, string? shadowPath = null, string? tasksPath = null)
     {
-        if (packId != CodeMapPack.Id)
+        if (tasksPath is null && packId != CodeMapPack.Id)
         {
             output.WriteLine($"error: evaluate --gate supports {CodeMapPack.Id} (measure test-impact).");
             return 2;
@@ -68,6 +68,29 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
         {
             output.WriteLine($"error: {hostKeyPath} is not a host signing key: {e.Message}");
             return 2;
+        }
+        // A retrieval trial (feature 12; review 11-13, H5: the gate refused every pack but the code map's definition, so it never
+        // ran): a knowledge pack, its own trial, the host's task file.
+        if (tasksPath is not null)
+        {
+            if (packPath is null || trustPath is null || !File.Exists(trustPath))
+            {
+                output.WriteLine("error: a retrieval trial needs --pack <knowledge.ampack> and --trust <trust.json>.");
+                return 2;
+            }
+            LoadedPack knowledgePack;
+            try { knowledgePack = PackLoader.Load(packPath, PackTrust.Load(trustPath)); }
+            catch (PackLoadException e)
+            {
+                output.WriteLine("error: " + e.Message);
+                return 1;
+            }
+            if (knowledgePack.Id != packId || knowledgePack.Manifest.Trial is not { Measure: "retrieval" } retrieval)
+            {
+                output.WriteLine($"error: {packPath} is {knowledgePack.Id}, whose trial is not a retrieval trial; --tasks runs one.");
+                return 2;
+            }
+            return await RetrievalAsync(tasksPath, knowledgePack, knowledgePack.Manifest, retrieval, activationsFolder, hostKey).ConfigureAwait(false);
         }
         // A weakened variant is an experiment, not a version of the pack: its decisions are kept apart, where no gate reads
         // them, so it can never stand in an upgrade chain as "the version that passed here" (review 2, M10).
@@ -136,7 +159,11 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
         }
         var root = Path.GetFullPath(repo ?? ".");
         if (shadowPath is not null) return DecideFromShadow(shadowPath, root, manifest, trial, asPack?.Digest, activationsFolder, hostKey);
-        if (trial.Measure == "retrieval") return await RetrievalAsync(tasksPath, pack, manifest, trial, activationsFolder, hostKey).ConfigureAwait(false);
+        if (trial.Measure == "retrieval")
+        {
+            output.WriteLine("error: this pack's trial is a retrieval trial: give the host's task file with --tasks.");
+            return 2;
+        }
         var tasks = HistoryTasks(root, trial.Tasks, history, out var spacing);
         output.WriteLine($"{manifest.Id} {manifest.Version}{(variant is null ? "" : " (" + variant + ")")}: {tasks.Count} tasks from this repository's history, "
             + (history == "parent" ? "each at its commit's parent (map and grep as they stood before the change)" : "against the repository as it is now (head)"));
@@ -463,7 +490,9 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
             var rows = new List<(RetrievalTask Task, int Offered, int Right, double Ms, double BaseMs)>();
             foreach (var task in answerable.Concat(abstaining))
             {
-                await Offers(with, task).ConfigureAwait(false); // a first compile warms the store's caches
+                // A first compile of each arm warms the store's caches (review 11-13: only the pack's arm was warmed).
+                await Offers(with, task).ConfigureAwait(false);
+                await Offers(without, task).ConfigureAwait(false);
                 var (offered, ms) = await Offers(with, task).ConfigureAwait(false);
                 var (_, baseMs) = await Offers(without, task).ConfigureAwait(false);
                 rows.Add((task, offered.Count, offered.Count(k => task.Expected.Contains(k, StringComparer.Ordinal)), ms, baseMs));
@@ -518,7 +547,13 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
             return 2;
         }
         IReadOnlyList<ShadowTurn> turns;
-        try { turns = [.. ShadowLogFile.Read(shadowPath).Where(t => t.ModuleId == manifest.Id)]; }
+        // Only turns this exact pack ran dark on (review 11-13, H4), each turn once whatever contributors it had.
+        try
+        {
+            turns = [.. ShadowLogFile.Read(shadowPath).Where(t => t.ModuleId == manifest.Id && t.PackDigest == packDigest)
+                .GroupBy(t => t.TurnId, StringComparer.Ordinal)
+                .Select(g => g.First() with { Offers = [.. g.SelectMany(t => t.Offers)], Milliseconds = g.Sum(t => t.Milliseconds) })];
+        }
         catch (Exception e) when (e is InvalidDataException or IOException)
         {
             output.WriteLine("error: " + e.Message);
@@ -529,7 +564,10 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
         {
             var paths = t.Anchors.Where(a => a.StartsWith("path:", StringComparison.Ordinal)).Select(a => a[5..]).ToHashSet(StringComparer.OrdinalIgnoreCase);
             return (Turn: t, Outcome: commits.Where(c => c.At > t.At && c.Anchors.Any(paths.Contains)).MinBy(c => c.At));
-        }).Where(l => l.Outcome is not null).OrderByDescending(l => l.Turn.At).Take(trial.Tasks).ToList();
+        }).Where(l => l.Outcome is not null)
+            // One task per labelling commit, its last turn before it (review 11-13: many turns sharing one label are not independent).
+            .GroupBy(l => l.Outcome!.Commit, StringComparer.Ordinal).Select(g => g.MaxBy(l => l.Turn.At))
+            .OrderByDescending(l => l.Turn.At).Take(trial.Tasks).ToList();
         output.WriteLine($"{manifest.Id} {manifest.Version}: {turns.Count} shadow turns, {labelled.Count} labelled by a later commit (a trial runs {trial.Tasks})");
         if (labelled.Count < trial.Tasks)
         {
@@ -543,8 +581,9 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
         }).ToList();
         var withArm = new PackTrialMeasurement
         {
-            Tasks = per.Count, Hits = per.Count(t => t.Correct > 0), Offered = per.Sum(t => t.Offered), Correct = per.Sum(t => t.Correct), P95Ms = 0,
-            PerTask = per, MaximumOffered = manifest.Traversal?.MaxItems,
+            // The pack's own time on each turn, as the shadow contributor measured it (review 11-13: both arms were 0 ms).
+            Tasks = per.Count, Hits = per.Count(t => t.Correct > 0), Offered = per.Sum(t => t.Offered), Correct = per.Sum(t => t.Correct),
+            P95Ms = P95Of(labelled.Select(l => l.Turn.Milliseconds)), PerTask = per, MaximumOffered = manifest.Traversal?.MaxItems,
         };
         var withoutArm = new PackTrialMeasurement
         {
@@ -556,6 +595,12 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
         output.WriteLine($"  decision {(decision.Active ? "ON" : "OFF")}: {decision.Reason}");
         output.WriteLine($"  signed   {record}");
         return decision.Active ? 0 : 1;
+    }
+
+    private static double P95Of(IEnumerable<double> times)
+    {
+        var sorted = times.Order().ToArray();
+        return sorted.Length == 0 ? 0 : Math.Round(sorted[Math.Min(sorted.Length - 1, (int)Math.Ceiling(0.95 * sorted.Length) - 1)], 1);
     }
 
     // One task through one arm: the test files it offered, how many were right, and how long the compile took.

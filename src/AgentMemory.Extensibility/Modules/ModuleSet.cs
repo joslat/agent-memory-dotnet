@@ -27,6 +27,7 @@ public sealed class ModuleSet
     private readonly IReadOnlyList<ModuleRegistration> _registrations;
     // One walk service per service scope: the store's traversal reader may depend on scoped services (CMP-1).
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<IServiceProvider, Context.Traversal.TraversalService> _traversal = new();
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<IServiceProvider, Context.Traversal.TraversalService> _darkTraversal = new();
 
     private ModuleSet(ModuleResolution resolution, IReadOnlyList<ActiveModule> modules, string compositionFingerprint,
         string fingerprint, IModuleStoreAdapter? store, IReadOnlyList<ModuleRegistration> registrations, IReadOnlyList<SwitchedOffModule> switchedOff)
@@ -61,8 +62,9 @@ public sealed class ModuleSet
     {
         var policy = PackTrialPolicy.Of(builder);
         if (policy.Problems(decisions: builder.Activations is not null) is { Count: > 0 } invalid) throw new ModuleActivationException(invalid);
+        // A module that runs dark is exempt from the gate: it offers nothing, and its trial is what it runs dark for (review 11-13, H1).
         var (registrations, switchedOff) = PackTrialGate.Apply(builder.Modules, builder.Activations, policy,
-            (services.GetService<TimeProvider>() ?? TimeProvider.System).GetUtcNow());
+            (services.GetService<TimeProvider>() ?? TimeProvider.System).GetUtcNow(), builder.Shadows.Keys.ToHashSet(StringComparer.Ordinal));
         var store = builder.Store;
         var provider = store?.Provider ?? "none";
         var profile = builder.Profile?.Without(switchedOff.Select(o => o.ModuleId).ToHashSet(StringComparer.Ordinal)) ?? ImplicitProfile(registrations, provider);
@@ -165,7 +167,9 @@ public sealed class ModuleSet
                 expiring.OffAfter == expiring.DecisionExpires ? "its trial decision expired" : "the pack was valid until then") : c)
           // A module that runs dark: its offers are recorded, never contributed (feature 11, R2).
           .Select(c => Shadows.FirstOrDefault(s => ModuleIdentity.IsOwnedId(s.Key, c.Descriptor.Id)) is { Key: not null } shadow
-            ? new ShadowContributor(c, shadow.Key, shadow.Value.Recorder, shadow.Value.Locate, services.GetService<TimeProvider>() ?? TimeProvider.System) : c)];
+            ? new ShadowContributor(c, shadow.Key, shadow.Value.Recorder, shadow.Value.Locate, services.GetService<TimeProvider>() ?? TimeProvider.System,
+                _registrations.FirstOrDefault(r => r.Manifest.Id == shadow.Key)?.PackDigest, _registrations.FirstOrDefault(r => r.Manifest.Id == shadow.Key)?.Manifest.Version.ToString())
+            : c)];
 
     /// <summary>
     /// The module of each contributor slot the host registered (<see cref="CountContributors"/>: every contributor of every
@@ -242,7 +246,7 @@ public sealed class ModuleSet
         // A view may read its dependencies' types: an expired dependency's records leave its answers too (review 2, M2's twin).
         // Every read also keeps only the records live in world time at its pin (feature 07).
         var clock = services.GetService<TimeProvider>() ?? TimeProvider.System;
-        return new LiveReader(reader, Live(services), clock, r => Erased(r) || Withheld(r, clock.GetUtcNow()), MinimumConfidenceMicro);
+        return new LiveReader(reader, Live(services, dark: Shadows.ContainsKey(moduleId)), clock, r => Erased(r) || Withheld(r, clock.GetUtcNow()), MinimumConfidenceMicro);
     }
 
     // Drops the records of modules that are not live now, and the records not live in world time at the read's valid-time pin
@@ -308,11 +312,25 @@ public sealed class ModuleSet
     // The floor holds in the walk as in a view (review F09, H3): the stores keep it before their cuts, and the walk where it seeds,
     // steers and offers.
     internal Context.Traversal.TraversalService Traversal(IServiceProvider services) =>
-        _traversal.GetValue(services, s => new Context.Traversal.TraversalService(Resolution, Store?.CreateTraversalReader(s, Resolution), Live(s),
+        _traversal.GetValue(services, s => Walk(s, dark: false));
+
+    /// <summary>
+    /// The walk a module running dark takes (feature 11; review 11-13, H2): every module, its own included. The live walk leaves
+    /// dark modules out entirely, so they neither seed, steer, spend its budgets nor name anything in a live reason path.
+    /// </summary>
+    internal Context.Traversal.TraversalService DarkTraversal(IServiceProvider services) =>
+        _darkTraversal.GetValue(services, s => Walk(s, dark: true));
+
+    /// <summary>The walk for one module's traversal contributor: the dark walk for a module running dark, else the live one.</summary>
+    internal Context.Traversal.TraversalService TraversalFor(string moduleId, IServiceProvider services) =>
+        Shadows.ContainsKey(moduleId) ? DarkTraversal(services) : Traversal(services);
+
+    private Context.Traversal.TraversalService Walk(IServiceProvider s, bool dark) =>
+        new Context.Traversal.TraversalService(Resolution, Store?.CreateTraversalReader(s, Resolution), Live(s, dark),
             s.GetService<TimeProvider>() ?? TimeProvider.System,
             r => !Erased(r) && !Withheld(r, (s.GetService<TimeProvider>() ?? TimeProvider.System).GetUtcNow())
                 && Packs.ModuleConfidence.Clears(r.ConfidenceMicro, MinimumConfidenceMicro),
-            MinimumConfidenceMicro, _registrations.Any(r => r.AdmittedParts is not null) ? Admitted : null));
+            MinimumConfidenceMicro, _registrations.Any(r => r.AdmittedParts is not null) ? Admitted : null);
 
     // Whether a module's decision admitted this part of it (feature 11, R3): a relation it starts a path with, or (null) an anchor's
     // own record. A module admitted whole admits every part.
@@ -321,14 +339,16 @@ public sealed class ModuleSet
 
     // Whether a module may take part in a walk now: a pack past its validUntil goes silent in the walk as its contributors
     // do (review 1, M2), so it neither spends the walk's budgets nor leads it to other modules' records.
-    private Func<string, bool>? Live(IServiceProvider services)
+    // dark: for a module running dark, which sees every module; otherwise the modules running dark are not live (review 11-13, H2).
+    private Func<string, bool>? Live(IServiceProvider services, bool dark = false)
     {
         var expiring = _registrations.Where(r => r.OffAfter is not null).ToDictionary(r => r.Manifest.Id, r => r.OffAfter!.Value, StringComparer.Ordinal);
-        if (expiring.Count == 0) return null;
+        var hidden = dark ? [] : Shadows.Keys.ToHashSet(StringComparer.Ordinal);
+        if (expiring.Count == 0 && hidden.Count == 0) return null;
         var clock = services.GetService<TimeProvider>() ?? TimeProvider.System;
         // Valid through the instant itself, off after it, as every twin reads validUntil (review 2: the walk dropped a pack at
         // the instant its contributors and serve still kept).
-        return id => !expiring.TryGetValue(id, out var until) || clock.GetUtcNow() <= until;
+        return id => !hidden.Contains(id) && (!expiring.TryGetValue(id, out var until) || clock.GetUtcNow() <= until);
     }
 
     /// <summary>The modules that add ingestion providers, which need a store binding.</summary>

@@ -1879,7 +1879,7 @@ def read_aggregate(payload):
     return p, end
 
 
-def verify_aggregate(envelope_bytes, digest, policy, now):
+def verify_aggregate(envelope_bytes, pid, version, digest, policy, now):
     """A host's trial aggregate of the pack with this digest (feature 13): signed by a key trusted as evaluator for its id."""
     if len(envelope_bytes) > MAX_ENVELOPE:
         raise Refused("the aggregate is larger than 64 KiB")
@@ -1893,7 +1893,8 @@ def verify_aggregate(envelope_bytes, digest, policy, now):
     except (ValueError, binascii.Error):
         raise Refused("the aggregate's payload is not base64")
     p, end = read_aggregate(payload)
-    if p["digest"] != digest:
+    # Of this pack in every name it gives, as .NET (review 11-13, H6).
+    if p["digest"] != digest or p["id"] != pid or p["version"] != version:
         raise Refused("the aggregate is of another pack")
     keys = {k["keyId"]: k for k in policy.get("keys", [])}
     revoked_keys = {r["keyId"] for r in policy.get("revoked", {}).get("keys", [])}
@@ -2106,7 +2107,7 @@ def main(argv):
             pred = verify_erasure(envelope, pid, policy, now, federation["publisher"] if federation else None)
             print(f"verified the erasure of {len(pred['records'])} record(s) of {shown(pid)} ({pred['reason']})")
         if aggregate_path is not None:
-            pred = verify_aggregate(read_file(aggregate_path, "the aggregate"), digest, policy, now)
+            pred = verify_aggregate(read_file(aggregate_path, "the aggregate"), pid, version, digest, policy, now)
             print(f"verified the aggregate of {shown(pid)} {shown(pred['version'])}: {pred['tasks']} tasks, {pred['mechanism']}")
     except Refused as e:
         print(f"refused: {shown(e)}")

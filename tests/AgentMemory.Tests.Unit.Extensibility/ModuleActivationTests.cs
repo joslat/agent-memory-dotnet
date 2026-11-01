@@ -112,6 +112,8 @@ public sealed class ModuleActivationTests
         envelope.Sections.Should().ContainSingle().Which.Items.Single().Text.Should().Be("Review the Lyon plan");
         var turn = recorder.Turns.Should().ContainSingle().Subject;
         turn.ModuleId.Should().Be(Topics);
+        turn.TurnId.Should().NotBeEmpty();
+        turn.Milliseconds.Should().BeGreaterThanOrEqualTo(0);
         turn.Anchors.Should().Equal("path:plans/lyon.md");
         turn.Offers.Should().ContainSingle().Which.Should().BeEquivalentTo(new ShadowOffer
             { RecordId = "v1", Key = "lyon", Type = "TopicsNote", ViaRelation = "TOPICS_ABOUT:out", Locator = "notes/lyon.md" });

@@ -58,7 +58,8 @@ internal sealed record PackAggregate(string Id, string Version, string Digest, s
     /// Verifies an aggregate of the pack whose file list has <paramref name="digest"/>: a DSSE envelope signed by a key the reader
     /// trusts as evaluator for the pack's id, its statement read strictly and its counts consistent.
     /// </summary>
-    internal static (PackAggregate? Aggregate, IReadOnlyList<string> Problems) Verify(ReadOnlySpan<byte> envelopeBytes, string digest, TrustPolicy policy, DateTimeOffset now)
+    internal static (PackAggregate? Aggregate, IReadOnlyList<string> Problems) Verify(ReadOnlySpan<byte> envelopeBytes, string id, string version, string digest,
+        TrustPolicy policy, DateTimeOffset now)
     {
         if (envelopeBytes.Length > Dsse.MaximumEnvelopeBytes) return (null, [$"The aggregate is larger than {Dsse.MaximumEnvelopeBytes / 1024} KiB."]);
         if (PackJson.Check(envelopeBytes) is { } malformed) return (null, [$"The aggregate {malformed}."]);
@@ -72,7 +73,10 @@ internal sealed record PackAggregate(string Id, string Version, string Digest, s
         if (Dsse.FromBase64(payloadText) is not { } payload) return (null, ["The aggregate's payload is not base64."]);
         var (aggregate, problem) = Read(payload);
         if (aggregate is null) return (null, [problem!]);
-        if (aggregate.Digest != digest) return (null, [$"The aggregate is of {aggregate.Digest}, not this pack ({digest})."]);
+        // Of this pack in every name it gives (review 11-13, H6: a key trusted for one namespace vouched for any pack whose digest it
+        // named, under another id, as a certificate's id and version are held to the pack's).
+        if (aggregate.Digest != digest || aggregate.Id != id || aggregate.Version != version)
+            return (null, [$"The aggregate is of {aggregate.Id} {aggregate.Version} ({aggregate.Digest}), not this pack, {id} {version} ({digest})."]);
         var hash = SHA256.HashData(Dsse.Pae(Dsse.PayloadType, payload));
         var refusals = new List<string>();
         foreach (var entry in signatures.EnumerateArray())
@@ -102,7 +106,7 @@ internal sealed record PackAggregate(string Id, string Version, string Digest, s
         if (!statement.TryGetProperty("predicate", out var p) || p.ValueKind != JsonValueKind.Object
             || p.EnumerateObject().Any(f => !PackRegistry.Shape("aggregatePredicate").Contains(f.Name)))
             return (null, "The aggregate's predicate holds only the registry's fields: no task, question, record or path has a place in it.");
-        if (Str(p, "id") is not { } id || !PackManifest.IsValidId(id) || Str(p, "version") is not { Length: > 0 and <= 256 } version)
+        if (Str(p, "id") is not { } id || !PackManifest.IsValidId(id) || Str(p, "version") is not { } version || PackText.Length(version) is 0 or > 256)
             return (null, "The aggregate names a valid pack id and version.");
         if (Str(p, "digest") is not { } digest || !IsDigest(digest)) return (null, "The aggregate's digest is sha256: and 64 lowercase hexadecimal characters.");
         if (!statement.TryGetProperty("subject", out var subject) || subject.ValueKind != JsonValueKind.Array || subject.GetArrayLength() != 1

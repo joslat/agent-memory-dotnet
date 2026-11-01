@@ -1247,11 +1247,10 @@
     }
   },
   "aggregate": {
-    "about": "Feature 13: a host's signed aggregate of a trial: counts, bounds and verdicts, optionally with integer noise; no task, record or path.",
+    "about": "Feature 13: a host's signed aggregate of a trial: exact counts, bounds and verdicts; no task, record or path. Noise is not offered: see feature 13 section 11.",
     "predicateType": "urn:agentmemory:pack:trial-aggregate:v1",
     "mechanisms": [
-      "none",
-      "discrete-laplace"
+      "none"
     ],
     "roles": [
       "evaluator"

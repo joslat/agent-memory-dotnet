@@ -604,11 +604,12 @@ fn read_aggregate(ctx: &Ctx, payload: &[u8]) -> R<(Obj, Ticks)> {
     Ok((p, end))
 }
 
-/// A host's trial aggregate of the pack with this digest (feature 13): signed by a key trusted as evaluator for its id.
-pub fn verify_aggregate(ctx: &Ctx, bytes: &[u8], digest: &str) -> R<Obj> {
+/// A host's trial aggregate of this pack (feature 13): of its id, version and digest, signed by a key trusted as evaluator for its id.
+pub fn verify_aggregate(ctx: &Ctx, bytes: &[u8], pid: &str, version: &str, digest: &str) -> R<Obj> {
     let (payload, entries) = envelope(ctx, bytes, "the aggregate")?;
     let (p, end) = read_aggregate(ctx, &payload)?;
-    if p.str("digest") != Some(digest) {
+    // Of this pack in every name it gives, as .NET and Python (review 11-13, H6).
+    if p.str("digest") != Some(digest) || p.str("id") != Some(pid) || p.str("version") != Some(version) {
         refuse!("the aggregate is of another pack");
     }
     let id = p.str("id").unwrap_or("").to_string();

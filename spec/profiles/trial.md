@@ -297,19 +297,20 @@ gate options, the floor among them, and decide by the same rule as the host.
 the pack stays off until it is trialled again, and a pack kept on by a decision MUST go silent when its days end, checked
 while the host runs, as a pack past its `validUntil` does.
 
-**R-TRIAL-060.** A decision MAY admit a pack in part (feature 11): each part is the first relation of the reason paths of the
-offers it made (`NAME:out` or `NAME:in`), or `(anchor)` for the anchors' own records, measured on the trial's tasks; a part is
-admitted when it meets every target alone at the trial's confidence corrected for the number of parts (Bonferroni on alpha:
-the least confidence the statistic's tables hold at or above `1 - (1 - c) / parts`; none admitted when the tables hold none).
-The record carries each part's evidence, and a host MUST recheck each admitted part from it as it rechecks a whole decision.
-A walk MUST follow, from the anchors, only the relations admitted, decided where it chooses them, and MUST NOT offer an
-anchor's own record unless `(anchor)` is admitted.
+**R-TRIAL-060.** A decision MAY report a pack's parts (feature 11): each part is the first relation of the reason paths of the
+offers it made (`NAME:out` or `NAME:in`), or `(anchor)` for the anchors' own records, measured on the trial's tasks and decided
+alone at the trial's confidence corrected for the number of parts (Bonferroni on alpha: the least confidence the statistic's
+tables hold at or above `1 - (1 - c) / parts`). The record carries each part's evidence. A host MUST NOT admit a pack in part
+on such a report: the union of the parts that would go live is not what was measured. A walk that is given admitted parts
+follows, from the anchors, only those relations, decided where it chooses them.
 
-**R-TRIAL-061.** A host MAY run a pack dark (a shadow trial, feature 11): its contributors run on live turns, and what they would
-offer MUST go to a log on the host and MUST NOT reach the context. The log holds each turn's time, anchors and offers by record
-id, key, type, the first relation of the reason path and the host's locator, never record text, and never leaves the host. A
-decision made from it MUST be the same decision as any trial's, on as many labelled turns as the trial runs, each labelled by
-the trial's rule for an expected result, and records `history: "shadow"`.
+**R-TRIAL-061.** A host MAY run a pack dark (a shadow trial, feature 11). A dark pack is composed but not judged by the trial
+gate, and is out of every live view and walk: it neither offers, seeds, steers nor spends a live walk's budgets. Its
+contributors run on their own walk, and what they would offer on every turn, offered or not, MUST go to a log on the host and
+MUST NOT reach the context. The log holds each turn's id, time, anchors, the pack's digest and version, the contributor's time,
+and its offers by record id, key, type, the first relation of the reason path and the host's locator, never record text, and
+never leaves the host. A decision made from it MUST be the same decision as any trial's, for exactly the pack the turns name, on
+one turn per labelled outcome, as many as the trial runs, and records `history: "shadow"`.
 
 **R-TRIAL-062.** A retrieval trial (feature 12) runs on a host's task file, `agentmemory.trial.tasks/1`: tasks of a question,
 the instant it was asked (UTC, to the second), optionally its path or symbol anchors and its ability (`fact`, `update`,

@@ -110,6 +110,9 @@ SHAPES = ("envelope-extra-field", "entry-extra-key", "entry-without-sig", "keyid
 # Review 5, L6 (root RJ): a refused vector proves its rule only if it is refused for that rule. Each vector named here must be
 # refused by both verifiers with the reason given (a pattern on each one's output); one refused for another reason fails.
 REASONS = {
+    "aggregate-noisy": ("mechanism is none", "mechanism is none"),
+    "aggregate-noisy-with-a-bound": ("mechanism is none", "mechanism is none"),
+    "aggregate-noisy-without-epsilon": ("mechanism is none", "mechanism is none"),
     "policy-no-rules": ("policy.json holds 1 to 64 rules", "policy.json holds 1 to 64 rules"),
     "policy-audience-empty": ("audience is 1 to 16 distinct entries", "audience is 1 to 16 distinct entries"),
     "policy-audience-not-a-webid": ("audience is 1 to 16 distinct entries", "audience is 1 to 16 distinct entries"),
@@ -1574,8 +1577,12 @@ def main():
     one_check = {"target": "hitRate", "successes": 30, "trials": 40, "requiredMicro": 500000, "boundMicro": 600000, "met": True}
     aggregates = {
         "aggregate-valid": (aggregate(certified), "trust-evaluator.json", "verified"),
+        # Review 11-13, H7: noise is not offered, so an aggregate that claims it is refused.
         "aggregate-noisy": (aggregate(certified, mechanism="discrete-laplace", epsilonMilli=1000,
-                                      checks=[{"target": "hitRate", "successes": 31, "trials": 39, "requiredMicro": 500000, "met": True}]), "trust-evaluator.json", "verified"),
+                                      checks=[{"target": "hitRate", "successes": 31, "trials": 39, "requiredMicro": 500000, "met": True}]), "trust-evaluator.json", "refused"),
+        # Review 11-13, H6: an aggregate names this pack's id and version too, not only its digest.
+        "aggregate-under-another-id": (aggregate(certified, id="io.example.other"), "trust-evaluator.json", "refused"),
+        "aggregate-under-another-version": (aggregate(certified, version="9.9.9"), "trust-evaluator.json", "refused"),
         "aggregate-with-a-task-name": (aggregate(certified, tasks_=["When is the Lyon review?"]), "trust-evaluator.json", "refused"),
         "aggregate-check-with-a-path": (aggregate(certified, checks=[{**one_check, "path": "src/Map.cs"}]), "trust-evaluator.json", "refused"),
         "aggregate-successes-above-trials": (aggregate(certified, checks=[{**one_check, "successes": 41}]), "trust-evaluator.json", "refused"),
@@ -1583,8 +1590,7 @@ def main():
         "aggregate-noisy-with-a-bound": (aggregate(certified, mechanism="discrete-laplace", epsilonMilli=1000), "trust-evaluator.json", "refused"),
         "aggregate-noisy-without-epsilon": (aggregate(certified, mechanism="discrete-laplace", checks=[{k: v for k, v in one_check.items() if k != "boundMicro"}]),
                                             "trust-evaluator.json", "refused"),
-        "aggregate-negative-count": (aggregate(certified, mechanism="discrete-laplace", epsilonMilli=1000,
-                                               checks=[{"target": "hitRate", "successes": -1, "trials": 39, "requiredMicro": 500000, "met": True}]), "trust-evaluator.json", "refused"),
+        "aggregate-negative-count": (aggregate(certified, checks=[{**one_check, "successes": -1, "boundMicro": 600000}]), "trust-evaluator.json", "refused"),
         "aggregate-passed-disagrees": (aggregate(certified, passed=False), "trust-evaluator.json", "refused"),
         "aggregate-of-another-pack": (aggregate(certified, digest="sha256:" + "ab" * 32), "trust-evaluator.json", "refused"),
         "aggregate-by-a-publisher-key": (aggregate(certified, signer=key), "trust.json", "refused"),

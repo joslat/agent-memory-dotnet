@@ -55,7 +55,7 @@ public sealed class ChokePointRatchetTests
         ("src/AgentMemory.Extensibility/Modules/CompositeManifest.cs", "file read", 1, "a composite embedded in an assembly the host was configured with"),
         ("src/AgentMemory.Extensibility/Packs/KnowledgePack.cs", "file read", 1, "an entry of a NuGet package, read at most to the size it states (review 8, A10)"),
         ("src/AgentMemory.Extensibility/Packs/KnowledgePack.cs", "archive open", 1, "a NuGet package: at most 512 bundle files and 16 MiB as stated, each entry read at most to its stated size"),
-        ("tools/AgentMemory.Cli/Commands/PackGateCommand.cs", "file read", 3, "the operator's host key, the host's own repository files for the grep baseline, and the host's own task file (feature 12)"),
+        ("tools/AgentMemory.Cli/Commands/PackGateCommand.cs", "file read", 4, "the operator's host key (or the one the trial made, feature 14), the host's own repository files for the grep baseline, and the host's own task file (feature 12)"),
         ("tools/AgentMemory.Cli/Commands/PacksCommand.cs", "file read", 4, "the operator's own keys"),
         ("tools/AgentMemory.Cli/Commands/PacksCommand.cs", "json parse", 1, Authoring),
         ("src/AgentMemory.Extensibility/Modules/ModuleAssemblyReader.cs", "file read", 1, "a module assembly the host was configured with"),

@@ -195,7 +195,7 @@ public sealed class ModuleSetBuilder
         configure(registration);
         // CMP-1: a module that declares traversal gets its share of the turn's walk, with no code of its own.
         if (manifest.Traversal is not null)
-            registration.AddContextContributor(c => new Contributors.TraversalContributor(c.Module.Manifest, c.ModuleSet.Traversal(c.Services), traversalPriority));
+            registration.AddContextContributor(c => new Contributors.TraversalContributor(c.Module.Manifest, c.ModuleSet.TraversalFor(c.Module.Manifest.Id, c.Services), traversalPriority));
         registration.Freeze();
         _modules.Add(registration);
         return this;

@@ -25,13 +25,13 @@ internal static partial class Program
         var verification = PackVerifier.VerifyWhole(content, policy, DateTimeOffset.UtcNow);
         if (verification.Pack is not { } pack) return Report(verification.Problems, "");
         var file = o.Value("aggregate") ?? throw new UsageException("aggregate verify needs --aggregate <file>.");
-        var (aggregate, problems) = PackAggregate.Verify(PackReader.ReadFile(file, Dsse.MaximumEnvelopeBytes, "The aggregate"), pack.Digest, policy, DateTimeOffset.UtcNow);
+        var (aggregate, problems) = PackAggregate.Verify(PackReader.ReadFile(file, Dsse.MaximumEnvelopeBytes, "The aggregate"), pack.Id, pack.Version, pack.Digest, policy, DateTimeOffset.UtcNow);
         if (aggregate is null) return Report(problems, "");
         Console.WriteLine($"Verified the aggregate of {pack.Id} {aggregate.Version}: {aggregate.Tasks} tasks, {aggregate.Mechanism}, {(aggregate.Passed ? "passed" : "not passed")}.");
         return 0;
     }
 
-    // ampack aggregate create <pack.ampack> --policy <trust.json> --activations <folder> --host-key <host.pub.pem> --key <signer.pem> [--epsilon-milli N] --out <file>
+    // ampack aggregate create <pack.ampack> --policy <trust.json> --activations <folder> --host-key <host.pub.pem> --key <signer.pem> --out <file>
     private static int AggregateCreate(Options o)
     {
         var loaded = PackLoader.Load(o.Positional(1, "pack.ampack"), Trust(o));
@@ -40,13 +40,9 @@ internal static partial class Program
         var decision = new PackActivationFolder(folder, Text(o.Required("host-key"), "The host key")).Find(loaded.Id, loaded.Manifest.Version);
         var pem = Text(o.Required("key"), "The signing key");
         if (decision is null || decision.PackDigest != loaded.Digest) return Report([$"This host holds no decision for {loaded.Id} {loaded.Version} ({loaded.Digest})."], "");
-        int? epsilon = o.Value("epsilon-milli") is { } e
-            ? int.TryParse(e, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var n) && n is >= 1 and <= 100_000
-                ? n : throw new UsageException("--epsilon-milli is a whole number from 1 to 100000.")
-            : null;
         var output = o.Value("out") ?? throw new UsageException("aggregate create needs --out <file>.");
-        File.WriteAllBytes(output, PackAggregates.Create(loaded, decision, pem, epsilon));
-        Console.WriteLine($"Aggregate of {loaded.Id} {loaded.Version}: {(epsilon is null ? "exact counts" : $"discrete-Laplace noise, epsilon {epsilon / 1000.0}")}\n  wrote   {output}");
+        File.WriteAllBytes(output, PackAggregates.Create(loaded, decision, pem));
+        Console.WriteLine($"Aggregate of {loaded.Id} {loaded.Version}: exact counts, shared with your consent\n  wrote   {output}");
         return 0;
     }
 }

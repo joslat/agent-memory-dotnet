@@ -28,6 +28,14 @@ public sealed record ShadowTurn
 {
     /// <summary>The module that ran dark.</summary>
     public required string ModuleId { get; init; }
+    /// <summary>The turn, the same for every contributor of the module on it, so a turn counts once.</summary>
+    public string TurnId { get; init; } = "";
+    /// <summary>The digest of the pack that ran dark, so a decision binds to exactly it; null for a module compiled into the host.</summary>
+    public string? PackDigest { get; init; }
+    /// <summary>Its version.</summary>
+    public string? Version { get; init; }
+    /// <summary>How long its contributor took on the turn, in milliseconds.</summary>
+    public double Milliseconds { get; init; }
     /// <summary>When the turn was assembled: the time its outcome is looked for after.</summary>
     public required DateTimeOffset At { get; init; }
     /// <summary>The turn's session.</summary>
@@ -83,23 +91,30 @@ public sealed class ShadowLogFile(string path) : IShadowRecorder
 // A module running dark (feature 11, R2): its contributors run on every turn, and what they would offer goes to the recorder,
 // never into the context.
 [Experimental("AMEXT001")]
-internal sealed class ShadowContributor(IContextContributor inner, string module, IShadowRecorder recorder, Func<ContextItem, string?>? locate, TimeProvider clock)
+internal sealed class ShadowContributor(IContextContributor inner, string module, IShadowRecorder recorder, Func<ContextItem, string?>? locate, TimeProvider clock,
+    string? packDigest = null, string? version = null)
     : IContextContributor
 {
+    // One id per turn, whatever contributors the module has on it.
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ContextRequest, string> Turns = new();
+
     public ContextContributorDescriptor Descriptor => inner.Descriptor;
 
     public ValueTask<bool> AppliesAsync(ContextRequest request, CancellationToken cancellationToken) => inner.AppliesAsync(request, cancellationToken);
 
     public async Task<ContextSection?> ContributeAsync(ContextRequest request, CancellationToken cancellationToken)
     {
-        await RecordAsync(request, await inner.ContributeAsync(request, cancellationToken).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var section = await inner.ContributeAsync(request, cancellationToken).ConfigureAwait(false);
+        await RecordAsync(request, section, watch.Elapsed.TotalMilliseconds, cancellationToken).ConfigureAwait(false);
         return null;
     }
 
     public async Task<ContextContributionResult> ContributeResultAsync(ContextRequest request, CancellationToken cancellationToken = default)
     {
+        var watch = System.Diagnostics.Stopwatch.StartNew();
         var result = await inner.ContributeResultAsync(request, cancellationToken).ConfigureAwait(false);
-        await RecordAsync(request, result.Section, cancellationToken).ConfigureAwait(false);
+        await RecordAsync(request, result.Section, watch.Elapsed.TotalMilliseconds, cancellationToken).ConfigureAwait(false);
         return new ContextContributionResult
         {
             OmissionReason = ContextOmissionReason.Denied,
@@ -107,17 +122,18 @@ internal sealed class ShadowContributor(IContextContributor inner, string module
         };
     }
 
-    private async Task RecordAsync(ContextRequest request, ContextSection? section, CancellationToken cancellationToken)
+    private async Task RecordAsync(ContextRequest request, ContextSection? section, double milliseconds, CancellationToken cancellationToken)
     {
         var offers = (section?.Items ?? []).Where(i => i.Provenance is not null).Select(i => new ShadowOffer
         {
             RecordId = i.Provenance!.RecordVersionId, Key = i.Provenance.RecordKey, Type = i.Provenance.RecordType,
             ViaRelation = i.Provenance.ViaRelation, Locator = locate?.Invoke(i),
         }).ToList();
-        if (offers.Count == 0) return;
+        // Every turn, offered or not (review 11-13, H3: a turn it offered nothing on was not logged, so its hit rate rose).
         await recorder.RecordAsync(new ShadowTurn
         {
-            ModuleId = module, At = request.AsOf ?? clock.GetUtcNow(), SessionId = request.SessionId,
+            ModuleId = module, TurnId = Turns.GetValue(request, _ => Guid.NewGuid().ToString("N")), PackDigest = packDigest, Version = version,
+            Milliseconds = Math.Round(milliseconds, 1), At = request.AsOf ?? clock.GetUtcNow(), SessionId = request.SessionId,
             Anchors = [.. request.Anchors.Select(a => a.Kind.ToString().ToLowerInvariant() + ":" + a.Value)], Offers = offers,
         }, cancellationToken).ConfigureAwait(false);
     }

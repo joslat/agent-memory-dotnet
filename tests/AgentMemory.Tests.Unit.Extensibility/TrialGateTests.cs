@@ -480,7 +480,7 @@ public sealed class TrialGateTests : IDisposable
     }
 
     [Fact]
-    public void A_pack_that_fails_whole_is_admitted_in_the_parts_that_pass_alone_at_a_corrected_confidence()
+    public void A_pack_that_fails_whole_reports_the_parts_that_pass_alone_and_admits_none()
     {
         // Feature 11 (R3): Bonferroni on alpha, rounded up to a confidence the exact tables hold, or none.
         PackTrialGate.Corrected(950, 2).Should().Be((true, 975));
@@ -491,20 +491,21 @@ public sealed class TrialGateTests : IDisposable
         var weak = Arm(8, 9, 70, 60);
         var parts = new Dictionary<string, PackTrialMeasurement>(StringComparer.Ordinal) { ["CODEMAP_TESTS:in"] = Arm(30, 32, 77, 60), ["(anchor)"] = weak };
         var decision = PackTrialGate.DecideParts(Trialled, weak, Arm(0, 0, 0, 30), parts, Now);
-        decision.Active.Should().BeTrue();
-        decision.Reason.Should().StartWith("admitted in part: CODEMAP_TESTS:in");
+        // Review 11-13, M3 and M4: the union that would go live is never measured, so parts are reported and never admitted.
+        decision.Active.Should().BeFalse();
+        decision.Reason.Should().Contain("reported and not admitted: CODEMAP_TESTS:in");
         decision.Parts.Should().HaveCount(2).And.ContainSingle(p => p.Admitted);
-        PackTrialGate.Unmet(decision).Should().BeNull("its admitted part holds on its own evidence");
-        PackTrialGate.HeldParts(decision).Should().BeEquivalentTo(["CODEMAP_TESTS:in"]);
-        var forged = decision with { Parts = [.. decision.Parts!.Select(p => p with { Admitted = true, With = weak })] };
-        PackTrialGate.Unmet(forged).Should().NotBeNull("a part admitted on evidence that does not hold is taken back");
+        PackTrialGate.HeldParts(decision).Should().BeEquivalentTo(["CODEMAP_TESTS:in"], "each part's own evidence is still rechecked for the report");
         PackTrialGate.DecideParts(Trialled, Arm(30, 32, 77, 60), Arm(0, 0, 0, 30), parts, Now).Parts.Should().BeNull("a pack that passes whole is admitted whole");
 
-        // Signed and read back, the gate admits the module with exactly its held parts, which the walk then follows.
+        // Signed and read back, the gate keeps the pack off whole: no part goes live.
         Write(decision, _host);
         var activations = new PackActivationFolder(_folder, PublicKey());
         var builder = new ModuleSetBuilder().Add(Trialled, _ => { }).RequireTrials(activations);
-        PackTrialGate.Apply(builder.Modules, activations, PackTrialPolicy.Of(builder), Now).On.Single().AdmittedParts.Should().BeEquivalentTo(["CODEMAP_TESTS:in"]);
+        PackTrialGate.Apply(builder.Modules, activations, PackTrialPolicy.Of(builder), Now).Off.Should().ContainSingle(o => o.ModuleId == Base);
+
+        // A module running dark is composed past the gate, unjudged (review 11-13, H1).
+        PackTrialGate.Apply(builder.Modules, activations, PackTrialPolicy.Of(builder), Now, new HashSet<string> { Base }).On.Should().ContainSingle(r => r.Manifest.Id == Base);
     }
 
     [Fact]

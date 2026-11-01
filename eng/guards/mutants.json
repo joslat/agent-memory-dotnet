@@ -1788,21 +1788,6 @@
    "sha256": "282706dd8481d58497da3ea922df0205d21e0b96242ad0da525f616c99e40409"
   },
   {
-   "id": "gate-admits-whole",
-   "rule": "TRIAL-OVER-TIME",
-   "door": "serve",
-   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
-   "edits": [
-    {
-     "old": "if (reason is null && decision is not null) registration.AdmittedParts = HeldParts(decision);",
-     "new": "if (reason is null && decision is not null) registration.AdmittedParts = null;"
-    }
-   ],
-   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~TrialGateTests.A_pack_that_fails_whole",
-   "sha256": "efe754fff30ac3a2c44f16174f6cfe22666f9bdee235838a9f011817ec84aa49"
-  },
-  {
    "id": "shadow-contributes",
    "rule": "TRIAL-OVER-TIME",
    "door": "serve",
@@ -1824,13 +1809,13 @@
    "file": "src/AgentMemory.Extensibility/Modules/ModuleSet.cs",
    "edits": [
     {
-     "old": "? new ShadowContributor(c, shadow.Key, shadow.Value.Recorder, shadow.Value.Locate, services.GetService<TimeProvider>() ?? TimeProvider.System) : c)];",
-     "new": "? c : c)];"
+     "old": "? new ShadowContributor(c, shadow.Key,",
+     "new": "? (IContextContributor)c ?? new ShadowContributor(c, shadow.Key,"
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
    "filter": "FullyQualifiedName~ModuleActivationTests.A_module_that_runs_dark",
-   "sha256": "63184600ae32899beaa05145d8b1c8c690c530dc4deca5fc147412f00b0ec90e"
+   "sha256": "928f3b1bd1484833edd4612d334a7fc91c026af51f6a3576bf9909cd612216ca"
   },
   {
    "id": "abstention-always-quiet",
@@ -1923,19 +1908,49 @@
    "sha256": "bc67a265be88e2aaf8f5361f18289d9f63de06fe9b12185f59aad3b1c5dc5fcc"
   },
   {
-   "id": "aggregate-noise-keeps-the-bound",
-   "rule": "AGGREGATE-NAMES-NOTHING",
-   "door": "definition",
-   "file": "src/AgentMemory.Extensibility.Ampack/PackAggregates.cs",
+   "id": "dark-judged-by-the-gate",
+   "rule": "TRIAL-OVER-TIME",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
    "edits": [
     {
-     "old": "Micro(c.Required), noisy ? null : Micro(c.Observed), c.Met)",
-     "new": "Micro(c.Required), Micro(c.Observed), c.Met)"
+     "old": "bool Judged(ModuleRegistration r) => dark?.Contains(r.Manifest.Id) != true;",
+     "new": "bool Judged(ModuleRegistration r) => true;"
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
-   "filter": "FullyQualifiedName~AggregateTests",
-   "sha256": "d48fce8c5515c8570518ca9fff781e60d256fbe87c74f15c5d027348bb321899"
+   "filter": "FullyQualifiedName~TrialGateTests.A_pack_that_fails_whole",
+   "sha256": "1b958733dadb8dc12c08b616c3c01426be78d533d9ac4e0358cb1af7f49e3bc2"
+  },
+  {
+   "id": "aggregate-of-any-id",
+   "rule": "AGGREGATE-NAMES-NOTHING",
+   "door": "verify",
+   "file": "src/AgentMemory.Packs.Format/PackAggregate.cs",
+   "edits": [
+    {
+     "old": "if (aggregate.Digest != digest || aggregate.Id != id || aggregate.Version != version)",
+     "new": "if (aggregate.Digest != digest)"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "6d703328bb53c2947bab35297194eec2e533e071679a06a2c14e07c375236f0d"
+  },
+  {
+   "id": "python-aggregate-of-any-id",
+   "rule": "AGGREGATE-NAMES-NOTHING",
+   "door": "verify",
+   "file": "conformance/pack-v1.1/python/ampack_verify.py",
+   "edits": [
+    {
+     "old": "    if p[\"digest\"] != digest or p[\"id\"] != pid or p[\"version\"] != version:",
+     "new": "    if p[\"digest\"] != digest:"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "676229327a00af86d505f44a9a719eebfaa270af05bd52e766f9108c34f9b2bf"
   },
   {
    "id": "expiry-not-live",

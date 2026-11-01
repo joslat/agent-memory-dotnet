@@ -698,13 +698,16 @@ public static partial class PackTrialGate
             Part = p.Key, With = p.Value, Without = without, Confidence = Level(permille),
             Admitted = possible && Decide(corrected, p.Value, without, decidedAt).Active,
         }).ToList();
-        var admitted = decided.Where(p => p.Admitted).Select(p => p.Part).ToList();
+        // Reported, never admitted (review 11-13, M3 and M4: the union that would go live was never measured, and testing the
+        // whole at c and then the parts made the error rate about twice the claimed one). A sound design picks parts on one half of
+        // the tasks and confirms their union on the other.
+        var passing = decided.Where(p => p.Admitted).Select(p => p.Part).ToList();
         return whole with
         {
-            Active = admitted.Count != 0, Parts = decided,
-            Reason = admitted.Count != 0
-                ? $"admitted in part: {string.Join(", ", admitted)}, each alone at confidence {Level(permille)?.ToString(CultureInfo.InvariantCulture) ?? "none (estimates)"} for {parts.Count} parts"
-                : whole.Reason + (possible ? "; no part passes alone at the corrected confidence" : $"; {parts.Count} parts need a confidence the exact tables do not hold"),
+            Parts = decided,
+            Reason = whole.Reason + (passing.Count != 0
+                ? $"; parts that pass alone, reported and not admitted: {string.Join(", ", passing)} (confidence {Level(permille)?.ToString(CultureInfo.InvariantCulture) ?? "none, estimates"} for {parts.Count} parts)"
+                : possible ? "; no part passes alone at the corrected confidence" : $"; {parts.Count} parts need a confidence the exact tables do not hold"),
         };
     }
 
@@ -1071,18 +1074,21 @@ public static partial class PackTrialGate
     /// host made trials mandatory, a module that declares none is left off; a module that needs one left off is left off too.
     /// </summary>
     internal static (IReadOnlyList<ModuleRegistration> On, IReadOnlyList<SwitchedOffModule> Off) Apply(IReadOnlyList<ModuleRegistration> registrations,
-        IPackActivations? activations, PackTrialPolicy? policy = null, DateTimeOffset? now = null)
+        IPackActivations? activations, PackTrialPolicy? policy = null, DateTimeOffset? now = null, IReadOnlySet<string>? dark = null)
     {
         var at = now ?? DateTimeOffset.UtcNow;
+        // A module running dark offers nothing and is what its own trial runs on: the gate composes it and does not judge it
+        // (feature 11; review 11-13, H1).
+        bool Judged(ModuleRegistration r) => dark?.Contains(r.Manifest.Id) != true;
         if (activations is null) return (registrations, []);
         policy ??= PackTrialPolicy.None;
         var (mandatory, certificateTrust, floor) = (policy.Mandatory, policy.CertificateTrust, policy.Floor);
         var off = new Dictionary<string, SwitchedOffModule>(StringComparer.Ordinal);
-        foreach (var registration in registrations.Where(r => r.Manifest.Trial is null))
+        foreach (var registration in registrations.Where(r => r.Manifest.Trial is null && Judged(r)))
             if ((mandatory ?? []).FirstOrDefault(p => ModuleSetBuilder.Covers(p, registration.Manifest.Id)) is { } prefix)
                 off[registration.Manifest.Id] = new SwitchedOffModule(registration.Manifest.Id, registration.Manifest.Version.ToString(),
                     $"it declares no trial, and this host requires one for {prefix}");
-        foreach (var registration in registrations.Where(r => r.Manifest.Trial is not null))
+        foreach (var registration in registrations.Where(r => r.Manifest.Trial is not null && Judged(r)))
         {
             var manifest = registration.Manifest;
             var certificatesCount = (certificateTrust ?? []).Any(p => ModuleSetBuilder.Covers(p, manifest.Id));
@@ -1112,11 +1118,10 @@ public static partial class PackTrialGate
                 : "no trial on this host yet";
             // A decision counts for as many days as the host's floor says (feature 11, R1): past them, off until trialled again;
             // within them, the module goes silent when they end, checked as the host runs.
-            // Admitted in part (feature 11, R3): the parts that still hold, rechecked from their own evidence.
-            if (reason is null && decision is not null) registration.AdmittedParts = HeldParts(decision);
             if (reason is null && decision is not null && floor?.ExpireAfterDays is { } days)
             {
-                var expires = decision.DecidedAt.AddDays(days);
+                // From the evidence's own time: a decision made from a certificate ages from the evaluation (review 11-13).
+                var expires = (decision.Basis?.EvaluatedAt ?? decision.DecidedAt).AddDays(days);
                 if (at > expires) reason = $"its trial decision of {decision.DecidedAt.ToUniversalTime():yyyy-MM-dd} expired after {days} days, as this host requires; trial it again";
                 else registration.DecisionExpires = expires;
             }

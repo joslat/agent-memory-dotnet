@@ -179,7 +179,7 @@ fn run(mut args: Vec<String>) -> ExitCode {
             lines.push(format!("verified the erasure of {n} record(s) of {} ({})", shown(&pack.id), shown(pred.str("reason").unwrap_or(""))));
         }
         if let Some(ap) = &aggregate_path {
-            let pred = verify_aggregate(&ctx, &read_regular(ap, MAX_ENVELOPE, "the aggregate")?, &pack.digest)?;
+            let pred = verify_aggregate(&ctx, &read_regular(ap, MAX_ENVELOPE, "the aggregate")?, &pack.id, &pack.version, &pack.digest)?;
             let tasks = pred.get("tasks").and_then(|t| t.as_int()).unwrap_or(0);
             lines.push(format!("verified the aggregate of {} {}: {tasks} tasks, {}", shown(&pack.id), shown(pred.str("version").unwrap_or("")), shown(pred.str("mechanism").unwrap_or(""))));
         }
