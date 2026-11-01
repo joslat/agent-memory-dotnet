@@ -1,0 +1,1436 @@
+{
+ "format": "agentmemory.pack.differential/1",
+ "seed": 1101,
+ "count": 140,
+ "agreed": 140,
+ "bothVerified": 26,
+ "readers": 3,
+ "mutants": [
+  {
+   "mutant": 0,
+   "kind": "archive",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "5aab35d72bc1e9b683e0eabd8ea50e6e383e1b5df21b5a9ae366bfd358bfaad2"
+  },
+  {
+   "mutant": 1,
+   "kind": "content",
+   "target": "views.json",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "8babca2e8a31ee6e5a8cdcab2d56a8e511fe693df41e0922f28096542469fadd"
+  },
+  {
+   "mutant": 2,
+   "kind": "time",
+   "target": "2099-01-01T00:00:00+05:60",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "be0c9a08751595b8e8ec0d0b128347a0fd6cacda431aa785fbfada53706b72db"
+  },
+  {
+   "mutant": 3,
+   "kind": "path",
+   "target": "Records/z.jsonl",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "83ed8434c9927af0801cbde9e609a20362b2a1cc1b7d0dd6747486f3c72618a1"
+  },
+  {
+   "mutant": 4,
+   "kind": "envelope",
+   "target": "META/signatures/publisher-c938461a41b777d0.dsse.json",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "4057a54999ab6251db4954cd1ce646e4f51ee4f2b8386b42f11861e01cab32b8"
+  },
+  {
+   "mutant": 5,
+   "kind": "policy",
+   "target": null,
+   "dotnet": "verified",
+   "python": "verified",
+   "rust": "verified",
+   "agree": true,
+   "sha256": "9940bdcb7d1f4022e2eede50334248b0db015dd6b15ec450bb7e6ff919142c03"
+  },
+  {
+   "mutant": 6,
+   "kind": "deflated",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "4214019080467ee884d9314e7f1821b6b057867b38c2ce3800964fd3759d044d"
+  },
+  {
+   "mutant": 7,
+   "kind": "archive",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "5e94d1a38639434389d3553b3420067acbe065045487892c01e8f5a9ddc93647"
+  },
+  {
+   "mutant": 8,
+   "kind": "content",
+   "target": "ontology.json",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "df2ff3009ea50f24e457b085d888750a6da43885bf64b8f3a77e804a32585858"
+  },
+  {
+   "mutant": 9,
+   "kind": "time",
+   "target": "2099-01-01T00:00:00+14:00",
+   "dotnet": "verified",
+   "python": "verified",
+   "rust": "verified",
+   "agree": true,
+   "sha256": "8d488710400c11fd56c512be7ac6199555f5951f6c0637a1440501343b7e0b0c"
+  },
+  {
+   "mutant": 10,
+   "kind": "path",
+   "target": "notes|notes/a.json",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "fb1f4dd4e9b9e7d8831c1de86b937930ffc90fb47192b1ffca11097b0b6326bb"
+  },
+  {
+   "mutant": 11,
+   "kind": "envelope",
+   "target": "META/signatures/publisher-c938461a41b777d0.dsse.json",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "a7d150a22b8a6a9d18363624651a807c786888a6ba47998b78e8639d5c8591e7"
+  },
+  {
+   "mutant": 12,
+   "kind": "policy",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "9940bdcb7d1f4022e2eede50334248b0db015dd6b15ec450bb7e6ff919142c03"
+  },
+  {
+   "mutant": 13,
+   "kind": "deflated",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "73573b84903400de4d86d61fceafd173300a93d3449000d5db389bccb924c6b8"
+  },
+  {
+   "mutant": 14,
+   "kind": "archive",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "bf282ddb82b61940bcfd9b312cbe28c21f2968ce6ae36bcf7d894ef8603e393f"
+  },
+  {
+   "mutant": 15,
+   "kind": "content",
+   "target": "records/note.jsonl",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "37851854faa2be9c0c029f7fc991b21bdc9027559f142b7a93fc54d09af018c1"
+  },
+  {
+   "mutant": 16,
+   "kind": "time",
+   "target": "2099-01-01t00:00:00z",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "6633703b098b0a2d54699bf942a72bfe9497a41d3c9b5f4c4d3e24b74eaa434c"
+  },
+  {
+   "mutant": 17,
+   "kind": "path",
+   "target": "a/b/c/d/e/f/g/h.json",
+   "dotnet": "verified",
+   "python": "verified",
+   "rust": "verified",
+   "agree": true,
+   "sha256": "3e6f6929119ae69c6a7d3ebc67d2788080a5cdc99aee51abcae42f1a0e20d610"
+  },
+  {
+   "mutant": 18,
+   "kind": "envelope",
+   "target": "META/signatures/publisher-c938461a41b777d0.dsse.json",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "d767ecb696b78bdb1df83c7ddfd41ea245335156202eab2ce9fa7fabb0d15ad4"
+  },
+  {
+   "mutant": 19,
+   "kind": "policy",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "9940bdcb7d1f4022e2eede50334248b0db015dd6b15ec450bb7e6ff919142c03"
+  },
+  {
+   "mutant": 20,
+   "kind": "deflated",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "b3457dab16fbbe81149ab0941bd590b9c960be392f59338c5607c6b271da8215"
+  },
+  {
+   "mutant": 21,
+   "kind": "archive",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "520bd46952de7c6ea7d2619189ab518555ab934d37b87fc7e1de73afbea4c524"
+  },
+  {
+   "mutant": 22,
+   "kind": "content",
+   "target": "pack.json",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "d591b3a09309b01d219101093d1ec1c6bcfe21dd9f88d06c12e36f75642d5197"
+  },
+  {
+   "mutant": 23,
+   "kind": "time",
+   "target": "2099-01-01T00:00:00Z",
+   "dotnet": "verified",
+   "python": "verified",
+   "rust": "verified",
+   "agree": true,
+   "sha256": "b73422610d15d80d4dce8cd561bc2b298a8ee947b657d2a133dc84a38a3ff3ef"
+  },
+  {
+   "mutant": 24,
+   "kind": "path",
+   "target": "records/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.jsonl",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "d10dc43976856e7f58b9dfe8ff12861543aad02ac9bea6016744dbcf8161d50e"
+  },
+  {
+   "mutant": 25,
+   "kind": "envelope",
+   "target": "META/signatures/publisher-c938461a41b777d0.dsse.json",
+   "dotnet": "verified",
+   "python": "verified",
+   "rust": "verified",
+   "agree": true,
+   "sha256": "8fac88b7214591892a9de3e3ecbc262517efddbfd6f5a5c3347e53b19c7eaf56"
+  },
+  {
+   "mutant": 26,
+   "kind": "policy",
+   "target": "body:compressed",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "9940bdcb7d1f4022e2eede50334248b0db015dd6b15ec450bb7e6ff919142c03"
+  },
+  {
+   "mutant": 27,
+   "kind": "deflated",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "ddbd7c4643c7f0d5a24b17d675d88043e549099fe1164fa1cd3c33d31651e9e4"
+  },
+  {
+   "mutant": 28,
+   "kind": "archive",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "8a74d265699473ccec835d4bcfe8c057c6e6dca7e584062e1429c6ef4b5ca01e"
+  },
+  {
+   "mutant": 29,
+   "kind": "content",
+   "target": "card.json",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "b61d3482947ce05bdd26e8acc58ff1de0b519975dba2b17fb30a9a9cefe16ecc"
+  },
+  {
+   "mutant": 30,
+   "kind": "time",
+   "target": " 2099-01-01T00:00:00Z",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "8b8a505a1bfcc192fc37d984c43f722295fc6b122a398ec52cbe6768652bf4db"
+  },
+  {
+   "mutant": 31,
+   "kind": "path",
+   "target": "a/b/c/d/e/f/g/h.json",
+   "dotnet": "verified",
+   "python": "verified",
+   "rust": "verified",
+   "agree": true,
+   "sha256": "a8f99fe245c9930aaf66b8b23687dc1f67a9ff446691e6287bb036cda1c875e5"
+  },
+  {
+   "mutant": 32,
+   "kind": "envelope",
+   "target": "META/signatures/publisher-c938461a41b777d0.dsse.json",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "6e0ad313f0d5ed947320fa0c19075e6b35812b8979667e2790cb8672f90e8170"
+  },
+  {
+   "mutant": 33,
+   "kind": "policy",
+   "target": null,
+   "dotnet": "verified",
+   "python": "verified",
+   "rust": "verified",
+   "agree": true,
+   "sha256": "9940bdcb7d1f4022e2eede50334248b0db015dd6b15ec450bb7e6ff919142c03"
+  },
+  {
+   "mutant": 34,
+   "kind": "deflated",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "9824b6429c1e0e674b30e4dc109b37c45b4aedf8e5e30fc02dbc620b19dd461d"
+  },
+  {
+   "mutant": 35,
+   "kind": "archive",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "5f51206555d78782d1a06ce6a956cdd9c6f9e372ade27858494602225fffe14f"
+  },
+  {
+   "mutant": 36,
+   "kind": "content",
+   "target": "ontology.json",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "ba56ba933d74ab2cb8e2e0071b078a131727ec5b6aaa9226f15eeef69c7214ab"
+  },
+  {
+   "mutant": 37,
+   "kind": "time",
+   "target": "2099-01-01T00:00:00+14:00",
+   "dotnet": "verified",
+   "python": "verified",
+   "rust": "verified",
+   "agree": true,
+   "sha256": "d73ff1b52f08e284aae49d33930a1db32581461360f28486d550d47290779621"
+  },
+  {
+   "mutant": 38,
+   "kind": "path",
+   "target": "notes|notes/a.json",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "735faa184abdd3e08e68b34f3c719e561235515e296a3f84ee6f0d7521882c99"
+  },
+  {
+   "mutant": 39,
+   "kind": "envelope",
+   "target": "META/signatures/publisher-c938461a41b777d0.dsse.json",
+   "dotnet": "verified",
+   "python": "verified",
+   "rust": "verified",
+   "agree": true,
+   "sha256": "8fac88b7214591892a9de3e3ecbc262517efddbfd6f5a5c3347e53b19c7eaf56"
+  },
+  {
+   "mutant": 40,
+   "kind": "policy",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "9940bdcb7d1f4022e2eede50334248b0db015dd6b15ec450bb7e6ff919142c03"
+  },
+  {
+   "mutant": 41,
+   "kind": "deflated",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "c7fe8fe797fc9a9eaa139e76d53d1f4fd2c418523dc699a96b939d841d7e6401"
+  },
+  {
+   "mutant": 42,
+   "kind": "archive",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "534fa446a0e6185c07410ed071683c6359171dbadb3f7daff6b2795bdab77e2c"
+  },
+  {
+   "mutant": 43,
+   "kind": "content",
+   "target": "card.json",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "bf689887547648fae01d01d0dad5ba202edc0cafbb378f9661605fc0b8a64175"
+  },
+  {
+   "mutant": 44,
+   "kind": "time",
+   "target": "2099-01-01T00:00:00.12345678Z",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "a5223effebfab0ecb72df80700be08852d11632e02479064dc9ac301dc77d0cb"
+  },
+  {
+   "mutant": 45,
+   "kind": "path",
+   "target": "records/a..jsonl",
+   "dotnet": "verified",
+   "python": "verified",
+   "rust": "verified",
+   "agree": true,
+   "sha256": "33eb6782f81de0124329f248a4bab86a99f19c200066d3585113d9e124ac3a64"
+  },
+  {
+   "mutant": 46,
+   "kind": "envelope",
+   "target": "META/signatures/publisher-c938461a41b777d0.dsse.json",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "4057a54999ab6251db4954cd1ce646e4f51ee4f2b8386b42f11861e01cab32b8"
+  },
+  {
+   "mutant": 47,
+   "kind": "policy",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "9940bdcb7d1f4022e2eede50334248b0db015dd6b15ec450bb7e6ff919142c03"
+  },
+  {
+   "mutant": 48,
+   "kind": "deflated",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "cd8971588459e410492afd44801903e1766e28a3d7fb6337726354a5af76b34a"
+  },
+  {
+   "mutant": 49,
+   "kind": "archive",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "52f4dd1e0b882454e224b3c2ab6297fc348cd8d8f68149528fd58bdea51ec7cb"
+  },
+  {
+   "mutant": 50,
+   "kind": "content",
+   "target": "pack.json",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "a30102b329a0f8408e54b769570cc459ffcea43972378a5f1173bb58671ecf8d"
+  },
+  {
+   "mutant": 51,
+   "kind": "time",
+   "target": "2099-01-01 00:00:00Z",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "3603c419b2f7e97bf3a4cc21f0a5a8296e98a88500d0d25945807c8f0bf9ef8e"
+  },
+  {
+   "mutant": 52,
+   "kind": "path",
+   "target": "records/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.jsonl",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "ace5bb3e86257feef1d5c387b3e3a11d5e95480a1820cbdad88b270e962043bc"
+  },
+  {
+   "mutant": 53,
+   "kind": "envelope",
+   "target": "META/signatures/publisher-c938461a41b777d0.dsse.json",
+   "dotnet": "verified",
+   "python": "verified",
+   "rust": "verified",
+   "agree": true,
+   "sha256": "84ccfd98323c5f53d372864be64e19dd74bbd4b21f8bd239cced08f071286d76"
+  },
+  {
+   "mutant": 54,
+   "kind": "policy",
+   "target": "body:compressed",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "9940bdcb7d1f4022e2eede50334248b0db015dd6b15ec450bb7e6ff919142c03"
+  },
+  {
+   "mutant": 55,
+   "kind": "deflated",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "2484ae316e61bd8f880254bcf4dc2f2a09b95744cb206f6f470bd556c74b1222"
+  },
+  {
+   "mutant": 56,
+   "kind": "archive",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "670e7f62ea88a160550a6ae1146a074dd53a46eef9bff2b9c3e297a236513d1b"
+  },
+  {
+   "mutant": 57,
+   "kind": "content",
+   "target": "card.json",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "c32e407791f12c5218cdd6a1b77b3aca5a6c06dbda2a474f4a6d2e6a73b3aaa5"
+  },
+  {
+   "mutant": 58,
+   "kind": "time",
+   "target": "2099-01-01T00:00:00+05:60",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "961a1c456a3f999c09933f477e735ea998e036aa6131ff2978e284e0bd54d66d"
+  },
+  {
+   "mutant": 59,
+   "kind": "path",
+   "target": "notes|notes/a.json",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "a9834f3d5dfe18e635d05a26722433c7fc165d8bef78d003cf3c98b502b97355"
+  },
+  {
+   "mutant": 60,
+   "kind": "envelope",
+   "target": "META/signatures/publisher-c938461a41b777d0.dsse.json",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "d767ecb696b78bdb1df83c7ddfd41ea245335156202eab2ce9fa7fabb0d15ad4"
+  },
+  {
+   "mutant": 61,
+   "kind": "policy",
+   "target": "body:char",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "9940bdcb7d1f4022e2eede50334248b0db015dd6b15ec450bb7e6ff919142c03"
+  },
+  {
+   "mutant": 62,
+   "kind": "deflated",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "24c51d1e72f2148cbae085798010174814bc763d90cd6d3fe6643f0b2480c87f"
+  },
+  {
+   "mutant": 63,
+   "kind": "archive",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "69db9e502a2a2c8c14fc9fb794b3c2c33248b4a24f9109783641f28b028c2edf"
+  },
+  {
+   "mutant": 64,
+   "kind": "content",
+   "target": "pack.json",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "5e2c64f4c68a5a71607525229b673c2e761e1fff4912deded485a40a589761fc"
+  },
+  {
+   "mutant": 65,
+   "kind": "time",
+   "target": "2099-01-01T00:00:00.12345678Z",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "3d0c77a3b17628c4529b64c867249742e6f4dc9256039772e7c915639bd6e572"
+  },
+  {
+   "mutant": 66,
+   "kind": "path",
+   "target": "records/a..jsonl",
+   "dotnet": "verified",
+   "python": "verified",
+   "rust": "verified",
+   "agree": true,
+   "sha256": "fa1e67e4e7296a9e4bf782884f1906a292b6fccd27d6be4f284d6eb6d13b6522"
+  },
+  {
+   "mutant": 67,
+   "kind": "envelope",
+   "target": "META/signatures/publisher-c938461a41b777d0.dsse.json",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "d767ecb696b78bdb1df83c7ddfd41ea245335156202eab2ce9fa7fabb0d15ad4"
+  },
+  {
+   "mutant": 68,
+   "kind": "policy",
+   "target": null,
+   "dotnet": "verified",
+   "python": "verified",
+   "rust": "verified",
+   "agree": true,
+   "sha256": "9940bdcb7d1f4022e2eede50334248b0db015dd6b15ec450bb7e6ff919142c03"
+  },
+  {
+   "mutant": 69,
+   "kind": "deflated",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "155d3b2910c3eb84431ed812ded2d2ab679f5ad2a2fc5acecf375a302415b8fd"
+  },
+  {
+   "mutant": 70,
+   "kind": "archive",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "090f7e52889723e5cf999787c98161cfaa2017ea7304539eaae8b46aa5d7fff0"
+  },
+  {
+   "mutant": 71,
+   "kind": "content",
+   "target": "ontology.json",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "6599d5ba18013b55bfe1366c53cfb28efbc5471e66d76ecc8bdc96072ea84edd"
+  },
+  {
+   "mutant": 72,
+   "kind": "time",
+   "target": "2099-01-01T00:00:00+05:60",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "4876bd4595c7eaf47cdbbcdcd9f65f4c41435e07145fce2e83c00f1ed9eb3765"
+  },
+  {
+   "mutant": 73,
+   "kind": "path",
+   "target": "a/b/c/d/e/f/g/h/i.json",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "ee266d14cd046d8804914dc8512f1701f12cfae94fafdb0b5fed128b6868cf6d"
+  },
+  {
+   "mutant": 74,
+   "kind": "envelope",
+   "target": "META/signatures/publisher-c938461a41b777d0.dsse.json",
+   "dotnet": "verified",
+   "python": "verified",
+   "rust": "verified",
+   "agree": true,
+   "sha256": "84ccfd98323c5f53d372864be64e19dd74bbd4b21f8bd239cced08f071286d76"
+  },
+  {
+   "mutant": 75,
+   "kind": "policy",
+   "target": "body:stray",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "9940bdcb7d1f4022e2eede50334248b0db015dd6b15ec450bb7e6ff919142c03"
+  },
+  {
+   "mutant": 76,
+   "kind": "deflated",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "c5d53c5ea3021dc6045af3c50700ec16ec1b55a7e2d9479513397a9b7497e140"
+  },
+  {
+   "mutant": 77,
+   "kind": "archive",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "fdd240f0189f37b6e9a4ed1c7d696770e2a8eab97dd2d93da179ba949679dc23"
+  },
+  {
+   "mutant": 78,
+   "kind": "content",
+   "target": "ontology.json",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "87111de90f453e529f5e2207a34990f6bab2b6fdaff8631ab6e0eda833f0c6bd"
+  },
+  {
+   "mutant": 79,
+   "kind": "time",
+   "target": "2099-01-01T00:00:00,5Z",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "b77ffbe8483dafb04766bb7295a22bde9ed0a26cdd5bd0c3bb462ab2bec72e3f"
+  },
+  {
+   "mutant": 80,
+   "kind": "path",
+   "target": "a/b/c/d/e/f/g/h.json",
+   "dotnet": "verified",
+   "python": "verified",
+   "rust": "verified",
+   "agree": true,
+   "sha256": "6281d1c9edbc7509472d3bf2addea60d1265d6fb7492c48ae2341e25db57cb7b"
+  },
+  {
+   "mutant": 81,
+   "kind": "envelope",
+   "target": "META/signatures/publisher-c938461a41b777d0.dsse.json",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "5a15b8a9784a6131eedffa158b58f4bead4a8faf416b7b9e42e5f3fad175083c"
+  },
+  {
+   "mutant": 82,
+   "kind": "policy",
+   "target": null,
+   "dotnet": "verified",
+   "python": "verified",
+   "rust": "verified",
+   "agree": true,
+   "sha256": "9940bdcb7d1f4022e2eede50334248b0db015dd6b15ec450bb7e6ff919142c03"
+  },
+  {
+   "mutant": 83,
+   "kind": "deflated",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "778711d544412ae1f8c83f1d802a389abc09841edab532f5aa6289fb78be5f89"
+  },
+  {
+   "mutant": 84,
+   "kind": "archive",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "32fc8c5701bb7129315973cac3e473eac65492e086e1e5a2886b2b6d12b16e1e"
+  },
+  {
+   "mutant": 85,
+   "kind": "content",
+   "target": "card.json",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "d4cab64b229d5003c382d56ed5da97e38a22d6f1465d94f6217bab5c92db6fa1"
+  },
+  {
+   "mutant": 86,
+   "kind": "time",
+   "target": "2099-01-01T00:00:00Z",
+   "dotnet": "verified",
+   "python": "verified",
+   "rust": "verified",
+   "agree": true,
+   "sha256": "104595249d2f904495818441966a8413319792ae79357a4445f815b2081caf58"
+  },
+  {
+   "mutant": 87,
+   "kind": "path",
+   "target": "a/b/c/d/e/f/g/h/i.json",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "5de6e114204817bce5586c7dc74b16654b604fe816acceae0b0808f2bace536a"
+  },
+  {
+   "mutant": 88,
+   "kind": "envelope",
+   "target": "META/signatures/publisher-c938461a41b777d0.dsse.json",
+   "dotnet": "verified",
+   "python": "verified",
+   "rust": "verified",
+   "agree": true,
+   "sha256": "84ccfd98323c5f53d372864be64e19dd74bbd4b21f8bd239cced08f071286d76"
+  },
+  {
+   "mutant": 89,
+   "kind": "policy",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "9940bdcb7d1f4022e2eede50334248b0db015dd6b15ec450bb7e6ff919142c03"
+  },
+  {
+   "mutant": 90,
+   "kind": "deflated",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "e5e66327210053f87e603db45533c293f7b913492822bb96f3302078dd004c20"
+  },
+  {
+   "mutant": 91,
+   "kind": "archive",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "57ccd9328b734167aa499ed7aa7b4d9636158c0e100638140f2097009e12912c"
+  },
+  {
+   "mutant": 92,
+   "kind": "content",
+   "target": "ontology.json",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "f0562fe1cd04e89a63c70978f4f8fecde53cb678bb13d72838d0055e73de466d"
+  },
+  {
+   "mutant": 93,
+   "kind": "time",
+   "target": "2099-01-01T00:00:00.Z",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "ce8fa5c3e768a6127fdca0834ec0104a39945d468298c35789a3be2e31b5144d"
+  },
+  {
+   "mutant": 94,
+   "kind": "path",
+   "target": "Records/z.jsonl",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "2a34c0bff80d89b0478dce46a8674a0bdf8a60bdd282166a6f44e68cbba97adf"
+  },
+  {
+   "mutant": 95,
+   "kind": "envelope",
+   "target": "META/signatures/publisher-c938461a41b777d0.dsse.json",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "5cde9949e0a86035a3a86233fbbcb632b4604a1900a6be248ca6fc2a3f047bb3"
+  },
+  {
+   "mutant": 96,
+   "kind": "policy",
+   "target": "body:compressed",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "9940bdcb7d1f4022e2eede50334248b0db015dd6b15ec450bb7e6ff919142c03"
+  },
+  {
+   "mutant": 97,
+   "kind": "deflated",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "409f8968d7468de180ae4e299a15113ea6572a1c57cfd6d6460809d86c8a3446"
+  },
+  {
+   "mutant": 98,
+   "kind": "archive",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "525639a35ee382a5c43187b6f9860050c7aacb248127690237a22ce5bddfce41"
+  },
+  {
+   "mutant": 99,
+   "kind": "content",
+   "target": "ontology.json",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "c3888fccc74ee345b5077bc1774a4748ddcbab43947feb9d147235d23f013e68"
+  },
+  {
+   "mutant": 100,
+   "kind": "time",
+   "target": "0001-01-01T00:00:00Z",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "cf585bee555984f0fd90fac2ab648acbd4c75a5fbe15c7218dfef0d31a07507c"
+  },
+  {
+   "mutant": 101,
+   "kind": "path",
+   "target": "assets/Icons/x.png|assets/icons/y.png",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "932c2299ac1ce2b1de2bbd792c501475f0d7f38ae7efb0017b4a4acf0e7681ed"
+  },
+  {
+   "mutant": 102,
+   "kind": "envelope",
+   "target": "META/signatures/publisher-c938461a41b777d0.dsse.json",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "7221497af608125698129ea2123ab19d248dd8d237ee77a5a331740c1d43f7e7"
+  },
+  {
+   "mutant": 103,
+   "kind": "policy",
+   "target": "body:wrap",
+   "dotnet": "verified",
+   "python": "verified",
+   "rust": "verified",
+   "agree": true,
+   "sha256": "9940bdcb7d1f4022e2eede50334248b0db015dd6b15ec450bb7e6ff919142c03"
+  },
+  {
+   "mutant": 104,
+   "kind": "deflated",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "7c88edd7aa81df6a75a36396d6e747fb4690c2e35501501a03ac3d9567cb8f0e"
+  },
+  {
+   "mutant": 105,
+   "kind": "archive",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "bee26ef12fc341083b369fdafcb092495f0101b6ac3e79afca095150b173289f"
+  },
+  {
+   "mutant": 106,
+   "kind": "content",
+   "target": "pack.json",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "798c5c179670ae34b5e4cf5d2906f0aff42b676739f0761cc298e91bd4c1bcf7"
+  },
+  {
+   "mutant": 107,
+   "kind": "time",
+   "target": "0001-01-01T00:00:00Z",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "52459e44c60b433ddb1172790037c6eddbf3c1cb2fd8b0a0b1217527b4c51a9d"
+  },
+  {
+   "mutant": 108,
+   "kind": "path",
+   "target": "META/extra.json",
+   "dotnet": "verified",
+   "python": "verified",
+   "rust": "verified",
+   "agree": true,
+   "sha256": "d660efd1802ad7dfc2f20e368f97b9f41aef415f038e1dc2a383e55256a04c63"
+  },
+  {
+   "mutant": 109,
+   "kind": "envelope",
+   "target": "META/signatures/publisher-c938461a41b777d0.dsse.json",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "7221497af608125698129ea2123ab19d248dd8d237ee77a5a331740c1d43f7e7"
+  },
+  {
+   "mutant": 110,
+   "kind": "policy",
+   "target": "body:off-curve",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "9940bdcb7d1f4022e2eede50334248b0db015dd6b15ec450bb7e6ff919142c03"
+  },
+  {
+   "mutant": 111,
+   "kind": "deflated",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "ffbec6a434961ac127b1bbb589731233da42ef6e79b8f797c151021b71ee9543"
+  },
+  {
+   "mutant": 112,
+   "kind": "archive",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "e01e6460a8e1c566a02055bc96a6776044f9791b508018bb219d9d229226014f"
+  },
+  {
+   "mutant": 113,
+   "kind": "content",
+   "target": "records/note.jsonl",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "05bcf284eab37119c42278aadea4358b6649a36c257d9c789af84204cacb5f24"
+  },
+  {
+   "mutant": 114,
+   "kind": "time",
+   "target": "2099-01-01T24:00:00Z",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "fee989a13b4fd8e7db315ab788b35f2b725d36083e5e8f71b931a5cce87ec2e9"
+  },
+  {
+   "mutant": 115,
+   "kind": "path",
+   "target": "records/a b.jsonl",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "b6f1a2981a06523d826ee7f791c7bd7e89c725c920c86e802b2720b1f369e1ba"
+  },
+  {
+   "mutant": 116,
+   "kind": "envelope",
+   "target": "META/signatures/publisher-c938461a41b777d0.dsse.json",
+   "dotnet": "verified",
+   "python": "verified",
+   "rust": "verified",
+   "agree": true,
+   "sha256": "8fac88b7214591892a9de3e3ecbc262517efddbfd6f5a5c3347e53b19c7eaf56"
+  },
+  {
+   "mutant": 117,
+   "kind": "policy",
+   "target": null,
+   "dotnet": "verified",
+   "python": "verified",
+   "rust": "verified",
+   "agree": true,
+   "sha256": "9940bdcb7d1f4022e2eede50334248b0db015dd6b15ec450bb7e6ff919142c03"
+  },
+  {
+   "mutant": 118,
+   "kind": "deflated",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "bafa47c0ae19f072e2cbd79eff72e0953cd03a7ec36f9f83db9e8b8bf42081b4"
+  },
+  {
+   "mutant": 119,
+   "kind": "archive",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "a243507eb815a61633c3f55854892a125d082bcd87cb4c80b8930e712a4e6ab7"
+  },
+  {
+   "mutant": 120,
+   "kind": "content",
+   "target": "records/note.jsonl",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "17bfe372e6fee04b7626b83e15d997c82252ac92908d5cc8efef439c18db30de"
+  },
+  {
+   "mutant": 121,
+   "kind": "time",
+   "target": "2099-01-01T00:00:00Z",
+   "dotnet": "verified",
+   "python": "verified",
+   "rust": "verified",
+   "agree": true,
+   "sha256": "a632c2b01cd082e24dc11e6111cdef9b37b129538917897c6df487bacdf35bee"
+  },
+  {
+   "mutant": 122,
+   "kind": "path",
+   "target": "records/a..jsonl",
+   "dotnet": "verified",
+   "python": "verified",
+   "rust": "verified",
+   "agree": true,
+   "sha256": "2b18dda9e04223e970285ad8a5689e9336bc2019bbcdb87176462b1d29af436c"
+  },
+  {
+   "mutant": 123,
+   "kind": "envelope",
+   "target": "META/signatures/publisher-c938461a41b777d0.dsse.json",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "47c88373eb27a9260a949176ca3260b49edc1135634f03596842a14e984458d1"
+  },
+  {
+   "mutant": 124,
+   "kind": "policy",
+   "target": "body:hybrid",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "9940bdcb7d1f4022e2eede50334248b0db015dd6b15ec450bb7e6ff919142c03"
+  },
+  {
+   "mutant": 125,
+   "kind": "deflated",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "80d2e029854bbd30297b557515d56799354cd31227eed25ba19252d0fb54ab63"
+  },
+  {
+   "mutant": 126,
+   "kind": "archive",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "23e642dc06ba00fa22c1e4f7580e243bcb8f701f8f137402632daf0ed9f385e2"
+  },
+  {
+   "mutant": 127,
+   "kind": "content",
+   "target": "pack.json",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "45753a5419c207367ff54e8dda5f662b3fea90800f62d8ca87222df7dfeaf63e"
+  },
+  {
+   "mutant": 128,
+   "kind": "time",
+   "target": "2099-01-01T00:00:00.12345678Z",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "8ea2d394945411c627ee6af80354305cc83c99e0fc69f21f7914767c88c2e1cd"
+  },
+  {
+   "mutant": 129,
+   "kind": "path",
+   "target": "records/a..jsonl",
+   "dotnet": "verified",
+   "python": "verified",
+   "rust": "verified",
+   "agree": true,
+   "sha256": "3f9ec2254f896aa62781418e7be001c23c9369581a5193b32b03239d02301b19"
+  },
+  {
+   "mutant": 130,
+   "kind": "envelope",
+   "target": "META/signatures/publisher-c938461a41b777d0.dsse.json",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "adf3dcc870b00a1a19c9798c5075df447e6cd8ad9745a3809053992195dc6608"
+  },
+  {
+   "mutant": 131,
+   "kind": "policy",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "9940bdcb7d1f4022e2eede50334248b0db015dd6b15ec450bb7e6ff919142c03"
+  },
+  {
+   "mutant": 132,
+   "kind": "deflated",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "21c1f7d321540154430b11e1d21dfb726c28b5bd6d4a3c2734727fe0b3998c3a"
+  },
+  {
+   "mutant": 133,
+   "kind": "archive",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "b76bdce5854a156ad32a41baf469a336b14a8cea6695c72c9d793d547b83a2a4"
+  },
+  {
+   "mutant": 134,
+   "kind": "content",
+   "target": "card.json",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "6c49cb4266279d6a6d669b4a4e484ec44be30511ebced0b22d353eae22901463"
+  },
+  {
+   "mutant": 135,
+   "kind": "time",
+   "target": "2099-01-01t00:00:00z",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "99dfaa43296dc265b53dc36665762525327df15c33598d6aa60656ef91f68674"
+  },
+  {
+   "mutant": 136,
+   "kind": "path",
+   "target": "records/a b.jsonl",
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "302071a5064ddea542db9f2e0d5b08151a044a7afde59f4a3aeac8fb768c8fa6"
+  },
+  {
+   "mutant": 137,
+   "kind": "envelope",
+   "target": "META/signatures/publisher-c938461a41b777d0.dsse.json",
+   "dotnet": "verified",
+   "python": "verified",
+   "rust": "verified",
+   "agree": true,
+   "sha256": "8fac88b7214591892a9de3e3ecbc262517efddbfd6f5a5c3347e53b19c7eaf56"
+  },
+  {
+   "mutant": 138,
+   "kind": "policy",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "9940bdcb7d1f4022e2eede50334248b0db015dd6b15ec450bb7e6ff919142c03"
+  },
+  {
+   "mutant": 139,
+   "kind": "deflated",
+   "target": null,
+   "dotnet": "refused",
+   "python": "refused",
+   "rust": "refused",
+   "agree": true,
+   "sha256": "179f64026198a43f6d93742f6fa92a3a2fdd517cc97a77059f9ff8c105915644"
+  }
+ ],
+ "byKind": {
+  "archive": {
+   "count": 20,
+   "agreed": 20
+  },
+  "content": {
+   "count": 20,
+   "agreed": 20
+  },
+  "time": {
+   "count": 20,
+   "agreed": 20
+  },
+  "path": {
+   "count": 20,
+   "agreed": 20
+  },
+  "envelope": {
+   "count": 20,
+   "agreed": 20
+  },
+  "policy": {
+   "count": 20,
+   "agreed": 20
+  }
+ }
+}

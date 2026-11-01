@@ -1,7 +1,7 @@
-"""Differential fuzzing of the two pack verifiers (review 1, I5).
+"""Differential fuzzing of the pack verifiers (review 1, I5; feature 18: three readers).
 
-Feeds the same mutated packs to `ampack verify` (.NET) and python/ampack_verify.py and reports every input on which they
-disagree. Nothing is expected of a mutant except that the two verifiers reach the same verdict: a disagreement is a bug in
+Feeds the same mutated packs to `ampack verify` (.NET), python/ampack_verify.py and, when it is built, the Rust reader
+(reader-rs/target/release/ampack-rs, else debug/) and reports every input on which they disagree. Nothing is expected of a mutant except that the two verifiers reach the same verdict: a disagreement is a bug in
 one of them, or a gap in the spec. Seven kinds of mutant, in turn, from a seeded generator so a run can be repeated:
 
 - archive mutants: bytes of a valid pack flipped, inserted, removed or truncated (the ZIP readers);
@@ -38,6 +38,9 @@ from cryptography.hazmat.primitives.asymmetric import ec
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+# The third reader (feature 18), if built: it takes the pack and the policy as the Python verifier does.
+RUST = next((p for p in (HERE.parent.parent / "reader-rs" / "target" / b / ("ampack-rs" + (".exe" if sys.platform == "win32" else ""))
+                         for b in ("release", "debug")) if p.is_file()), None)
 sys.path.insert(0, str(HERE / "python"))
 
 
@@ -292,7 +295,10 @@ def main():
         pr = subprocess.run([sys.executable, "-I", str(HERE / "python" / "ampack_verify.py"), str(path), str(mutant_policy)],
                             capture_output=True, text=True, encoding="utf-8", errors="replace")
         dotnet, python = verdict(dn_code), verdict(pr.returncode)
-        agree = dotnet == python and not dotnet.startswith("error")
+        rs = subprocess.run([str(RUST), "verify", str(path), str(mutant_policy)], capture_output=True, text=True,
+                            encoding="utf-8", errors="replace") if RUST else None
+        rust = verdict(rs.returncode) if rs else None
+        agree = dotnet == python and (rust is None or rust == dotnet) and not dotnet.startswith("error")
         if not agree:
             disagreements += 1
             kept = HERE / "differential" / f"mutant-{n:04d}.ampack"
@@ -300,18 +306,20 @@ def main():
             kept.write_bytes(archive)
             if mutant_policy != policy:
                 kept.with_suffix(".policy.json").write_bytes(mutant_policy.read_bytes())
-            print(f"DISAGREE {n:4} {kind:7} {target or '':24} dotnet {dotnet:9} python {python}")
+            print(f"DISAGREE {n:4} {kind:7} {target or '':24} dotnet {dotnet:9} python {python:9} rust {rust}")
+            if rs:
+                print(f"         rust: {(rs.stdout.strip() or rs.stderr.strip()[-200:]).splitlines()[-1] if (rs.stdout.strip() or rs.stderr.strip()) else ''}")
             print(f"         dotnet: {dn_text.splitlines()[0] if dn_text else ''}")
             print(f"         python: {(pr.stdout.strip() or pr.stderr.strip()[-200:]).splitlines()[-1] if (pr.stdout.strip() or pr.stderr.strip()) else ''}")
-        results.append({"mutant": n, "kind": kind, "target": target, "dotnet": dotnet, "python": python, "agree": agree,
+        results.append({"mutant": n, "kind": kind, "target": target, "dotnet": dotnet, "python": python, "rust": rust, "agree": agree,
                          "sha256": hashlib.sha256(archive).hexdigest()})
     verified = sum(r["dotnet"] == "verified" and r["agree"] for r in results)
     by_kind = {k: {"count": sum(r["kind"] == k for r in results), "agreed": sum(r["kind"] == k and r["agree"] for r in results)}
                for k in ("archive", "content", "time", "path", "envelope", "policy")}
     (kit.OUT / f"differential-results-seed-{SEED}.json").write_text(json.dumps({
         "format": "agentmemory.pack.differential/1", "seed": SEED, "count": COUNT, "agreed": COUNT - disagreements,
-        "bothVerified": verified, "byKind": by_kind, "mutants": results}, indent=1) + "\n", encoding="utf-8")
-    print(f"{COUNT - disagreements}/{COUNT} mutants: both verifiers reach the same verdict ({verified} verified by both); seed {SEED}")
+        "bothVerified": verified, "readers": 3 if RUST else 2, "mutants": results, "byKind": by_kind}, indent=1) + "\n", encoding="utf-8")
+    print(f"{COUNT - disagreements}/{COUNT} mutants: {'all three readers' if RUST else 'both verifiers (Rust reader not built)'} reach the same verdict ({verified} verified); seed {SEED}")
     for f in work.iterdir():
         f.unlink()
     work.rmdir()
