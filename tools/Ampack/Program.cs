@@ -260,7 +260,7 @@ internal static partial class Program
         ["evidence"] = ["activations", "host-key", "pack", "version", "out"],
         ["scan"] = ["aef", .. TrustOptions],
         ["countersign"] = ["out", "role", .. SignerOptions, .. TrustOptions],
-        ["serve"] = ["store", "http", "allow-remote", "grant", "client-endpoint", .. GateOptions, .. TrustOptions],
+        ["serve"] = ["store", "http", "allow-remote", "grant", "client-endpoint", "print-config", .. GateOptions, .. TrustOptions],
         ["install"] = ["store", "allow-downgrade", .. TrustOptions],
         ["uninstall"] = ["store"],
         ["list"] = ["store"],
@@ -1009,6 +1009,8 @@ internal static partial class Program
                 : "external";
             var kept = mount.Packs.Select(p => PackTools.Off(p, DateTimeOffset.UtcNow)).OfType<string>().Where(off => off.Contains("usage policy", StringComparison.Ordinal)).ToList();
             if (kept.Count != 0) return Report(kept, "");
+            // --print-config (feature 14): what an MCP client needs to start this same server, once the packs verify.
+            if (o.Flag("print-config")) return PrintClientConfig(o);
             // Review 1, I9: a pack that declares a trial, served with no gate, is said to be served ungated.
             if (gate is null)
                 foreach (var pack in mount.Packs.Where(p => p.Manifest.Trial is not null))
@@ -1016,6 +1018,35 @@ internal static partial class Program
             return o.Value("http") is { } url ? Rest.Run(mount, url, o.Flag("allow-remote")) : Serve.Run(mount);
         }
         catch (AgentMemory.Extensibility.Ampack.PackLoadException e) { return Report(e.Problems, ""); }
+    }
+
+    // The MCP client configuration for this server (feature 14, R4): this tool, the packs and every option given but this one,
+    // with full paths, for Claude Desktop (claude_desktop_config.json), VS Code (.vscode/mcp.json) and Cursor (~/.cursor/mcp.json).
+    private static int PrintClientConfig(Options o)
+    {
+        var args = new List<string> { "serve" };
+        args.AddRange(o.PositionalFrom(0).Select(Path.GetFullPath));
+        foreach (var name in (string[])["policy", "store", "activations", "host-key", "client-endpoint"])
+            if (o.Value(name) is { } value) args.AddRange(["--" + name, name is "client-endpoint" ? value : Path.GetFullPath(value)]);
+        foreach (var value in o.Values("revocations")) args.AddRange(["--revocations", Path.GetFullPath(value)]);
+        foreach (var value in o.Values("grant")) args.AddRange(["--grant", value]);
+        var command = Environment.ProcessPath ?? "ampack";
+        var server = new System.Text.Json.Nodes.JsonObject
+        {
+            ["command"] = command, ["args"] = new System.Text.Json.Nodes.JsonArray([.. args.Select(a => (System.Text.Json.Nodes.JsonNode)a)]),
+        };
+        var indented = new System.Text.Json.JsonSerializerOptions { WriteIndented = true };
+        string Of(string root, System.Text.Json.Nodes.JsonObject entry) =>
+            new System.Text.Json.Nodes.JsonObject { [root] = new System.Text.Json.Nodes.JsonObject { ["ampack"] = entry } }.ToJsonString(indented);
+        Console.WriteLine("Claude Desktop (claude_desktop_config.json):");
+        Console.WriteLine(Of("mcpServers", (System.Text.Json.Nodes.JsonObject)server.DeepClone()));
+        Console.WriteLine("VS Code (.vscode/mcp.json):");
+        var vscode = (System.Text.Json.Nodes.JsonObject)server.DeepClone();
+        vscode["type"] = "stdio";
+        Console.WriteLine(Of("servers", vscode));
+        Console.WriteLine("Cursor (~/.cursor/mcp.json):");
+        Console.WriteLine(Of("mcpServers", (System.Text.Json.Nodes.JsonObject)server.DeepClone()));
+        return 0;
     }
 
     // --activations with --host-key: the host's trial gate decides what is served, as it decides what composes (review 1, M1).
@@ -1247,7 +1278,7 @@ internal sealed class UsageException(string message) : Exception(message);
 /// <summary>Positional arguments, <c>--name value</c> options and <c>--flag</c> switches.</summary>
 internal sealed class Options
 {
-    private static readonly HashSet<string> Flags = new(StringComparer.Ordinal) { "stored", "safety", "record", "allow-downgrade", "explain", "json", "p1363", "allow-remote", "retire-revocations", "allow-loopback-http", "no-recheck", "help" };
+    private static readonly HashSet<string> Flags = new(StringComparer.Ordinal) { "stored", "safety", "record", "allow-downgrade", "explain", "json", "p1363", "allow-remote", "print-config", "retire-revocations", "allow-loopback-http", "no-recheck", "help" };
     // The options that take several values, each given on its own.
     private static readonly HashSet<string> Repeatable = new(StringComparer.Ordinal) { "revocations" };
     private readonly List<string> _positional = [];

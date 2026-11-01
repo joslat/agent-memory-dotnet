@@ -536,6 +536,18 @@ public sealed class AmpackCommandLineTests : IDisposable
     }
 
     [Fact]
+    public void Serve_prints_the_configuration_an_MCP_client_needs_once_the_packs_verify()
+    {
+        // Feature 14 (R4): Claude Desktop, VS Code and Cursor, with full paths, serving nothing.
+        Done("keygen", "--out", "keys", "--name", "publisher", "--prefix", "io.agentmemory", "--policy", "trust.json");
+        Done("migrate", Path.Combine(Packs, "MartialArts"), "--out", "martialarts");
+        Done("build", "martialarts", "--out", "martialarts.ampack", "--key", At("keys", "publisher.key.pem"));
+        var printed = Done("serve", "martialarts.ampack", "--policy", "trust.json", "--print-config");
+        printed.Should().Contain("mcpServers").And.Contain("\"servers\"").And.Contain("\"stdio\"").And.Contain(Path.GetFullPath(At("martialarts.ampack")).Replace("\\", "\\\\"));
+        Ampack("serve", "missing.ampack", "--policy", "trust.json", "--print-config").Exit.Should().NotBe(0, "nothing is configured that does not verify");
+    }
+
+    [Fact]
     public void Serve_refuses_a_pack_whose_usage_policy_does_not_let_this_host_export_it()
     {
         // Feature 10 (R-CORE-139): serving hands a pack's records to another program, the export door.

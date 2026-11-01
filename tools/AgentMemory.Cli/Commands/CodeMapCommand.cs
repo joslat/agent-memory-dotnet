@@ -164,7 +164,7 @@ internal sealed class CodeMapCommand(TextWriter output)
     }
 
     // C# from the repository with Roslyn, then each SCIP index into the same map.
-    private static CodeMapBuilder Read(string? root, string? scip)
+    internal static CodeMapBuilder Read(string? root, string? scip)
     {
         var builder = root is null ? new CodeMapBuilder() : RoslynCodeMapReader.Read(Path.GetFullPath(root));
         foreach (var index in (scip ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))

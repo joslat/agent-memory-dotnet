@@ -336,6 +336,80 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
         return provider;
     }
 
+    /// <summary>
+    /// <c>agentmemory trial [--repo .]</c> (feature 14): the code map's trial on this repository, with no database and no network.
+    /// Each task's parent tree is indexed into a snapshot and walked in memory, as a host holding the pack in memory walks it; grep
+    /// is the baseline; the decision is the same exact decision, signed with this machine's host key (made on first run, under
+    /// <c>~/.agentmemory</c>). One screen: each arm's hits, precision and context, the checks, and the decision.
+    /// </summary>
+    public async Task<int> TrialInMemoryAsync(string? repo, string? hostKeyPath, string? activationsFolder)
+    {
+        var root = Path.GetFullPath(repo ?? ".");
+        var manifest = CodeMapPack.Manifest;
+        var trial = manifest.Trial!;
+        var home = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".agentmemory");
+        hostKeyPath ??= Path.Combine(home, "host.key.pem");
+        activationsFolder ??= Path.Combine(home, "activations");
+        using var hostKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        if (File.Exists(hostKeyPath)) hostKey.ImportFromPem(File.ReadAllText(hostKeyPath));
+        else
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(hostKeyPath)!);
+            File.WriteAllText(hostKeyPath, hostKey.ExportPkcs8PrivateKeyPem());
+            output.WriteLine($"  made a host key for this machine: {hostKeyPath}");
+        }
+        Directory.CreateDirectory(activationsFolder);
+        List<HistoryTask> tasks;
+        int spacing;
+        try { tasks = HistoryTasks(root, trial.Tasks, "parent", out spacing); }
+        catch (InvalidOperationException e)
+        {
+            output.WriteLine("error: " + e.Message);
+            return 1;
+        }
+        if (tasks.Count < trial.Tasks)
+        {
+            output.WriteLine($"{root}: {tasks.Count} usable commits (a code change with its tests); the trial needs {trial.Tasks}. "
+                + "The code map reads C#; a repository in another language needs the text-only map, which is not built yet.");
+            return 1;
+        }
+        output.WriteLine($"{manifest.Id} {manifest.Version} on {root}: {tasks.Count} tasks, each at its commit's parent, in memory (no database)");
+        var (withRun, grepRun) = (new ArmRun(), new ArmRun());
+        foreach (var task in tasks.AsEnumerable().Reverse())
+        {
+            using var tree = ParentTree.Extract(root, task.Parent);
+            var memory = AgentMemory.Extensibility.Ampack.PackMemory.From([], [CodeMapCommand.Read(tree.Path, null).Build("git:" + task.Parent)]);
+            var watch = Stopwatch.StartNew();
+            var hits = await memory.WalkAsync([.. task.Anchors.Select(a => ContextAnchor.Path(a))], task.Subject).ConfigureAwait(false);
+            var ms = watch.Elapsed.TotalMilliseconds;
+            // What a host's walk contributor offers: the pack's records, at most its maxItems, as in the host's compile.
+            var offered = hits.Where(h => h.Module == manifest.Id).Take(manifest.Traversal!.MaxItems).ToList();
+            var files = offered.Where(h => h.Type == CodeMapPack.TestType && h.Via is not null)
+                .Select(h => TestFile().Match(h.Text)).Where(m => m.Success).Select(m => m.Groups[1].Value).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            var bytes = offered.Sum(h => AgentMemory.Extensibility.Modules.PackTrialRender.Bytes(h.Module, h.Key, h.Text));
+            withRun.Add(new TaskOutcome(task, files, files.Count(f => task.Tests.Contains(f, StringComparer.OrdinalIgnoreCase)), ms, ms, bytes));
+            grepRun.Add(GrepOne(tree.Path, task));
+        }
+        withRun.Order(tasks);
+        grepRun.Order(tasks);
+        var withArm = withRun.Arm(tasks.Count).Arm with { MaximumOffered = manifest.Traversal!.MaxItems, Spacing = spacing };
+        var withoutArm = trial.Baseline == "host"
+            ? grepRun.Arm(tasks.Count).Arm with { P95Ms = 0, MaximumOffered = GrepTop, Spacing = spacing }
+            : new PackTrialMeasurement { Tasks = tasks.Count, Hits = 0, Offered = 0, Correct = 0, P95Ms = 0, PerTask = [.. tasks.Select(_ => new PackTrialTask(0, 0))], MaximumOffered = 0, Spacing = spacing };
+        var decision = PackTrialGate.Decide(manifest, withArm, withoutArm, DateTimeOffset.UtcNow) with { History = "parent" };
+        var record = PackActivationFolder.Write(activationsFolder, decision, hostKey);
+        static double Median(IReadOnlyList<PackTrialTask>? per) =>
+            per is { Count: > 0 } ? per.Select(t => (double)(t.OfferedBytes ?? 0)).Order().ElementAt(per.Count / 2) : 0;
+        output.WriteLine($"  code map hit {withArm.HitRate:0.000} ({withArm.Hits}/{withArm.Tasks}), precision {withArm.Precision:0.000} ({withArm.Correct}/{withArm.Offered}), median context {Median(withArm.PerTask).ToString("N0", System.Globalization.CultureInfo.InvariantCulture)} bytes a task");
+        output.WriteLine($"  grep     hit {withoutArm.HitRate:0.000} ({withoutArm.Hits}/{withoutArm.Tasks}), precision {withoutArm.Precision:0.000} ({withoutArm.Correct}/{withoutArm.Offered}), median context {Median(withoutArm.PerTask).ToString("N0", System.Globalization.CultureInfo.InvariantCulture)} bytes a task");
+        foreach (var check in decision.Checks)
+            output.WriteLine($"  {(check.Met ? "met " : "MISS")}  {check.Target} {check.Observed}{(check.Estimate is { } e ? $" (bound; estimate {e})" : "")} (target {check.Required})");
+        output.WriteLine($"  decision {(decision.Active ? "ON" : "OFF")}: {decision.Reason}");
+        output.WriteLine($"  signed   {record}");
+        output.WriteLine("  serve it to your MCP client: ampack serve <codemap.ampack> --policy <trust.json> --print-config");
+        return decision.Active ? 0 : 1;
+    }
+
     // A retrieval trial (feature 12): a knowledge pack on the host's recorded questions. The pack is imported once; each task is
     // compiled as of its own time with it and without it (baseline none: the host offers nothing of the pack's without it); a
     // task is a hit when the pack offered one of its expected keys; abstention tasks are counted apart (noHarm); each ability's arm

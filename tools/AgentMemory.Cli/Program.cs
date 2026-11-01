@@ -21,7 +21,7 @@ if (cli.Command is null || string.Equals(cli.Command, "help", StringComparison.O
     return cli.Command is null ? 1 : 0;
 }
 
-var known = new[] { "migrate", "bootstrap", "retrim", "consolidate", "decay", "conflicts", "schema-parity", "schema-check", "invalidate", "supersede", "history", "evaluate", "perf", "block", "routing-score", "integrity", "owner", "modules", "packs", "codemap", "decisions", "work", "architecture", "intent", "project", "onboard" };
+var known = new[] { "migrate", "bootstrap", "retrim", "consolidate", "decay", "conflicts", "schema-parity", "schema-check", "invalidate", "supersede", "history", "evaluate", "perf", "block", "routing-score", "integrity", "owner", "modules", "packs", "codemap", "decisions", "work", "architecture", "intent", "project", "onboard", "trial" };
 if (!known.Contains(cli.Command, StringComparer.OrdinalIgnoreCase))
 {
     Console.Error.WriteLine($"error: unknown command '{cli.Command}'.");
@@ -384,6 +384,7 @@ try
         // against the same store this host is configured for.
         // CMP-4: the traversal-context trial composes the Coding packs over the same store and compiles each fixture task.
         // Pack format v1.1 §4: trial-gated activation, on this host's own history; the decision is signed with the host key.
+        "trial" => await new PackGateCommand(_ => { }, output).TrialInMemoryAsync(cli.Get("repo"), cli.Get("host-key"), cli.Get("activations")),
         "evaluate" when cli.Get("gate") is not null => await new PackGateCommand(o =>
             {
                 o.Uri = uri;
