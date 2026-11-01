@@ -1771,7 +1771,8 @@ def main():
                               HERE.parent.parent / "reader-rs" / "target" / "debug" / ("ampack-rs" + exe)) if p.exists()), None)
     if third is None:
         print("third verifier (reader-rs) not built: three-way agreement not checked")
-    elif subprocess.run([sys.executable, "-I", str(HERE / "run_third.py"), str(third)]).returncode != 0:
+    # The kit is the heavy task already: the third verifier must not wait for a .NET run, which may be the kit's own caller.
+    elif subprocess.run([sys.executable, "-I", str(HERE / "run_third.py"), str(third), "--no-wait"]).returncode != 0:
         print(f"FAIL the third verifier ({third}) disagrees on a vector")
         failures += 1
     return 1 if failures else 0

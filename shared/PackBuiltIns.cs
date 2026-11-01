@@ -43,29 +43,47 @@ internal static partial class PackBuiltIns
         return Named(recordFiles).Select(r => r.Type).Where(names.Contains).ToHashSet(StringComparer.Ordinal);
     }
 
+    /// <summary>The built-in relations the record lines' links name.</summary>
+    internal static IReadOnlySet<string> UsedRelations(IEnumerable<ReadOnlyMemory<byte>> recordFiles)
+    {
+        var names = PackRegistry.BuiltInRelations.Select(r => r.Name).ToHashSet(StringComparer.Ordinal);
+        return Lines(recordFiles).SelectMany(l => l.Relations).Where(names.Contains).ToHashSet(StringComparer.Ordinal);
+    }
+
     /// <summary>
     /// The (type, key) each record line names, in order, read leniently from a verified pack's record files (every line already
     /// in the JSON profile): a line that is not a record is the record reader's to refuse, and is skipped here.
     /// </summary>
-    internal static IEnumerable<(string Type, string Key)> Named(IEnumerable<ReadOnlyMemory<byte>> recordFiles)
+    internal static IEnumerable<(string Type, string Key)> Named(IEnumerable<ReadOnlyMemory<byte>> recordFiles) =>
+        Lines(recordFiles).Where(l => l.Type is not null && l.Key is not null).Select(l => (l.Type!, l.Key!));
+
+    // Each record line, leniently: its type and key when both are strings (R-EMB-004; review F03, H1: a line without a key named
+    // key "" here and nothing in Python), and the relations its links name. The one place these lines are parsed.
+    private static IEnumerable<(string? Type, string? Key, List<string> Relations)> Lines(IEnumerable<ReadOnlyMemory<byte>> recordFiles)
     {
         foreach (var file in recordFiles)
             foreach (var line in System.Text.Encoding.UTF8.GetString(file.Span).Split('\n'))
             {
                 if (line.Length == 0) continue;
-                (string, string)? named = null;
+                (string?, string?, List<string>)? read = null;
                 try
                 {
                     using var document = JsonDocument.Parse(line);
                     var root = document.RootElement;
-                    // A line names a record when its type and key are both strings (R-EMB-004; review F03, H1: a line without a
-                    // key named key "" here and nothing in Python).
-                    if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.String
-                        && root.TryGetProperty("key", out var key) && key.ValueKind == JsonValueKind.String)
-                        named = (type.GetString()!, key.GetString()!);
+                    if (root.ValueKind == JsonValueKind.Object)
+                    {
+                        var named = root.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.String
+                            && root.TryGetProperty("key", out var key) && key.ValueKind == JsonValueKind.String;
+                        var relations = new List<string>();
+                        if (root.TryGetProperty("links", out var links) && links.ValueKind == JsonValueKind.Array)
+                            foreach (var link in links.EnumerateArray())
+                                if (link.ValueKind == JsonValueKind.Object && link.TryGetProperty("relation", out var relation) && relation.ValueKind == JsonValueKind.String)
+                                    relations.Add(relation.GetString()!);
+                        read = (named ? root.GetProperty("type").GetString() : null, named ? root.GetProperty("key").GetString() : null, relations);
+                    }
                 }
                 catch (JsonException) { }
-                if (named is { } record) yield return record;
+                if (read is { } record) yield return record;
             }
     }
 
@@ -74,7 +92,7 @@ internal static partial class PackBuiltIns
     /// as it is when it uses none. A pack without an ontology takes the implied prefix. A pack's own ontology may not carry the
     /// host's marker.
     /// </summary>
-    internal static JsonNode? Bind(JsonNode? declared, string packId, IReadOnlySet<string> used)
+    internal static JsonNode? Bind(JsonNode? declared, string packId, IReadOnlySet<string> used, IReadOnlySet<string>? usedRelations = null)
     {
         // A malformed ontology is passed on as it is, for the module reader to refuse (review F03, M3: it was taken as none).
         if (declared is not null and not JsonObject) return declared;
@@ -95,7 +113,10 @@ internal static partial class PackBuiltIns
                 ["properties"] = new JsonObject(type.Properties.Select(p => KeyValuePair.Create(p.Name,
                     (JsonNode?)new JsonObject { ["type"] = p.Type, ["required"] = p.Required }))),
             });
-        foreach (var relation in PackRegistry.BuiltInRelations.Where(r => needed.Contains(r.From)))
+        // A relation to another type is bound with its source, as it brings that type; one from a type to itself only when a
+        // record links by it, so a built-in added to the registry never changes the declarations of a pack that does not use it
+        // (review of 15-17, H1: every note pack's digest moved when links_to was added).
+        foreach (var relation in PackRegistry.BuiltInRelations.Where(r => needed.Contains(r.From) && (r.From != r.To || usedRelations?.Contains(r.Name) == true)))
             relations.Add((JsonNode)new JsonObject
             {
                 ["name"] = StoredRelation(prefix, relation.Name), [Marker] = relation.Name,

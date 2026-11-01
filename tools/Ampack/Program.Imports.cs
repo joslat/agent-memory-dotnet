@@ -168,7 +168,15 @@ internal static partial class Program
         var commit = "";
         foreach (var line in Git(full, folder, 64L << 20, false, "log", "-M", "--diff-filter=R", "--format=%x00%H %aI", "--name-status", "--relative", "--", "."))
         {
-            if (line[0] == '\0') { (commit, at) = (line[1..41], DateTimeOffset.Parse(line[42..], System.Globalization.CultureInfo.InvariantCulture)); continue; }
+            // A commit line: its hash (SHA-1 or SHA-256, whatever its length) and its author date.
+            if (line[0] == '\0')
+            {
+                var space = line.IndexOf(' ');
+                if (space < 2 || !DateTimeOffset.TryParse(line[(space + 1)..], System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out at))
+                    throw new UsageException($"--git: git log gave a commit line this import does not read: '{Shown(line[1..], 120)}'.");
+                commit = line[1..space];
+                continue;
+            }
             if (line.Split('\t') is not [var status, var from, var to] || !status.StartsWith('R') || !from.EndsWith(".md", StringComparison.OrdinalIgnoreCase) || !to.EndsWith(".md", StringComparison.OrdinalIgnoreCase)) continue;
             if (renames.Count == 1000) throw new UsageException("--git: the folder's history holds more than 1,000 renames of .md files.");
             var before = string.Join('\n', Git(full, folder, 1 << 20, true, "show", $"{commit}^:./{from}"));

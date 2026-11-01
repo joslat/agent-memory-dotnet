@@ -21,9 +21,9 @@ public sealed class PackImportsMemTests
 
     private static string Token(byte[] message) => $"ed25519:{PublicKey}:{Convert.ToHexStringLower(SHA512.HashData(message))}";
 
-    private static Dictionary<string, byte[]> Bundle(bool signed = false)
+    private static Dictionary<string, byte[]> Bundle(bool signed = false, Dictionary<string, string>? with = null)
     {
-        var items = new Dictionary<string, string>(StringComparer.Ordinal)
+        var items = with ?? new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["items/episode.jsonl"] = """{"id":"ep1","details":"Kept episode.","eventTime":"2026-01-02T03:04:05Z"}""" + "\n"
                 + """{"id":"ep2","details":"Deleted episode."}""" + "\n",
@@ -103,6 +103,24 @@ public sealed class PackImportsMemTests
         var back = Import(new Dictionary<string, byte[]>(first.Files, StringComparer.Ordinal), new HashSet<string> { PublicKey });
         back.Records.Should().Be(1);
         Derivation(back.Archive).Should().Contain("(trusted)");
+    }
+
+    [Fact]
+    public void Review_15_17_a_tombstoned_preference_is_not_imported_and_a_tombstone_is_verified_only_under_a_trusted_key()
+    {
+        // Keys in sorted order and plain string values, so this text is the tombstone's canonical form, which its signature covers.
+        var tombstone = new JsonObject { ["deletedAt"] = "2026-02-01T00:00:00Z", ["op"] = "delete", ["targetID"] = "theme", ["targetKind"] = "preference" };
+        tombstone["signature"] = Token(Encoding.UTF8.GetBytes(tombstone.ToJsonString()));
+        var items = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["items/preference.jsonl"] = """{"key":"theme","value":"dark"}""" + "\n" + """{"key":"lang","value":"en"}""" + "\n",
+            ["audit/tombstones.jsonl"] = tombstone.ToJsonString() + "\n",
+        };
+        var result = Import(Bundle(with: items));
+        result.Records.Should().Be(1, "the tombstone names the preference by its key, and its note is preference/theme");
+        result.Skipped.Should().Contain(s => s.Contains("preference/theme") && s.Contains("tombstone"));
+        Derivation(result.Archive).Should().Contain("0 verified under a trusted key, 1 valid under a key not trusted here");
+        Derivation(Import(Bundle(signed: true, with: items), new HashSet<string> { PublicKey }).Archive).Should().Contain("1 verified under a trusted key");
     }
 
     [Fact]

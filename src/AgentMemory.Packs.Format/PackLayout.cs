@@ -59,8 +59,9 @@ internal static class PackLayout
             if (pack[name] is { } value && !(value is JsonArray { Count: 0 })) manifest[name] = value.DeepClone();
         // The AgentMemory binding of the built-in types (feature 03), here and only here, so every path that composes a pack
         // composes the same declarations and the same declarations digest.
-        if (PackBuiltIns.Bind(Node(files, Ontology), manifest["id"]!.GetValue<string>(),
-                PackBuiltIns.Used(RecordFiles(files.Keys).Select(f => (ReadOnlyMemory<byte>)files[f]))) is { } ontology) manifest["ontology"] = ontology;
+        var recordFiles = RecordFiles(files.Keys).Select(f => (ReadOnlyMemory<byte>)files[f]).ToList();
+        if (PackBuiltIns.Bind(Node(files, Ontology), manifest["id"]!.GetValue<string>(), PackBuiltIns.Used(recordFiles), PackBuiltIns.UsedRelations(recordFiles)) is { } ontology)
+            manifest["ontology"] = ontology;
         if (Node(files, Views) is { } views) manifest["views"] = views;
         // What the pack shows the model on every turn (feature 06), from its card: one value for the trial, the provider and the
         // listing, and in the declarations digest, since it is a declared cost.

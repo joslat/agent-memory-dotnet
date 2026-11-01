@@ -14,18 +14,21 @@ public sealed class PackStatusWatch
     /// <summary>The one resource that can be subscribed to, before its pack id.</summary>
     public const string Prefix = "ampack://status/";
 
+    /// <summary>The most statuses subscribed at once: each is checked on every tick.</summary>
+    public const int MaximumSubscriptions = 256;
+
     private readonly ConcurrentDictionary<string, string> _seen = new(StringComparer.Ordinal);
 
     /// <summary>The subscribed resources.</summary>
     public IReadOnlyCollection<string> Subscribed => [.. _seen.Keys];
 
-    /// <summary>Subscribes to a status resource, remembering its status now; false for any other resource.</summary>
+    /// <summary>Subscribes to a status resource, remembering its status now; false for any other resource, or past the most.</summary>
     /// <param name="uri">The resource.</param>
     /// <param name="status">A pack's status by its id, as the resource answers it.</param>
     public bool Subscribe(string uri, Func<string, string> status)
     {
         ArgumentNullException.ThrowIfNull(status);
-        if (!IsStatus(uri)) return false;
+        if (!IsStatus(uri) || _seen.Count >= MaximumSubscriptions && !_seen.ContainsKey(uri)) return false;
         _seen[uri] = status(Id(uri));
         return true;
     }

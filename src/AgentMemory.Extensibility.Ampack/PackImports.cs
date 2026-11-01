@@ -44,7 +44,10 @@ public sealed record ImportMapping(string Source, string Records, string Key, st
 [Experimental("AMEXT001")]
 public sealed record ImportResult(byte[] Archive, int Records, IReadOnlyDictionary<string, int> Dropped, IReadOnlyList<string> Skipped, IReadOnlyList<string> Findings);
 
-/// <summary>A file git saw renamed (feature 16, R3): its old path, its new one, when, and the old file's bytes just before.</summary>
+/// <summary>
+/// A file git saw renamed (feature 16, R3): its old path, its new one, when, and the old file's text just before, as UTF-8
+/// (git's output, its line ends made '\n').
+/// </summary>
 [Experimental("AMEXT001")]
 public sealed record FolderRename(string From, string To, DateTimeOffset At, byte[] Before);
 
@@ -209,7 +212,7 @@ public static partial class PackImports
             var wiki = Regex.Matches(body, @"\[\[([^\[\]|#\n]{1,200})(?:[|#][^\[\]\n]{0,200})?\]\]").Select(m => m.Groups[1].Value.Trim());
             // A Markdown link to a .md file, relative to this file's folder; a link with a scheme is not the folder's.
             var markdown = Regex.Matches(body, @"\]\(([^()\s:]{1,300}\.md)(?:#[^()\s]*)?\)").Select(m => Uri.UnescapeDataString(m.Groups[1].Value))
-                .Select(target => Path.GetRelativePath(".", Path.Combine(Path.GetDirectoryName(name) ?? "", target)).Replace('\\', '/'));
+                .Select(target => InFolder(name, target));
             foreach (var target in wiki.Concat(markdown))
             {
                 var nfc = target.Normalize(NormalizationForm.FormC);
@@ -222,11 +225,14 @@ public static partial class PackImports
         }
         if (names.Count == 0) throw new InvalidDataException("The folder holds no .md file.");
 
-        // Renames, oldest first: the old path a note of what it held, superseded by the note at the new path.
+        // Renames, newest first, so a chain resolves back from the file that is there now: the old path a note of what it held,
+        // superseded by the note at the new path, and only while that note is held (review of 15-17, M4: a file renamed and then
+        // removed came back as a live note).
         var supersedes = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var rename in (renames ?? []).OrderBy(r => r.At))
+        foreach (var rename in (renames ?? []).OrderByDescending(r => r.At))
         {
             var held = lines.Select(l => l.Key).ToHashSet(StringComparer.Ordinal);
+            if (!held.Contains(rename.To)) { skipped.Add($"'{rename.From}': renamed to '{rename.To}', which the folder no longer holds as a note (no history kept)"); continue; }
             if (held.Contains(rename.From)) { skipped.Add($"'{rename.From}': renamed to '{rename.To}', and its path is in use again (no history kept)"); continue; }
             if (supersedes.ContainsKey(rename.To)) { skipped.Add($"'{rename.To}': renamed into twice (only the first kept)"); continue; }
             var at = rename.At.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture);
@@ -300,6 +306,18 @@ public static partial class PackImports
         return (pairs, text[Math.Min(text.Length, end + 5)..], null);
     }
 
+    // A link's target as a path in the folder: from the folder's root when it starts with '/', else from the linking file's
+    // own folder; '.' and '..' resolved by the path alone, never against this process's current folder (review of 15-17).
+    private static string InFolder(string from, string target)
+    {
+        var parts = target.StartsWith('/') ? new List<string>() : [.. from.Split('/')[..^1]];
+        foreach (var part in target.Replace('\\', '/').Split('/'))
+            if (part is "" or ".") continue;
+            else if (part == "..") { if (parts.Count > 0) parts.RemoveAt(parts.Count - 1); }
+            else parts.Add(part);
+        return string.Join('/', parts);
+    }
+
     /// <summary>The most links_to links an imported note carries; the rest are reported.</summary>
     public const int MaximumNoteLinks = 64;
 
@@ -333,6 +351,24 @@ public static partial class PackImports
             if (Encoding.UTF8.GetByteCount(line.ToJsonString()) > AgentMemory.Extensibility.Packs.KnowledgePack.MaximumLineBytes) { skipped.Add($"'{k}': longer than a record holds ({AgentMemory.Extensibility.Packs.KnowledgePack.MaximumLineBytes / 1024} KiB)"); continue; }
             kept.Add(line);
             written++;
+        }
+        if (written == 0) throw new InvalidDataException("The source holds no entry with text to import.");
+        // A history note stands only with the record that supersedes it, of its own type (review of 15-17, M4 and M5): one whose
+        // superseder was not written, or is of another type, is left out, back along a chain.
+        var typeOf = kept.ToDictionary(l => l["key"]!.GetValue<string>(), l => l["type"]!.GetValue<string>(), StringComparer.Ordinal);
+        for (var changed = true; changed;)
+        {
+            changed = false;
+            foreach (var (newer, older) in supersedes ?? new Dictionary<string, string>())
+            {
+                var o = older.Normalize(NormalizationForm.FormC);
+                if (!typeOf.TryGetValue(o, out var olderType) || typeOf.TryGetValue(newer, out var newerType) && newerType == olderType) continue;
+                kept.RemoveAll(l => l["key"]!.GetValue<string>() == o);
+                typeOf.Remove(o);
+                written--;
+                skipped.Add($"'{o}': the note renamed from it is {(typeOf.ContainsKey(newer) ? "of another type" : "not written")} (no history kept)");
+                changed = true;
+            }
         }
         if (written == 0) throw new InvalidDataException("The source holds no entry with text to import.");
         // A supersession only between two records the pack holds: the loader refuses a pack whose record supersedes one it lacks.

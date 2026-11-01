@@ -74,13 +74,16 @@ public static partial class PackImports
 
         // 2. Tombstones first: their targets, and what they say was derived from them, are never imported, whatever arrives later.
         var removed = new Dictionary<string, DateTimeOffset>(StringComparer.Ordinal);
-        int signedTombstones = 0, unsignedTombstones = 0;
+        int trustedTombstones = 0, untrustedTombstones = 0, unsignedTombstones = 0;
         foreach (var t in Lines(files, paths, "audit/tombstones.jsonl"))
         {
             if (Str(t, "targetID") is not { Length: > 0 } target || Str(t, "op") is not ("delete" or "redact"))
                 throw new InvalidDataException("A tombstone names its op (delete or redact) and its targetID.");
-            var at = Instant(Str(t, "deletedAt")) is { } when ? DateTimeOffset.Parse(when, System.Globalization.CultureInfo.InvariantCulture) : DateTimeOffset.UtcNow;
-            removed[target] = at;
+            // A tombstone names its target in the key a note of it has (review of 15-17, H2: a preference has no id, so its
+            // tombstone names the bare key, and the note is preference/<key>). With no deletedAt, the manifest's createdAt,
+            // so the same bundle always gives the same erasure.
+            var at = Instant(Str(t, "deletedAt") ?? Str(manifest, "createdAt")) is { } when ? DateTimeOffset.Parse(when, System.Globalization.CultureInfo.InvariantCulture) : DateTimeOffset.UnixEpoch;
+            removed[Str(t, "targetKind") == "preference" ? "preference/" + target : target] = at;
             if (t["derived"] is JsonObject derived)
                 foreach (var list in new[] { "factIDs", "edgeIDs", "entityIDs", "chunkIDs", "sentenceIDs" })
                     foreach (var derivedId in (derived[list] as JsonArray ?? []).OfType<JsonValue>().Select(v => v.TryGetValue<string>(out var x) ? x : null).OfType<string>())
@@ -89,8 +92,10 @@ public static partial class PackImports
             {
                 var unsigned = (JsonObject)t.DeepClone();
                 unsigned.Remove("signature");
-                if (!Verifies(token, Jcs.Canonical(unsigned), ed25519, out _)) throw new InvalidDataException($"The tombstone of '{Shown(target)}' carries a signature that does not verify.");
-                signedTombstones++;
+                if (!Verifies(token, Jcs.Canonical(unsigned), ed25519, out var by)) throw new InvalidDataException($"The tombstone of '{Shown(target)}' carries a signature that does not verify.");
+                // Verified only under a trusted key, as the manifest is (spec 1.3; review of 15-17, M3): a token's own key proves
+                // only that the tombstone is consistent with itself.
+                if (trustedKeys?.Contains(by) == true) trustedTombstones++; else untrustedTombstones++;
             }
             else unsignedTombstones++;
         }
@@ -114,6 +119,8 @@ public static partial class PackImports
                 if (removed.ContainsKey(key) || kind == "chunk" && Str(r, "resourceID") is { } parent && removed.ContainsKey(parent))
                 { skipped.Add($"'{Shown(key)}': deleted by a tombstone"); continue; }
                 if (Str(r, "deletedAt") is not null) { skipped.Add($"'{Shown(key)}': marked deleted (deletedAt)"); continue; }
+                // A pack may travel further than the bundle: only what its source marked low (or left unmarked) is imported.
+                if (Str(r, "sensitivity") is { } sensitivity && sensitivity != "low") { skipped.Add($"'{Shown(key)}': sensitivity '{Shown(sensitivity)}' (not imported)"); continue; }
                 foreach (var field in r.Select(f => f.Key).Where(f => !MemTaken[kind].Contains(f)))
                     dropped[$"{kind}.{field}"] = dropped.GetValueOrDefault($"{kind}.{field}") + 1;
                 if (text(r) is not { Length: > 0 } body || string.IsNullOrWhiteSpace(body)) { skipped.Add($"'{Shown(key)}': no text"); continue; }
@@ -127,7 +134,7 @@ public static partial class PackImports
             dropped[$"file '{other}'"] = 1;
         var extra = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["mem.tombstones"] = $"{removed.Count} id(s) removed; tombstone signatures: {signedTombstones} verified, {unsignedTombstones} unsigned",
+            ["mem.tombstones"] = $"{removed.Count} id(s) removed; tombstone signatures: {trustedTombstones} verified under a trusted key, {untrustedTombstones} valid under a key not trusted here, {unsignedTombstones} unsigned",
         };
         // The manifest's own words, only when it states them: a derivation parameter is never empty.
         foreach (var field in new[] { "format", "generator" })

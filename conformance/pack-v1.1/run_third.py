@@ -4,10 +4,11 @@ verifier is run, and compares its verdict with the expected one.
 It reads results.json and the vectors and trust files beside it; it never builds, regenerates or rewrites a vector (that is
 run_vectors.py's, which it never calls). Exit 0 verified, 1 refused; anything else is an error that agrees with nothing.
 
-usage: python conformance/pack-v1.1/run_third.py [<path to ampack-rs>] [--show-all] [--show-rules]
+usage: python conformance/pack-v1.1/run_third.py [<path to ampack-rs>] [--show-all] [--show-rules] [--no-wait]
        (default: reader-rs/target/release/ampack-rs[.exe], else reader-rs/target/debug/)
 Prints each disagreement, then per vector family (the name up to its first '-') and in total how many agree.
-Waits while a .NET run (dotnet.exe or testhost.exe) is going: one heavy task at a time on this machine.
+Waits while a .NET run (dotnet.exe or testhost.exe) is going: one heavy task at a time on this machine. --no-wait is for a
+caller that is that task already (run_vectors.py, and a test host running it): waiting there would wait on itself.
 exit 0 when every vector agrees, 1 otherwise, 2 on a usage error.
 """
 import json
@@ -80,7 +81,7 @@ def main(argv):
     if binary is None or not binary.is_file():
         print("error: ampack-rs not found; build it with: cargo build --release -j 2 (in reader-rs/)")
         return 2
-    while dotnet_running():
+    while "--no-wait" not in argv and dotnet_running():
         print("a .NET run is going; waiting 60 s")
         time.sleep(60)
     results = json.loads((HERE / "results.json").read_text(encoding="utf-8"))

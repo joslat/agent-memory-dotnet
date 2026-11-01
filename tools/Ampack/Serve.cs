@@ -34,7 +34,7 @@ internal static class Serve
             {
                 var uri = request.Params?.Uri ?? "";
                 if (!Watch.Subscribe(uri, id => PackResourceTemplates.Status(mount, id)))
-                    throw new McpException($"Only a pack's status ({PackStatusWatch.Prefix}<pack id>) can be subscribed to.");
+                    throw new McpException($"Only a pack's status ({PackStatusWatch.Prefix}<pack id>) can be subscribed to, at most {PackStatusWatch.MaximumSubscriptions} at once.");
                 StartWatching(request.Server, mount);
                 return ValueTask.FromResult(new EmptyResult());
             })
@@ -64,7 +64,13 @@ internal static class Serve
             while (await timer.WaitForNextTickAsync())
                 foreach (var uri in Watch.Changed(id => PackResourceTemplates.Status(mount, id)))
                     try { await server.SendNotificationAsync(NotificationMethods.ResourceUpdatedNotification, new ResourceUpdatedNotificationParams { Uri = uri }); }
-                    catch (Exception e) when (e is IOException or ObjectDisposedException or InvalidOperationException) { Console.Error.WriteLine($"ampack serve: could not send a status update: {e.Message}"); return; }
+                    catch (Exception e) when (e is IOException or ObjectDisposedException or InvalidOperationException)
+                    {
+                        // The client is gone: stop, and let the next subscription start watching again (review of 15-17).
+                        Console.Error.WriteLine($"ampack serve: could not send a status update: {e.Message}");
+                        Interlocked.Exchange(ref _watching, 0);
+                        return;
+                    }
         });
     }
 }

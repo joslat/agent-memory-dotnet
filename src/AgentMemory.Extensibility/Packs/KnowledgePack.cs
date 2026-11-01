@@ -412,7 +412,8 @@ public sealed class KnowledgePack
             // Stable: each record in the pack's own order, once the records it links to are placed (Kahn's order by position).
             var keys = mine.Select(r => r.Key).Distinct(StringComparer.Ordinal).ToList();
             var position = keys.Select((k, i) => (k, i)).ToDictionary(p => p.k, p => p.i, StringComparer.Ordinal);
-            var waiting = keys.ToDictionary(k => k, k => mine.Where(r => r.Key == k).SelectMany(r => r.Links)
+            var byKey = mine.GroupBy(r => r.Key, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
+            var waiting = keys.ToDictionary(k => k, k => byKey[k].SelectMany(r => r.Links)
                 .Where(l => self.Contains(l.Relation) && position.ContainsKey(l.Target) && l.Target != k).Select(l => l.Target).ToHashSet(StringComparer.Ordinal), StringComparer.Ordinal);
             var users = new Dictionary<string, List<string>>(StringComparer.Ordinal);
             foreach (var (key, targets) in waiting)
@@ -429,7 +430,6 @@ public sealed class KnowledgePack
             }
             if (placed.Count < keys.Count)
                 throw new KnowledgePackException([$"{type.Name} records link in a cycle: " + string.Join(", ", keys.Where(k => waiting[k].Count > 0).Take(8)) + "."]);
-            var byKey = mine.GroupBy(r => r.Key, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
             result.AddRange(placed.SelectMany(k => byKey[k]));
         }
         return result.AsReadOnly();

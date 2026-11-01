@@ -52,6 +52,36 @@ public sealed class PackImportsMeshSignatureTests
     }
 
     [Fact]
+    public void Review_15_17_a_block_never_takes_itself_out_of_the_check_and_its_text_is_only_what_was_checked()
+    {
+        var label = Vectors["cases"]!.AsArray().First(c => c!["accepted"]!.GetValue<bool>())!["label"]!.GetValue<string>();
+
+        // Its signature removed and its text changed: the address still holds it to what it says it is.
+        var unsigned = Record(label);
+        unsigned["metadata"]!.AsObject().Remove("sig");
+        unsigned["categories"]!["focus"]!["text"] = "something else";
+        FluentActions.Invoking(() => Import(unsigned, keyed: false)).Should().Throw<InvalidDataException>().WithMessage("*address*");
+
+        // Unsigned but intact: imported, and said to be unsigned; with its author's key given, refused.
+        var intact = Record(label);
+        intact["metadata"]!.AsObject().Remove("sig");
+        Derivation(Import(intact, keyed: false).Archive).Should().Contain("\"sourceSignature\":\"absent\"");
+        FluentActions.Invoking(() => Import(intact)).Should().Throw<InvalidDataException>().WithMessage("*unsigned*");
+
+        // Another suite named: not checked without a key, refused with one.
+        var suite = Record(label);
+        suite["metadata"]!["signatureSuite"] = "mmp-sig-v9";
+        Derivation(Import(suite, keyed: false).Archive).Should().Contain("1 under a suite or address scheme not checked here");
+        FluentActions.Invoking(() => Import(suite)).Should().Throw<InvalidDataException>().WithMessage("*cannot check*");
+
+        // No categories: never read from anywhere else, even a genuine signature beside a content field.
+        var bare = Record(label);
+        bare.Remove("categories");
+        bare["content"] = "unsigned text";
+        FluentActions.Invoking(() => Import(bare)).Should().Throw<InvalidDataException>().WithMessage("*no entry with text*");
+    }
+
+    [Fact]
     public void A_record_sym_refuses_or_one_whose_text_or_signed_fields_changed_refuses_the_store()
     {
         FluentActions.Invoking(() => Import(Record("a rewritten meta.key"))).Should().Throw<InvalidDataException>().WithMessage("*category's key*");

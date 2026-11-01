@@ -84,6 +84,20 @@ public sealed class ImportTests
     }
 
     [Fact]
+    public void Review_15_17_a_built_in_relation_from_a_type_to_itself_is_bound_only_when_a_record_links_by_it()
+    {
+        // H1: links_to joined the registry; a note pack that does not link must compose, and so digest, as it did before.
+        PackLoader.Load(PackImports.FromFolder(new Dictionary<string, byte[]>(StringComparer.Ordinal) { ["a.md"] = Encoding.UTF8.GetBytes("Alone.") },
+                null, "com.example.folder", "1.0.0", "Example Owner", Key.PrivateKeyPem).Archive, Trust())
+            .Manifest.Ontology!.Relations.Should().BeEmpty();
+        PackLoader.Load(PackImports.FromFolder(new Dictionary<string, byte[]>(StringComparer.Ordinal)
+                {
+                    ["a.md"] = Encoding.UTF8.GetBytes("See [[b]]."), ["b.md"] = Encoding.UTF8.GetBytes("Here."),
+                }, null, "com.example.folder", "1.0.0", "Example Owner", Key.PrivateKeyPem).Archive, Trust())
+            .Manifest.Ontology!.Relations.Should().ContainSingle(r => r.BuiltIn == "links_to");
+    }
+
+    [Fact]
     public void A_renamed_file_keeps_its_old_path_as_a_note_that_ends_where_the_rename_begins()
     {
         var files = new Dictionary<string, byte[]>(StringComparer.Ordinal) { ["release-plan.md"] = Encoding.UTF8.GetBytes("The plan, now dated.") };
@@ -100,6 +114,19 @@ public sealed class ImportTests
         records["plan.md"].Life!.ValidFromUtc.Should().Be(new DateTimeOffset(2026, 1, 1, 10, 0, 0, TimeSpan.Zero));
         records["plan.md"].Life!.ValidToUtc.Should().Be(new DateTimeOffset(2026, 2, 1, 10, 0, 0, TimeSpan.Zero), "the old path ends where the rename begins");
         records["release-plan.md"].Supersedes.Should().Equal("plan.md");
+
+        // Review of 15-17, M4: renamed and then removed, no history comes back as a live note.
+        var gone = PackImports.FromFolder(new Dictionary<string, byte[]>(StringComparer.Ordinal) { ["other.md"] = Encoding.UTF8.GetBytes("Another.") },
+            commits, "com.example.folder", "1.0.0", "Example Owner", Key.PrivateKeyPem, renames);
+        gone.Records.Should().Be(1);
+        gone.Skipped.Should().Contain(s => s.Contains("plan.md") && s.Contains("no longer holds"));
+
+        // M5: renamed while of a declared type, the old path's note is not of its type: no history, and the pack still loads.
+        var ontology = Encoding.UTF8.GetBytes("""{"labelPrefix":"Team","types":[{"name":"TeamDecision","scope":"shared","properties":{"text":{"type":"string"}}}]}""");
+        var typedFiles = new Dictionary<string, byte[]>(StringComparer.Ordinal) { ["release-plan.md"] = Encoding.UTF8.GetBytes("---\ntype: TeamDecision\n---\nThe plan.") };
+        var typedResult = PackImports.FromFolder(typedFiles, commits, "com.example.folder", "1.0.0", "Example Owner", Key.PrivateKeyPem, renames, ontology);
+        PackLoader.Load(typedResult.Archive, Trust()).Knowledge!.Proposals.Select(p => p.Key).Should().Equal("release-plan.md");
+        typedResult.Skipped.Should().Contain(s => s.Contains("plan.md") && s.Contains("another type"));
 
         // A path in use again keeps no history: the file there is its own note.
         files["plan.md"] = Encoding.UTF8.GetBytes("A new plan at the old path.");

@@ -26,7 +26,7 @@ public static partial class PackImports
         var skipped = new List<string>();
         var dropped = new SortedDictionary<string, int>(StringComparer.Ordinal);
         var source = new List<byte>();
-        int verified = 0, unkeyed = 0, otherSuite = 0;
+        int verified = 0, unkeyed = 0, otherSuite = 0, unsigned = 0, flat = 0;
         // The store keeps its entries at its top level; anything in a subfolder is not an entry.
         static bool IsEntry(string n) => !n.Contains('/') && n.EndsWith(".json", StringComparison.Ordinal);
         foreach (var name in files.Keys.Where(IsEntry).Order(StringComparer.Ordinal))
@@ -40,26 +40,32 @@ public static partial class PackImports
             }
             if (Parse(files[name], $"'{Shown(name)}'") is not JsonObject entry) throw new InvalidDataException($"'{Shown(name)}' is not an entry object.");
             // An entry holds its block under cmb; a file may also be the block itself, as the mesh sends one.
-            var cmb = entry["cmb"] as JsonObject ?? (entry["metadata"] is JsonObject && entry["categories"] is JsonObject ? entry : null);
+            // A file with metadata is a block, whatever else it lacks: one without categories is refused below, never read flat.
+            var cmb = entry["cmb"] as JsonObject ?? (entry["metadata"] is JsonObject ? entry : null);
             var metadata = cmb?["metadata"] as JsonObject;
             // A two-section block reads its metadata first, as the mesh does: that is the section its signature binds.
             var key = (metadata is null ? null : Str(metadata, "key")) ?? (cmb is null ? null : Str(cmb, "key")) ?? Str(entry, "key");
             if (key is not { Length: > 0 }) { skipped.Add($"'{Shown(name)}': no key"); continue; }
             if (Str(entry, "lifecycle") is "superseded") { skipped.Add($"'{Shown(key)}': superseded"); continue; }
-            var categories = (cmb?["categories"] ?? cmb) as JsonObject;
+            // A two-section block is read only from its categories, the container its address and signature bind; only a flat,
+            // pre-boundary block falls back to its own top level or the entry's content (review of 15-17, M2).
+            var twoSection = metadata is not null;
+            var categories = twoSection ? cmb!["categories"] as JsonObject : (cmb?["categories"] ?? cmb) as JsonObject;
+            if (twoSection && categories is null) { skipped.Add($"'{Shown(key)}': a two-section block with no categories"); continue; }
             var text = Join("\n", [.. Cat7.Select(c => categories?[c] switch
             {
                 JsonObject o when Str(o, "text") is { Length: > 0 } t => $"{c}: {t}",
                 JsonValue v when v.TryGetValue<string>(out var t) && t.Length > 0 => $"{c}: {t}",
                 _ => null,
-            })]) ?? Str(entry, "content");
+            })]) ?? (twoSection ? null : Str(entry, "content"));
             if (text is null || string.IsNullOrWhiteSpace(text)) { skipped.Add($"'{Shown(key)}': no text"); continue; }
             foreach (var field in (categories ?? []).Select(f => f.Key).Where(f => !Cat7.Contains(f)))
                 dropped[$"category '{field}'"] = dropped.GetValueOrDefault($"category '{field}'") + 1;
-            if (metadata?["sig"] is not null)
-                switch (MeshSignature(cmb!, metadata, authorKeys, ed25519))
+            if (!twoSection) flat++;
+            else switch (MeshSignature(cmb!, metadata!, authorKeys, ed25519))
                 {
                     case null: verified++; break;
+                    case "unsigned": unsigned++; break;
                     case "unkeyed": unkeyed++; break;
                     case "suite": otherSuite++; break;
                     case var problem: throw new InvalidDataException($"'{Shown(key)}': {problem}.");
@@ -73,28 +79,36 @@ public static partial class PackImports
         foreach (var other in files.Keys.Where(n => !IsEntry(n)).Order(StringComparer.Ordinal))
             dropped["file '" + Shown(other) + "'"] = 1;
         var signature = verified + unkeyed + otherSuite == 0 ? "absent"
-            : $"mmp-sig-v2.0: {verified} block(s) verified under the author keys given, {unkeyed} signed by an author no key was given for (not checked), {otherSuite} under another suite (not checked)";
+            : $"mmp-sig-v2.0: {verified} block(s) verified under the author keys given, {unkeyed} signed by an author no key was given for (not checked), "
+              + $"{otherSuite} under a suite or address scheme not checked here, {unsigned} unsigned, {flat} flat (pre-boundary, unsigned)";
         return Write([.. source], entries, skipped, dropped, "mesh-memory", "a Mesh Memory Protocol store", id, version, owner, signingKeyPem, signature);
     }
 
-    // Null when the block verifies; "unkeyed" or "suite" when it cannot be checked here; otherwise why it fails. The content
-    // address is checked whatever key is given: it needs none, and a block whose text is not what it signed is refused.
+    // Null when the block verifies; "unsigned", "unkeyed" or "suite" when it cannot be checked here; otherwise why it fails.
+    // What a block says of its own signature never takes it out of a check (review of 15-17, M1): its content address is
+    // checked whenever its key and scheme are the published ones, signed or not, as that needs no key; and when its author's
+    // key is given, it must be signed under mmp-sig-v2.0 and verify, or the store is refused.
     private static string? MeshSignature(JsonObject cmb, JsonObject m, IReadOnlyDictionary<string, byte[]>? keys, Func<byte[], byte[], byte[], bool>? ed25519)
     {
-        if (Str(m, "sigAlg") != "ed25519") return "a signature that is not ed25519";
-        if (Str(m, "signatureSuite") != "mmp-sig-v2.0") return "suite";
-        if (Str(m, "addressScheme") != "mmp-cmb-merkle-v2") return "an address scheme other than mmp-cmb-merkle-v2";
-        if (Str(m, "key") is not { } key || !System.Text.RegularExpressions.Regex.IsMatch(key, "^cmb-[0-9a-f]{64}$")) return "a key that is not cmb- and 64 lowercase hex digits";
+        var key = Str(m, "key") ?? "";
+        var addressed = Str(m, "addressScheme") == "mmp-cmb-merkle-v2" && System.Text.RegularExpressions.Regex.IsMatch(key, "^cmb-[0-9a-f]{64}$");
         var categories = cmb["categories"] as JsonObject;
-        if (key != "cmb-" + MerkleRoot([.. Cat7.Select(c => CategoryKey(c, CategoryText(categories?[c])))]))
+        if (addressed && key != "cmb-" + MerkleRoot([.. Cat7.Select(c => CategoryKey(c, CategoryText(categories?[c])))]))
             return "its key is not the address of the categories it carries";
         // Each category's own key, when it states one, is that category's address too: the signature does not cover it.
         if (Cat7.FirstOrDefault(c => (categories?[c] as JsonObject)?["meta"]?["key"] is JsonValue k && (!k.TryGetValue<string>(out var stated) || stated != CategoryKey(c, CategoryText(categories![c])))) is { } wrong)
             return $"its {wrong} category's key is not the address of its text";
-        if (Str(m, "createdByNodeId") is not { Length: > 0 } author || keys is null || !keys.TryGetValue(author, out var publicKey) || ed25519 is null) return "unkeyed";
-        var payload = MeshPayload(cmb, m, author, key);
+        var author = Str(m, "createdByNodeId");
+        byte[]? publicKey = null;
+        var pinned = author is { Length: > 0 } && keys?.TryGetValue(author, out publicKey) == true && ed25519 is not null;
+        if (m["sig"] is null) return pinned ? "its author's key is given, and it is unsigned" : "unsigned";
+        if (Str(m, "sigAlg") != "ed25519") return "a signature that is not ed25519";
+        if (!addressed || Str(m, "signatureSuite") != "mmp-sig-v2.0")
+            return pinned ? "its author's key is given, and it is signed under a suite or address scheme this importer cannot check" : "suite";
+        if (!pinned) return "unkeyed";
+        var payload = MeshPayload(cmb, m, author!, key);
         return payload is null ? "metadata the suite cannot frame"
-            : FromBase64Url(Str(m, "sig")) is not { Length: 64 } sig || !ed25519(publicKey, sig, payload) ? "its signature does not verify under its author's key" : null;
+            : FromBase64Url(Str(m, "sig")) is not { Length: 64 } sig || !ed25519!(publicKey!, sig, payload) ? "its signature does not verify under its author's key" : null;
     }
 
     // The mmp-sig-v2.0 preimage: netstring-framed fields, the lineage parents sorted bytewise, the categories' parents and the

@@ -2109,13 +2109,13 @@
    "file": "src/AgentMemory.Extensibility.Ampack/PackImports.cs",
    "edits": [
     {
-     "old": "if (Encoding.UTF8.GetByteCount(json) > AgentMemory.Extensibility.Packs.KnowledgePack.MaximumLineBytes)",
-     "new": "if (Encoding.UTF8.GetByteCount(json) > int.MaxValue - 1)"
+     "old": "if (Encoding.UTF8.GetByteCount(line.ToJsonString()) > AgentMemory.Extensibility.Packs.KnowledgePack.MaximumLineBytes)",
+     "new": "if (Encoding.UTF8.GetByteCount(line.ToJsonString()) > int.MaxValue - 1)"
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
    "filter": "FullyQualifiedName~ImportTests",
-   "sha256": "e3586f8d57cea6946ce7e5579d47c2cc4f822976ba5ff11e64619b67061f7240"
+   "sha256": "2ec15b0c3754bf350947aa3024f68fff3e8e0b8f064949edfad7ed474bdb8917"
   },
   {
    "id": "mem-digest-unchecked",
@@ -2199,13 +2199,13 @@
    "file": "src/AgentMemory.Extensibility.Ampack/PackImportsMesh.cs",
    "edits": [
     {
-     "old": "if (key != \"cmb-\" + MerkleRoot(",
-     "new": "if (key == \"never-\" + MerkleRoot("
+     "old": "if (addressed && key != \"cmb-\" + MerkleRoot(",
+     "new": "if (addressed && key == \"never-\" + MerkleRoot("
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
    "filter": "FullyQualifiedName~PackImportsMeshSignatureTests",
-   "sha256": "2aa9f2637a9a305c015fba695bd2710d4a5b8a3daca970841748e1f5e8212cc0"
+   "sha256": "aa2bbf307ffa2fd1e2f6bcb0c4151ab071e6cd0debc21017ad54f8f6a4b9e778"
   },
   {
    "id": "mesh-signature-unchecked",
@@ -2214,13 +2214,13 @@
    "file": "src/AgentMemory.Extensibility.Ampack/PackImportsMesh.cs",
    "edits": [
     {
-     "old": ": FromBase64Url(Str(m, \"sig\")) is not { Length: 64 } sig || !ed25519(publicKey, sig, payload) ?",
+     "old": ": FromBase64Url(Str(m, \"sig\")) is not { Length: 64 } sig || !ed25519!(publicKey!, sig, payload) ?",
      "new": ": FromBase64Url(Str(m, \"sig\")) is not { Length: 64 } sig ?"
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
    "filter": "FullyQualifiedName~PackImportsMeshSignatureTests",
-   "sha256": "dca55b26acbe77d88adc46f5387c9e1665d609e61ee7efc3ed8f4968900f18a7"
+   "sha256": "ffaca9eae02981f76ad27adc89a06b47c8af87030373f97b07b0afaa97ac00d0"
   },
   {
    "id": "listing-cites-untrusted",

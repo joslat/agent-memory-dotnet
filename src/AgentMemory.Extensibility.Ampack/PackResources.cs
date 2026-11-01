@@ -90,6 +90,7 @@ public static class PackResources
                 var anchor = from.Trim().Trim('/');
                 if (!entries.Contains(anchor)) return Serialize(new { error = $"{id} holds no live record at '{anchor}' to walk from." });
                 // Breadth first over the pack's links, three links at most, as a walk goes; the rest keep their order after.
+                var moduleOf = held.GroupBy(h => h.Type + "/" + h.Key, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First().Module, StringComparer.Ordinal);
                 var distance = new Dictionary<string, int>(StringComparer.Ordinal) { [anchor] = 0 };
                 var frontier = new List<string> { anchor };
                 for (var hop = 1; hop <= 3 && frontier.Count > 0; hop++)
@@ -98,7 +99,8 @@ public static class PackResources
                     foreach (var at in frontier)
                     {
                         var cut = at.IndexOf('/', StringComparison.Ordinal);
-                        foreach (var (type, key) in mount.Memory.Neighbours(pack.Kind == "snapshot" ? held.First().Module : id, at[..cut], at[(cut + 1)..], now))
+                        // Each record's own module: a snapshot's records may be its definition's and its dependencies'.
+                        foreach (var (type, key) in mount.Memory.Neighbours(moduleOf[at], at[..cut], at[(cut + 1)..], now))
                             if (distance.TryAdd(type + "/" + key, hop) && entries.Contains(type + "/" + key)) next.Add(type + "/" + key);
                     }
                     frontier = next;
