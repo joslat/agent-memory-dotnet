@@ -33,9 +33,8 @@ public sealed class PackProfilesTests
     {
         var manifest = Manifest(",\"code\":\"E2\"");
         var refused = PackProfiles.Used(["pack.json", "policy.json"], manifest).Where(p => !p.Implemented).Select(p => PackProfiles.Refusal(p, manifest)).ToList();
-        refused.Should().HaveCount(2);
-        refused.Should().Contain(r => r.Contains("carries code (tier E2)", StringComparison.Ordinal));
-        refused.Should().Contain(r => r.Contains("usage policy", StringComparison.Ordinal));
-        PackRegistry.Profiles.Where(p => !p.Implemented).Select(p => p.Name).Should().BeEquivalentTo(["protection", "code", "permissions"]);
+        // Permissions is built (feature 10): only code is refused here.
+        refused.Should().ContainSingle(r => r.Contains("carries code (tier E2)", StringComparison.Ordinal));
+        PackRegistry.Profiles.Where(p => !p.Implemented).Select(p => p.Name).Should().BeEquivalentTo(["protection", "code"]);
     }
 }

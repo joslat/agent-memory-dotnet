@@ -30,8 +30,11 @@ public sealed class SpecRegistryTests
         PackManifest.Tiers.Should().BeEquivalentTo(List(r.GetProperty("manifest").GetProperty("values").GetProperty("tier")));
         Dsse.Roles.Should().BeEquivalentTo(List(r.GetProperty("roles").GetProperty("signing")));
         TrustPolicy.KeyRoles.Should().BeEquivalentTo(List(r.GetProperty("roles").GetProperty("keys")));
+        // A host-only target (feature 12: noHarm) is never certified.
+        var hostOnly = List(r.GetProperty("trial").GetProperty("hostOnly"));
         PackCertificate.Targets.Should().BeEquivalentTo(r.GetProperty("trial").GetProperty("targets").EnumerateObject()
-            .Concat(r.GetProperty("trial").GetProperty("costTargets").EnumerateObject()).Select(p => p.Name), "a certificate states the cost targets too (feature 05)");
+            .Concat(r.GetProperty("trial").GetProperty("costTargets").EnumerateObject()).Select(p => p.Name).Where(n => !hostOnly.Contains(n)),
+            "a certificate states the cost targets too (feature 05), and no host-only target");
     }
 
     [Fact]

@@ -173,7 +173,8 @@
             "precisionMicro": { "type": "integer", "minimum": 0, "maximum": 1000000, "description": "Millionths." },
             "liftMicro": { "type": "integer", "minimum": -1000000, "maximum": 1000000, "description": "Millionths." },
             "precisionLiftMicro": { "type": "integer", "minimum": -1000000, "maximum": 1000000, "description": "Millionths." },
-            "addedP95Ms": { "type": "integer", "minimum": 1, "maximum": 60000, "description": "Whole milliseconds." }
+            "addedP95Ms": { "type": "integer", "minimum": 1, "maximum": 60000, "description": "Whole milliseconds." },
+            "noHarmMicro": { "type": "integer", "minimum": 0, "maximum": 1000000, "description": "Millionths: a retrieval trial's least share of tasks not made worse (feature 12)." }
           }
         }
       }

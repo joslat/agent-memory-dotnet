@@ -4078,7 +4078,7 @@
    "level": "MUST",
    "summary": "A host that does not implement a pack's code tier MUST refuse the pack, with the refusal words the registry gives this profile; this holds for a declared tier above `E0` and for code files alike.",
    "verifiedBy": [
-    "unit:PackReviewFindingsTests.A_pack_that_carries_code_or_a_usage_policy_is_refused_until_the_host_enforces_them",
+    "unit:PackReviewFindingsTests.A_pack_that_carries_code_is_refused_until_the_host_runs_it_and_a_malformed_usage_policy_by_every_reader",
     "unit:PackProfilesTests.A_host_refuses_exactly_the_profiles_the_registry_marks_not_implemented_in_their_own_words"
    ]
   },
