@@ -63,6 +63,18 @@ cd js && npm install && npm run transpile && npm run kit           # jco 1.11.1 
 The component's `verify` takes no revocation documents (R4's signature): `js/kit.mjs` runs it on every pack vector
 that needs none.
 
+## Constrained class: the budget this reader states
+
+R-CORE-007 lets a constrained reader (a browser, a small device) state its own limits. This one states: the component at
+most 640 KiB, 256 KiB gzipped, and a typical pack verified in at most 50 ms on average. `node js/kit.mjs` fails when the
+component breaks it (1 Nov: 491 KiB, 204 KiB gzipped, 1.1 ms a verify).
+
+## Browser validator page
+
+`web/index.html` verifies a pack against a trust policy in the browser with the component; nothing leaves the page. Serve
+`reader-rs/` over HTTP (`python -m http.server` in `reader-rs/`, then open `/web/`), since the binding fetches its core module.
+It calls the same `verify` and `inspect` that `js/kit.mjs` checks on every pack vector; the page itself has no automated test.
+
 ## Results (1 Nov 2026)
 
 - `run_third.py`: 508 / 508 vectors agree with the expected verdict, every family (trial aggregates, `--aggregate`, included); 291 of the 292 refusals that
