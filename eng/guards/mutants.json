@@ -2065,12 +2065,12 @@
    "edits": [
     {
      "old": "if (Encoding.UTF8.GetByteCount(json) > AgentMemory.Extensibility.Packs.KnowledgePack.MaximumLineBytes)",
-     "new": "if (false && Encoding.UTF8.GetByteCount(json) > 0)"
+     "new": "if (Encoding.UTF8.GetByteCount(json) > int.MaxValue - 1)"
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
    "filter": "FullyQualifiedName~ImportTests",
-   "sha256": "ac341d3a39b47d0eb2b26a8c4821edc0fe7e1f0b82007fd2c86b732125ef49f8"
+   "sha256": "e3586f8d57cea6946ce7e5579d47c2cc4f822976ba5ff11e64619b67061f7240"
   },
   {
    "id": "resource-off-served",

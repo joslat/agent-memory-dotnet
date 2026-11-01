@@ -439,7 +439,7 @@ MUTANTS = [
       [('&& !(life.TryGetValue("validTo", out var end) && string.CompareOrdinal(end, date) <= 0))', ')')],
       EXT, name("ImportTests")),
     m("import-loader-rules-skipped", "IMPORT-SAYS-WHAT-IT-DROPPED", "build", "src/AgentMemory.Extensibility.Ampack/PackImports.cs",
-      [("if (Encoding.UTF8.GetByteCount(json) > AgentMemory.Extensibility.Packs.KnowledgePack.MaximumLineBytes)", "if (false && Encoding.UTF8.GetByteCount(json) > 0)")],
+      [("if (Encoding.UTF8.GetByteCount(json) > AgentMemory.Extensibility.Packs.KnowledgePack.MaximumLineBytes)", "if (Encoding.UTF8.GetByteCount(json) > int.MaxValue - 1)")],
       EXT, name("ImportTests")),
     m("resource-off-served", "SERVE-RESOURCES-ONE-DOOR", "serve", "src/AgentMemory.Extensibility.Ampack/PackResources.cs",
       [(": off(pack) is { } reason ? Serialize(new { id = pack.Id, served = false, reason }) : null;", ": null;")],
