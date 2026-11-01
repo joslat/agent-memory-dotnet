@@ -5,10 +5,10 @@ use alloc::collections::BTreeSet;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use crate::json::{profile, Obj, Value};
+use crate::json::{profile, profile_integers, Obj, Value};
 use crate::pack::{read_audience, Ctx, Federation, Verified, ATTESTATIONS, FILES, STATEMENT};
 use crate::registry::holds;
-use crate::text::{hex_n, valid_id, valid_version, valid_webid};
+use crate::text::{hex_n, is_digest, valid_id, valid_version, valid_webid};
 use crate::time::{civil, utc_second, Ticks};
 use crate::trust::{entry_shaped, holding, MAX_ENVELOPE, MAX_SIGNATURES};
 use crate::zip::Files;
@@ -483,4 +483,140 @@ pub fn verify_erasure(ctx: &Ctx, bytes: &[u8], pid: &str, publisher_web_id: Opti
         }
     }
     refuse!("the erasure carries no signature by a key this host trusts as publisher or revoker for the pack")
+}
+
+/// A host's trial aggregate (feature 13, R-CORE-140), strictly: its predicate and the end of its window.
+fn read_aggregate(ctx: &Ctx, payload: &[u8]) -> R<(Obj, Ticks)> {
+    let reg = ctx.reg;
+    let st = profile_integers(payload)?;
+    let st = match st.as_obj() {
+        Some(s)
+            if s.keys_within(reg.shape("statement"))
+                && s.get("_type").is_some_and(|t| t.is_str(STATEMENT))
+                && s.get("predicateType").is_some_and(|t| t.is_str(&reg.aggregate_type)) =>
+        {
+            s.clone()
+        }
+        _ => refuse!("the aggregate is not an in-toto statement of {}", reg.aggregate_type),
+    };
+    let p = match st.get("predicate").and_then(Value::as_obj) {
+        Some(p) if p.keys_within(reg.shape("aggregatePredicate")) => p.clone(),
+        _ => refuse!("the aggregate's predicate holds only the registry's fields: no task, question, record or path has a place in it"),
+    };
+    if !(p.str("id").is_some_and(valid_id) && p.str("version").is_some_and(|v| (1..=256).contains(&v.chars().count()))) {
+        refuse!("the aggregate names a valid pack id and version");
+    }
+    let digest = p.str("digest").filter(|d| is_digest(d)).ok_or_else(|| refused!("the aggregate's digest is sha256: and 64 lowercase hexadecimal characters"))?;
+    let subject_ok = st.get("subject").and_then(Value::as_arr).is_some_and(|s| {
+        s.len() == 1
+            && s[0].as_obj().is_some_and(|s| {
+                s.get("name").is_some_and(|n| n.is_str(FILES))
+                    && s.get("digest").and_then(Value::as_obj).is_some_and(|d| d.len() == 1 && d.get("sha256").is_some_and(|h| h.is_str(&digest[7..])))
+            })
+    });
+    if !subject_ok {
+        refuse!("the aggregate's subject is the pack's file list, by the digest its predicate names");
+    }
+    if !p.str("measure").is_some_and(|m| holds(&reg.measures, m)) {
+        refuse!("the aggregate names a known measure");
+    }
+    if !p.get("tasks").and_then(Value::as_int).is_some_and(|t| (1..=1_000_000).contains(&t)) {
+        refuse!("the aggregate's tasks are 1 to 1,000,000");
+    }
+    let window = p.get("window").and_then(Value::as_obj).filter(|w| w.keys_within(reg.shape("aggregateWindow")));
+    let (start, end) = match window {
+        Some(w) => (w.str("from").and_then(utc_second), w.str("to").and_then(utc_second)),
+        None => (None, None),
+    };
+    let end = match (start, end) {
+        (Some(s), Some(e)) if s <= e => e,
+        _ => refuse!("the aggregate's window is from and to, instants in UTC to the second, from not after to"),
+    };
+    let mechanism = match p.str("mechanism") {
+        Some(m) if holds(&reg.aggregate_mechanisms, m) => m.to_string(),
+        _ => {
+            let mut m: Vec<&str> = reg.aggregate_mechanisms.iter().map(|s| s.as_str()).collect();
+            m.sort();
+            refuse!("the aggregate's mechanism is {}", m.join(" or "))
+        }
+    };
+    let noisy = mechanism != "none";
+    match p.get("epsilonMilli") {
+        Some(e) => {
+            if !noisy || !e.as_int().is_some_and(|e| (1..=100_000).contains(&e)) {
+                refuse!("the aggregate's epsilonMilli, 1 to 100,000, goes with noise only");
+            }
+        }
+        None if noisy => refuse!("an aggregate with noise names its epsilonMilli"),
+        None => {}
+    }
+    if !p.str("decision").is_some_and(is_digest) {
+        refuse!("the aggregate names its decision by sha256: and 64 lowercase hexadecimal characters");
+    }
+    let checks = match p.get("checks").and_then(Value::as_arr) {
+        Some(c) if (1..=16).contains(&c.len()) => c.clone(),
+        _ => refuse!("the aggregate lists 1 to 16 checks"),
+    };
+    let mut seen = BTreeSet::new();
+    let mut all_met = true;
+    for c in &checks {
+        let c = match c.as_obj() {
+            Some(c)
+                if c.keys_within(reg.shape("aggregateCheck"))
+                    && c.str("target").is_some_and(|t| holds(&reg.trial_targets, t))
+                    && ["successes", "trials", "requiredMicro"].iter().all(|f| c.get(f).and_then(Value::as_int).is_some())
+                    && c.get("met").and_then(Value::as_bool).is_some() =>
+            {
+                c
+            }
+            _ => refuse!("an aggregate check names a known target, its successes, trials and requiredMicro as integers, and met"),
+        };
+        let (target, successes, trials, required) = (c.str("target").unwrap(), int(c, "successes"), int(c, "trials"), int(c, "requiredMicro"));
+        let met = c.get("met").and_then(Value::as_bool).unwrap();
+        let bound = match c.get("boundMicro") {
+            Some(b) => match b.as_int() {
+                Some(b) if !noisy => Some(b),
+                _ => refuse!("an aggregate check's boundMicro is an integer, without noise only: noise makes it approximate"),
+            },
+            None if !noisy => refuse!("an aggregate without noise gives each check its boundMicro"),
+            None => None,
+        };
+        if successes < 0 || trials < 0 {
+            refuse!("an aggregate's counts are never negative");
+        }
+        if !noisy && successes > trials {
+            refuse!("an aggregate check's successes are within its trials");
+        }
+        if let Some(b) = bound {
+            let within = if holds(&reg.at_most, target) { b <= required } else { b >= required };
+            if within != met {
+                refuse!("an aggregate check's met disagrees with its bound and its requiredMicro");
+            }
+        }
+        if !seen.insert(target.to_string()) {
+            refuse!("an aggregate checks each target once");
+        }
+        all_met &= met;
+    }
+    if p.get("passed").and_then(Value::as_bool) != Some(all_met) {
+        refuse!("the aggregate's passed is whether every check was met");
+    }
+    Ok((p, end))
+}
+
+/// A host's trial aggregate of the pack with this digest (feature 13): signed by a key trusted as evaluator for its id.
+pub fn verify_aggregate(ctx: &Ctx, bytes: &[u8], digest: &str) -> R<Obj> {
+    let (payload, entries) = envelope(ctx, bytes, "the aggregate")?;
+    let (p, end) = read_aggregate(ctx, &payload)?;
+    if p.str("digest") != Some(digest) {
+        refuse!("the aggregate is of another pack");
+    }
+    let id = p.str("id").unwrap_or("").to_string();
+    let pae = crypto::pae_digest(crypto::PAYLOAD_TYPE, &payload);
+    for (key, _) in holding(ctx.policy, &entries, &pae) {
+        if ctx.reg.aggregate_roles.iter().any(|role| ctx.policy.key_refusal(key, role, &id, end, ctx.now).is_none()) {
+            return Ok(p);
+        }
+    }
+    refuse!("the aggregate carries no signature by a key this host trusts as evaluator for the pack")
 }

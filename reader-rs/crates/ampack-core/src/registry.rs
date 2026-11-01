@@ -53,6 +53,13 @@ pub struct Registry {
     pub policy_path: String,
     pub policy_format: String,
     pub policy_verbs: Vec<String>,
+    /// Every trial target, the host-only ones too (an aggregate checks them).
+    pub trial_targets: Vec<String>,
+    /// The targets met at or below their required value.
+    pub at_most: Vec<String>,
+    pub aggregate_type: String,
+    pub aggregate_mechanisms: Vec<String>,
+    pub aggregate_roles: Vec<String>,
 }
 
 fn bad(what: &str) -> Refused {
@@ -179,6 +186,11 @@ impl Registry {
             policy_path: text(&r, &["policy", "path"])?,
             policy_format: text(&r, &["policy", "format"])?,
             policy_verbs: strs(&r, &["policy", "verbs"])?,
+            trial_targets: keys(&r, &["trial", "targets"])?,
+            at_most: strs(&r, &["trial", "atMost"])?,
+            aggregate_type: text(&r, &["aggregate", "predicateType"])?,
+            aggregate_mechanisms: strs(&r, &["aggregate", "mechanisms"])?,
+            aggregate_roles: strs(&r, &["aggregate", "roles"])?,
         })
     }
 

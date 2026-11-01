@@ -10,7 +10,7 @@ use std::fs::File;
 use std::io::Read;
 use std::process::ExitCode;
 
-use ampack_core::certify::{run_beside, verify_certificate, verify_erasure, verify_receipt};
+use ampack_core::certify::{run_beside, verify_aggregate, verify_certificate, verify_erasure, verify_receipt};
 use ampack_core::pack::{cert_stem, erasure_stem, read_federation, verify_files, Ctx, ATTESTATIONS};
 use ampack_core::registry::Registry;
 use ampack_core::text::shown;
@@ -20,7 +20,7 @@ use ampack_core::zip::MAX_ARCHIVE;
 use ampack_core::{Refused, R};
 
 const USAGE: &str = "usage: ampack-rs [verify] <pack.ampack> <trust.json> [<revocations.json>...] [--receipt <file> --location <url>] \
-[--certificate <path>] [--erasure <path>]\n       ampack-rs inspect <pack.ampack>";
+[--certificate <path>] [--erasure <path>] [--aggregate <file>]\n       ampack-rs inspect <pack.ampack>";
 
 fn cap_text(cap: usize) -> String {
     if cap >= 1 << 20 {
@@ -111,9 +111,9 @@ fn run(mut args: Vec<String>) -> ExitCode {
         args.remove(0);
     }
     let options = (|| -> Result<_, String> {
-        Ok((take_option(&mut args, "--receipt")?, take_option(&mut args, "--location")?, take_option(&mut args, "--certificate")?, take_option(&mut args, "--erasure")?))
+        Ok((take_option(&mut args, "--receipt")?, take_option(&mut args, "--location")?, take_option(&mut args, "--certificate")?, take_option(&mut args, "--erasure")?, take_option(&mut args, "--aggregate")?))
     })();
-    let (receipt_path, location, certificate_path, erasure_path) = match options {
+    let (receipt_path, location, certificate_path, erasure_path, aggregate_path) = match options {
         Ok(o) => o,
         Err(e) => {
             println!("{e}");
@@ -177,6 +177,11 @@ fn run(mut args: Vec<String>) -> ExitCode {
             let pred = verify_erasure(&ctx, &envelope, &pack.id, federation.as_ref().map(|f| f.publisher.as_str()))?;
             let n = pred.get("records").and_then(|r| r.as_arr()).map_or(0, |r| r.len());
             lines.push(format!("verified the erasure of {n} record(s) of {} ({})", shown(&pack.id), shown(pred.str("reason").unwrap_or(""))));
+        }
+        if let Some(ap) = &aggregate_path {
+            let pred = verify_aggregate(&ctx, &read_regular(ap, MAX_ENVELOPE, "the aggregate")?, &pack.digest)?;
+            let tasks = pred.get("tasks").and_then(|t| t.as_int()).unwrap_or(0);
+            lines.push(format!("verified the aggregate of {} {}: {tasks} tasks, {}", shown(&pack.id), shown(pred.str("version").unwrap_or("")), shown(pred.str("mechanism").unwrap_or(""))));
         }
         lines.push(format!("verified {} {} {}", shown(&pack.id), shown(&pack.version), pack.digest));
         let used: Vec<&str> = out.profiles.iter().map(|(n, _)| n.as_str()).collect();

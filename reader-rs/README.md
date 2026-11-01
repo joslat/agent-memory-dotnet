@@ -24,7 +24,7 @@ are lenient by design.
 
 ```
 ampack-rs verify <pack.ampack> <trust.json> [<revocations.json>...]
-          [--receipt <file> --location <url>] [--certificate <META/attestations/...|file>] [--erasure <META/attestations/...|file>]
+          [--receipt <file> --location <url>] [--certificate <META/attestations/...|file>] [--erasure <META/attestations/...|file>] [--aggregate <file>]
 ampack-rs inspect <pack.ampack>
 ```
 
@@ -65,7 +65,7 @@ that needs none.
 
 ## Results (1 Nov 2026)
 
-- `run_third.py`: 496 / 496 vectors agree with the expected verdict, every family; 281 of the 282 refusals that
+- `run_third.py`: 508 / 508 vectors agree with the expected verdict, every family (trial aggregates, `--aggregate`, included); 291 of the 292 refusals that
   `reasons.json` pins name the same rule in the Python verifier's words (the one left: `policy-with-a-private-key`, whose
   trust file `.work/trust-private-key.json` is not in the kit, so every verifier refuses it for a missing file).
 - Sabotage checks (one rule broken at a time, rebuilt, kit rerun): 8 / 8 caught (NFC, repeated keys, signatures,
