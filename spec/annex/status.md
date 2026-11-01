@@ -13,7 +13,7 @@ requirement, and it changes as the implementation does. Status as of 1 November 
   refused, and requires both verifiers to reach the expected outcome, each refused vector for its own rule (its reason is
   pinned). On every verified vector both verifiers must also derive the same profiles from the registry's map.
 - A differential fuzzer mutates archives, deflated bytes, single JSON and JSONL files, `validUntil` forms, edge paths, the
-  signature envelope and the trust policy, and requires both verifiers to agree. Revocation lists, receipts, certificates,
+  signature envelope and the trust policy, and requires every verifier to agree (the Rust reader too, when built). Revocation lists, receipts, certificates,
   later minors and timestamp tokens are held by named vectors, not mutated.
 - The trial statistic is checked exactly over every outcome (`eng/trial-statistics/coverage.py`) and by a seeded harness
   over named, random, rare-loss, near-equality and burst regimes.
@@ -43,7 +43,9 @@ shadow trials, and retrieval trials on a host task file.
 
 The `ampack` command builds, signs, verifies, inspects and lints packs, and also: keygen, init (knowledge, definition),
 lock, migrate, set, test, gate, admit, certify, certificate verify, receipt verify, ledger, erase, erasure verify and
-receipt, aggregate create and verify, and serve (with `--print-config` for MCP clients). `agentmemory trial` runs the code
+receipt, aggregate create and verify, import (`json` through a mapping file, `text`, and `folder` for a Markdown memory
+folder, each writing a signed knowledge pack of notes and reporting what it left out), and serve (with `--print-config` for
+MCP clients). `agentmemory trial` runs the code
 map's trial on a C# repository in memory, with no database. Every command is
 tested as a process.
 
@@ -52,7 +54,9 @@ REST surface (`GET /v1/meta`, `GET /v1/packs`, `POST /v1/packs/{id}/views/{view}
 machine, every request needs a bearer token of at least 32 characters, packs published for named WebIDs are not served,
 at most 16 requests are answered at once, and TLS comes from a reverse proxy. Without `--allow-remote`, a request from
 elsewhere, or one carrying `Forwarded`, `Via`, `X-Forwarded-*` or `X-Real-IP`, is refused. It takes the host's consent
-grants and gate options (the floor among them) through the same code a host uses.
+grants and gate options (the floor among them) through the same code a host uses. Over MCP it also offers resources
+(`ampack://status/{id}`, and per pack digest its card, a view and a record) and a read-only `memory_view` folder, through the
+same door as its tools: a pack that is off answers with its reason, never with records.
 
 ## Known differences and limits
 
@@ -68,6 +72,8 @@ grants and gate options (the floor among them) through the same code a host uses
   a new chain, since the runner measures pack files only.
 - An evaluator key's expiry is checked when the host loads the pack, not while it runs.
 - The serving binary is self-contained single-file, not ahead-of-time compiled.
+- `ampack serve` judges the trial gate once, at startup: a decision that expires while it runs is judged again only on restart.
+- A Markdown folder's `[[wikilinks]]` stay in the text: no relation joins a note to a note.
 
 ## Designed, not built
 
