@@ -159,6 +159,7 @@ public sealed class PackDoorMatrixTests : IDisposable
             ["build"] = [folder, "--key", _keyPem, "--out", out_ + ".ampack"],
             ["sign"] = [folder, "--key", _keyPem],
             ["verify"] = [pack, "--policy", _policy],
+            ["listing"] = [pack, "--policy", _policy, "--format", "oasf", "--at", "2026-11-01T00:00:00Z"],
             ["inspect"] = [pack],
             ["diff"] = [pack, other],
             ["lock"] = [folder, pack, "--policy", _policy],

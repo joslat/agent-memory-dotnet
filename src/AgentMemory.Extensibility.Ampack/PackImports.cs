@@ -50,7 +50,7 @@ public sealed record ImportResult(byte[] Archive, int Records, IReadOnlyDictiona
 /// it. Its source's own trust is never ampack's: the pack is off until its trial passes. Text is normalised to NFC.
 /// </summary>
 [Experimental("AMEXT001")]
-public static class PackImports
+public static partial class PackImports
 {
     /// <summary>The tool a derivation names.</summary>
     public const string Tool = "ampack-import";
@@ -196,7 +196,8 @@ public static class PackImports
     private static string Shown(string text) => text.Length <= 60 ? text : text[..60] + "...";
 
     private static ImportResult Write(byte[] source, List<(string Key, string Text, IReadOnlyDictionary<string, string>? Life)> entries, List<string> skipped,
-        IReadOnlyDictionary<string, int> dropped, JsonNode mapping, string sourceName, string id, string version, string owner, string signingKeyPem)
+        IReadOnlyDictionary<string, int> dropped, JsonNode mapping, string sourceName, string id, string version, string owner, string signingKeyPem,
+        string sourceSignature = "absent", IReadOnlyDictionary<string, string>? extra = null, IReadOnlyList<(string Key, DateTimeOffset At)>? erased = null)
     {
         var kind = mapping is JsonValue ? mapping.GetValue<string>() : "json";
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -245,21 +246,42 @@ public static class PackImports
                 ["format"] = PackRegistry.DerivationFormat, ["actions"] = new JsonArray("import"),
                 ["inputs"] = new JsonArray(new JsonObject { ["digest"] = digest, ["name"] = "source" }),
                 ["tool"] = new JsonObject { ["name"] = Tool, ["version"] = "1.0.0" },
-                ["parameters"] = Parameters(sourceName, kind, mapping),
+                ["parameters"] = Parameters(sourceName, kind, mapping, sourceSignature, extra),
             }),
         };
         var archive = PackAuthoring.Build(files, signingKeyPem);
+        if (erased is { Count: > 0 }) archive = Erasing(archive, id, erased, signingKeyPem);
         var findings = PackScan.Scan(archive).Findings.Select(f => f.ToString() ?? "").ToList();
         return new ImportResult(archive, written, dropped, skipped, findings);
     }
 
     // A derivation's parameters are texts: a JSON mapping is named field by field, as mapping.records, mapping.key, ...
-    private static JsonObject Parameters(string sourceName, string kind, JsonNode mapping)
+    private static JsonObject Parameters(string sourceName, string kind, JsonNode mapping, string sourceSignature, IReadOnlyDictionary<string, string>? extra)
     {
-        var parameters = new JsonObject { ["sourceFormat"] = sourceName, ["mapping"] = kind, ["sourceSignature"] = "absent" };
+        var parameters = new JsonObject { ["sourceFormat"] = sourceName, ["mapping"] = kind, ["sourceSignature"] = sourceSignature };
         if (mapping is JsonObject fields)
             foreach (var (name, value) in fields) parameters["mapping." + name] = value!.GetValue<string>();
+        foreach (var (name, value) in extra ?? new Dictionary<string, string>()) parameters[name] = value;
         return parameters;
+    }
+
+    // The source's deletions as this pack's own erasures (feature 15, R3): they reach the records an earlier import of the same
+    // source brought, on every host that holds them (feature 08). Signed by the importer, as publisher; the records named by
+    // the composed note type the loader gives this pack's notes, read back from the pack itself.
+    private static byte[] Erasing(byte[] archive, string id, IReadOnlyList<(string Key, DateTimeOffset At)> erased, string signingKeyPem)
+    {
+        using var key = ECDsa.Create();
+        key.ImportFromPem(signingKeyPem);
+        var trust = PackTrust.Parse(Encoding.UTF8.GetBytes(PackAuthoring.TrustPolicy(key.ExportSubjectPublicKeyInfoPem(), id)));
+        var type = PackLoader.Load(archive, trust).Knowledge!.Proposals[0].Type;
+        var at = erased.Max(e => e.At);
+        var now = DateTimeOffset.UtcNow;
+        var issued = new DateTimeOffset(Math.Min(at.UtcTicks, now.UtcTicks) / TimeSpan.TicksPerSecond * TimeSpan.TicksPerSecond, TimeSpan.Zero);
+        using var signer = PackSigner.FromPem(signingKeyPem);
+        var envelope = PackErasure.Create(id, [.. erased.Select(e => (type, e.Key.Normalize(NormalizationForm.FormC))).Distinct()], "withdrawn", issued, signer);
+        var files = PackReader.ReadArchive(archive, "import").Files.ToDictionary(f => f.Key, f => f.Value, StringComparer.Ordinal);
+        files[PackErasure.PathFor(signer.KeyId, issued)] = envelope;
+        return PackBuilder.Pack(files);
     }
 
     // A key for an entry that names none: from its text, so the same statement imports to the same key.

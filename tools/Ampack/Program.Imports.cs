@@ -1,10 +1,11 @@
+using System.IO.Compression;
 using AgentMemory.Extensibility.Ampack;
 
 namespace Ampack;
 
 /// <summary>
 /// Imports (features 15 and 16): <c>ampack import json &lt;file&gt; --mapping &lt;m.json&gt;</c>, <c>ampack import text &lt;file&gt; --source &lt;name&gt;</c>
-/// and <c>ampack import folder &lt;dir&gt; [--git]</c>
+/// <c>ampack import folder &lt;dir&gt; [--git]</c> and <c>ampack import mem &lt;bundle&gt; [--mem-trust &lt;public key hex&gt;...]</c>
 /// write a signed knowledge pack of notes from another tool's memory export, with a derivation naming the source by its
 /// digest and a card saying where it came from, and report every field and entry they left out.
 /// </summary>
@@ -13,7 +14,7 @@ internal static partial class Program
     // ampack import json|text|folder <file or dir> --id <id> --version <v> --owner <name> --key <private.pem> --out <pack.ampack> [--mapping <m.json> | --source <name>]
     private static int Import(Options o)
     {
-        var kind = o.Positional(0, "import kind (json, text)");
+        var kind = o.Positional(0, "import kind (json, text, folder, mem)");
         var file = o.Positional(1, "the export file");
         var (id, version, owner) = (o.Required("id"), o.Value("version") ?? "1.0.0", o.Required("owner"));
         var key = Text(o.Required("key"), "The signing key");
@@ -21,7 +22,13 @@ internal static partial class Program
         ImportResult result;
         try
         {
-            if (kind == "folder")
+            if (kind == "mem")
+            {
+                var trusted = o.Values("mem-trust").Select(k => k.Trim().ToLowerInvariant()).ToHashSet(StringComparer.Ordinal);
+                if (trusted.Any(k => k.Length != 64 || !k.All(Uri.IsHexDigit))) throw new UsageException("--mem-trust is an Ed25519 public key as 64 hex digits.");
+                result = PackImports.FromMem(MemBundle(file), Ed25519Verifies, trusted.Count == 0 ? null : trusted, id, version, owner, key);
+            }
+            else if (kind == "folder")
             {
                 var (files, commits) = MemoryFolder(file, o.Flag("git"));
                 result = PackImports.FromFolder(files, commits, id, version, owner, key);
@@ -38,7 +45,7 @@ internal static partial class Program
                 "json" => PackImports.FromJson(source, ImportMapping.Read(AgentMemory.Packs.Format.PackReader.ReadFile(o.Required("mapping"), 1 << 20, "The mapping")),
                     id, version, owner, key),
                 "text" => PackImports.FromText(source, o.Value("source") ?? "an assistant", id, version, owner, key),
-                _ => throw new UsageException($"Unknown import kind '{kind}': json, text, folder."),
+                _ => throw new UsageException($"Unknown import kind '{kind}': json, text, folder, mem."),
             };
             }
         }
@@ -50,6 +57,61 @@ internal static partial class Program
         foreach (var finding in result.Findings) Console.WriteLine($"  safety  {Shown(finding, 200)}");
         if (result.Findings.Count != 0) Console.WriteLine("  the safety scan found text to review before this pack is used (ampack scan shows it in full).");
         return 0;
+    }
+
+    // Ed25519 (RFC 8032) through BouncyCastle: whether the signature verifies over the message under the public key.
+    private static bool Ed25519Verifies(byte[] publicKey, byte[] signature, byte[] message) =>
+        publicKey.Length == 32 && signature.Length == 64
+        && Org.BouncyCastle.Math.EC.Rfc8032.Ed25519.Verify(signature, 0, publicKey, 0, message, 0, message.Length);
+
+    // A .mem bundle's files by their bundle-relative path: a folder (no links followed) or a zip archive, at most 10,000 files,
+    // 64 MiB each and 256 MiB in all, every path relative with no '..' (the spec's "reject any path that escapes the bundle").
+    private static Dictionary<string, byte[]> MemBundle(string path)
+    {
+        const long each = 64L << 20, all = 256L << 20;
+        var files = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        long total = 0;
+        void Add(string relative, Func<long, byte[]> read, long size)
+        {
+            if (relative.Split('/').Any(part => part is "" or "." or ".."))
+                throw new UsageException($"'{Shown(relative, 200)}' escapes the bundle.");
+            if (files.Count == 10_000) throw new UsageException("The bundle holds more than 10,000 files.");
+            if (size > each || (total += size) > all) throw new UsageException("The bundle is larger than an import reads (64 MiB a file, 256 MiB in all).");
+            files[relative] = read(size);
+        }
+        if (Directory.Exists(path))
+        {
+            var top = new DirectoryInfo(path);
+            if (top.Attributes.HasFlag(FileAttributes.ReparsePoint)) throw new UsageException($"'{path}' is a link; give the bundle itself.");
+            void Walk(DirectoryInfo dir, string prefix)
+            {
+                foreach (var entry in dir.EnumerateFileSystemInfos().OrderBy(e => e.Name, StringComparer.Ordinal))
+                {
+                    if (entry.Attributes.HasFlag(FileAttributes.ReparsePoint)) throw new UsageException($"'{Shown(prefix + entry.Name, 200)}' is a link, which an import does not follow.");
+                    if (entry is DirectoryInfo sub) Walk(sub, prefix + entry.Name + "/");
+                    else Add(prefix + entry.Name, size => AgentMemory.Packs.Format.PackReader.ReadFile(entry.FullName, each, $"'{prefix + entry.Name}'"), ((FileInfo)entry).Length);
+                }
+            }
+            Walk(top, "");
+            return files;
+        }
+        using var zip = new ZipArchive(new MemoryStream(AgentMemory.Packs.Format.PackReader.ReadFile(path, all, "The bundle")), ZipArchiveMode.Read);
+        // A bundle zipped with its folder at the top is read from inside that folder.
+        var prefixOf = zip.Entries.Select(e => e.FullName).Where(n => n.Length != 0).Select(n => n.Split('/')[0]).Distinct().ToList() is [var only]
+            && zip.Entries.All(e => e.FullName.StartsWith(only + "/", StringComparison.Ordinal)) ? only + "/" : "";
+        foreach (var entry in zip.Entries.Where(e => !e.FullName.EndsWith('/')))
+            Add(entry.FullName[prefixOf.Length..], size =>
+            {
+                using var source = entry.Open();
+                // Read at most one byte past the stated size, so an entry that inflates beyond it is caught, not held.
+                var buffer = new MemoryStream();
+                var chunk = new byte[81920];
+                for (int n; buffer.Length <= size && (n = source.Read(chunk, 0, (int)Math.Min(chunk.Length, size + 1 - buffer.Length))) > 0;)
+                    buffer.Write(chunk, 0, n);
+                if (buffer.Length != size) throw new UsageException($"'{Shown(entry.FullName, 200)}' does not inflate to its stated size.");
+                return buffer.ToArray();
+            }, entry.Length);
+        return files;
     }
 
     // A memory folder's .md files, bounded (at most 10,000 files of 1 MiB each, no folder named .git), walked without following
