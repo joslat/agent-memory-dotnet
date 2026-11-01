@@ -2034,13 +2034,43 @@
    "file": "src/AgentMemory.Extensibility.Ampack/PackImports.cs",
    "edits": [
     {
-     "old": "if (!life.ContainsKey(\"validFrom\") && firstCommits?.TryGetValue(name, out var first) == true)",
-     "new": "if (firstCommits?.TryGetValue(name, out var first) == true)"
+     "old": "if (!life.ContainsKey(\"validFrom\") && date.Length != 0 &&",
+     "new": "if (date.Length != 0 &&"
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
    "filter": "FullyQualifiedName~ImportTests",
-   "sha256": "18f71190f96533aad7cc791fa7a57a7940b7fb62ce61efda2cb41e43f0257b30"
+   "sha256": "e3cf3425a071433f975ef4f455e11e09ffeb587b0833f5cd9f7c30bcff428478"
+  },
+  {
+   "id": "folder-git-after-end",
+   "rule": "FOLDER-FRONT-MATTER-STRICT",
+   "door": "build",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackImports.cs",
+   "edits": [
+    {
+     "old": "&& !(life.TryGetValue(\"validTo\", out var end) && string.CompareOrdinal(end, date) <= 0))",
+     "new": ")"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ImportTests",
+   "sha256": "ab7db7fd7bed5b66191e123b9c231d696efd102151350aa6edd5d31ae216e02a"
+  },
+  {
+   "id": "import-loader-rules-skipped",
+   "rule": "IMPORT-SAYS-WHAT-IT-DROPPED",
+   "door": "build",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackImports.cs",
+   "edits": [
+    {
+     "old": "if (Encoding.UTF8.GetByteCount(json) > AgentMemory.Extensibility.Packs.KnowledgePack.MaximumLineBytes)",
+     "new": "if (false && Encoding.UTF8.GetByteCount(json) > 0)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ImportTests",
+   "sha256": "ac341d3a39b47d0eb2b26a8c4821edc0fe7e1f0b82007fd2c86b732125ef49f8"
   },
   {
    "id": "resource-off-served",

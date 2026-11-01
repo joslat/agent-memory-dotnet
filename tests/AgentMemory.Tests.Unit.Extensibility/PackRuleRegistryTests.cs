@@ -123,7 +123,7 @@ public sealed class PackRuleRegistryTests
         new("FOLDER-FRONT-MATTER-STRICT", "A memory folder's file is refused unless its front matter is key: value lines of a string, an integer or a date; its life fields are kept, every other key reported, and a file with no date dates from its first commit.",
             ["AgentMemory.Extensibility.Ampack.PackImports.FromFolder"], ["build"],
             ["ImportTests.A_memory_folder_imports_one_note_a_file_with_strict_front_matter_and_dates_from_git"]),
-        new("SERVE-RESOURCES-ONE-DOOR", "Serve's resources and memory folder ask the same door as its tools: a pack that is off answers with its reason and never with records, and a record past its life or brought by an off carrier is never answered.",
+        new("SERVE-RESOURCES-ONE-DOOR", "Serve's resources and memory folder ask the same door as its tools: a pack that is off, or kept off by the gate, answers with its reason and never with records, and a record past its life is never answered.",
             ["AgentMemory.Extensibility.Ampack.PackResources.MemoryView", "AgentMemory.Extensibility.Ampack.PackResources.Record", "AgentMemory.Extensibility.Ampack.PackResources.Card"], ["serve"],
             ["PackResourcesTests.A_pack_that_is_off_answers_with_its_reason_and_never_with_records",
              "PackResourcesTests.A_served_pack_answers_its_live_records_as_files_and_resources"]),

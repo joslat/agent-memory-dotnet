@@ -58,6 +58,7 @@ public sealed class PackResourcesTests
         JsonNode.Parse(PackResources.Status(mount, "com.example.folder", Off, None))!.AsArray().Single()!["served"]!.GetValue<bool>().Should().BeFalse();
         var gated = new Dictionary<string, string> { ["com.example.other"] = "kept off by the host's trial gate" };
         JsonNode.Parse(PackResources.Status(mount, "com.example.other", _ => null, gated))!["reason"]!.GetValue<string>().Should().Contain("trial gate");
+        JsonNode.Parse(PackResources.MemoryView(mount, "/memories/com.example.other", _ => null, gated, Now))!["error"]!.GetValue<string>().Should().Contain("trial gate");
         JsonNode.Parse(PackResources.MemoryView(mount, "/memories", _ => null, gated, Now))!["entries"]!.AsArray()
             .Should().Contain(e => e!["name"]!.GetValue<string>() == "com.example.other/" && !e["served"]!.GetValue<bool>());
     }

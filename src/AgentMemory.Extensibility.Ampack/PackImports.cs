@@ -65,7 +65,7 @@ public static class PackImports
         try { root = JsonNode.Parse(source); }
         catch (JsonException e) { throw new InvalidDataException("The source is not JSON: " + e.Message); }
         var node = root;
-        foreach (var step in mapping.Records.Split('.', StringSplitOptions.RemoveEmptyEntries)) node = node?[step];
+        foreach (var step in mapping.Records.Split('.', StringSplitOptions.RemoveEmptyEntries)) node = node is JsonObject o ? o[step] : null;
         if (node is not JsonArray entries) throw new InvalidDataException($"'{(mapping.Records.Length == 0 ? "the top level" : mapping.Records)}' is not an array of entries.");
         var dropped = new SortedDictionary<string, int>(StringComparer.Ordinal);
         var taken = new HashSet<string>(StringComparer.Ordinal) { mapping.Key, mapping.Text };
@@ -80,17 +80,36 @@ public static class PackImports
             foreach (var field in fields.Select(f => f.Key).Where(k => !taken.Contains(k))) dropped[field] = dropped.GetValueOrDefault(field) + 1;
             var text = Scalar(fields[mapping.Text]);
             if (string.IsNullOrWhiteSpace(text)) { skipped.Add($"entry {index}: no text in '{mapping.Text}'"); continue; }
-            var key = Scalar(fields[mapping.Key]) is { Length: > 0 } given ? given : KeyOf(text);
-            lines.Add((key, text, mapping.ValidFrom is { } f && Instant(Scalar(fields[f])) is { } at ? new Dictionary<string, string> { ["validFrom"] = at } : null));
+            string key;
+            if (Scalar(fields[mapping.Key]) is { Length: > 0 } given) key = given;
+            else
+            {
+                if (fields[mapping.Key] is not null) Unusable(dropped, mapping.Key);
+                key = KeyOf(text);
+            }
+            string? at = null;
+            if (mapping.ValidFrom is { } f && fields[f] is { } when && (at = Instant(Scalar(when))) is null) Unusable(dropped, f);
+            lines.Add((key, text, at is null ? null : new Dictionary<string, string> { ["validFrom"] = at }));
         }
-        return Write(source, lines, skipped, dropped, "json", mapping.Source, id, version, owner, signingKeyPem);
+        // R7: the mapping is named in the derivation, so two imports of one export through two mappings differ there too.
+        var named = new JsonObject { ["records"] = mapping.Records, ["key"] = mapping.Key, ["text"] = mapping.Text };
+        if (mapping.ValidFrom is { } v) named["validFrom"] = v;
+        return Write(source, lines, skipped, dropped, named, mapping.Source, id, version, owner, signingKeyPem);
     }
+
+    // A value the mapping names that cannot be used (a key that is not a string or a number, a date that is not ISO 8601):
+    // reported with the dropped fields, never lost silently (review 15-17, F8).
+    private static void Unusable(SortedDictionary<string, int> dropped, string field) =>
+        dropped["unusable '" + field + "'"] = dropped.GetValueOrDefault("unusable '" + field + "'") + 1;
+
+    // A byte order mark (U+FEFF, which some editors write first) is not text (review 15-17, F3).
+    private static string Decoded(byte[] bytes) => Encoding.UTF8.GetString(bytes).TrimStart('\uFEFF');
 
     /// <summary>Imports an assistant's memory export, one statement a line.</summary>
     public static ImportResult FromText(byte[] source, string sourceName, string id, string version, string owner, string signingKeyPem)
     {
         ArgumentNullException.ThrowIfNull(source);
-        var lines = Encoding.UTF8.GetString(source).Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0)
+        var lines = Decoded(source).Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0)
             .Select(l => (Key: KeyOf(l), Text: l, Life: (IReadOnlyDictionary<string, string>?)null)).ToList();
         return Write(source, lines, [], new SortedDictionary<string, int>(), "text", sourceName, id, version, owner, signingKeyPem);
     }
@@ -114,7 +133,8 @@ public static class PackImports
     {
         ArgumentNullException.ThrowIfNull(files);
         var names = files.Keys.Where(p => p.EndsWith(".md", StringComparison.OrdinalIgnoreCase)).Order(StringComparer.Ordinal).ToList();
-        var known = new HashSet<string>(names.SelectMany(p => new[] { p[..^3], Path.GetFileNameWithoutExtension(p) }), StringComparer.OrdinalIgnoreCase);
+        var known = new HashSet<string>(names.SelectMany(p => new[] { p, p[..^3], Path.GetFileName(p), Path.GetFileNameWithoutExtension(p) })
+            .Select(n => n.Normalize(NormalizationForm.FormC)), StringComparer.OrdinalIgnoreCase);
         var dropped = new SortedDictionary<string, int>(StringComparer.Ordinal);
         var skipped = new List<string>();
         var lines = new List<(string Key, string Text, IReadOnlyDictionary<string, string>? Life)>();
@@ -122,9 +142,14 @@ public static class PackImports
         foreach (var name in names)
         {
             var bytes = files[name];
-            source.AddRange(Encoding.UTF8.GetBytes(name + "\n"));
-            source.AddRange(SHA256.HashData(bytes));
-            var (front, body, problem) = FrontMatter(Encoding.UTF8.GetString(bytes).Replace("\r\n", "\n"));
+            // Each file framed: its name's length and name, its digest, and the date git gave it, if any (review 15-17, F11).
+            var date = firstCommits?.TryGetValue(name, out var given) == true ? given.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture) : "";
+            foreach (var part in new[] { Encoding.UTF8.GetBytes(name), SHA256.HashData(bytes), Encoding.UTF8.GetBytes(date) })
+            {
+                source.AddRange(BitConverter.GetBytes(part.Length));
+                source.AddRange(part);
+            }
+            var (front, body, problem) = FrontMatter(Decoded(bytes).Replace("\r\n", "\n"));
             if (problem is not null) { skipped.Add($"'{name}': front matter refused: {problem}"); continue; }
             if (string.IsNullOrWhiteSpace(body)) { skipped.Add($"'{name}': no text"); continue; }
             var life = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -133,14 +158,15 @@ public static class PackImports
                 if (k is "validFrom" or "validTo" or "expiresAt" or "reviewBy" && Instant(v) is { } at && Regex.IsMatch(v, @"^\d{4}-\d{2}-\d{2}")) life[k] = at;
                 else dropped["front matter '" + k + "'"] = dropped.GetValueOrDefault("front matter '" + k + "'") + 1;
             }
-            if (!life.ContainsKey("validFrom") && firstCommits?.TryGetValue(name, out var first) == true)
-                life["validFrom"] = first.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture);
+            // The first commit dates a note that names no start, unless the note ended before it (review 15-17, F2).
+            if (!life.ContainsKey("validFrom") && date.Length != 0 && !(life.TryGetValue("validTo", out var end) && string.CompareOrdinal(end, date) <= 0))
+                life["validFrom"] = date;
             foreach (Match link in Regex.Matches(body, @"\[\[([^\[\]|#\n]{1,200})(?:[|#][^\[\]\n]{0,200})?\]\]"))
-                if (!known.Contains(link.Groups[1].Value.Trim())) skipped.Add($"'{name}': a link to '{link.Groups[1].Value.Trim()}', which the folder does not hold (kept as text)");
+                if (!known.Contains(link.Groups[1].Value.Trim().Normalize(NormalizationForm.FormC))) skipped.Add($"'{name}': a link to '{link.Groups[1].Value.Trim()}', which the folder does not hold (kept as text)");
             lines.Add((name, body.Trim(), life.Count == 0 ? null : life));
         }
         if (names.Count == 0) throw new InvalidDataException("The folder holds no .md file.");
-        return Write([.. source], lines, skipped, dropped, "folder", "a Markdown folder", id, version, owner, signingKeyPem);
+        return Write([.. source], lines, skipped, dropped, "folder" + (firstCommits is null ? "" : " with git dates"), "a Markdown folder", id, version, owner, signingKeyPem);
     }
 
     // The strict front matter (R2): '---' lines around 'key: value' lines; a value is a plain or double-quoted string with no
@@ -170,18 +196,28 @@ public static class PackImports
     private static string Shown(string text) => text.Length <= 60 ? text : text[..60] + "...";
 
     private static ImportResult Write(byte[] source, List<(string Key, string Text, IReadOnlyDictionary<string, string>? Life)> entries, List<string> skipped,
-        IReadOnlyDictionary<string, int> dropped, string kind, string sourceName, string id, string version, string owner, string signingKeyPem)
+        IReadOnlyDictionary<string, int> dropped, JsonNode mapping, string sourceName, string id, string version, string owner, string signingKeyPem)
     {
+        var kind = mapping is JsonValue ? mapping.GetValue<string>() : "json";
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var records = new StringBuilder();
         var written = 0;
         foreach (var (key, text, life) in entries)
         {
             var k = key.Normalize(NormalizationForm.FormC);
+            // The loader's own record rules, entry by entry, so an import never writes a pack the loader refuses whole
+            // (review 15-17, F1 and F2): a key of 1 to 200 characters, no control character, not blank; a line of at most
+            // 64 KiB; a validTo after the validFrom; at most 5,000 records.
+            if (k.Length is 0 or > 200 || k.Any(char.IsControl) || string.IsNullOrWhiteSpace(k)) { skipped.Add($"'{Shown(k)}': a key must be 1 to 200 characters, not blank, with no control character"); continue; }
             if (!seen.Add(k)) { skipped.Add($"'{k}': a repeated key, its first entry kept"); continue; }
+            if (life is not null && life.TryGetValue("validFrom", out var from) && life.TryGetValue("validTo", out var to) && string.CompareOrdinal(to, from) <= 0)
+            { skipped.Add($"'{k}': its validTo is not after its validFrom"); continue; }
+            if (written == AgentMemory.Extensibility.Packs.KnowledgePack.MaximumRecords) { skipped.Add($"'{k}': a pack holds at most {AgentMemory.Extensibility.Packs.KnowledgePack.MaximumRecords} records"); continue; }
             var line = new JsonObject { ["type"] = "note", ["key"] = k, ["properties"] = new JsonObject { ["text"] = text.Normalize(NormalizationForm.FormC) } };
             foreach (var (field, at) in life ?? new Dictionary<string, string>()) line[field] = at;
-            records.Append(line.ToJsonString()).Append('\n');
+            var json = line.ToJsonString();
+            if (Encoding.UTF8.GetByteCount(json) > AgentMemory.Extensibility.Packs.KnowledgePack.MaximumLineBytes) { skipped.Add($"'{k}': longer than a record holds ({AgentMemory.Extensibility.Packs.KnowledgePack.MaximumLineBytes / 1024} KiB)"); continue; }
+            records.Append(json).Append('\n');
             written++;
         }
         if (written == 0) throw new InvalidDataException("The source holds no entry with text to import.");
@@ -209,7 +245,7 @@ public static class PackImports
                 ["format"] = PackRegistry.DerivationFormat, ["actions"] = new JsonArray("import"),
                 ["inputs"] = new JsonArray(new JsonObject { ["digest"] = digest, ["name"] = "source" }),
                 ["tool"] = new JsonObject { ["name"] = Tool, ["version"] = "1.0.0" },
-                ["parameters"] = new JsonObject { ["sourceFormat"] = sourceName, ["mapping"] = kind, ["sourceSignature"] = "absent" },
+                ["parameters"] = Parameters(sourceName, kind, mapping),
             }),
         };
         var archive = PackAuthoring.Build(files, signingKeyPem);
@@ -217,14 +253,26 @@ public static class PackImports
         return new ImportResult(archive, written, dropped, skipped, findings);
     }
 
+    // A derivation's parameters are texts: a JSON mapping is named field by field, as mapping.records, mapping.key, ...
+    private static JsonObject Parameters(string sourceName, string kind, JsonNode mapping)
+    {
+        var parameters = new JsonObject { ["sourceFormat"] = sourceName, ["mapping"] = kind, ["sourceSignature"] = "absent" };
+        if (mapping is JsonObject fields)
+            foreach (var (name, value) in fields) parameters["mapping." + name] = value!.GetValue<string>();
+        return parameters;
+    }
+
     // A key for an entry that names none: from its text, so the same statement imports to the same key.
     private static string KeyOf(string text) => "note-" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text.Normalize(NormalizationForm.FormC))))[..16].ToLowerInvariant();
 
     private static string? Scalar(JsonNode? node) => node is JsonValue value ? value.ToString() : null;
 
-    // An instant the format reads: UTC to the second, from an ISO date-time the source gives; anything else is left out.
+    // An instant the format reads: UTC to the second, from an ISO 8601 date or date-time the source gives, read exactly (a
+    // loose parse read 07/08 in US order and "Oct 5" as this year: review 15-17, F8); anything else is null.
+    private static readonly string[] IsoForms = ["yyyy-MM-dd", "yyyy-MM-dd'T'HH:mm:ssK", "yyyy-MM-dd'T'HH:mm:ss.FFFFFFFK", "yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd'T'HH:mm:ss.FFFFFFF"];
+
     private static string? Instant(string? text) =>
-        text is not null && DateTimeOffset.TryParse(text, System.Globalization.CultureInfo.InvariantCulture,
+        text is not null && DateTimeOffset.TryParseExact(text, IsoForms, System.Globalization.CultureInfo.InvariantCulture,
             System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out var t)
             ? t.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture) : null;
 }

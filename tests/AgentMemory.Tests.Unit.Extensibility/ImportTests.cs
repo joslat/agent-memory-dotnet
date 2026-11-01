@@ -81,6 +81,36 @@ public sealed class ImportTests
         notes[1].Life!.ValidFromUtc.Should().Be(new DateTimeOffset(2026, 8, 3, 10, 0, 0, TimeSpan.Zero), "a file that names no date dates from its first commit");
     }
 
+    [Fact]
+    public void Review_15_17_an_import_never_writes_a_pack_the_loader_refuses_and_says_what_it_could_not_use()
+    {
+        var files = new Dictionary<string, byte[]>(StringComparer.Ordinal)
+        {
+            // F3: a byte order mark before the front matter
+            ["bom.md"] = [0xEF, 0xBB, 0xBF, .. Encoding.UTF8.GetBytes("---\nvalidFrom: 2026-09-01\n---\nWith a BOM.\n")],
+            // F2: ended before git first saw it
+            ["ended.md"] = Encoding.UTF8.GetBytes("---\nvalidTo: 2026-10-01\n---\nNo longer true.\n"),
+            // F1: longer than a record line holds
+            ["big.md"] = Encoding.UTF8.GetBytes(new string('x', 70_000)),
+            [new string('k', 210) + ".md"] = Encoding.UTF8.GetBytes("A key too long."),
+        };
+        var commits = new Dictionary<string, DateTimeOffset> { ["ended.md"] = new(2026, 11, 1, 0, 0, 0, TimeSpan.Zero) };
+        var result = PackImports.FromFolder(files, commits, "com.example.edges", "1.0.0", "Example Owner", Key.PrivateKeyPem);
+        result.Skipped.Should().Contain(s => s.StartsWith("'big.md'")).And.Contain(s => s.Contains("1 to 200 characters"));
+        var notes = PackLoader.Load(result.Archive, Trust()).Knowledge!.Proposals;
+        notes.Select(n => n.Key).Should().Equal("bom.md", "ended.md");
+        notes[0].Properties["text"].GetString().Should().Be("With a BOM.");
+        notes[0].Life!.ValidFromUtc.Should().Be(new DateTimeOffset(2026, 9, 1, 0, 0, 0, TimeSpan.Zero));
+        notes[1].Life!.ValidFromUtc.Should().BeNull("a git date after the note's end is left out");
+
+        // F8 and F9: unusable mapped values are reported; ISO 8601 only; the mapping is in the derivation.
+        var export = Encoding.UTF8.GetBytes("""{"results":[{"id":{"x":1},"memory":"One","created_at":"07/08/2026"},{"id":"b","memory":"Two","created_at":1730000000}]}""");
+        var mapping = ImportMapping.Read(File.ReadAllBytes(Path.Combine(Root(), "tools", "Ampack", "mappings", "mem0.json")));
+        var json = PackImports.FromJson(export, mapping, "com.example.unusable", "1.0.0", "Example Owner", Key.PrivateKeyPem);
+        json.Dropped.Should().Contain(new KeyValuePair<string, int>("unusable 'created_at'", 2)).And.Contain(new KeyValuePair<string, int>("unusable 'id'", 1));
+        Encoding.UTF8.GetString(PackReader.ReadArchive(json.Archive, "import").Files["META/derivation.json"]).Should().Contain("\"mapping.text\":\"memory\"");
+    }
+
     private static string Root()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);

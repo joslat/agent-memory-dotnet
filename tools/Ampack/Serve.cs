@@ -49,10 +49,11 @@ internal sealed class PackTools
         views = (mount.Memory.Resolution.Modules.FirstOrDefault(m => m.Id == p.Id)?.Views ?? p.Manifest.Views)
             .Select(v => new { id = v.Id, type = v.Type, search = v.Search is not null, summary = v.Summary }),
         walkable = p.Manifest.Traversal is not null,
-        source = p.SnapshotSource, validUntil = p.ValidUntil, expired = Expired(p),
+        source = p.SnapshotSource, validUntil = p.ValidUntil, expired = Expired(p), served = !Expired(p),
     }).Cast<object>()
         // A pack the trial gate kept off is listed with its reason, and serves nothing (feature 17, R1).
-        .Concat(KeptOff.OrderBy(k => k.Key, StringComparer.Ordinal).Select(k => (object)new { id = k.Key, served = false, reason = k.Value })), Json);
+        // Every entry says whether it is served (review 15-17, F13); one kept off carries its reason and nothing it would serve.
+        .Concat(KeptOff.OrderBy(k => k.Key, StringComparer.Ordinal).Select(k => (object)new { id = k.Key, served = false, reason = k.Value, views = Array.Empty<object>() })), Json);
 
     /// <summary>The packs the host's trial gate kept off at startup, with its reason (feature 17).</summary>
     internal static System.Collections.Concurrent.ConcurrentDictionary<string, string> KeptOff { get; } = new(StringComparer.Ordinal);
@@ -161,6 +162,7 @@ internal sealed class PackResourceTemplates
 
     [McpServerResource(UriTemplate = "ampack://sha256:{digest}/records/{type}/{key}", Name = "pack_record", MimeType = "application/json"),
      Description("One live record of a pack, by type and percent-encoded key, as its type renders it, with its provenance.")]
+    // The SDK has decoded the key already: decoding it again read a%252F as a/ (review 15-17, F7).
     public static string Record(PackMount mount, string digest, string type, string key) =>
-        PackResources.Record(mount, digest, type, Uri.UnescapeDataString(key), Off, DateTimeOffset.UtcNow);
+        PackResources.Record(mount, digest, type, key, Off, DateTimeOffset.UtcNow);
 }
