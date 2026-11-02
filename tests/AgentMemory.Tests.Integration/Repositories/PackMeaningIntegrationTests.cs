@@ -21,7 +21,7 @@ namespace AgentMemory.Tests.Integration.Repositories;
 public sealed partial class ModuleRecordWriteIntegrationTests
 {
     private const string MeaningManifest = """
-        {"format":"agentmemory.module/v1alpha1","id":"io.example.packmeaning","version":"1.0.0","sdk":"[0.1,0.2)",
+        {"format":"agentmemory.module/v1alpha1","id":"io.example.packmeaning","version":"VERSION","sdk":"[0.1,0.2)",
          "seed":["seed/records.jsonl"],
          "ontology":{"labelPrefix":"PackMeaning","types":[
            {"name":"PackMeaningNote","scope":"shared","render":"{title}: {text}","properties":{
@@ -29,21 +29,21 @@ public sealed partial class ModuleRecordWriteIntegrationTests
          "views":[{"id":"notes","type":"PackMeaningNote","search":{"properties":["title","text"]},"limit":3}]}
         """;
 
-    private static KnowledgePack MeaningPack()
+    private static KnowledgePack MeaningPack(string version = "1.0.0", string pets = "Dogs stay in the office, never on the floor.")
     {
         static string Note(string key, string title, string text) =>
             $$$"""{"type":"PackMeaningNote","key":"{{{key}}}","properties":{"title":"{{{title}}}","text":"{{{text}}}"}}""";
         var content = new Dictionary<string, byte[]>(StringComparer.Ordinal)
         {
-            [KnowledgePack.ManifestFile] = Encoding.UTF8.GetBytes(MeaningManifest),
+            [KnowledgePack.ManifestFile] = Encoding.UTF8.GetBytes(MeaningManifest.Replace("VERSION", version, StringComparison.Ordinal)),
             ["seed/records.jsonl"] = Encoding.UTF8.GetBytes(string.Join("\n",
-                Note("pets", "Pets", "Dogs stay in the office, never on the floor."),
+                Note("pets", "Pets", pets),
                 Note("kiln", "Kiln", "Only the steward fires the kiln."),
                 Note("hours", "Hours", "Open Tuesday to Saturday.")) + "\n"),
         };
         var trust = new BundleTrust();
         trust.DeveloperKeys.Add(PackKey.PublicKeyPem);
-        return KnowledgePack.Open(BundleSigning.Sign(content, "io.example.packmeaning", "1.0.0", PackKey.PrivateKeyPem), trust);
+        return KnowledgePack.Open(BundleSigning.Sign(content, "io.example.packmeaning", version, PackKey.PrivateKeyPem), trust);
     }
 
     // Vectors by concept, so meaning is deterministic: a text points along each concept it names a word of.
@@ -125,10 +125,18 @@ public sealed partial class ModuleRecordWriteIntegrationTests
         (await FoundAsync(pack, new PackMeaning(new ConceptEmbedder("concepts-1"), low, new Judge((_, _) => throw new HttpRequestException("down"))), question))
             .Should().BeEmpty("a judge that fails offers nothing");
 
+        // An upgrade that changes a record: the new version gets a vector, the closed one keeps none (feature 19: closed versions'
+        // vectors crowded out the live records).
+        var upgrade = MeaningPack("1.1.0", "Dogs and other pets stay in the office.");
+        (await importer.ImportAsync(upgrade)).Changed.Should().Be(1);
+        (await RowsAsync("MATCH (v:AmpackMeaning4)-[:AMPACK_MEANS]->(n:PackMeaningNote) RETURN n.invalidated_at IS NULL AS live"))
+            .Select(r => ValueExtensions.As<bool>(r["live"])).Should().Equal(true, true, true);
+        (await FoundAsync(upgrade, meaning, question)).Should().Equal("pets");
+
         // Removed, the records keep no vector; the history stays.
-        await importer.RemoveAsync(pack.Manifest);
+        await importer.RemoveAsync(upgrade.Manifest);
         (await RowsAsync("MATCH (v:AmpackMeaning4) RETURN v")).Should().BeEmpty();
-        (await RowsAsync("MATCH (n:PackMeaningNote) RETURN n")).Should().HaveCount(3);
-        (await FoundAsync(pack, meaning, question)).Should().BeEmpty();
+        (await RowsAsync("MATCH (n:PackMeaningNote) RETURN n")).Should().HaveCount(4, "three records and the changed one's first version");
+        (await FoundAsync(upgrade, meaning, question)).Should().BeEmpty();
     }
 }
