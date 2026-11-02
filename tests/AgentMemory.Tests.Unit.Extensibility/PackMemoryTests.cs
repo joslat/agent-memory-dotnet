@@ -107,7 +107,9 @@ public sealed class PackMemoryTests
         var part = test.Part!;
         part.Should().MatchRegex(@"\A[A-Z_]+:(in|out)\z");
         whole.Items.Should().Contain(i => i.Part == null, "the anchor's own record");
-        (await Walk((_, p) => p != part)).Items.Should().NotContain(i => i.Part == part, "a relation not admitted starts no path");
+        var without = await Walk((_, p) => p != part);
+        without.Items.Should().NotContain(i => i.Part == part, "a relation not admitted starts no path");
+        without.Spent!.Reads.Should().BeLessThan(whole.Spent!.Reads, "it is not walked and then dropped: its reads go to admitted parts");
         (await Walk((_, p) => p != null)).Items.Should().NotContain(i => i.Part == null).And.Contain(i => i.Part == part, "anchors not admitted are walked from, not offered");
     }
 

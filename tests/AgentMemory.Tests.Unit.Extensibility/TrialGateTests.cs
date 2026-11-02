@@ -496,6 +496,8 @@ public sealed class TrialGateTests : IDisposable
         decision.Reason.Should().Contain("reported and not admitted: CODEMAP_TESTS:in");
         decision.Parts.Should().HaveCount(2).And.ContainSingle(p => p.Admitted);
         PackTrialGate.HeldParts(decision).Should().BeEquivalentTo(["CODEMAP_TESTS:in"], "each part's own evidence is still rechecked for the report");
+        PackTrialGate.HeldParts(decision with { Parts = [.. decision.Parts!.Select(p => p with { Admitted = true })] })
+            .Should().BeEquivalentTo(["CODEMAP_TESTS:in"], "a part marked admitted is held only while its own evidence passes");
         PackTrialGate.DecideParts(Trialled, Arm(30, 32, 77, 60), Arm(0, 0, 0, 30), parts, Now).Parts.Should().BeNull("a pack that passes whole is admitted whole");
 
         // Signed and read back, the gate keeps the pack off whole: no part goes live.

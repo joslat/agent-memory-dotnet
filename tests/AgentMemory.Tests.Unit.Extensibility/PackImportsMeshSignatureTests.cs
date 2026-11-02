@@ -60,7 +60,9 @@ public sealed class PackImportsMeshSignatureTests
         var unsigned = Record(label);
         unsigned["metadata"]!.AsObject().Remove("sig");
         unsigned["categories"]!["focus"]!["text"] = "something else";
-        FluentActions.Invoking(() => Import(unsigned, keyed: false)).Should().Throw<InvalidDataException>().WithMessage("*address*");
+        // Without the category's own key, so only the block's address can catch it (the final run: the category check hid it).
+        (unsigned["categories"]!["focus"]!["meta"] as JsonObject)?.Remove("key");
+        FluentActions.Invoking(() => Import(unsigned, keyed: false)).Should().Throw<InvalidDataException>().WithMessage("*its key is not the address of the categories*");
 
         // Unsigned but intact: imported, and said to be unsigned; with its author's key given, refused.
         var intact = Record(label);

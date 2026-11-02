@@ -1735,12 +1735,12 @@
    "edits": [
     {
      "old": "if (permille is not { } p || parts <= 1) return (true, permille);",
-     "new": "return (true, permille);"
+     "new": "if (permille is not { } p || parts >= 0) return (true, permille);"
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
    "filter": "FullyQualifiedName~TrialGateTests.A_pack_that_fails_whole",
-   "sha256": "c6b8f21f2246bff820c5087cd8582db76c3e8214d64bd7fbb24a7e9b311be6c4"
+   "sha256": "ebefd31d9562de73e185d0f27129f4f939d55ab3dcf1447400df415ce4db9657"
   },
   {
    "id": "parts-unrechecked",
@@ -1809,13 +1809,13 @@
    "file": "src/AgentMemory.Extensibility/Modules/ModuleSet.cs",
    "edits": [
     {
-     "old": "? new ShadowContributor(c, shadow.Key,",
-     "new": "? (IContextContributor)c ?? new ShadowContributor(c, shadow.Key,"
+     "old": "Shadows.FirstOrDefault(s => ModuleIdentity.IsOwnedId(s.Key, c.Descriptor.Id))",
+     "new": "Shadows.FirstOrDefault(s => s.Key == \"\" && ModuleIdentity.IsOwnedId(s.Key, c.Descriptor.Id))"
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
    "filter": "FullyQualifiedName~ModuleActivationTests.A_module_that_runs_dark",
-   "sha256": "928f3b1bd1484833edd4612d334a7fc91c026af51f6a3576bf9909cd612216ca"
+   "sha256": "8a03b480c0e3415156cee5d79f6bddaa8e39d51d05fba0bcbe039e7a3a208041"
   },
   {
    "id": "abstention-always-quiet",
@@ -2545,12 +2545,12 @@
    "edits": [
     {
      "old": "            if (!PolicyGate.Allows(pack, verb, now)) return",
-     "new": "            if (false) return"
+     "new": "            if (!PolicyGate.Allows(pack, verb, now) && verb.Length < 0) return"
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
    "filter": "FullyQualifiedName~AmpackCommandLineTests.Serve_refuses_a_pack_whose_usage_policy",
-   "sha256": "ac7e07964f87e8a779219473e2cffae7120aa06b2d84e0af58ae3efb9ebf769c"
+   "sha256": "941b32fc4d6f182d6de81c0ed63b35d779a4be9e7bcd7ec5ab6af00e97c94dc0"
   },
   {
    "id": "added-pack-policy-dropped",
