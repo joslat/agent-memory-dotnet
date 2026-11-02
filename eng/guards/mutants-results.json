@@ -1,6 +1,6 @@
 {
  "format": "agentmemory.guards.mutants-results/2",
- "commit": "572831f7",
+ "commit": "46e809ae",
  "results": [
   {
    "id": "archive-ratio",
@@ -2492,11 +2492,11 @@
    "door": "install",
    "mutant_sha256": "f7ff97fd9793c93c45f3b833df6cc9ed044ed830f05c6f5ac293d3725b334317",
    "killed": true,
-   "file_sha256": "46340da6e2e298b1d23bf36cec31b986bb947492d0fcb9f8bbba099c127b645c",
+   "file_sha256": "8f058e249f5842b13675afabff8a7b45b2093b4f764ef359e9a70ec86aa5d737",
    "failed": [
     "ModuleRecordWriteIntegrationTests.APackSearchedByMeaningFindsAReworded_question_LeavesItsRecordsAsTheyWere_AndClosedRecordsKeepNoVector"
    ],
-   "seconds": 27
+   "seconds": 26
   },
   {
    "id": "meaning-closed-kept-on-removal",
@@ -2528,11 +2528,11 @@
    "door": "gate",
    "mutant_sha256": "e01d28319ed7b31153a7f7d1f558fc95b84fe2203f05a84383a57713794c78d7",
    "killed": true,
-   "file_sha256": "46340da6e2e298b1d23bf36cec31b986bb947492d0fcb9f8bbba099c127b645c",
+   "file_sha256": "8f058e249f5842b13675afabff8a7b45b2093b4f764ef359e9a70ec86aa5d737",
    "failed": [
     "ModuleRecordWriteIntegrationTests.APackSearchedByMeaningFindsAReworded_question_LeavesItsRecordsAsTheyWere_AndClosedRecordsKeepNoVector"
    ],
-   "seconds": 27
+   "seconds": 25
   },
   {
    "id": "meaning-failing-judge-offers",
@@ -2540,11 +2540,11 @@
    "door": "gate",
    "mutant_sha256": "1c7256c3f337e331323a1d118fce0ebd1760693e64147afaeaf75c2480f49e1f",
    "killed": true,
-   "file_sha256": "46340da6e2e298b1d23bf36cec31b986bb947492d0fcb9f8bbba099c127b645c",
+   "file_sha256": "8f058e249f5842b13675afabff8a7b45b2093b4f764ef359e9a70ec86aa5d737",
    "failed": [
     "ModuleRecordWriteIntegrationTests.APackSearchedByMeaningFindsAReworded_question_LeavesItsRecordsAsTheyWere_AndClosedRecordsKeepNoVector"
    ],
-   "seconds": 27
+   "seconds": 25
   },
   {
    "id": "meaning-silent-judge-is-no",
@@ -2552,7 +2552,7 @@
    "door": "gate",
    "mutant_sha256": "7b0ea72dc516c71fc1cc1f4bac7979b5b6342db72500bfeab07de41527a8eeba",
    "killed": true,
-   "file_sha256": "46340da6e2e298b1d23bf36cec31b986bb947492d0fcb9f8bbba099c127b645c",
+   "file_sha256": "8f058e249f5842b13675afabff8a7b45b2093b4f764ef359e9a70ec86aa5d737",
    "failed": [
     "PackMeaningJudgeTests.An_answer_that_is_neither_yes_nor_no_is_a_failure_not_a_no"
    ],
