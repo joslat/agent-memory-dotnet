@@ -37,3 +37,26 @@ internal sealed class OllamaEmbeddings(string baseUrl, string model) : IEmbeddin
 
     public void Dispose() => _http.Dispose();
 }
+
+/// <summary>
+/// A local chat model as a reranker (feature 19): asked, for one question and one record, whether the record answers it; yes or no,
+/// at temperature 0. Free and local; the trial reports its arm beside the decision and never decides with it.
+/// </summary>
+internal sealed class OllamaJudge(string baseUrl, string model) : IDisposable
+{
+    private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(300) };
+
+    public async Task<bool> AnswersAsync(string question, string text, CancellationToken cancellationToken = default)
+    {
+        var prompt = "You decide whether a note answers a question.\nQuestion: " + question + "\nNote: " + text
+            + "\nDoes the note contain the answer to the question? Answer with one word: yes or no.";
+        using var response = await _http.PostAsJsonAsync($"{baseUrl}/api/generate",
+            new { model, prompt, stream = false, options = new { temperature = 0, num_predict = 3 } }, cancellationToken).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+        using var document = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return document.RootElement.GetProperty("response").GetString()?.Trim().StartsWith("yes", StringComparison.OrdinalIgnoreCase) == true;
+    }
+
+    public void Dispose() => _http.Dispose();
+}

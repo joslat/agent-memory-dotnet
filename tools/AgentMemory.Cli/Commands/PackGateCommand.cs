@@ -35,7 +35,7 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
 
     public async Task<int> ExecuteAsync(string? packId, string? repo, string? hostKeyPath, string? activationsFolder, string? variant, string? outputPath,
         string? packPath = null, string? trustPath = null, string? previousPath = null, string history = "parent", bool partial = false, string? shadowPath = null, string? tasksPath = null,
-        string? embedder = null, bool meaning = false, double? meaningFloor = null, bool meaningOnly = false, double? memoriesFloor = null)
+        string? embedder = null, bool meaning = false, double? meaningFloor = null, bool meaningOnly = false, double? memoriesFloor = null, string? rerank = null)
     {
         // A real embedder (feature 19): ollama:<model>[@<url>], local and free; without it the runs embed with the stub, as before.
         if (embedder is not null)
@@ -56,6 +56,17 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
         _meaning = meaning;
         _meaningOptions = new() { MinimumScore = meaningFloor ?? new AgentMemory.Extensibility.Neo4j.Storage.PackMeaningOptions().MinimumScore, KeepWords = !meaningOnly };
         _memoriesFloor = memoriesFloor;
+        // A local chat model judging the vector search's nearest records (feature 19): ollama:<model>[@<url>]; reported, never decided.
+        if (rerank is not null)
+        {
+            var judge = rerank.Split('@', 2);
+            if (!judge[0].StartsWith("ollama:", StringComparison.Ordinal) || _embedder is null || tasksPath is null)
+            {
+                output.WriteLine("error: --rerank is ollama:<model>[@<url>], with --tasks and a real --embedder.");
+                return 2;
+            }
+            _judge = new OllamaJudge(judge.Length == 2 ? judge[1] : "http://localhost:11434", judge[0]["ollama:".Length..]);
+        }
         if (tasksPath is null && packId != CodeMapPack.Id)
         {
             output.WriteLine($"error: evaluate --gate supports {CodeMapPack.Id} (measure test-impact).");
@@ -370,6 +381,10 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
     private bool _meaning;
     private AgentMemory.Extensibility.Neo4j.Storage.PackMeaningOptions _meaningOptions = new();
     private double? _memoriesFloor;
+    private OllamaJudge? _judge;
+    // The reranked arm: the nearest this many by vector, above this floor, each judged; at most the view's limit kept.
+    private const int RerankCandidates = 8;
+    private const double RerankFloor = 0.6;
 
     private async Task<ServiceProvider> ProviderAsync(Action<ModuleSetBuilder> modules, bool meaning = false)
     {
@@ -532,6 +547,7 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
             var reported = new Dictionary<string, List<(RetrievalTask Task, int Offered, int Right, double Ms, double BaseMs)>>(StringComparer.Ordinal);
             // Each arm's offered keys per task, for --output (feature 19): the breakdowns a task file's abilities cannot name.
             var perTask = new Dictionary<string, List<object>>(StringComparer.Ordinal);
+            var judgements = new List<object>();
             void Keep(string arm, RetrievalTask task, IReadOnlyList<string> offered)
             {
                 if (!perTask.TryGetValue(arm, out var list)) perTask[arm] = list = [];
@@ -561,8 +577,22 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
                 if (memories is not null)
                 {
                     var watch = Stopwatch.StartNew();
-                    var found = await memories(task.Question).ConfigureAwait(false);
-                    Report("memories", task, found, watch.Elapsed.TotalMilliseconds);
+                    var found = await memories.Search(task.Question, memories.Limit, memories.Floor).ConfigureAwait(false);
+                    Report("memories", task, [.. found.Select(f => f.Key)], watch.Elapsed.TotalMilliseconds);
+                    if (_judge is not null)
+                    {
+                        watch.Restart();
+                        var judged = new List<object>();
+                        var kept = new List<string>();
+                        foreach (var (key, text) in await memories.Search(task.Question, RerankCandidates, RerankFloor).ConfigureAwait(false))
+                        {
+                            var yes = await _judge.AnswersAsync(task.Question, text).ConfigureAwait(false);
+                            judged.Add(new { key, yes });
+                            if (yes && kept.Count < memories.Limit) kept.Add(key);
+                        }
+                        Report("memories, reranked", task, kept, watch.Elapsed.TotalMilliseconds);
+                        judgements.Add(new { question = task.Question, expected = task.Expected, judged });
+                    }
                 }
             }
             static double P95(IEnumerable<double> times)
@@ -591,7 +621,7 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
             };
             var record = PackActivationFolder.Write(activationsFolder, decision, hostKey);
             if (outputPath is not null)
-                await File.WriteAllTextAsync(outputPath, JsonSerializer.Serialize(new { taskFile = file.Digest, pack = pack.Digest, arms = perTask }, Json)).ConfigureAwait(false);
+                await File.WriteAllTextAsync(outputPath, JsonSerializer.Serialize(new { taskFile = file.Digest, pack = pack.Digest, arms = perTask, judged = judgements }, Json)).ConfigureAwait(false);
             var decided = _meaning ? (_meaningOptions.KeepWords ? "pack, words and meaning" : "pack, meaning") : _embedder is null ? "with" : "pack, words";
             output.WriteLine($"  {decided,-24} hit {withArm.HitRate:0.000} ({withArm.Hits}/{withArm.Tasks}), precision {withArm.Precision:0.000} ({withArm.Correct}/{withArm.Offered})"
                 + (abstaining.Count == 0 ? "" : $", quiet on {quiet}/{abstaining.Count} abstention tasks") + $", p95 {withArm.P95Ms} ms");
@@ -630,7 +660,9 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
 
     // The pack's records as ordinary facts (feature 19): each one's searched text, embedded by the host's embedder, under an owner of
     // its own; the search is the host's own fact search, at most the pack's view limit, above the host's default recall floor.
-    private async Task<Func<string, Task<IReadOnlyList<string>>>> MemoriesAsync(IServiceProvider provider, AgentMemory.Extensibility.Packs.KnowledgePack knowledge,
+    private sealed record Memories(Func<string, int, double, Task<IReadOnlyList<(string Key, string Text)>>> Search, int Limit, double Floor);
+
+    private async Task<Memories> MemoriesAsync(IServiceProvider provider, AgentMemory.Extensibility.Packs.KnowledgePack knowledge,
         ModuleManifest manifest)
     {
         await using var scope = provider.CreateAsyncScope();
@@ -654,13 +686,13 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
             }).ConfigureAwait(false);
         }
         output.WriteLine($"  memories: {knowledge.Proposals.Count} records as facts, searched by vector, at most {limit}, floor {floor}");
-        return async question =>
+        return new(async (question, take, minimum) =>
         {
             var vector = (await embedder.GenerateAsync([question]).ConfigureAwait(false))[0].Vector.ToArray();
             await using var asked = provider.CreateAsyncScope();
-            var facts = await asked.ServiceProvider.GetRequiredService<AgentMemory.Abstractions.Services.ILongTermMemoryService>().SearchFactsAsync(vector, limit, floor, AgentMemory.Abstractions.Options.MemoryScope.For(MemoriesOwner)).ConfigureAwait(false);
-            return [.. facts.Select(f => f.FactId).Where(id => id.StartsWith("packfact:", StringComparison.Ordinal)).Select(id => id["packfact:".Length..])];
-        };
+            var facts = await asked.ServiceProvider.GetRequiredService<AgentMemory.Abstractions.Services.ILongTermMemoryService>().SearchFactsAsync(vector, take, minimum, AgentMemory.Abstractions.Options.MemoryScope.For(MemoriesOwner)).ConfigureAwait(false);
+            return [.. facts.Where(f => f.FactId.StartsWith("packfact:", StringComparison.Ordinal)).Select(f => (f.FactId["packfact:".Length..], f.Object))];
+        }, limit, floor);
     }
 
     // A shadow trial (feature 11, R2): the pack ran dark on live turns; each turn is labelled by the code-history rule, the tests the
