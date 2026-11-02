@@ -204,3 +204,22 @@ public sealed class PackMeaning
         return [.. score.OrderByDescending(p => p.Value.Score).ThenBy(p => p.Key, StringComparer.Ordinal).Select(p => p.Value.Row)];
     }
 }
+
+/// <summary>
+/// A judge that asks the host's chat model (feature 19): one question and one record, yes or no, at temperature 0. Each judged
+/// record is one model call, so a host whose model is paid opts in knowingly.
+/// </summary>
+[Experimental("AMEXT001")]
+public sealed class ChatClientPackMeaningJudge(IChatClient chat) : IPackMeaningJudge
+{
+    private static readonly ChatOptions Options = new() { Temperature = 0, MaxOutputTokens = 3 };
+
+    /// <inheritdoc/>
+    public async Task<bool> AnswersAsync(string question, string text, CancellationToken cancellationToken = default)
+    {
+        var response = await chat.GetResponseAsync(
+            "You decide whether a note answers a question.\nQuestion: " + question + "\nNote: " + text
+            + "\nDoes the note contain the answer to the question? Answer with one word: yes or no.", Options, cancellationToken).ConfigureAwait(false);
+        return response.Text.Trim().StartsWith("yes", StringComparison.OrdinalIgnoreCase);
+    }
+}
