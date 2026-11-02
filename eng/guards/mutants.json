@@ -3093,6 +3093,96 @@
    "sha256": "c7d428e540db2a01ce664f440288bdddd1bd06b691aa5907716e650c3ca2754e"
   },
   {
+   "id": "meaning-closed-kept-on-import",
+   "rule": "MEANING-LIVE-AND-JUDGED",
+   "door": "install",
+   "file": "src/AgentMemory.Extensibility.Neo4j/Storage/PackMeaning.cs",
+   "edits": [
+    {
+     "old": "        await ForgetClosedAsync(runner, cancellationToken).ConfigureAwait(false);\n        var made = 0;",
+     "new": "        var made = 0;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Integration",
+   "filter": "FullyQualifiedName~APackSearchedByMeaning",
+   "sha256": "f7ff97fd9793c93c45f3b833df6cc9ed044ed830f05c6f5ac293d3725b334317"
+  },
+  {
+   "id": "meaning-closed-kept-on-removal",
+   "rule": "MEANING-LIVE-AND-JUDGED",
+   "door": "install",
+   "file": "src/AgentMemory.Extensibility.Neo4j/Storage/Neo4jKnowledgePackStore.cs",
+   "edits": [
+    {
+     "old": "        await PackMeaning.ForgetClosedAsync(_runner, cancellationToken).ConfigureAwait(false);\n        return removed;",
+     "new": "        return removed;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Integration",
+   "filter": "FullyQualifiedName~APackSearchedByMeaning",
+   "sha256": "c3f7fd93d807e86ee8f9d517549dbd383891e0fcd98287860506d59563065969"
+  },
+  {
+   "id": "meaning-other-model",
+   "rule": "MEANING-LIVE-AND-JUDGED",
+   "door": "gate",
+   "file": "src/AgentMemory.Extensibility.Neo4j/Queries/ModuleReadQueries.cs",
+   "edits": [
+    {
+     "old": "            + \"WHERE v.model = $model AND score >= $floor \"",
+     "new": "            + \"WHERE score >= $floor \""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Integration",
+   "filter": "FullyQualifiedName~APackSearchedByMeaning",
+   "sha256": "f9c947e7497748b9572ae45ff29d57b0188113221195f4d5246790198da0b034"
+  },
+  {
+   "id": "meaning-judge-ignored",
+   "rule": "MEANING-LIVE-AND-JUDGED",
+   "door": "gate",
+   "file": "src/AgentMemory.Extensibility.Neo4j/Storage/PackMeaning.cs",
+   "edits": [
+    {
+     "old": "if (await Judge!.AnswersAsync(question, TextOf(record, properties), cancellationToken).ConfigureAwait(false)) kept.Add(record);",
+     "new": "_ = await Judge!.AnswersAsync(question, TextOf(record, properties), cancellationToken).ConfigureAwait(false); kept.Add(record);"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Integration",
+   "filter": "FullyQualifiedName~APackSearchedByMeaning",
+   "sha256": "e01d28319ed7b31153a7f7d1f558fc95b84fe2203f05a84383a57713794c78d7"
+  },
+  {
+   "id": "meaning-failing-judge-offers",
+   "rule": "MEANING-LIVE-AND-JUDGED",
+   "door": "gate",
+   "file": "src/AgentMemory.Extensibility.Neo4j/Storage/PackMeaning.cs",
+   "edits": [
+    {
+     "old": "catch (Exception exception) when (exception is not OperationCanceledException) { return []; }",
+     "new": "catch (Exception exception) when (exception is not OperationCanceledException) { return [.. records.Take(limit)]; }"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Integration",
+   "filter": "FullyQualifiedName~APackSearchedByMeaning",
+   "sha256": "1c7256c3f337e331323a1d118fce0ebd1760693e64147afaeaf75c2480f49e1f"
+  },
+  {
+   "id": "meaning-silent-judge-is-no",
+   "rule": "MEANING-LIVE-AND-JUDGED",
+   "door": "gate",
+   "file": "src/AgentMemory.Extensibility.Neo4j/Storage/PackMeaning.cs",
+   "edits": [
+    {
+     "old": "        throw new InvalidOperationException(\"The judge's model gave no yes or no.\");",
+     "new": "        return false;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackMeaningJudgeTests",
+   "sha256": "7b0ea72dc516c71fc1cc1f4bac7979b5b6342db72500bfeab07de41527a8eeba"
+  },
+  {
    "id": "python-case-collision",
    "rule": "VERIFIERS-AGREE",
    "door": "python",

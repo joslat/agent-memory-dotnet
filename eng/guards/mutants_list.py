@@ -11,6 +11,7 @@ from pathlib import Path
 
 EXT = "tests/AgentMemory.Tests.Unit.Extensibility"
 FMT = "tests/AgentMemory.Tests.Unit.PackFormat"
+INT = "tests/AgentMemory.Tests.Integration"
 
 
 def m(id, rule, door, file, edits, project, filter=""):
@@ -646,6 +647,26 @@ MUTANTS = [
     m("certificate-verify-each-copy", "CERTIFICATE-COPIES", "certificate", "tools/Ampack/Program.Certificates.cs",
       [("            if (!verified) problems.AddRange(refusals);", "            if (!verified || refusals.Count >= 0) problems.AddRange(refusals);")],
       EXT, name("AmpackCommandLineTests.A_card_travels_in_the_pack")),
+    m("meaning-closed-kept-on-import", "MEANING-LIVE-AND-JUDGED", "install", "src/AgentMemory.Extensibility.Neo4j/Storage/PackMeaning.cs",
+      [("        await ForgetClosedAsync(runner, cancellationToken).ConfigureAwait(false);\n        var made = 0;", "        var made = 0;")],
+      INT, name("APackSearchedByMeaning")),
+    m("meaning-closed-kept-on-removal", "MEANING-LIVE-AND-JUDGED", "install", "src/AgentMemory.Extensibility.Neo4j/Storage/Neo4jKnowledgePackStore.cs",
+      [("        await PackMeaning.ForgetClosedAsync(_runner, cancellationToken).ConfigureAwait(false);\n        return removed;", "        return removed;")],
+      INT, name("APackSearchedByMeaning")),
+    m("meaning-other-model", "MEANING-LIVE-AND-JUDGED", "gate", "src/AgentMemory.Extensibility.Neo4j/Queries/ModuleReadQueries.cs",
+      [('            + "WHERE v.model = $model AND score >= $floor "', '            + "WHERE score >= $floor "')],
+      INT, name("APackSearchedByMeaning")),
+    m("meaning-judge-ignored", "MEANING-LIVE-AND-JUDGED", "gate", "src/AgentMemory.Extensibility.Neo4j/Storage/PackMeaning.cs",
+      [("if (await Judge!.AnswersAsync(question, TextOf(record, properties), cancellationToken).ConfigureAwait(false)) kept.Add(record);",
+        "_ = await Judge!.AnswersAsync(question, TextOf(record, properties), cancellationToken).ConfigureAwait(false); kept.Add(record);")],
+      INT, name("APackSearchedByMeaning")),
+    m("meaning-failing-judge-offers", "MEANING-LIVE-AND-JUDGED", "gate", "src/AgentMemory.Extensibility.Neo4j/Storage/PackMeaning.cs",
+      [("catch (Exception exception) when (exception is not OperationCanceledException) { return []; }",
+        "catch (Exception exception) when (exception is not OperationCanceledException) { return [.. records.Take(limit)]; }")],
+      INT, name("APackSearchedByMeaning")),
+    m("meaning-silent-judge-is-no", "MEANING-LIVE-AND-JUDGED", "gate", "src/AgentMemory.Extensibility.Neo4j/Storage/PackMeaning.cs",
+      [("        throw new InvalidOperationException(\"The judge's model gave no yes or no.\");", "        return false;")],
+      EXT, name("PackMeaningJudgeTests")),
     m("python-case-collision", "VERIFIERS-AGREE", "python", "conformance/pack-v1.1/python/ampack_verify.py",
       [("        if name.lower() in folded:\n            raise Refused(f\"entry '{name}' differs from another only by case\")\n", "")], "kit"),
 ]

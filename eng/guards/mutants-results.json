@@ -1,6 +1,6 @@
 {
  "format": "agentmemory.guards.mutants-results/2",
- "commit": "59a14403",
+ "commit": "572831f7",
  "results": [
   {
    "id": "archive-ratio",
@@ -2485,6 +2485,78 @@
     "AmpackCommandLineTests.A_card_travels_in_the_pack_and_an_evaluator_s_certificate_beside_it_until_a_host_that_trusts_it_admits_the_pack"
    ],
    "seconds": 16
+  },
+  {
+   "id": "meaning-closed-kept-on-import",
+   "rule": "MEANING-LIVE-AND-JUDGED",
+   "door": "install",
+   "mutant_sha256": "f7ff97fd9793c93c45f3b833df6cc9ed044ed830f05c6f5ac293d3725b334317",
+   "killed": true,
+   "file_sha256": "46340da6e2e298b1d23bf36cec31b986bb947492d0fcb9f8bbba099c127b645c",
+   "failed": [
+    "ModuleRecordWriteIntegrationTests.APackSearchedByMeaningFindsAReworded_question_LeavesItsRecordsAsTheyWere_AndClosedRecordsKeepNoVector"
+   ],
+   "seconds": 27
+  },
+  {
+   "id": "meaning-closed-kept-on-removal",
+   "rule": "MEANING-LIVE-AND-JUDGED",
+   "door": "install",
+   "mutant_sha256": "c3f7fd93d807e86ee8f9d517549dbd383891e0fcd98287860506d59563065969",
+   "killed": true,
+   "file_sha256": "927783f292e1a85a3855a25588726151bf6311bfde04d8bd0ddef6976d75481a",
+   "failed": [
+    "ModuleRecordWriteIntegrationTests.APackSearchedByMeaningFindsAReworded_question_LeavesItsRecordsAsTheyWere_AndClosedRecordsKeepNoVector"
+   ],
+   "seconds": 27
+  },
+  {
+   "id": "meaning-other-model",
+   "rule": "MEANING-LIVE-AND-JUDGED",
+   "door": "gate",
+   "mutant_sha256": "f9c947e7497748b9572ae45ff29d57b0188113221195f4d5246790198da0b034",
+   "killed": true,
+   "file_sha256": "d9c81ee9be63e5cab43f15c0a55ea913018e219706fda4296d4750e3c224b25f",
+   "failed": [
+    "ModuleRecordWriteIntegrationTests.APackSearchedByMeaningFindsAReworded_question_LeavesItsRecordsAsTheyWere_AndClosedRecordsKeepNoVector"
+   ],
+   "seconds": 27
+  },
+  {
+   "id": "meaning-judge-ignored",
+   "rule": "MEANING-LIVE-AND-JUDGED",
+   "door": "gate",
+   "mutant_sha256": "e01d28319ed7b31153a7f7d1f558fc95b84fe2203f05a84383a57713794c78d7",
+   "killed": true,
+   "file_sha256": "46340da6e2e298b1d23bf36cec31b986bb947492d0fcb9f8bbba099c127b645c",
+   "failed": [
+    "ModuleRecordWriteIntegrationTests.APackSearchedByMeaningFindsAReworded_question_LeavesItsRecordsAsTheyWere_AndClosedRecordsKeepNoVector"
+   ],
+   "seconds": 27
+  },
+  {
+   "id": "meaning-failing-judge-offers",
+   "rule": "MEANING-LIVE-AND-JUDGED",
+   "door": "gate",
+   "mutant_sha256": "1c7256c3f337e331323a1d118fce0ebd1760693e64147afaeaf75c2480f49e1f",
+   "killed": true,
+   "file_sha256": "46340da6e2e298b1d23bf36cec31b986bb947492d0fcb9f8bbba099c127b645c",
+   "failed": [
+    "ModuleRecordWriteIntegrationTests.APackSearchedByMeaningFindsAReworded_question_LeavesItsRecordsAsTheyWere_AndClosedRecordsKeepNoVector"
+   ],
+   "seconds": 27
+  },
+  {
+   "id": "meaning-silent-judge-is-no",
+   "rule": "MEANING-LIVE-AND-JUDGED",
+   "door": "gate",
+   "mutant_sha256": "7b0ea72dc516c71fc1cc1f4bac7979b5b6342db72500bfeab07de41527a8eeba",
+   "killed": true,
+   "file_sha256": "46340da6e2e298b1d23bf36cec31b986bb947492d0fcb9f8bbba099c127b645c",
+   "failed": [
+    "PackMeaningJudgeTests.An_answer_that_is_neither_yes_nor_no_is_a_failure_not_a_no"
+   ],
+   "seconds": 7
   },
   {
    "id": "python-case-collision",
