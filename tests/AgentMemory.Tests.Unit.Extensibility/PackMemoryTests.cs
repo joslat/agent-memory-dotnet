@@ -199,12 +199,12 @@ public sealed class PackMemoryTests
     }
 
     [Fact]
-    public void A_malformed_tests_file_is_refused_with_the_test_it_concerns()
+    public async Task A_malformed_tests_file_is_refused_with_the_test_it_concerns()
     {
         var source = Source();
         source[PackTests.FileName] = Encoding.UTF8.GetBytes("""{"format":"agentmemory.pack.tests/1.2","tests":[{"name":"both","view":"kata","anchors":[{"kind":"path","value":"x"}],"expect":["a"]}]}""");
 
-        FluentActions.Awaiting(() => PackTests.RunAsync(Load(source), PackMemory.From([]))).Should().ThrowAsync<PackLoadException>()
-            .Result.Which.Problems.Should().Contain(p => p.Contains("test 1") && p.Contains("exactly one"));
+        (await FluentActions.Awaiting(() => PackTests.RunAsync(Load(source), PackMemory.From([]))).Should().ThrowAsync<PackLoadException>())
+            .Which.Problems.Should().Contain(p => p.Contains("test 1") && p.Contains("exactly one"));
     }
 }

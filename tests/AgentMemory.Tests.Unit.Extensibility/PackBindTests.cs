@@ -104,7 +104,9 @@ public sealed class PackBindTests : IDisposable
 
     [Theory]
     [InlineData(0.0, "0")]
+#pragma warning disable xUnit1025 // -0.0 equals 0.0 to the analyzer, but it is the case under test: negative zero prints "0"
     [InlineData(-0.0, "0")]
+#pragma warning restore xUnit1025
     [InlineData(1.0, "1")]
     [InlineData(100.0, "100")]
     [InlineData(0.5, "0.5")]
