@@ -49,8 +49,7 @@ internal sealed class OllamaJudge(string baseUrl, string model) : AgentMemory.Ex
 
     public async Task<bool> AnswersAsync(string question, string text, CancellationToken cancellationToken = default)
     {
-        var prompt = "You decide whether a note answers a question.\nQuestion: " + question + "\nNote: " + text
-            + "\nDoes the note contain the answer to the question? Answer with one word: yes or no.";
+        var prompt = AgentMemory.Extensibility.Neo4j.Storage.IPackMeaningJudge.Prompt(question, text);
         using var response = await _http.PostAsJsonAsync($"{baseUrl}/api/generate",
             new { model, prompt, stream = false, options = new { temperature = 0, num_predict = 3 } }, cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();

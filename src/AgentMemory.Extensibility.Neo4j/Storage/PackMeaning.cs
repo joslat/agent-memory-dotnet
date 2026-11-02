@@ -34,6 +34,15 @@ public interface IPackMeaningJudge
 {
     /// <summary>Whether <paramref name="text"/>, a record's searched text, answers <paramref name="question"/>.</summary>
     Task<bool> AnswersAsync(string question, string text, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The question a model judge is asked, one for every judge. Strict on purpose: a wording that also accepted a note answering
+    /// part of a question found more but stayed quiet less (tuning set, 2 Nov: 0.65 against 0.82), though a strict model then
+    /// refuses each half of a two-part question (DemoBrain, GLM-5.3-Flash).
+    /// </summary>
+    public static string Prompt(string question, string text) =>
+        "You decide whether a note answers a question.\nQuestion: " + question + "\nNote: " + text
+        + "\nDoes the note contain the answer to the question? Answer with one word: yes or no.";
 }
 
 /// <summary>
@@ -207,19 +216,22 @@ public sealed class PackMeaning
 
 /// <summary>
 /// A judge that asks the host's chat model (feature 19): one question and one record, yes or no, at temperature 0. Each judged
-/// record is one model call, so a host whose model is paid opts in knowingly.
+/// record is one model call, so a host whose model is paid opts in knowingly. The answer has room: a reasoning model spends its
+/// first tokens thinking, and with 3 tokens answered nothing (GLM-5.3-Flash, 2 Nov), which read as "no" for every record.
 /// </summary>
 [Experimental("AMEXT001")]
 public sealed class ChatClientPackMeaningJudge(IChatClient chat) : IPackMeaningJudge
 {
-    private static readonly ChatOptions Options = new() { Temperature = 0, MaxOutputTokens = 3 };
+    private static readonly ChatOptions Options = new() { Temperature = 0, MaxOutputTokens = 256 };
 
     /// <inheritdoc/>
     public async Task<bool> AnswersAsync(string question, string text, CancellationToken cancellationToken = default)
     {
-        var response = await chat.GetResponseAsync(
-            "You decide whether a note answers a question.\nQuestion: " + question + "\nNote: " + text
-            + "\nDoes the note contain the answer to the question? Answer with one word: yes or no.", Options, cancellationToken).ConfigureAwait(false);
-        return response.Text.Trim().StartsWith("yes", StringComparison.OrdinalIgnoreCase);
+        var response = await chat.GetResponseAsync(IPackMeaningJudge.Prompt(question, text), Options, cancellationToken).ConfigureAwait(false);
+        var answer = response.Text.Trim();
+        // Neither yes nor no is no answer: a failure, which the search treats as offering nothing, not as a "no" it believed.
+        if (answer.StartsWith("yes", StringComparison.OrdinalIgnoreCase)) return true;
+        if (answer.StartsWith("no", StringComparison.OrdinalIgnoreCase)) return false;
+        throw new InvalidOperationException("The judge's model gave no yes or no.");
     }
 }
