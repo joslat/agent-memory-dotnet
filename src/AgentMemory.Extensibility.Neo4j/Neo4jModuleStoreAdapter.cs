@@ -56,13 +56,15 @@ public static class Neo4jKnowledgePackServiceCollectionExtensions
 
     /// <summary>
     /// Searches packs by meaning too (feature 19), with the host's registered embedder: imports embed the records a search view
-    /// reads, and search views merge the nearest records with their full-text hits. Opt-in; without it a pack is found by words.
+    /// reads, and search views merge the nearest records with their full-text hits. Opt-in; without it a pack is found by words. A
+    /// registered <see cref="Storage.IPackMeaningJudge"/> judges the nearest records, and only those it says answer are offered.
     /// </summary>
     public static IServiceCollection AddNeo4jPackMeaning(this IServiceCollection services, Storage.PackMeaningOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(services);
         services.AddSingleton(sp => new Storage.PackMeaning(
-            sp.GetRequiredService<Microsoft.Extensions.AI.IEmbeddingGenerator<string, Microsoft.Extensions.AI.Embedding<float>>>(), options));
+            sp.GetRequiredService<Microsoft.Extensions.AI.IEmbeddingGenerator<string, Microsoft.Extensions.AI.Embedding<float>>>(), options,
+            sp.GetService<Storage.IPackMeaningJudge>()));
         return services;
     }
 }

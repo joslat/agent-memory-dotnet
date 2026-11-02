@@ -21,6 +21,19 @@ public sealed record PackMeaningOptions
     public string? Model { get; init; }
     /// <summary>Whether a search keeps the full-text hits beside the meaning hits (merged by rank); false searches by meaning alone.</summary>
     public bool KeepWords { get; init; } = true;
+    /// <summary>With a judge, how many of the nearest records it is asked about; it keeps those it says answer, up to the view's limit.</summary>
+    public int Judged { get; init; } = 3;
+}
+
+/// <summary>
+/// Decides whether a record answers a question (feature 19): the host's reranker, such as a local chat model. A search by meaning
+/// asks it about its nearest records and offers only those it says yes to, so a question the pack cannot answer gets nothing.
+/// </summary>
+[Experimental("AMEXT001")]
+public interface IPackMeaningJudge
+{
+    /// <summary>Whether <paramref name="text"/>, a record's searched text, answers <paramref name="question"/>.</summary>
+    Task<bool> AnswersAsync(string question, string text, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -37,18 +50,48 @@ public sealed class PackMeaning
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embedder;
     private readonly ConcurrentDictionary<int, bool> _indexes = new();
 
-    /// <summary>Binds the host's embedder.</summary>
-    public PackMeaning(IEmbeddingGenerator<string, Embedding<float>> embedder, PackMeaningOptions? options = null)
+    /// <summary>Binds the host's embedder, and optionally a judge of the nearest records.</summary>
+    public PackMeaning(IEmbeddingGenerator<string, Embedding<float>> embedder, PackMeaningOptions? options = null, IPackMeaningJudge? judge = null)
     {
         ArgumentNullException.ThrowIfNull(embedder);
         _embedder = embedder;
         Options = options ?? new();
+        Judge = judge;
         if (Options.Candidates is < 1 or > 1000) throw new ArgumentOutOfRangeException(nameof(options), "Candidates must be 1 to 1,000.");
+        if (Options.Judged is < 1 or > 100) throw new ArgumentOutOfRangeException(nameof(options), "Judged must be 1 to 100.");
         Model = Options.Model ?? embedder.GetService<EmbeddingGeneratorMetadata>()?.DefaultModelId ?? "unnamed";
     }
 
     /// <summary>The options.</summary>
     public PackMeaningOptions Options { get; }
+
+    /// <summary>The judge of the nearest records; null offers them as the floor leaves them.</summary>
+    public IPackMeaningJudge? Judge { get; }
+
+    // The record's searched text, as the vector was made from it: what the judge reads.
+    internal static string TextOf(Reading.ModuleRecord record, IReadOnlyList<string> properties) =>
+        TextOf([.. properties.Select(p => record.Properties.TryGetValue(p, out var v)
+            ? (object?)(v.ValueKind == System.Text.Json.JsonValueKind.String ? v.GetString() : v.GetRawText()) : null)]);
+
+    /// <summary>
+    /// The records the judge says answer the question, in their order, at most <paramref name="limit"/>. A judge that fails offers
+    /// nothing: a wrong record offered is worse than none.
+    /// </summary>
+    internal async Task<IReadOnlyList<Reading.ModuleRecord>> JudgedAsync(string question, IReadOnlyList<Reading.ModuleRecord> records,
+        IReadOnlyList<string> properties, int limit, CancellationToken cancellationToken)
+    {
+        var kept = new List<Reading.ModuleRecord>();
+        try
+        {
+            foreach (var record in records.Take(Options.Judged))
+            {
+                if (await Judge!.AnswersAsync(question, TextOf(record, properties), cancellationToken).ConfigureAwait(false)) kept.Add(record);
+                if (kept.Count == limit) break;
+            }
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException) { return []; }
+        return kept.AsReadOnly();
+    }
 
     /// <summary>The model the vectors are tagged with; a vector of another model is never compared.</summary>
     public string Model { get; }
@@ -72,6 +115,7 @@ public sealed class PackMeaning
     {
         ArgumentNullException.ThrowIfNull(runner);
         ArgumentNullException.ThrowIfNull(resolution);
+        await ForgetClosedAsync(runner, cancellationToken).ConfigureAwait(false);
         var made = 0;
         foreach (var module in resolution.Modules)
         foreach (var searched in (module.Views ?? []).Where(v => v.Search is not null).GroupBy(v => v.Type, StringComparer.Ordinal))
@@ -108,6 +152,19 @@ public sealed class PackMeaning
         ArgumentNullException.ThrowIfNull(runner);
         return runner.WriteAsync(transaction => RowsAsync(transaction,
             "MATCH (v) WHERE any(l IN labels(v) WHERE l STARTS WITH 'AmpackMeaning') AND NOT (v)-[:" + Means + "]->() DETACH DELETE v",
+            new { }, cancellationToken), cancellationToken);
+    }
+
+    /// <summary>
+    /// Removes the vectors of closed records (a removal, or a version an upgrade replaced). Meaning covers live records only: kept,
+    /// the closed versions' vectors would fill the nearest candidates with records no read offers (found by the trial, 2 Nov:
+    /// after 17 imports, every candidate was a closed copy). A read as of the past still finds closed versions by their words.
+    /// </summary>
+    public static Task ForgetClosedAsync(INeo4jTransactionRunner runner, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(runner);
+        return runner.WriteAsync(transaction => RowsAsync(transaction,
+            "MATCH (v)-[:" + Means + "]->(n) WHERE n.invalidated_at IS NOT NULL AND any(l IN labels(v) WHERE l STARTS WITH 'AmpackMeaning') DETACH DELETE v",
             new { }, cancellationToken), cancellationToken);
     }
 

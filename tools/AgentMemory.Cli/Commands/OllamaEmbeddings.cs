@@ -1,3 +1,4 @@
+#pragma warning disable AMEXT001 // The judge implements a preview Extensibility interface.
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.Extensions.AI;
@@ -42,7 +43,7 @@ internal sealed class OllamaEmbeddings(string baseUrl, string model) : IEmbeddin
 /// A local chat model as a reranker (feature 19): asked, for one question and one record, whether the record answers it; yes or no,
 /// at temperature 0. Free and local; the trial reports its arm beside the decision and never decides with it.
 /// </summary>
-internal sealed class OllamaJudge(string baseUrl, string model) : IDisposable
+internal sealed class OllamaJudge(string baseUrl, string model) : AgentMemory.Extensibility.Neo4j.Storage.IPackMeaningJudge, IDisposable
 {
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(300) };
 

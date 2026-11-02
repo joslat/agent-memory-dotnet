@@ -61,7 +61,10 @@ public sealed class Neo4jModuleReader : IModuleReader
             // By meaning too, where the host asked for it (feature 19): the question is embedded before the transaction. An
             // embedder that fails, or no index yet, leaves the words alone, as a host without meaning search reads.
             var near = await NearAsync(admitted, cancellationToken).ConfigureAwait(false);
-            return await _runner.ReadAsync(async transaction =>
+            // With a judge, its candidates are read first and judged after the transaction (no model call holds a transaction).
+            var judged = near is not null && _meaning!.Judge is not null;
+            var take = judged ? Math.Max(admitted.Limit, _meaning!.Options.Judged) : admitted.Limit;
+            var read = await _runner.ReadAsync(async transaction =>
             {
                 var readiness = await _migrator.PlanInAsync(transaction, cancellationToken).ConfigureAwait(false);
                 if (readiness.Problems.Count != 0 || readiness.Pending.Count != 0 || readiness.PendingNamespaces.Count != 0 || readiness.PendingBookkeeping.Count != 0)
@@ -88,7 +91,7 @@ public sealed class Neo4jModuleReader : IModuleReader
                     var close = await RowsAsync(transaction, ModuleReadQueries.Meaning(admitted, type), parameters, cancellationToken).ConfigureAwait(false);
                     fused = _meaning.Options.KeepWords ? PackMeaning.Fuse(words, close) : close;
                 }
-                while (records.Count < admitted.Limit)
+                while (records.Count < take)
                 {
                     parameters["skip"] = skip;
                     var rows = fused ?? await RowsAsync(transaction, statement, parameters, cancellationToken).ConfigureAwait(false);
@@ -106,13 +109,18 @@ public sealed class Neo4jModuleReader : IModuleReader
                         // Nor one below the host's confidence floor (feature 09, review H4), before the limit too.
                         if (!AgentMemory.Extensibility.Packs.ModuleConfidence.Clears(record.ConfidenceMicro, frozenContext.MinimumConfidenceMicro)) continue;
                         records.Add(record);
-                        if (records.Count == admitted.Limit) break;
+                        if (records.Count == take) break;
                     }
                     if (fused is not null || rows.Count < 128) break;
                     skip = checked(skip + rows.Count);
                 }
                 return new ModuleReadResult { Status = ModuleReadStatus.Succeeded, Records = records.AsReadOnly() };
             }, cancellationToken).ConfigureAwait(false);
+            if (!judged || read.Status != ModuleReadStatus.Succeeded) return read;
+            var search = admitted.Search!;
+            var properties = module.Views.Single(v => v.Id == search.ViewId).Search!.Properties ?? [];
+            return read with { Records = await _meaning!.JudgedAsync(search.Meaning ?? string.Join(" ", search.Terms), read.Records, properties,
+                admitted.Limit, cancellationToken).ConfigureAwait(false) };
         }
         catch (ModuleRecordRefusal refusal) { return Refused(refusal.Message); }
     }

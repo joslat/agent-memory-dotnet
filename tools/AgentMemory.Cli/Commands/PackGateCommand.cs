@@ -394,6 +394,7 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
         if (_embedder is { } real) services.AddSingleton(real);
         else services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(sp =>
             new StubEmbeddingGenerator(sp.GetRequiredService<ILogger<StubEmbeddingGenerator>>(), 1536));
+        if (meaning && _judge is not null) services.AddSingleton<AgentMemory.Extensibility.Neo4j.Storage.IPackMeaningJudge>(_judge);
         if (meaning) services.AddNeo4jPackMeaning(_meaningOptions);
         services.AddAgentMemoryModules(modules);
         var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
@@ -512,7 +513,8 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
         var answerable = file.Tasks.Where(t => !t.Abstains).OrderByDescending(t => t.At).Take(trial.Tasks).ToList();
         var abstaining = file.Tasks.Where(t => t.Abstains).OrderByDescending(t => t.At).Take(trial.Tasks).ToList();
         output.WriteLine($"{manifest.Id} {manifest.Version}: {answerable.Count} tasks and {abstaining.Count} abstention tasks from {tasksPath} ({file.Digest})");
-        if (_meaning) output.WriteLine($"  meaning: floor {_meaningOptions.MinimumScore}, {(_meaningOptions.KeepWords ? "merged with the full-text hits" : "alone")}");
+        if (_meaning) output.WriteLine($"  meaning: floor {_meaningOptions.MinimumScore}, {(_meaningOptions.KeepWords ? "merged with the full-text hits" : "alone")}"
+            + (_judge is null ? "" : $", the nearest {_meaningOptions.Judged} judged"));
         if (answerable.Count < trial.Tasks)
         {
             output.WriteLine($"  not yet: the trial runs {trial.Tasks} tasks; the file holds {answerable.Count} that expect a key.");
@@ -567,7 +569,7 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
                 var (offered, ms) = await Offers(with, task).ConfigureAwait(false);
                 var (_, baseMs) = await Offers(without, task).ConfigureAwait(false);
                 rows.Add((task, offered.Count, offered.Count(k => task.Expected.Contains(k, StringComparer.Ordinal)), ms, baseMs));
-                Keep(_meaning ? (_meaningOptions.KeepWords ? "pack, words and meaning" : "pack, meaning") : "pack", task, offered);
+                Keep(_meaning ? (_judge is not null ? "pack, meaning, judged" : _meaningOptions.KeepWords ? "pack, words and meaning" : "pack, meaning") : "pack", task, offered);
                 if (words is not null)
                 {
                     await Offers(words, task).ConfigureAwait(false);
@@ -622,7 +624,7 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
             var record = PackActivationFolder.Write(activationsFolder, decision, hostKey);
             if (outputPath is not null)
                 await File.WriteAllTextAsync(outputPath, JsonSerializer.Serialize(new { taskFile = file.Digest, pack = pack.Digest, arms = perTask, judged = judgements }, Json)).ConfigureAwait(false);
-            var decided = _meaning ? (_meaningOptions.KeepWords ? "pack, words and meaning" : "pack, meaning") : _embedder is null ? "with" : "pack, words";
+            var decided = _meaning ? (_judge is not null ? "pack, meaning, judged" : _meaningOptions.KeepWords ? "pack, words and meaning" : "pack, meaning") : _embedder is null ? "with" : "pack, words";
             output.WriteLine($"  {decided,-24} hit {withArm.HitRate:0.000} ({withArm.Hits}/{withArm.Tasks}), precision {withArm.Precision:0.000} ({withArm.Correct}/{withArm.Offered})"
                 + (abstaining.Count == 0 ? "" : $", quiet on {quiet}/{abstaining.Count} abstention tasks") + $", p95 {withArm.P95Ms} ms");
             // The other arms, reported and not decided (feature 19): the same tasks, the same scoring.

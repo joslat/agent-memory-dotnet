@@ -76,6 +76,9 @@ public sealed class Neo4jKnowledgePackStore : IKnowledgePackStore
         var resolution = KnowledgePack.ResolutionOf(pack);
         var plan = await new ModuleMigrator(_runner, resolution, _clock).PlanAsync(cancellationToken).ConfigureAwait(false);
         if (plan.Applied.Count == 0) return new KnowledgePackImportResult { PackId = pack.Id };
-        return await new Neo4jModuleStore(_runner, resolution).RemovePackAsync(pack.Id, atUtc.ToUniversalTime(), cancellationToken).ConfigureAwait(false);
+        var removed = await new Neo4jModuleStore(_runner, resolution).RemovePackAsync(pack.Id, atUtc.ToUniversalTime(), cancellationToken).ConfigureAwait(false);
+        // Closed records keep no vector (feature 19).
+        await PackMeaning.ForgetClosedAsync(_runner, cancellationToken).ConfigureAwait(false);
+        return removed;
     }
 }
