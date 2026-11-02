@@ -48,7 +48,7 @@ public sealed class ModuleViews : IModuleViews
             var terms = ModuleSearch.TermsOf(arguments.Search);
             // Nothing left to match after stop words: searched, and empty.
             if (terms.Count == 0) return new() { Status = ModuleReadStatus.Succeeded, Items = [] };
-            search = new() { ViewId = view.Id, Terms = terms };
+            search = new() { ViewId = view.Id, Terms = terms, Meaning = arguments.Meaning ?? arguments.Search };
         }
         IReadOnlyList<ModuleLinkFilter> links;
         try { links = ModuleQueryAdmission.CaptureLinks(_module, view.Type, arguments.Links); }

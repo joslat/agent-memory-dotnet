@@ -29,7 +29,7 @@ public sealed class Neo4jModuleStoreAdapter : IModuleStoreAdapter
     /// <inheritdoc/>
     public IModuleReader CreateReader(IServiceProvider services, ModuleResolution resolution, string moduleId) =>
         new Neo4jModuleReader(services.GetRequiredService<INeo4jTransactionRunner>(), resolution, moduleId,
-            services.GetRequiredService<IMemoryIsolationPolicy>(), services.GetService<TimeProvider>());
+            services.GetRequiredService<IMemoryIsolationPolicy>(), services.GetService<TimeProvider>(), meaning: services.GetService<Storage.PackMeaning>());
 
     /// <inheritdoc/>
     public IModuleTraversalReader? CreateTraversalReader(IServiceProvider services, ModuleResolution resolution) =>
@@ -46,11 +46,23 @@ public static class Neo4jKnowledgePackServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         services.AddSingleton<Packs.IKnowledgePackStore>(sp =>
-            new Neo4jKnowledgePackStore(sp.GetRequiredService<INeo4jTransactionRunner>(), sp.GetService<TimeProvider>()));
+            new Neo4jKnowledgePackStore(sp.GetRequiredService<INeo4jTransactionRunner>(), sp.GetService<TimeProvider>(), sp.GetService<Storage.PackMeaning>()));
         services.AddSingleton(sp => new Packs.KnowledgePackImporter(sp.GetRequiredService<Packs.IKnowledgePackStore>(), sp.GetService<TimeProvider>()));
         // CMP-2a: host-generated snapshots, such as the code map of a repository at a commit.
         services.AddSingleton<Packs.IModuleSnapshotStore>(sp =>
             new Neo4jModuleSnapshotStore(sp.GetRequiredService<INeo4jTransactionRunner>(), sp.GetService<TimeProvider>()));
+        return services;
+    }
+
+    /// <summary>
+    /// Searches packs by meaning too (feature 19), with the host's registered embedder: imports embed the records a search view
+    /// reads, and search views merge the nearest records with their full-text hits. Opt-in; without it a pack is found by words.
+    /// </summary>
+    public static IServiceCollection AddNeo4jPackMeaning(this IServiceCollection services, Storage.PackMeaningOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        services.AddSingleton(sp => new Storage.PackMeaning(
+            sp.GetRequiredService<Microsoft.Extensions.AI.IEmbeddingGenerator<string, Microsoft.Extensions.AI.Embedding<float>>>(), options));
         return services;
     }
 }

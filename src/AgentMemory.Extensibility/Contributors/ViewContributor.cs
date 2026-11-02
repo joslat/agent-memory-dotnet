@@ -82,7 +82,11 @@ public sealed class ViewContributor : IContextContributor
         {
             if (string.IsNullOrWhiteSpace(request.Query))
                 return new() { OmissionReason = ContextOmissionReason.NotApplicable, Detail = "No question to search with." };
-            arguments = (arguments ?? new()) with { Search = request.Query + await CoreTextAsync(request, cancellationToken).ConfigureAwait(false) };
+            arguments = (arguments ?? new()) with
+            {
+                // By meaning, the question alone (feature 19): core's texts would pull the vector toward what core already found.
+                Search = request.Query + await CoreTextAsync(request, cancellationToken).ConfigureAwait(false), Meaning = request.Query,
+            };
         }
         var context = new ModuleReadContext
         {

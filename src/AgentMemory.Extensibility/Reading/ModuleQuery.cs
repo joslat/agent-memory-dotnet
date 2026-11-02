@@ -42,6 +42,9 @@ public sealed record ModuleSearch
     public required string ViewId { get; init; }
     /// <summary>Lowercase word terms (letters, digits, underscore), any of which may match.</summary>
     public required IReadOnlyList<string> Terms { get; init; }
+    /// <summary>The free text a host that searches packs by meaning embeds (feature 19); null for word matching alone.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? Meaning { get; init; }
 
     /// <summary>The terms of a free text: lowercase words of 2 to 64 characters, English stop words removed, first 32 distinct.</summary>
     public static IReadOnlyList<string> TermsOf(string? text) => string.IsNullOrWhiteSpace(text) ? [] :

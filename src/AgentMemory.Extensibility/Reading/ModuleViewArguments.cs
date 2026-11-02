@@ -14,4 +14,7 @@ public sealed record ModuleViewArguments
     public int? Limit { get; init; }
     /// <summary>The text a search view matches (Extensibility 0.13 §K4); required by search views, refused by list views.</summary>
     public string? Search { get; init; }
+    /// <summary>The text a search view matches by meaning, where the host searches packs by meaning (feature 19); null means
+    /// <see cref="Search"/>. Never used for word matching.</summary>
+    public string? Meaning { get; init; }
 }

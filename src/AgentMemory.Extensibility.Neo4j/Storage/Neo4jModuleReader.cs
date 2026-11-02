@@ -28,18 +28,20 @@ public sealed class Neo4jModuleReader : IModuleReader
     private readonly TimeProvider _clock;
     private readonly ModuleMigrator _migrator;
     private readonly ModuleRecordLinks _links;
+    private readonly PackMeaning? _meaning;
     /// <inheritdoc/>
     public string CallerModuleId { get; }
 
     /// <summary>Binds a reader without database work, schema application or automatic registration.</summary>
     public Neo4jModuleReader(INeo4jTransactionRunner runner, ModuleResolution resolution, string callerModuleId,
-        IMemoryIsolationPolicy isolationPolicy, TimeProvider? timeProvider = null, IReadOnlyList<ModuleMigrationStep>? scripts = null)
+        IMemoryIsolationPolicy isolationPolicy, TimeProvider? timeProvider = null, IReadOnlyList<ModuleMigrationStep>? scripts = null,
+        PackMeaning? meaning = null)
     {
         ArgumentNullException.ThrowIfNull(runner); ArgumentNullException.ThrowIfNull(resolution); ArgumentNullException.ThrowIfNull(isolationPolicy);
         if (!resolution.Succeeded || !resolution.Modules.Any(m => m.Id == callerModuleId))
             throw new ArgumentException("Reader requires a resolved calling module.", nameof(callerModuleId));
         _runner = runner; _resolution = resolution; _isolation = isolationPolicy; _clock = timeProvider ?? TimeProvider.System;
-        CallerModuleId = callerModuleId; _migrator = new(runner, resolution, scripts ?? [], null); _links = new(resolution);
+        CallerModuleId = callerModuleId; _migrator = new(runner, resolution, scripts ?? [], null); _links = new(resolution); _meaning = meaning;
     }
 
     /// <inheritdoc/>
@@ -56,6 +58,9 @@ public sealed class Neo4jModuleReader : IModuleReader
         var type = module.Ontology!.Types.Single(t => t.Name == admitted.Type);
         try
         {
+            // By meaning too, where the host asked for it (feature 19): the question is embedded before the transaction. An
+            // embedder that fails, or no index yet, leaves the words alone, as a host without meaning search reads.
+            var near = await NearAsync(admitted, cancellationToken).ConfigureAwait(false);
             return await _runner.ReadAsync(async transaction =>
             {
                 var readiness = await _migrator.PlanInAsync(transaction, cancellationToken).ConfigureAwait(false);
@@ -73,10 +78,20 @@ public sealed class Neo4jModuleReader : IModuleReader
                     parameters["search"] = string.Join(" ", search.Terms);
                     statement = ModuleReadQueries.Search(admitted, type);
                 }
+                List<IRecord>? fused = null;
+                if (near is { } vector)
+                {
+                    parameters["skip"] = 0;
+                    var words = await RowsAsync(transaction, statement, parameters, cancellationToken).ConfigureAwait(false);
+                    parameters["vindex"] = PackMeaning.IndexName(vector.Length); parameters["k"] = _meaning!.Options.Candidates;
+                    parameters["vector"] = vector; parameters["model"] = _meaning.Model; parameters["floor"] = _meaning.Options.MinimumScore;
+                    var close = await RowsAsync(transaction, ModuleReadQueries.Meaning(admitted, type), parameters, cancellationToken).ConfigureAwait(false);
+                    fused = _meaning.Options.KeepWords ? PackMeaning.Fuse(words, close) : close;
+                }
                 while (records.Count < admitted.Limit)
                 {
                     parameters["skip"] = skip;
-                    var rows = await RowsAsync(transaction, statement, parameters, cancellationToken).ConfigureAwait(false);
+                    var rows = fused ?? await RowsAsync(transaction, statement, parameters, cancellationToken).ConfigureAwait(false);
                     foreach (var row in rows)
                     {
                         var data = row["row"].As<Dictionary<string, object>>();
@@ -93,13 +108,24 @@ public sealed class Neo4jModuleReader : IModuleReader
                         records.Add(record);
                         if (records.Count == admitted.Limit) break;
                     }
-                    if (rows.Count < 128) break;
+                    if (fused is not null || rows.Count < 128) break;
                     skip = checked(skip + rows.Count);
                 }
                 return new ModuleReadResult { Status = ModuleReadStatus.Succeeded, Records = records.AsReadOnly() };
             }, cancellationToken).ConfigureAwait(false);
         }
         catch (ModuleRecordRefusal refusal) { return Refused(refusal.Message); }
+    }
+
+    private async Task<float[]?> NearAsync(ModuleQuery query, CancellationToken cancellationToken)
+    {
+        if (_meaning is null || query.Search is not { } search) return null;
+        try
+        {
+            var vector = await _meaning.EmbedAsync(search.Meaning ?? string.Join(" ", search.Terms), cancellationToken).ConfigureAwait(false);
+            return await _meaning.HasIndexAsync(_runner, vector.Length, cancellationToken).ConfigureAwait(false) ? vector : null;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException) { return null; }
     }
 
     private async Task<bool> MatchesLinksAsync(IAsyncQueryRunner runner, ModuleManifest module, ModuleType type,

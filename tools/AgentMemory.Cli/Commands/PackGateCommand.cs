@@ -34,8 +34,28 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     public async Task<int> ExecuteAsync(string? packId, string? repo, string? hostKeyPath, string? activationsFolder, string? variant, string? outputPath,
-        string? packPath = null, string? trustPath = null, string? previousPath = null, string history = "parent", bool partial = false, string? shadowPath = null, string? tasksPath = null)
+        string? packPath = null, string? trustPath = null, string? previousPath = null, string history = "parent", bool partial = false, string? shadowPath = null, string? tasksPath = null,
+        string? embedder = null, bool meaning = false, double? meaningFloor = null, bool meaningOnly = false, double? memoriesFloor = null)
     {
+        // A real embedder (feature 19): ollama:<model>[@<url>], local and free; without it the runs embed with the stub, as before.
+        if (embedder is not null)
+        {
+            var spec = embedder.Split('@', 2);
+            if (!spec[0].StartsWith("ollama:", StringComparison.Ordinal) || spec[0].Length == "ollama:".Length)
+            {
+                output.WriteLine("error: --embedder is ollama:<model>[@<url>], such as ollama:bge-m3.");
+                return 2;
+            }
+            _embedder = new OllamaEmbeddings(spec.Length == 2 ? spec[1] : "http://localhost:11434", spec[0]["ollama:".Length..]);
+        }
+        if (meaning && (_embedder is null || tasksPath is null))
+        {
+            output.WriteLine("error: --meaning searches a knowledge pack by meaning: it needs --tasks and a real --embedder.");
+            return 2;
+        }
+        _meaning = meaning;
+        _meaningOptions = new() { MinimumScore = meaningFloor ?? new AgentMemory.Extensibility.Neo4j.Storage.PackMeaningOptions().MinimumScore, KeepWords = !meaningOnly };
+        _memoriesFloor = memoriesFloor;
         if (tasksPath is null && packId != CodeMapPack.Id)
         {
             output.WriteLine($"error: evaluate --gate supports {CodeMapPack.Id} (measure test-impact).");
@@ -90,7 +110,7 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
                 output.WriteLine($"error: {packPath} is {knowledgePack.Id}, whose trial is not a retrieval trial; --tasks runs one.");
                 return 2;
             }
-            return await RetrievalAsync(tasksPath, knowledgePack, knowledgePack.Manifest, retrieval, activationsFolder, hostKey).ConfigureAwait(false);
+            return await RetrievalAsync(tasksPath, knowledgePack, knowledgePack.Manifest, retrieval, activationsFolder, hostKey, outputPath).ConfigureAwait(false);
         }
         // A weakened variant is an experiment, not a version of the pack: its decisions are kept apart, where no gate reads
         // them, so it can never stand in an upgrade chain as "the version that passed here" (review 2, M10).
@@ -346,13 +366,20 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
     [GeneratedRegex(@"\b(?:class|record|struct|interface|enum)\s+(?:struct\s+|class\s+)?([A-Z]\w*)")]
     private static partial Regex Declared();
 
-    private async Task<ServiceProvider> ProviderAsync(Action<ModuleSetBuilder> modules)
+    private IEmbeddingGenerator<string, Embedding<float>>? _embedder;
+    private bool _meaning;
+    private AgentMemory.Extensibility.Neo4j.Storage.PackMeaningOptions _meaningOptions = new();
+    private double? _memoriesFloor;
+
+    private async Task<ServiceProvider> ProviderAsync(Action<ModuleSetBuilder> modules, bool meaning = false)
     {
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddNeo4jAgentMemory(_ => { }, configureNeo4j);
-        services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(sp =>
+        if (_embedder is { } real) services.AddSingleton(real);
+        else services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(sp =>
             new StubEmbeddingGenerator(sp.GetRequiredService<ILogger<StubEmbeddingGenerator>>(), 1536));
+        if (meaning) services.AddNeo4jPackMeaning(_meaningOptions);
         services.AddAgentMemoryModules(modules);
         var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
         await using var scope = provider.CreateAsyncScope();
@@ -447,7 +474,8 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
     // compiled as of its own time with it and without it (baseline none: the host offers nothing of the pack's without it); a
     // task is a hit when the pack offered one of its expected keys; abstention tasks are counted apart (noHarm); each ability's arm
     // is reported; the decision names the task file by its digest.
-    private async Task<int> RetrievalAsync(string? tasksPath, LoadedPack? pack, ModuleManifest manifest, ModuleTrial trial, string activationsFolder, ECDsa hostKey)
+    private async Task<int> RetrievalAsync(string? tasksPath, LoadedPack? pack, ModuleManifest manifest, ModuleTrial trial, string activationsFolder, ECDsa hostKey,
+        string? outputPath = null)
     {
         if (tasksPath is null || pack?.Knowledge is not { } knowledge)
         {
@@ -469,16 +497,23 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
         var answerable = file.Tasks.Where(t => !t.Abstains).OrderByDescending(t => t.At).Take(trial.Tasks).ToList();
         var abstaining = file.Tasks.Where(t => t.Abstains).OrderByDescending(t => t.At).Take(trial.Tasks).ToList();
         output.WriteLine($"{manifest.Id} {manifest.Version}: {answerable.Count} tasks and {abstaining.Count} abstention tasks from {tasksPath} ({file.Digest})");
+        if (_meaning) output.WriteLine($"  meaning: floor {_meaningOptions.MinimumScore}, {(_meaningOptions.KeepWords ? "merged with the full-text hits" : "alone")}");
         if (answerable.Count < trial.Tasks)
         {
             output.WriteLine($"  not yet: the trial runs {trial.Tasks} tasks; the file holds {answerable.Count} that expect a key.");
             return 1;
         }
-        await using var with = await ProviderAsync(m => m.UseNeo4jStore().AddPack(pack)).ConfigureAwait(false);
+        // With --meaning the decided arm searches the pack by meaning too, and the words-only arm is still reported (feature 19).
+        await using var with = await ProviderAsync(m => m.UseNeo4jStore().AddPack(pack), _meaning).ConfigureAwait(false);
+        await using var words = _meaning ? await ProviderAsync(m => m.UseNeo4jStore().AddPack(pack)).ConfigureAwait(false) : null;
         await using var without = await ProviderAsync(m => m.UseNeo4jStore()).ConfigureAwait(false);
         var importer = new AgentMemory.Extensibility.Packs.KnowledgePackImporter(
-            new AgentMemory.Extensibility.Neo4j.Storage.Neo4jKnowledgePackStore(with.GetRequiredService<INeo4jTransactionRunner>()));
+            new AgentMemory.Extensibility.Neo4j.Storage.Neo4jKnowledgePackStore(with.GetRequiredService<INeo4jTransactionRunner>(), null,
+                with.GetService<AgentMemory.Extensibility.Neo4j.Storage.PackMeaning>()));
         await importer.ImportAsync(knowledge).ConfigureAwait(false);
+        // With a real embedder, the same facts as ordinary memories, found by the host's own vector search: reported beside the
+        // decision, never deciding it (feature 19). What a pack searched by meaning has to beat.
+        var memories = _embedder is null ? null : await MemoriesAsync(without, knowledge, manifest).ConfigureAwait(false);
         try
         {
             async Task<(List<string> Offered, double Ms)> Offers(IServiceProvider provider, RetrievalTask task)
@@ -494,6 +529,20 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
                 return (keys, watch.Elapsed.TotalMilliseconds);
             }
             var rows = new List<(RetrievalTask Task, int Offered, int Right, double Ms, double BaseMs)>();
+            var reported = new Dictionary<string, List<(RetrievalTask Task, int Offered, int Right, double Ms, double BaseMs)>>(StringComparer.Ordinal);
+            // Each arm's offered keys per task, for --output (feature 19): the breakdowns a task file's abilities cannot name.
+            var perTask = new Dictionary<string, List<object>>(StringComparer.Ordinal);
+            void Keep(string arm, RetrievalTask task, IReadOnlyList<string> offered)
+            {
+                if (!perTask.TryGetValue(arm, out var list)) perTask[arm] = list = [];
+                list.Add(new { question = task.Question, expected = task.Expected, offered });
+            }
+            void Report(string arm, RetrievalTask task, IReadOnlyList<string> offered, double ms)
+            {
+                Keep(arm, task, offered);
+                if (!reported.TryGetValue(arm, out var list)) reported[arm] = list = [];
+                list.Add((task, offered.Count, offered.Count(k => task.Expected.Contains(k, StringComparer.Ordinal)), ms, 0));
+            }
             foreach (var task in answerable.Concat(abstaining))
             {
                 // A first compile of each arm warms the store's caches (review 11-13: only the pack's arm was warmed).
@@ -502,6 +551,19 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
                 var (offered, ms) = await Offers(with, task).ConfigureAwait(false);
                 var (_, baseMs) = await Offers(without, task).ConfigureAwait(false);
                 rows.Add((task, offered.Count, offered.Count(k => task.Expected.Contains(k, StringComparer.Ordinal)), ms, baseMs));
+                Keep(_meaning ? (_meaningOptions.KeepWords ? "pack, words and meaning" : "pack, meaning") : "pack", task, offered);
+                if (words is not null)
+                {
+                    await Offers(words, task).ConfigureAwait(false);
+                    var (byWords, wordsMs) = await Offers(words, task).ConfigureAwait(false);
+                    Report("pack, words", task, byWords, wordsMs);
+                }
+                if (memories is not null)
+                {
+                    var watch = Stopwatch.StartNew();
+                    var found = await memories(task.Question).ConfigureAwait(false);
+                    Report("memories", task, found, watch.Elapsed.TotalMilliseconds);
+                }
             }
             static double P95(IEnumerable<double> times)
             {
@@ -528,8 +590,25 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
                 History = "tasks", TaskFile = file.Digest, Abilities = abilities.Count == 0 ? null : abilities,
             };
             var record = PackActivationFolder.Write(activationsFolder, decision, hostKey);
-            output.WriteLine($"  with     hit {withArm.HitRate:0.000} ({withArm.Hits}/{withArm.Tasks}), precision {withArm.Precision:0.000} ({withArm.Correct}/{withArm.Offered})"
-                + (abstaining.Count == 0 ? "" : $", quiet on {quiet}/{abstaining.Count} abstention tasks"));
+            if (outputPath is not null)
+                await File.WriteAllTextAsync(outputPath, JsonSerializer.Serialize(new { taskFile = file.Digest, pack = pack.Digest, arms = perTask }, Json)).ConfigureAwait(false);
+            var decided = _meaning ? (_meaningOptions.KeepWords ? "pack, words and meaning" : "pack, meaning") : _embedder is null ? "with" : "pack, words";
+            output.WriteLine($"  {decided,-24} hit {withArm.HitRate:0.000} ({withArm.Hits}/{withArm.Tasks}), precision {withArm.Precision:0.000} ({withArm.Correct}/{withArm.Offered})"
+                + (abstaining.Count == 0 ? "" : $", quiet on {quiet}/{abstaining.Count} abstention tasks") + $", p95 {withArm.P95Ms} ms");
+            // The other arms, reported and not decided (feature 19): the same tasks, the same scoring.
+            foreach (var (name, list) in reported)
+            {
+                var arm = Arm([.. list.Where(r => !r.Task.Abstains)]);
+                var still = list.Count(r => r.Task.Abstains && r.Offered == 0);
+                output.WriteLine($"  {name,-24} hit {arm.HitRate:0.000} ({arm.Hits}/{arm.Tasks}), precision {arm.Precision:0.000} ({arm.Correct}/{arm.Offered})"
+                    + (abstaining.Count == 0 ? "" : $", quiet on {still}/{abstaining.Count} abstention tasks") + $", p95 {arm.P95Ms} ms");
+                foreach (var group in list.Where(r => !r.Task.Abstains && r.Task.Ability is not null).GroupBy(r => r.Task.Ability!, StringComparer.Ordinal)
+                    .OrderBy(g => g.Key, StringComparer.Ordinal))
+                {
+                    var part = Arm([.. group]);
+                    output.WriteLine($"    {group.Key,-13} hit {part.HitRate:0.000} ({part.Hits}/{part.Tasks})");
+                }
+            }
             foreach (var (ability, arm) in abilities.OrderBy(a => a.Key, StringComparer.Ordinal))
                 output.WriteLine($"  {ability,-13} hit {arm.HitRate:0.000} ({arm.Hits}/{arm.Tasks})");
             foreach (var check in decision.Checks)
@@ -538,7 +617,50 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
             output.WriteLine($"  signed   {record}");
             return decision.Active ? 0 : 1;
         }
-        finally { await importer.RemoveAsync(knowledge.Manifest).ConfigureAwait(false); }
+        finally
+        {
+            await importer.RemoveAsync(knowledge.Manifest).ConfigureAwait(false);
+            if (memories is not null)
+                await without.GetRequiredService<INeo4jTransactionRunner>().WriteAsync(t => t.RunAsync(
+                    "MATCH (f:Fact) WHERE f.owner_id = $owner DETACH DELETE f", new { owner = MemoriesOwner })).ConfigureAwait(false);
+        }
+    }
+
+    private const string MemoriesOwner = "pack-trial-memories";
+
+    // The pack's records as ordinary facts (feature 19): each one's searched text, embedded by the host's embedder, under an owner of
+    // its own; the search is the host's own fact search, at most the pack's view limit, above the host's default recall floor.
+    private async Task<Func<string, Task<IReadOnlyList<string>>>> MemoriesAsync(IServiceProvider provider, AgentMemory.Extensibility.Packs.KnowledgePack knowledge,
+        ModuleManifest manifest)
+    {
+        await using var scope = provider.CreateAsyncScope();
+        var memory = scope.ServiceProvider.GetRequiredService<AgentMemory.Abstractions.Services.ILongTermMemoryService>();
+        var embedder = provider.GetRequiredService<IEmbeddingGenerator<string, Embedding<float>>>();
+        var searched = (manifest.Views ?? []).Where(v => v.Search is not null).ToList();
+        var limit = searched.Max(v => v.Limit);
+        var floor = _memoriesFloor ?? new AgentMemory.Abstractions.Options.RecallOptions().MinSimilarityScore;
+        foreach (var record in knowledge.Proposals)
+        {
+            var properties = searched.Where(v => v.Type == record.Type).SelectMany(v => v.Search!.Properties ?? []).Distinct(StringComparer.Ordinal);
+            var text = string.Join(". ", properties
+                .Select(p => record.Properties.TryGetValue(p, out var v) ? (v.ValueKind == JsonValueKind.String ? v.GetString() : v.GetRawText()) : null)
+                .Where(t => !string.IsNullOrWhiteSpace(t)));
+            if (text.Length == 0) continue;
+            var vector = (await embedder.GenerateAsync([text]).ConfigureAwait(false))[0].Vector.ToArray();
+            await memory.AddFactAsync(new AgentMemory.Abstractions.Domain.Fact
+            {
+                FactId = "packfact:" + record.Key, Subject = record.Type, Predicate = "says", Object = text, Confidence = 1.0, Embedding = vector,
+                CreatedAtUtc = DateTimeOffset.UtcNow, OwnerId = MemoriesOwner,
+            }).ConfigureAwait(false);
+        }
+        output.WriteLine($"  memories: {knowledge.Proposals.Count} records as facts, searched by vector, at most {limit}, floor {floor}");
+        return async question =>
+        {
+            var vector = (await embedder.GenerateAsync([question]).ConfigureAwait(false))[0].Vector.ToArray();
+            await using var asked = provider.CreateAsyncScope();
+            var facts = await asked.ServiceProvider.GetRequiredService<AgentMemory.Abstractions.Services.ILongTermMemoryService>().SearchFactsAsync(vector, limit, floor, AgentMemory.Abstractions.Options.MemoryScope.For(MemoriesOwner)).ConfigureAwait(false);
+            return [.. facts.Select(f => f.FactId).Where(id => id.StartsWith("packfact:", StringComparison.Ordinal)).Select(id => id["packfact:".Length..])];
+        };
     }
 
     // A shadow trial (feature 11, R2): the pack ran dark on live turns; each turn is labelled by the code-history rule, the tests the
