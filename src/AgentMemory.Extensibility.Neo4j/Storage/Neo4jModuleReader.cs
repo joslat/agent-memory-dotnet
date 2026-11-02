@@ -89,7 +89,8 @@ public sealed class Neo4jModuleReader : IModuleReader
                     parameters["vindex"] = PackMeaning.IndexName(vector.Length); parameters["k"] = _meaning!.Options.Candidates;
                     parameters["vector"] = vector; parameters["model"] = _meaning.Model; parameters["floor"] = _meaning.Options.MinimumScore;
                     var close = await RowsAsync(transaction, ModuleReadQueries.Meaning(admitted, type), parameters, cancellationToken).ConfigureAwait(false);
-                    fused = _meaning.Options.KeepWords ? PackMeaning.Fuse(words, close) : close;
+                    fused = !_meaning.Options.KeepWords ? close
+                        : _meaning.Options.WordsFirst ? PackMeaning.Fill(words, close) : PackMeaning.Fuse(words, close);
                 }
                 while (records.Count < take)
                 {

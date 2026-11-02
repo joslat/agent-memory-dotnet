@@ -87,6 +87,12 @@ public sealed partial class StoreIsolationIntegrationTests
             services.AddSingleton<IChatClient>(lessons);
             services.RemoveAll<IEmbeddingGenerator<string, Embedding<float>>>();
             services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(new StubEmbeddingGenerator(NullLogger<StubEmbeddingGenerator>.Instance, Dimensions));
+            // The stub's vectors carry no meaning, so this host finds packs by their words (feature 19: meaning search is on by
+            // default with an embedder, and random neighbours would take the places of the word hits this test is about).
+#pragma warning disable AMEXT001
+            services.RemoveAll<AgentMemory.Extensibility.Neo4j.Storage.PackMeaningDefault>();
+            services.AddSingleton(new AgentMemory.Extensibility.Neo4j.Storage.PackMeaningDefault(null));
+#pragma warning restore AMEXT001
             services.RemoveAll<IMemoryWriter>();
             services.AddSingleton<IMemoryWriter>(new CodingTestWriter());
             var extractor = Substitute.For<IUnifiedMemoryExtractor>();

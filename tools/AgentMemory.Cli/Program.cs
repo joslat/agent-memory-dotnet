@@ -397,7 +397,7 @@ try
                 cli.Get("pack"), cli.Get("trust"), cli.Get("previous"), cli.Get("history") ?? "parent", cli.HasFlag("partial"), cli.Get("shadow"), cli.Get("tasks"),
                 cli.Get("embedder"), cli.HasFlag("meaning"),
                 cli.Get("meaning-floor") is { } mf ? double.Parse(mf, System.Globalization.CultureInfo.InvariantCulture) : null, cli.HasFlag("meaning-only"),
-                cli.Get("memories-floor") is { } rf ? double.Parse(rf, System.Globalization.CultureInfo.InvariantCulture) : null, cli.Get("rerank")),
+                cli.Get("memories-floor") is { } rf ? double.Parse(rf, System.Globalization.CultureInfo.InvariantCulture) : null, cli.Get("rerank"), cli.HasFlag("words-first")),
         "evaluate" when cli.Get("traversal") is not null => await new TraversalTrialCommand(o =>
             {
                 o.Uri = uri;

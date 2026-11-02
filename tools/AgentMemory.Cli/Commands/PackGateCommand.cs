@@ -35,7 +35,7 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
 
     public async Task<int> ExecuteAsync(string? packId, string? repo, string? hostKeyPath, string? activationsFolder, string? variant, string? outputPath,
         string? packPath = null, string? trustPath = null, string? previousPath = null, string history = "parent", bool partial = false, string? shadowPath = null, string? tasksPath = null,
-        string? embedder = null, bool meaning = false, double? meaningFloor = null, bool meaningOnly = false, double? memoriesFloor = null, string? rerank = null)
+        string? embedder = null, bool meaning = false, double? meaningFloor = null, bool meaningOnly = false, double? memoriesFloor = null, string? rerank = null, bool wordsFirst = false)
     {
         // A real embedder (feature 19): ollama:<model>[@<url>], local and free; without it the runs embed with the stub, as before.
         if (embedder is not null)
@@ -54,7 +54,7 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
             return 2;
         }
         _meaning = meaning;
-        _meaningOptions = new() { MinimumScore = meaningFloor ?? new AgentMemory.Extensibility.Neo4j.Storage.PackMeaningOptions().MinimumScore, KeepWords = !meaningOnly };
+        _meaningOptions = new() { MinimumScore = meaningFloor ?? new AgentMemory.Extensibility.Neo4j.Storage.PackMeaningOptions().MinimumScore, KeepWords = !meaningOnly, WordsFirst = wordsFirst };
         _memoriesFloor = memoriesFloor;
         // A local chat model judging the vector search's nearest records (feature 19): ollama:<model>[@<url>]; reported, never decided.
         if (rerank is not null)
@@ -513,7 +513,7 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
         var answerable = file.Tasks.Where(t => !t.Abstains).OrderByDescending(t => t.At).Take(trial.Tasks).ToList();
         var abstaining = file.Tasks.Where(t => t.Abstains).OrderByDescending(t => t.At).Take(trial.Tasks).ToList();
         output.WriteLine($"{manifest.Id} {manifest.Version}: {answerable.Count} tasks and {abstaining.Count} abstention tasks from {tasksPath} ({file.Digest})");
-        if (_meaning) output.WriteLine($"  meaning: floor {_meaningOptions.MinimumScore}, {(_meaningOptions.KeepWords ? "merged with the full-text hits" : "alone")}"
+        if (_meaning) output.WriteLine($"  meaning: floor {_meaningOptions.MinimumScore}, {(!_meaningOptions.KeepWords ? "alone" : _meaningOptions.WordsFirst ? "filling after the full-text hits" : "merged with the full-text hits by rank")}"
             + (_judge is null ? "" : $", the nearest {_meaningOptions.Judged} judged"));
         if (answerable.Count < trial.Tasks)
         {

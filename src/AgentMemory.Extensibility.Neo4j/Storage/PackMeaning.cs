@@ -21,8 +21,19 @@ public sealed record PackMeaningOptions
     public string? Model { get; init; }
     /// <summary>Whether a search keeps the full-text hits beside the meaning hits (merged by rank); false searches by meaning alone.</summary>
     public bool KeepWords { get; init; } = true;
+    /// <summary>With <see cref="KeepWords"/>, the full-text hits keep their places and the meaning hits only fill the places left
+    /// (never fewer word hits than a search by words); false merges both by reciprocal rank.</summary>
+    public bool WordsFirst { get; init; }
     /// <summary>With a judge, how many of the nearest records it is asked about; it keeps those it says answer, up to the view's limit.</summary>
     public int Judged { get; init; } = 3;
+}
+
+/// <summary>The meaning search <c>AddNeo4jKnowledgePacks</c> chose by default, or none; one per host, so its index state is shared.</summary>
+[Experimental("AMEXT001")]
+public sealed class PackMeaningDefault(PackMeaning? meaning)
+{
+    /// <summary>The default meaning search; null when the host has no embedder or switched it off.</summary>
+    public PackMeaning? Meaning { get; } = meaning;
 }
 
 /// <summary>
@@ -73,6 +84,26 @@ public sealed class PackMeaning
 
     /// <summary>The options.</summary>
     public PackMeaningOptions Options { get; }
+
+    /// <summary>The settings measured best (feature 19, 2 Nov, on two packs): with a judge, meaning alone at 0.6 with the nearest
+    /// 3 judged; without one, meaning merged with the words at 0.75.</summary>
+    public static PackMeaningOptions DefaultOptions(bool judged) => judged ? new() { KeepWords = false, MinimumScore = 0.6, Judged = 3 } : new();
+
+    /// <summary>The host's default meaning search: by its embedder, judged when it registers a judge; null without an embedder.</summary>
+    public static PackMeaning? ByDefault(IServiceProvider services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        if (services.GetService(typeof(IEmbeddingGenerator<string, Embedding<float>>)) is not IEmbeddingGenerator<string, Embedding<float>> embedder) return null;
+        var judge = services.GetService(typeof(IPackMeaningJudge)) as IPackMeaningJudge;
+        return new PackMeaning(embedder, DefaultOptions(judge is not null), judge);
+    }
+
+    /// <summary>The meaning search a host uses: the one it registered, else the default <c>AddNeo4jKnowledgePacks</c> chose, else none.</summary>
+    public static PackMeaning? Of(IServiceProvider services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        return services.GetService(typeof(PackMeaning)) as PackMeaning ?? (services.GetService(typeof(PackMeaningDefault)) as PackMeaningDefault)?.Meaning;
+    }
 
     /// <summary>The judge of the nearest records; null offers them as the floor leaves them.</summary>
     public IPackMeaningJudge? Judge { get; }
@@ -196,6 +227,14 @@ public sealed class PackMeaning
         if (rows.Count == 0) return false;
         _indexes[dimension] = true;
         return true;
+    }
+
+    /// <summary>The full-text rows in their order, then the meaning rows that are not among them, in theirs.</summary>
+    internal static List<IRecord> Fill(IReadOnlyList<IRecord> words, IReadOnlyList<IRecord> near)
+    {
+        static string Id(IRecord row) => row["row"].As<Dictionary<string, object>>()["id"].As<string>();
+        var seen = words.Select(Id).ToHashSet(StringComparer.Ordinal);
+        return [.. words, .. near.Where(r => seen.Add(Id(r)))];
     }
 
     /// <summary>Reciprocal rank fusion of the full-text and the meaning rows, by record id: each list adds 1 / (60 + rank).</summary>
