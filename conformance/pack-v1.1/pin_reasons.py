@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Pins a reason for every refused vector that names none (review 7, L8: the kit checked the reason for 32 of 291, so a vector
 refused for another rule than its own passed). From results.json, for each such vector, the longest run of words without digits,
 quotes or paths in what each verifier said, at least four words: stable across runs (keys and times change every run) and

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 using AgentMemory.Extensibility.Ampack;
 using AgentMemory.Extensibility.Modules;
 using AgentMemory.Packs.Format;

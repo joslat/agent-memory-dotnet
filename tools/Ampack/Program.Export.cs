@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 using AgentMemory.Extensibility.Ampack;
 using Org.BouncyCastle.Crypto.Parameters;
 using Org.BouncyCastle.Crypto.Signers;

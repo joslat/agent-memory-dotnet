@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! A third, independent verifier of memory packs (format v1.2, "ampack"): Core verify, read and inspect, and the
 //! profiles the conformance kit exercises (compose, federation, certify, erasures, embeddings, permissions' read door).
 //!

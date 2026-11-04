@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Strict base64 (R-CORE-035): the standard alphabet, a length that is a multiple of four, padding only at the end (at
 //! most two), no white space. Unused trailing bits are not judged, as the two other verifiers read them.
 

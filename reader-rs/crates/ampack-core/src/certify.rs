@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! The documents beside a verified pack: an evaluation certificate (Certify profile, v1.2 16) with its AEF run, a
 //! publication receipt (Federation profile 5), and an erasure (Core 17a).
 

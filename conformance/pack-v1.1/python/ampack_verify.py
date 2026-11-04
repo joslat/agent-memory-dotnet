@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """A second, independent verifier for memory packs (format v1.2), in Python, to prove the format is language-neutral.
 
 It shares no code with the .NET implementation: it reads the strict ZIP profile itself, checks the canonical

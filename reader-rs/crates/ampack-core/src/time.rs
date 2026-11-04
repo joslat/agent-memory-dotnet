@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Date and time (R-CORE-034): RFC 3339 written YYYY-MM-DDTHH:MM:SS, an optional fraction of 1 to 7 digits, then Z or an
 //! offset whose minutes are below 60 and whose size is at most 14 hours, in ASCII digits. An instant is 100 ns ticks
 //! since 1970 (UTC), so two times compare to 100 ns. The UTC time lies within years 1 to 9999.

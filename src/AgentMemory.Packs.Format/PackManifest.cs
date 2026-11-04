@@ -1,4 +1,5 @@
-﻿using System.Globalization;
+﻿// SPDX-License-Identifier: Apache-2.0
+using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 

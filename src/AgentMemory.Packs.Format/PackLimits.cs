@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 namespace AgentMemory.Packs.Format;
 
 /// <summary>Size limits checked before a single byte is inflated or parsed (v1.1 H2). A host may lower them, or raise them for a large pack it trusts.</summary>

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! The host's trust policy (host/trust-policy.md, Core 9): keys with scopes, roles and windows, revoked digests and keys,
 //! the host's WebIDs and required roles; and the revocation documents of one run applied to it.
 

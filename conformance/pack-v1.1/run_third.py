@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The third verifier (feature 18): runs `ampack-rs` (reader-rs/, Rust) on every vector results.json lists, as the Python
 verifier is run, and compares its verdict with the expected one.
 

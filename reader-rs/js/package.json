@@ -1,6 +1,7 @@
 {
   "name": "ampack-reader-js",
   "private": true,
+  "license": "Apache-2.0",
   "type": "module",
   "description": "The ampack-rs component transpiled for JavaScript with jco (feature 18, step 4).",
   "scripts": {

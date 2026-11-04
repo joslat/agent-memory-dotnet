@@ -1,4 +1,5 @@
-﻿using System.Diagnostics.CodeAnalysis;
+﻿// SPDX-License-Identifier: Apache-2.0
+using System.Diagnostics.CodeAnalysis;
 using AgentMemory.Extensibility.Modules;
 
 namespace AgentMemory.Extensibility.Neo4j.Migrations;

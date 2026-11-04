@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 namespace AgentMemory.Packs.Format;
 
 /// <summary>A pack's files in memory, read once from a folder or an <c>.ampack</c> file; nothing is extracted to disk.</summary>

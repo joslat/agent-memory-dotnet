@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 #pragma warning disable AMEXT001 // Import helpers used only inside the experimental module API.

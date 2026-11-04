@@ -1,4 +1,5 @@
-﻿using System.Diagnostics.CodeAnalysis;
+﻿// SPDX-License-Identifier: Apache-2.0
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using AgentMemory.AgentFramework;
 using AgentMemory.AgentFramework.Security;

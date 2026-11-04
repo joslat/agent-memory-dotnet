@@ -339,8 +339,15 @@ public sealed class PackRuleRegistryTests
     }
 
     // A file's SHA-256 as the runner records it: without a BOM, with LF line ends, so a checkout's line ends change nothing.
-    private static string Normalized(string path) => Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(
-        System.Text.Encoding.UTF8.GetBytes(System.Text.Encoding.UTF8.GetString(File.ReadAllBytes(path)).TrimStart('\uFEFF').Replace("\r\n", "\n", StringComparison.Ordinal))));
+    private static string Normalized(string path)
+    {
+        var text = System.Text.Encoding.UTF8.GetString(File.ReadAllBytes(path)).TrimStart('\uFEFF').Replace("\r\n", "\n", StringComparison.Ordinal);
+        // A licence header is not code: an SPDX comment on the first line is left out, as the runner does (eng/guards/mutants.py), so a
+        // recorded catch stays valid for the file as it was.
+        if (text.StartsWith("// SPDX-License-Identifier:", StringComparison.Ordinal) || text.StartsWith("# SPDX-License-Identifier:", StringComparison.Ordinal))
+            text = text.IndexOf('\n') is var nl && nl >= 0 ? text[(nl + 1)..] : "";
+        return Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(text)));
+    }
 
     private static bool Resolves(string definition, Assembly[] assemblies, string root)
     {

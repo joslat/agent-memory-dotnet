@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 #pragma warning disable AMEXT001 // Erasures map onto the Extensibility preview's store form.
 using AgentMemory.Extensibility.Packs;
 using AgentMemory.Packs.Format;

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! ampack-rs: the third verifier's command line, run as the Python verifier is run.
 //!
 //! usage: ampack-rs <pack.ampack> <trust.json> [<revocations.json>...] [--receipt <file> --location <url>]

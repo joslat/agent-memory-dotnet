@@ -73,4 +73,4 @@ used as BCP 14 defines them (Core §1.2). Rationale sits in "Why" notes, which a
 
 ## Licence
 
-Specification: CC BY 4.0 (draft).
+CC BY 4.0; see [LICENSE.md](LICENSE.md). Patent rights for conforming implementations: [PATENTS.md](../PATENTS.md) at the repository root.

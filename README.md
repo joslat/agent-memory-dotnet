@@ -27,7 +27,7 @@ time, not a guaranteed response window. Review the
 [Production Checklist](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/security/production-checklist.md)
 before production use, pin versions deliberately, and check the
 [CHANGELOG](https://github.com/joslat/agent-memory-dotnet/blob/main/CHANGELOG.md) between upgrades. As
-with any MIT-licensed software, it's provided as-is, without warranty (see [License](#license)).
+with any permissively licensed software, it is provided as is, without warranty (see [Licensing](#licensing)).
 
 ## Why Agent Memory for .NET
 
@@ -144,6 +144,14 @@ repository or product; schema and behavioral compatibility with the original are
 
 See [CONTRIBUTING.md](https://github.com/joslat/agent-memory-dotnet/blob/main/CONTRIBUTING.md) for build, test, and contribution guidance.
 
-## License
+## Licensing
 
-This project is licensed under the [MIT License](https://github.com/joslat/agent-memory-dotnet/blob/main/LICENSE).
+Three licences live in this repository from version 2.0.0: two for code, project by project, and one for the specification.
+
+| Licence | What |
+|---|---|
+| **Apache-2.0** | `src/AgentMemory.Extensibility` (the module SDK; its 0.x releases were MIT; Apache-2.0 from the release that ships with 2.0.0, which adds the declared traversal and the trial gate), `src/AgentMemory.Extensibility.Ampack`, `src/AgentMemory.Extensibility.Neo4j`, `src/AgentMemory.Extensibility.AgentFramework`, every `src/AgentMemory.Packs.*` library, `tools/Ampack`, `reader-rs`, `conformance/pack-v1.1` |
+| **MIT** | Everything else: `AgentMemory.Core`, `AgentMemory.Abstractions`, `AgentMemory.Neo4j`, the Agent Framework, Semantic Kernel and MCP adapters, the samples, the benchmarks, the remaining tools, and the sample knowledge pack under `packs/` |
+| **CC BY 4.0** | The specification texts and data files in `spec/` (see `spec/LICENSE.md`) |
+
+Why two code licences: the Apache-2.0 projects implement the ampack format and its host procedure, on which the author has filed a patent application. Apache-2.0 section 3 gives every user of that code an express patent licence; MIT has no express patent clause. The core library stays MIT as it has been since its first release. Each Apache-2.0 project carries its own `LICENSE` and `NOTICE`, its source files carry an SPDX header, and its package declares `Apache-2.0`. Implementations of the specification that do not use this code are covered by the patent pledge in [PATENTS.md](https://github.com/joslat/agent-memory-dotnet/blob/main/PATENTS.md): royalty-free for conforming implementations, with the conditions stated there. The root [LICENSE](https://github.com/joslat/agent-memory-dotnet/blob/main/LICENSE) file is the MIT licence that applies where no project-level licence says otherwise.

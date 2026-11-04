@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 using AgentMemory.Shared;
 
 namespace AgentMemory.Extensibility.Neo4j.Queries;

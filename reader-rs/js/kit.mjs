@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // The component, through its jco JavaScript binding, on every pack vector of the kit that needs no revocation document
 // (the component's verify takes an archive, a policy and a time): verdicts against results.json, and the time each takes.
 import { readFileSync, existsSync } from "node:fs";

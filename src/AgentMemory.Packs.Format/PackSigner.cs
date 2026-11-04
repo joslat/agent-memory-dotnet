@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 using System.Diagnostics;
 using System.Formats.Asn1;
 using System.Numerics;

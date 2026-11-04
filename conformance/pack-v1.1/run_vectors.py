@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Conformance vectors for memory pack format v1.2, checked by two independent verifiers.
 
 Builds a valid pack with `ampack`, derives tampered and ambiguous variants with a separate Python writer, builds one pack

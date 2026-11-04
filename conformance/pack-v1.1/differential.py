@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Differential fuzzing of the pack verifiers (review 1, I5; feature 18: three readers).
 
 Feeds the same mutated packs to `ampack verify` (.NET), python/ampack_verify.py and, when it is built, the Rust reader

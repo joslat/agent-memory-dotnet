@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Core verify (Core 7 to 11, 14 to 17c): the files list and digest, the signatures against the trust policy, pack.json and
 //! its kind, a composite's lock, the card, the derivation, the usage policy's read door, the records' JSON profile, the
 //! embeddings; a pack set with each member on its own; and inspect.

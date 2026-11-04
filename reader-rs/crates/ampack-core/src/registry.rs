@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! The format registry (feature 01): spec/registry.json, the one definition of every closed shape, list, limit and
 //! profile, embedded at build time from its real path in the repository. No copy is kept here.
 

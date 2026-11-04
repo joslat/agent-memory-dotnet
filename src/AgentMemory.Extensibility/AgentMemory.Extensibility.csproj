@@ -3,6 +3,17 @@
 <Project Sdk="Microsoft.NET.Sdk" TreatAsLocalProperty="Version">
 
   <PropertyGroup>
+    <!-- Apache-2.0 from 2.0.0: this project practises the ampack format or its host procedure; see PATENTS.md at the repository root. -->
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="LICENSE" Pack="true" PackagePath="" Visible="false" />
+    <None Include="NOTICE" Pack="true" PackagePath="" Visible="false" />
+  </ItemGroup>
+
+  <PropertyGroup>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>AgentMemory.Extensibility</RootNamespace>

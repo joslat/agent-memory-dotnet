@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! ampack-core as a WebAssembly component (feature 18, R4): `verify(archive, policy, now) -> verdict` and
 //! `inspect(archive) -> summary`. Built for wasm32-unknown-unknown and wrapped as a component, it imports nothing: no
 //! file system, no network, no clock.

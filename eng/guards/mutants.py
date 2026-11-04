@@ -31,7 +31,12 @@ MUTANTS = json.loads((HERE / "mutants.json").read_text(encoding="utf-8"))["mutan
 
 
 def normalized_hash(raw):
-    return hashlib.sha256(raw.decode("utf-8-sig").replace("\r\n", "\n").encode("utf-8")).hexdigest()
+    text = raw.decode("utf-8-sig").replace("\r\n", "\n")
+    # A licence header is not code: an SPDX comment on the first line is left out (added 4 Nov 2026 with the Apache-2.0
+    # relicensing), so a recorded catch stays valid for the file as it was.
+    if text.startswith(("// SPDX-License-Identifier:", "# SPDX-License-Identifier:")):
+        text = text.split("\n", 1)[1] if "\n" in text else ""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def recover():

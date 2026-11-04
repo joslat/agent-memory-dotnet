@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! The archive profile (Core 4): a strict ZIP reader of its own. Contiguous entries from offset 0, sorted, each local
 //! header equal to its central entry, stored or deflate, no data descriptor, extra field, comment, folder entry or ZIP64,
 //! the fixed time, the end record last with no comment; every deflate stream valid, final, and ending where its bytes end;

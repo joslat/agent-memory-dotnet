@@ -1,4 +1,5 @@
-﻿using System.Collections.Frozen;
+﻿// SPDX-License-Identifier: Apache-2.0
+using System.Collections.Frozen;
 using System.Text.RegularExpressions;
 
 namespace AgentMemory.Extensibility.Neo4j.Migrations;

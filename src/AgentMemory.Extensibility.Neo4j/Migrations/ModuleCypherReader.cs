@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 namespace AgentMemory.Extensibility.Neo4j.Migrations;
 
 internal sealed class ModuleCypherReader(IReadOnlyList<ModuleCypherToken> tokens)

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! SHA-256, DSSE pre-authentication encoding, and ECDSA P-256 over SHA-256 (DER signatures), on audited crates.
 
 use alloc::string::String;

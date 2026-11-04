@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! The JSON profile (Core 6): a strict reader of its own. No BOM, no carriage return, no repeated key at any depth (keys
 //! compared once decoded), strings and keys in NFC by the Unicode 15.0 tables, no lone surrogate, at most 30 combining
 //! marks in a row (UAX #15 on each character's NFKD), integers within 2^53 - 1, finite numbers, nesting at most 64.

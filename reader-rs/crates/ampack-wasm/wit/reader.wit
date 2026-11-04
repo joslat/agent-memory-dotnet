@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package ampack:reader@0.1.0;
 
 /// The third verifier of memory packs, as a component: no file system, no network, no clock. The host hands it the

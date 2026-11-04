@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! The format's small grammars (paths, ids, prefixes, versions, WebIDs, digests) and display-safe text, written out by
 //! hand as the two other verifiers' patterns read them, ASCII only.
 
