@@ -146,7 +146,7 @@ See [CONTRIBUTING.md](https://github.com/joslat/agent-memory-dotnet/blob/main/CO
 
 ## Licensing
 
-Three licences live in this repository from version 2.0.0: two for code, project by project, and one for the specification.
+Three licences live in this repository from version 2.0.0: two for code, project by project, and one for the specification. The complete map, with what each licence asks of you and why the root `LICENSE` file stays MIT, is [LICENSING.md](https://github.com/joslat/agent-memory-dotnet/blob/main/LICENSING.md).
 
 | Licence | What |
 |---|---|

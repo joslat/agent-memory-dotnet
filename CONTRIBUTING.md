@@ -196,4 +196,4 @@ Use [GitHub Issues](https://github.com/joslat/agent-memory-dotnet/issues) for bu
 
 ## 8. Licensing of Contributions
 
-Contributions are accepted under the licence of the project they change: Apache-2.0 (its section 5 applies) for the projects listed in the README's "Licensing" table, MIT for the rest.
+Contributions are accepted under the licence of the project they change: Apache-2.0 (its section 5 applies) for the projects listed in [LICENSING.md](LICENSING.md), MIT for the rest.

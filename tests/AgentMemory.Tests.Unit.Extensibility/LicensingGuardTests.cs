@@ -93,6 +93,22 @@ public sealed class LicensingGuardTests
                 if (!covered) problems.Add($"README.md Licensing: {relative} is Apache-2.0 but not listed");
             }
         }
+        var map = Path.Combine(root, "LICENSING.md");
+        if (!File.Exists(map))
+        {
+            problems.Add("LICENSING.md: missing (the complete licence map of the repository)");
+        }
+        else
+        {
+            var text = File.ReadAllText(map);
+            foreach (var relative in ApacheDirectories)
+            {
+                var covered = text.Contains(relative, StringComparison.Ordinal);
+                if (!covered) problems.Add($"LICENSING.md: {relative} is Apache-2.0 but not in the map");
+            }
+            if (!text.Contains("PATENTS.md", StringComparison.Ordinal) || !text.Contains("CC BY 4.0", StringComparison.Ordinal) || !text.Contains("MIT", StringComparison.Ordinal))
+                problems.Add("LICENSING.md: must name MIT, CC BY 4.0 and PATENTS.md");
+        }
         var patents = Path.Combine(root, "PATENTS.md");
         if (!File.Exists(patents) || !File.ReadAllText(patents).Contains("## The pledge", StringComparison.Ordinal))
             problems.Add("PATENTS.md: missing or without the pledge section");

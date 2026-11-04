@@ -35,6 +35,8 @@ The pledge lasts for the life of the Covered Claims. The pledgor intends any tra
 
 ## How this fits the licences in this repository
 
+The complete licence map of the repository is `LICENSING.md` at the root.
+
 | What | Licence | Patent position |
 |---|---|---|
 | The module SDK and its store and host adapters, the format libraries, the ampack tool, the Rust reader, the conformance kit and Python verifier (the Apache-2.0 list in the README, "Licensing") | Apache-2.0 | Apache-2.0 section 3 licence for users of the code; this pledge in addition |
