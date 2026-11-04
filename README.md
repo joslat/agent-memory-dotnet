@@ -136,6 +136,10 @@ ecosystem to lean on, so it was built natively rather than bound or ported. It i
 repository or product; schema and behavioral compatibility with the original are verified explicitly (see
 [Neo4j Memory Ecosystem](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/neo4j-memory-ecosystem.md)).
 
+## Related projects
+
+- [GraphBridge](https://github.com/joslat/GraphBridge.EFCore): an Entity Framework Core provider for Neo4j, from the same author, with an experimental GraphRAG toolkit for .NET. Its answers show the stored text each quote came from, or say why they can't answer, and its graphs can be shared with neo4j-graphrag.
+
 ## Contributing
 
 See [CONTRIBUTING.md](https://github.com/joslat/agent-memory-dotnet/blob/main/CONTRIBUTING.md) for build, test, and contribution guidance.

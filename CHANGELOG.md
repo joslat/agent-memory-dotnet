@@ -586,6 +586,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Reconcile graduated API labels and composition links across the configuration and adapter guides.
   Describe the release workflow's actual NuGet API-key authentication separately from OIDC attestation signing.
+- Also from me: GraphBridge 0.2.0-preview.1 adds an experimental GraphRAG toolkit for .NET on EF Core and Neo4j. If you're building on Neo4j for AI, its answers show the stored text each quote came from, or say why they can't answer: https://joslat.github.io/GraphBridge.EFCore/graphrag/index.html
 
 ## [1.9.0] - 2026-10-05
 
