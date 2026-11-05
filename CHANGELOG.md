@@ -12,8 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (its 0.x releases were MIT), `AgentMemory.Extensibility.Ampack`, `AgentMemory.Extensibility.Neo4j`, `AgentMemory.Extensibility.AgentFramework`,
   every `src/AgentMemory.Packs.*` library (the sample knowledge pack under `packs/` stays MIT), the `ampack` tool, the Rust reader and the
   conformance kit. Each carries its own LICENSE and NOTICE and SPDX headers, and packs with `PackageLicenseExpression` Apache-2.0. The core
-  library, the store, the other adapters, the samples and the benchmarks stay MIT. The specification in `spec/` is CC BY 4.0. A patent pledge
-  (`PATENTS.md`) covers conforming implementations of the specification royalty-free, with the conditions stated there. See the README, "Licensing".
+  library, the store, the other adapters, the samples and the benchmarks stay MIT. The specification in `spec/` is CC BY 4.0. A proposed patent
+  non-assertion pledge (`PATENTS.md`, a draft until the author issues it) is intended to cover conforming implementations of the listed
+  specification versions royalty-free, with the conditions stated there. `AgentMemory.Extensibility` and its three adapter packages are
+  0.2.0 from this release, so the licence change sits on a package version boundary (0.1.0 and earlier stay MIT as released); "2.0.0" is
+  the repository release, not every package's version. See the README, "Licensing".
 
 - Pack families as hierarchies (CODING-hierarchy): a composite member may name the members it `contains`
   (`CompositeMember.Contains`; `CompositeManifest.Roots`, `Children`, `Parents`, `Depth`). Containment is many-to-many and
