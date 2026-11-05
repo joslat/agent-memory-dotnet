@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   library, the store, the other adapters, the samples and the benchmarks stay MIT. The specification in `spec/` is CC BY 4.0. A proposed patent
   non-assertion pledge (`PATENTS.md`, a draft until the author issues it) is intended to cover conforming implementations of the listed
   specification versions royalty-free, with the conditions stated there. `AgentMemory.Extensibility` and its three adapter packages are
-  0.2.0 from this release, so the licence change sits on a package version boundary (0.1.0 and earlier stay MIT as released); "2.0.0" is
+  0.1.1 from this release, so the licence change sits on a package version boundary (0.1.0 and earlier stay MIT as released; the SDK line stays 0.1 because every pack declares the range `[0.1,0.2)` and a 0.2.0 SDK would refuse them all); "2.0.0" is
   the repository release, not every package's version. See the README, "Licensing".
 
 - Pack families as hierarchies (CODING-hierarchy): a composite member may name the members it `contains`

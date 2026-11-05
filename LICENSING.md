@@ -6,7 +6,7 @@ This repository holds work under three licences and one proposed patent pledge (
 
 | Folder | Licence | Patent position | Licence files |
 |---|---|---|---|
-| `src/AgentMemory.Extensibility` (the module SDK, the declared traversal and the trial gate; package 0.1.0 and earlier were MIT, Apache-2.0 from 0.2.0) | Apache-2.0 | Apache-2.0 section 3 gives users of the code a patent licence | `LICENSE`, `NOTICE` in the folder |
+| `src/AgentMemory.Extensibility` (the module SDK, the declared traversal and the trial gate; package 0.1.0 and earlier were MIT, Apache-2.0 from 0.1.1; the SDK line stays 0.1 because every pack declares the range `[0.1,0.2)`) | Apache-2.0 | Apache-2.0 section 3 gives users of the code a patent licence | `LICENSE`, `NOTICE` in the folder |
 | `src/AgentMemory.Extensibility.Ampack` (ampack packs in the host) | Apache-2.0 | as above | in the folder |
 | `src/AgentMemory.Extensibility.Neo4j` (the store side of the module SDK and the walk) | Apache-2.0 | as above | in the folder |
 | `src/AgentMemory.Extensibility.AgentFramework` (the module SDK in the Agent Framework host) | Apache-2.0 | as above | in the folder |

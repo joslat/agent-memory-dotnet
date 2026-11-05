@@ -17,7 +17,7 @@
     <Description>Experimental Neo4j storage and migration adapter for AgentMemory modules.</Description>
     <PackageTags>agent-memory;memory;extensibility;neo4j</PackageTags>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <Version>0.2.0</Version>
+    <Version>0.1.1</Version>
     <!-- The preview line's release version (40.27): a preview-v tag passes it, so the core projects this one references
          keep their own version and the package's dependencies stay real. -->
     <Version Condition="'$(PreviewVersion)' != ''">$(PreviewVersion)</Version>

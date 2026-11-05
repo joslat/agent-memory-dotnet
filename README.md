@@ -150,7 +150,7 @@ Three licences live in this repository from version 2.0.0: two for code, project
 
 | Licence | What |
 |---|---|
-| **Apache-2.0** | `src/AgentMemory.Extensibility` (the module SDK; 0.1.0 and earlier were MIT; Apache-2.0 from package version 0.2.0, which ships with repository release 2.0.0 and adds the declared traversal and the trial gate), `src/AgentMemory.Extensibility.Ampack`, `src/AgentMemory.Extensibility.Neo4j`, `src/AgentMemory.Extensibility.AgentFramework`, every `src/AgentMemory.Packs.*` library, `tools/Ampack`, `reader-rs`, `conformance/pack-v1.1` |
+| **Apache-2.0** | `src/AgentMemory.Extensibility` (the module SDK; 0.1.0 and earlier were MIT; Apache-2.0 from package version 0.1.1, which ships with repository release 2.0.0 and adds the declared traversal and the trial gate; the 0.1 line is kept because every pack declares the SDK range `[0.1,0.2)`), `src/AgentMemory.Extensibility.Ampack`, `src/AgentMemory.Extensibility.Neo4j`, `src/AgentMemory.Extensibility.AgentFramework`, every `src/AgentMemory.Packs.*` library, `tools/Ampack`, `reader-rs`, `conformance/pack-v1.1` |
 | **MIT** | Everything else: `AgentMemory.Core`, `AgentMemory.Abstractions`, `AgentMemory.Neo4j`, the Agent Framework, Semantic Kernel and MCP adapters, the samples, the benchmarks, the remaining tools, and the sample knowledge pack under `packs/` |
 | **CC BY 4.0** | The specification texts and data files in `spec/` (see `spec/LICENSE.md`) |
 
