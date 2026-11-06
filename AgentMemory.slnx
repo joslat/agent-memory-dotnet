@@ -2,6 +2,7 @@
   <Folder Name="/samples/">
     <Project Path="samples/AgentMemory.Sample.AgentWithMemory/AgentMemory.Sample.AgentWithMemory.csproj" />
     <Project Path="samples/AgentMemory.Sample.ConversationalAgent/AgentMemory.Sample.ConversationalAgent.csproj" />
+    <Project Path="samples/AgentMemory.Sample.CopilotAgent/AgentMemory.Sample.CopilotAgent.csproj" />
     <Project Path="samples/AspireDemo/AspireDemo.AppHost/AspireDemo.AppHost.csproj" />
     <Project Path="samples/AspireDemo/AspireDemo.DemoApp/AspireDemo.DemoApp.csproj" />
     <Project Path="samples/AgentMemory.Sample.BlendedAgent/AgentMemory.Sample.BlendedAgent.csproj" />
@@ -34,12 +35,24 @@
     <Project Path="src/AgentMemory.Extensibility.AgentFramework/AgentMemory.Extensibility.AgentFramework.csproj" />
     <Project Path="src/AgentMemory.Gate/AgentMemory.Gate.csproj" />
     <Project Path="src/AgentMemory.Validation/AgentMemory.Validation.csproj" />
+    <Project Path="src/AgentMemory.Packs.Repository/AgentMemory.Packs.Repository.csproj" />
+    <Project Path="src/AgentMemory.Packs.CodeMap/AgentMemory.Packs.CodeMap.csproj" />
+    <Project Path="src/AgentMemory.Packs.CodeMap.Roslyn/AgentMemory.Packs.CodeMap.Roslyn.csproj" />
+    <Project Path="src/AgentMemory.Packs.Architecture/AgentMemory.Packs.Architecture.csproj" />
+    <Project Path="src/AgentMemory.Packs.Intent/AgentMemory.Packs.Intent.csproj" />
+    <Project Path="src/AgentMemory.Packs.Decisions/AgentMemory.Packs.Decisions.csproj" />
+    <Project Path="src/AgentMemory.Packs.Coding/AgentMemory.Packs.Coding.csproj" />
+    <Project Path="src/AgentMemory.Packs.Work/AgentMemory.Packs.Work.csproj" />
+    <Project Path="src/AgentMemory.Packs.Format/AgentMemory.Packs.Format.csproj" />
+    <Project Path="src/AgentMemory.Packs.Solid/AgentMemory.Packs.Solid.csproj" />
+    <Project Path="src/AgentMemory.Extensibility.Ampack/AgentMemory.Extensibility.Ampack.csproj" />
     <Project Path="src/AgentMemory.McpServer.Nams/AgentMemory.McpServer.Nams.csproj" />
     <Project Path="src/AgentMemory/AgentMemory.csproj" />
     <Project Path="src/AgentMemory.SemanticKernel/AgentMemory.SemanticKernel.csproj" />
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/AgentMemory.Cli/AgentMemory.Cli.csproj" />
+    <Project Path="tools/Ampack/Ampack.csproj" />
     <Project Path="tools/AgentMemory.Decisions/AgentMemory.Decisions.csproj" />
     <Project Path="tools/AgentMemory.LongMemEval/AgentMemory.LongMemEval.csproj" />
     <Project Path="tools/AgentMemory.McpHost/AgentMemory.McpHost.csproj" />
@@ -53,6 +66,7 @@
     <Project Path="tests/AgentMemory.Tests.Unit/AgentMemory.Tests.Unit.csproj" />
     <Project Path="tests/AgentMemory.Tests.Unit.LongMemEval/AgentMemory.Tests.Unit.LongMemEval.csproj" />
     <Project Path="tests/AgentMemory.Tests.Unit.Extensibility/AgentMemory.Tests.Unit.Extensibility.csproj" />
+    <Project Path="tests/AgentMemory.Tests.Unit.PackFormat/AgentMemory.Tests.Unit.PackFormat.csproj" />
     <Project Path="tests/AgentMemory.Tests.Unit.SemanticKernel/AgentMemory.Tests.Unit.SemanticKernel.csproj" />
   </Folder>
   <Folder Name="/tests/Fixtures/">

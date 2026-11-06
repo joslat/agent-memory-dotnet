@@ -6,6 +6,7 @@ using ModelContextProtocol.Server;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
+using AgentMemory.McpServer.Security;
 
 namespace AgentMemory.McpServer.Tools;
 
@@ -15,7 +16,7 @@ namespace AgentMemory.McpServer.Tools;
 [McpServerToolType]
 internal sealed class CoreMemoryTools
 {
-    [McpServerTool(Name = "memory_search"), Description("Search agent memory for relevant context matching a query. Returns assembled memory context with recent messages, entities, facts, and preferences.")]
+    [McpServerTool(Name = "memory_search"), Description("Search agent memory for relevant context matching a query. Returns assembled memory context with recent messages, entities, facts, and preferences." + McpRecallGuard.DescriptionSuffix)]
     public static async Task<string> MemorySearch(
         IMemoryService memoryService,
         IOptions<AgentMemoryMcpOptions> options,
@@ -66,11 +67,11 @@ internal sealed class CoreMemoryTools
             // 0.7. Projected, never the domain objects: Entity, Fact, Preference and ReasoningTrace
             // each carry an embedding, so serializing them raw put 384 or 1536 floats per item on the
             // wire on every single recall.
-            context = McpMemoryProjection.Context(result.Context)
+            context = McpMemoryProjection.Context(result.Context, McpRecallGuard.From(options.Value))
         });
     }
 
-    [McpServerTool(Name = "memory_get_context"), Description("Get assembled memory context for the current conversation. Similar to memory_search but returns the full structured context object.")]
+    [McpServerTool(Name = "memory_get_context"), Description("Get assembled memory context for the current conversation. Similar to memory_search but returns the full structured context object." + McpRecallGuard.DescriptionSuffix)]
     public static async Task<string> MemoryGetContext(
         IMemoryService memoryService,
         IOptions<AgentMemoryMcpOptions> options,
@@ -93,7 +94,7 @@ internal sealed class CoreMemoryTools
             result.EstimatedTokenCount,
             result.Truncated,
             result.Metadata,
-            context = McpMemoryProjection.Context(result.Context),
+            context = McpMemoryProjection.Context(result.Context, McpRecallGuard.From(options.Value)),
         });
     }
 

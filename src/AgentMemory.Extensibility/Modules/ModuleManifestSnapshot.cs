@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 using System.Diagnostics.CodeAnalysis;
 
 namespace AgentMemory.Extensibility.Modules;
@@ -17,8 +18,11 @@ internal static class ModuleManifestSnapshot
         Views = List(m.Views, view => view with
         {
             Where = List(view.Where, filter => filter with { Value = filter.Value.Clone() }),
-            OrderBy = view.OrderBy is null ? null : view.OrderBy with { }
-        })
+            OrderBy = view.OrderBy is null ? null : view.OrderBy with { },
+            Search = view.Search is null ? null : view.Search with { Properties = List(view.Search.Properties, value => value) }
+        }),
+        Seed = m.Seed is null ? null : List(m.Seed, value => value),
+        Display = m.Display is null ? null : m.Display with { }
     };
 
     // Preserve malformed nulls for the local validator, rather than silently repairing input.

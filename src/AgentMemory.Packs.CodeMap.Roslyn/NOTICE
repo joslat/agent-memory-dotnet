@@ -1,0 +1,7 @@
+AgentMemory.Packs.CodeMap.Roslyn
+Part of Agent Memory for .NET, https://github.com/joslat/agent-memory-dotnet
+Copyright 2026 Jose Luis Latorre Millas
+
+Licensed under the Apache License, Version 2.0; see the LICENSE file.
+A proposed patent pledge (a draft until issued) for implementations of the ampack specification that do not use this code is at
+https://github.com/joslat/agent-memory-dotnet/blob/main/PATENTS.md

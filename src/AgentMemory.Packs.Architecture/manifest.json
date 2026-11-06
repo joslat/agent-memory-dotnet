@@ -1,0 +1,431 @@
+{
+  "format": "agentmemory.module/v1alpha1",
+  "id": "io.agentmemory.packs.architecture",
+  "version": "0.1.0-preview.1",
+  "sdk": "[0.1,0.2)",
+  "display": {
+    "title": "Architecture",
+    "description": "The project's systems, components, APIs and their operations, the packages it ships and who owns what, from Backstage catalogs, OpenAPI and AsyncAPI documents, SBOMs and Structurizr workspaces.",
+    "color": "#5B4BB7"
+  },
+  "ontology": {
+    "labelPrefix": "Architecture",
+    "types": [
+      {
+        "name": "ArchitectureSystem",
+        "scope": "shared",
+        "description": "A software system: what a team ships and others depend on.",
+        "render": "System {name}: {description}",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "required": true
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "domain": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "owner": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "source": {
+            "type": "string",
+            "maxLength": 512,
+            "required": true,
+            "description": "The file (and entity or path) it came from"
+          }
+        }
+      },
+      {
+        "name": "ArchitectureComponent",
+        "scope": "shared",
+        "description": "A deployable or buildable part of a system: a service, a website, a library, a database or a C4 container.",
+        "render": "Component {name} ({kind}{technology}): {description}",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "required": true
+          },
+          "kind": {
+            "type": "string",
+            "maxLength": 64,
+            "required": true,
+            "description": "service, website, library, resource, container, ..."
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "technology": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "lifecycle": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "owner": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "path": {
+            "type": "string",
+            "maxLength": 1000,
+            "description": "Source folders as globs, space-separated"
+          },
+          "source": {
+            "type": "string",
+            "maxLength": 512,
+            "required": true,
+            "description": "The file (and entity or path) it came from"
+          }
+        }
+      },
+      {
+        "name": "ArchitectureApi",
+        "scope": "shared",
+        "description": "An interface a component provides: OpenAPI, AsyncAPI, gRPC, GraphQL.",
+        "render": "API {name} ({kind} {version}): {description}",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "required": true
+          },
+          "kind": {
+            "type": "string",
+            "maxLength": 64,
+            "required": true,
+            "description": "openapi, asyncapi, grpc, graphql, other"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "version": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "owner": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "file": {
+            "type": "string",
+            "maxLength": 512,
+            "description": "The document that defines it, repository-relative"
+          },
+          "operations": {
+            "type": "int",
+            "description": "How many operations its document defines"
+          },
+          "source": {
+            "type": "string",
+            "maxLength": 512,
+            "required": true,
+            "description": "The file (and entity or path) it came from"
+          }
+        }
+      },
+      {
+        "name": "ArchitectureOperation",
+        "scope": "shared",
+        "description": "One operation of an API: an HTTP method on a path, or a message on a channel.",
+        "render": "{name}: {summary}",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 600,
+            "required": true,
+            "description": "GET /pets/{id}, or send orders.created"
+          },
+          "method": {
+            "type": "string",
+            "maxLength": 16,
+            "required": true
+          },
+          "path": {
+            "type": "string",
+            "maxLength": 512,
+            "required": true,
+            "description": "The HTTP path or the channel"
+          },
+          "operationId": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "file": {
+            "type": "string",
+            "maxLength": 512,
+            "required": true
+          },
+          "source": {
+            "type": "string",
+            "maxLength": 512,
+            "required": true,
+            "description": "The file (and entity or path) it came from"
+          }
+        }
+      },
+      {
+        "name": "ArchitectureDependency",
+        "scope": "shared",
+        "description": "A package a component depends on, from an SBOM.",
+        "render": "Package {name} {version} ({licenses})",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 300,
+            "required": true
+          },
+          "version": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "purl": {
+            "type": "string",
+            "maxLength": 600
+          },
+          "licenses": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "kind": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "source": {
+            "type": "string",
+            "maxLength": 512,
+            "required": true,
+            "description": "The file (and entity or path) it came from"
+          }
+        }
+      },
+      {
+        "name": "ArchitectureOwner",
+        "scope": "shared",
+        "description": "A team or a person that owns systems, components or APIs.",
+        "render": "Owner {name} ({kind})",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "required": true
+          },
+          "kind": {
+            "type": "string",
+            "maxLength": 32,
+            "required": true,
+            "description": "group, user, or unknown when only named"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "source": {
+            "type": "string",
+            "maxLength": 512,
+            "required": true,
+            "description": "The file (and entity or path) it came from"
+          }
+        }
+      }
+    ],
+    "relations": [
+      {
+        "name": "ARCHITECTURE_PART_OF",
+        "from": "ArchitectureComponent",
+        "to": "ArchitectureSystem",
+        "description": "The component belongs to the system",
+        "max": 1
+      },
+      {
+        "name": "ARCHITECTURE_PROVIDES",
+        "from": "ArchitectureComponent",
+        "to": "ArchitectureApi",
+        "description": "The component provides the API"
+      },
+      {
+        "name": "ARCHITECTURE_CONSUMES",
+        "from": "ArchitectureComponent",
+        "to": "ArchitectureApi",
+        "description": "The component consumes the API"
+      },
+      {
+        "name": "ARCHITECTURE_DEPENDS_ON",
+        "from": "ArchitectureComponent",
+        "to": "ArchitectureComponent",
+        "description": "The component depends on (uses) the other"
+      },
+      {
+        "name": "ARCHITECTURE_OPERATION_OF",
+        "from": "ArchitectureOperation",
+        "to": "ArchitectureApi",
+        "description": "The operation belongs to the API",
+        "max": 1
+      },
+      {
+        "name": "ARCHITECTURE_API_OF",
+        "from": "ArchitectureApi",
+        "to": "ArchitectureSystem",
+        "description": "The API belongs to the system",
+        "max": 1
+      },
+      {
+        "name": "ARCHITECTURE_USES_PACKAGE",
+        "from": "ArchitectureComponent",
+        "to": "ArchitectureDependency",
+        "description": "The component ships the package"
+      },
+      {
+        "name": "ARCHITECTURE_SYSTEM_OWNED_BY",
+        "from": "ArchitectureSystem",
+        "to": "ArchitectureOwner",
+        "description": "Who owns the system",
+        "max": 1
+      },
+      {
+        "name": "ARCHITECTURE_COMPONENT_OWNED_BY",
+        "from": "ArchitectureComponent",
+        "to": "ArchitectureOwner",
+        "description": "Who owns the component",
+        "max": 1
+      },
+      {
+        "name": "ARCHITECTURE_API_OWNED_BY",
+        "from": "ArchitectureApi",
+        "to": "ArchitectureOwner",
+        "description": "Who owns the API",
+        "max": 1
+      }
+    ]
+  },
+  "views": [
+    {
+      "id": "components",
+      "type": "ArchitectureComponent",
+      "search": {
+        "properties": [
+          "name",
+          "description",
+          "technology"
+        ]
+      },
+      "limit": 3
+    },
+    {
+      "id": "apis",
+      "type": "ArchitectureApi",
+      "search": {
+        "properties": [
+          "name",
+          "title",
+          "description"
+        ]
+      },
+      "limit": 3
+    },
+    {
+      "id": "operations",
+      "type": "ArchitectureOperation",
+      "search": {
+        "properties": [
+          "name",
+          "operationId",
+          "summary"
+        ]
+      },
+      "limit": 4
+    },
+    {
+      "id": "licences",
+      "type": "ArchitectureDependency",
+      "orderBy": "licenses",
+      "limit": 200
+    }
+  ],
+  "traversal": {
+    "anchors": [
+      {
+        "type": "ArchitectureApi",
+        "property": "file",
+        "match": "exact"
+      },
+      {
+        "type": "ArchitectureOperation",
+        "property": "operationId",
+        "match": "exact",
+        "kind": "symbol"
+      },
+      {
+        "type": "ArchitectureComponent",
+        "property": "path",
+        "match": "glob"
+      }
+    ],
+    "relations": [
+      {
+        "name": "ARCHITECTURE_OPERATION_OF",
+        "direction": "out",
+        "weightMicro": 900000,
+        "fanOut": 2
+      },
+      {
+        "name": "ARCHITECTURE_PROVIDES",
+        "direction": "in",
+        "weightMicro": 850000,
+        "fanOut": 4
+      },
+      {
+        "name": "ARCHITECTURE_CONSUMES",
+        "direction": "in",
+        "weightMicro": 700000,
+        "fanOut": 8
+      },
+      {
+        "name": "ARCHITECTURE_PART_OF",
+        "direction": "out",
+        "weightMicro": 600000,
+        "fanOut": 2
+      },
+      {
+        "name": "ARCHITECTURE_COMPONENT_OWNED_BY",
+        "direction": "out",
+        "weightMicro": 600000,
+        "fanOut": 2
+      },
+      {
+        "name": "ARCHITECTURE_API_OWNED_BY",
+        "direction": "out",
+        "weightMicro": 600000,
+        "fanOut": 2
+      },
+      {
+        "name": "ARCHITECTURE_DEPENDS_ON",
+        "direction": "out",
+        "weightMicro": 500000,
+        "fanOut": 6
+      }
+    ],
+    "hubs": [
+      "ArchitectureSystem"
+    ],
+    "maxItems": 3
+  }
+}

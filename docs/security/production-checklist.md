@@ -42,6 +42,13 @@ items below are how you actually achieve that today.
 - [ ] `AgentMemoryMcpOptions.EnableGraphQuery` is **off** unless the caller is fully trusted (e.g. an
       internal admin tool) — it executes arbitrary caller-supplied Cypher with no scoping or limits
       (closes TT-08).
+- [ ] MCP clients that hand recalled memory to an autonomous agent run with
+      `AgentMemoryMcpOptions.RecallSecurityMode = Strict`, which withholds instruction-like recalled text from
+      sources below `MinimumTrustForAdmissionBypass`. In either mode every recall tool marks each item with
+      `trustLevel` and `instructionLike` and escapes its angle brackets (TT-05). In the shipped host:
+      `agent-memory-mcp --strict-recall` or `AGENT_MEMORY_MCP_STRICT_RECALL=true`.
+- [ ] `graph_query`, `memory_export_graph` and `memory_find_duplicates` (all behind `EnableGraphQuery`, off by
+      default) return stored graph content as it is, outside the recall guard: expose them only to trusted callers.
 - [ ] Administrative operations (`MemoryScope.Global`, cross-owner reads/writes) are not exposed to
       tenant-facing agents or MCP clients. There is no dedicated administrative API today —
       `MemoryOperationAccess.Administrative` exists in the isolation-policy interface but has no call

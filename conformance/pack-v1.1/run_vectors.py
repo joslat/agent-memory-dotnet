@@ -1,0 +1,1810 @@
+# SPDX-License-Identifier: Apache-2.0
+"""Conformance vectors for memory pack format v1.2, checked by two independent verifiers.
+
+Builds a valid pack with `ampack`, derives tampered and ambiguous variants with a separate Python writer, builds one pack
+entirely in Python (canonical list, DSSE signature, strict ZIP), and requires `ampack verify` (.NET) and
+python/ampack_verify.py to reach the expected outcome on every vector. Writes vectors/, trust.json and results.json.
+
+usage: python run_vectors.py <path to Ampack executable> [<out folder>] [--keep-work]
+"""
+import base64
+import hashlib
+import json
+import re
+import os
+import shutil
+import struct
+import subprocess
+import sys
+import zlib
+from datetime import datetime, timezone
+from pathlib import Path
+
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE / "python"))
+import ampack_verify as py  # noqa: E402
+
+_POSITIONAL = [a for a in sys.argv[1:] if not a.startswith("--")]  # flags (--keep-work) are not positions
+AMPACK = str(Path(_POSITIONAL[0]).resolve())  # the vectors are built in a work folder: a relative path would not resolve there
+OUT = (Path(_POSITIONAL[1]) if len(_POSITIONAL) > 1 else HERE).resolve()  # absolute, so messages relativise against it
+VECTORS = OUT / "vectors"
+
+
+def ampack(*args, env=None):
+    r = subprocess.run([AMPACK, *args], capture_output=True, text=True, encoding="utf-8", errors="replace",
+                       env={**os.environ, **env} if env else None)
+    return r.returncode, (r.stdout + r.stderr).strip()
+
+
+def odd_deflate(content):
+    """Review 18, H1: the content in stored blocks, then a final dynamic block whose distance code is one code of length 2,
+    an incomplete set zlib refuses ("invalid distances set") and a lenient inflater accepted."""
+    bits, out = [0, 0], bytearray()
+
+    def put(value, n):
+        bits[0] |= value << bits[1]
+        bits[1] += n
+        while bits[1] >= 8:
+            out.append(bits[0] & 255)
+            bits[0] >>= 8
+            bits[1] -= 8
+
+    def huff(code, n):
+        put(int(format(code, f"0{n}b")[::-1], 2), n)
+
+    def flush():
+        if bits[1]:
+            out.append(bits[0] & 255)
+            bits[0] = bits[1] = 0
+
+    for i in range(0, len(content), 65535):
+        chunk = content[i:i + 65535]
+        put(0, 1)
+        put(0, 2)
+        flush()
+        out.extend(struct.pack("<HH", len(chunk), len(chunk) ^ 0xFFFF) + chunk)
+    put(1, 1)
+    put(2, 2)
+    put(0, 5)
+    put(0, 5)
+    put(14, 4)
+    lengths = {18: 1, 1: 2, 2: 2}
+    for symbol in [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1]:
+        put(lengths.get(symbol, 0), 3)
+    huff(0, 1)
+    put(138 - 11, 7)
+    huff(0, 1)
+    put(118 - 11, 7)
+    huff(2, 2)
+    huff(3, 2)
+    huff(0, 1)
+    flush()
+    return bytes(out)
+
+
+def write_deflated_zip(files, junk=None, unfinished=(), streams=None, sizes=None):
+    """The strict profile with every entry deflated (method 8); `junk` maps a name to bytes appended after its deflate stream,
+    and an entry named in `unfinished` ends with a sync flush: all its data, no final block. `streams` maps a name to its
+    deflate bytes as given; `sizes` to a compressed size stated instead of the real one."""
+    out, central = bytearray(), []
+    for name in sorted(files):
+        data, nb = files[name], name.encode("ascii")
+        packer = zlib.compressobj(9, zlib.DEFLATED, -15)
+        packed = (streams or {}).get(name) or packer.compress(data) + packer.flush(zlib.Z_SYNC_FLUSH if name in unfinished else zlib.Z_FINISH) + (junk or {}).get(name, b"")
+        crc, off = zlib.crc32(data) & 0xFFFFFFFF, len(out)
+        stated = (sizes or {}).get(name, len(packed))
+        out += b"PK\x03\x04" + struct.pack("<HHHHHIIIHH", 20, 0, 8, 0, 0x21, crc, stated, len(data), len(nb), 0) + nb + packed
+        central.append((nb, crc, stated, len(data), off))
+    start = len(out)
+    for nb, crc, csize, size, off in central:
+        out += b"PK\x01\x02" + struct.pack("<HHHHHHIIIHHHHHII", 20, 20, 0, 8, 0, 0x21, crc, csize, size, len(nb), 0, 0, 0, 0, 0, off) + nb
+    out += b"PK\x05\x06" + struct.pack("<HHHHIIH", 0, 0, len(central), len(central), len(out) - start, start, 0)
+    return bytes(out)
+
+
+def write_zip(files, order=None, mutate=None):
+    """A strict-profile writer, independent of the .NET one: stored entries, sorted, fixed time, no extras."""
+    out, central = bytearray(), []
+    for name in (order or sorted(files)):
+        data, nb = files[name], name.encode("ascii")
+        crc, off = zlib.crc32(data) & 0xFFFFFFFF, len(out)
+        out += b"PK\x03\x04" + struct.pack("<HHHHHIIIHH", 10, 0, 0, 0, 0x21, crc, len(data), len(data), len(nb), 0) + nb + data
+        central.append((nb, crc, len(data), off))
+    start = len(out)
+    for nb, crc, size, off in central:
+        out += b"PK\x01\x02" + struct.pack("<HHHHHHIIIHHHHHII", 20, 10, 0, 0, 0, 0x21, crc, size, size, len(nb), 0, 0, 0, 0, 0, off) + nb
+    out += b"PK\x05\x06" + struct.pack("<HHHHIIH", 0, 0, len(central), len(central), len(out) - start, start, 0)
+    return bytes(mutate(out) if mutate else out)
+
+
+def files_list(pid, version, content):
+    entries = [{"path": p, "length": len(b), "sha256": hashlib.sha256(b).hexdigest()} for p, b in sorted(content.items())]
+    return py.canonical({"format": py.FILES_FORMAT, "id": pid, "version": version, "files": entries}).encode()
+
+
+def sign(list_bytes, pid, version, key, role="publisher", signed_at="2026-10-26T12:00:00Z", payload_text=None, sig_text=None, extra_signatures=()):
+    statement = py.canonical({
+        "_type": py.STATEMENT,
+        "subject": [{"name": py.FILES, "digest": {"sha256": hashlib.sha256(list_bytes).hexdigest()}}],
+        "predicateType": f"urn:agentmemory:pack:{role}:v1",
+        "predicate": {"id": pid, "version": version, "role": role, "signedAt": signed_at},
+    }).encode()
+    spki = key.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+    sig = key.sign(py.pae(statement), ec.ECDSA(hashes.SHA256()))
+    signatures = [{"keyid": hashlib.sha256(spki).hexdigest(), "sig": sig_text(base64.b64encode(sig).decode()) if sig_text else base64.b64encode(sig).decode()},
+                  *extra_signatures]
+    envelope = py.canonical({"payloadType": py.PAYLOAD_TYPE,
+                             "payload": payload_text(base64.b64encode(statement).decode()) if payload_text else base64.b64encode(statement).decode(),
+                             "signatures": signatures}).encode()
+    return f"{py.SIGNATURES}{role}-{hashlib.sha256(spki).hexdigest()[:16]}.dsse.json", envelope
+
+
+def unpadded_pack(der):
+    """A DER signature with the sign pad of r (or else s) dropped, or None when neither has one."""
+    r = der[4:4 + der[3]]
+    s = der[6 + der[3]:]
+    if len(r) == 33: r = r[1:]
+    elif len(s) == 33: s = s[1:]
+    else: return None
+    return bytes([0x30, 4 + len(r) + len(s), 0x02, len(r)]) + r + bytes([0x02, len(s)]) + s
+
+
+
+# Edits of a finished DSSE envelope that the one closed shape refuses (review 4): an extra field, an entry with an extra key, an
+# entry without a signature, a key id in upper case.
+SHAPES = ("envelope-extra-field", "entry-extra-key", "entry-without-sig", "keyid-uppercase")
+
+# Review 5, L6 (root RJ): a refused vector proves its rule only if it is refused for that rule. Each vector named here must be
+# refused by both verifiers with the reason given (a pattern on each one's output); one refused for another reason fails.
+REASONS = {
+    "aggregate-noisy": ("mechanism is none", "mechanism is none"),
+    "aggregate-noisy-with-a-bound": ("mechanism is none", "mechanism is none"),
+    "aggregate-noisy-without-epsilon": ("mechanism is none", "mechanism is none"),
+    "policy-no-rules": ("policy.json holds 1 to 64 rules", "policy.json holds 1 to 64 rules"),
+    "policy-audience-empty": ("audience is 1 to 16 distinct entries", "audience is 1 to 16 distinct entries"),
+    "policy-audience-not-a-webid": ("audience is 1 to 16 distinct entries", "audience is 1 to 16 distinct entries"),
+    "policy-audience-twice": ("audience is 1 to 16 distinct entries", "audience is 1 to 16 distinct entries"),
+    "derivation-prompt-digest-trailing-newline": ("promptDigest is sha256: and 64 lowercase", "promptDigest is sha256: and 64 lowercase"),
+    "json-file-over-1-mib": ("larger than 1 MiB", "larger than 1 MiB"),
+    "jsonl-line-over-1-mib": ("longer than 1 MiB", "longer than 1 MiB"),
+    "files-list-over-2-mib": ("larger than 2 MiB", "larger than 2 MiB"),
+    "unsigned-with-wide-json": ("No valid publisher signature", "no valid signature in role publisher"),
+    "run-merged-signers-control-rotated-out-alone": ("no live signer", "without a live signer revokes a revoker"),
+    # Review 6, L6: vectors that isolate their rule, each refused for it and beside a control that verifies.
+    "envelope-over-64-kib": ("larger than 64 KiB", "larger than 64 KiB"),
+    "key-expired-after-signing": ("without a verified timestamp token", "without a verified timestamp token"),
+    "signature-in-the-future": ("claims a time in the future", "claims a time in the future"),
+    "archive-ratio-over-250": ("compression ratio above 250", "breaks a size rule"),
+    "archive-deflate-empty-declares-content": ("compression ratio above 250", "breaks a size rule"),
+    "archive-4097-files": ("more than 4096 files", "more than 4096 files"),
+    "deflate-damaged": ("is not a valid deflate stream", "is not a valid deflate stream"),
+    "composite-declares-sdk": ("composite pack declares no sdk", "composite pack declares no sdk"),
+    "composite-declares-containable-by": ("composite pack declares no containableBy", "composite pack declares no containableBy"),
+    "set-declares-requires": ("set pack declares no requires", "set pack declares no requires"),
+    "case-collision": ("differs from another only by case", "differs from another only by case"),
+    "run-live-list-revoking-the-pack-beside-others": ("is revoked", "the pack is revoked"),
+    "revocations-by-a-revoked-revoker-revoking-the-pack": ("is revoked", "the pack is revoked"),
+    "certificate-arms-differ": ("ran different numbers of tasks", "different numbers of tasks"),
+    "certificate-under-another-stem": ("not as its evaluator's key and evaluation time", "not as its evaluator's key and evaluation time"),
+    # Readable minors (review 1, M18): each refused for the versioning rule, beside controls that verify.
+    "minor-later-unknown-field-critical": ("does not understand it", "does not understand it"),
+    # Review 7, G3 to G5: a certificate's evidence means what it says.
+    "certificate-no-regression-target": ("names a known target|not a target|known target", "names a known target"),
+    "certificate-arms-spaced-differently": ("different spacings", "different spacings"),
+    "certificate-spacing-past-window": ("span more than", "span more than"),
+    "certificate-none-baseline-offers": ("offers nothing", "offers nothing"),
+    "certificate-host-baseline-cap-zero": ("cap of 1 or more", "cap of 1 or more"),
+    "minor-own-unknown-field-critical": ("unknown field 'timestamps'", "unknown field 'timestamps'"),
+    "minor-later-unknown-kind": ("needs a kind", "needs a known kind"),
+    "minor-earlier": ("reads the later 1.x minors", "reads the later 1.x minors"),
+    "minor-leading-zero": ("reads the later 1.x minors", "reads the later 1.x minors"),
+    "minor-major-two": ("reads the later 1.x minors", "reads the later 1.x minors"),
+    "minor-four-digits": ("reads the later 1.x minors", "reads the later 1.x minors"),
+    "critical-names-absent-field": ("holds no such field", "holds no such field"),
+    "critical-names-itself": ("holds no such field", "holds no such field"),
+    "critical-twice": ("critical field twice", "critical field twice"),
+    "critical-empty": ("malformed 'critical'", "malformed 'critical'"),
+    "critical-not-a-list": ("malformed 'critical'", "malformed 'critical'"),
+    "timestamp-token-beside-nothing": ("beside no envelope", "beside no envelope"),
+    "timestamp-token-over-64-kib": ("larger than 64 KiB", "larger than 64 KiB"),
+    # The closed shapes: beside a valid entry, each refused for its shape, not for an unknown key.
+    **{f"revocations-shape-{how}": ("not a DSSE envelope of a revocation document", "not a DSSE envelope of a revocation document") for how in SHAPES},
+    **{f"receipt-shape-{how}": ("not a DSSE envelope", "not a DSSE envelope") for how in SHAPES},
+    **{f"certificate-shape-{how}": ("not a DSSE envelope", "not a DSSE envelope") for how in SHAPES},
+}
+
+
+# Every other refused vector, held to the stable words each verifier says for it (review 7, L8: 32 of 291 were held to their
+# reason). pin_reasons.py writes reasons.json from a run, to be read before it is committed; REASONS above wins where both name one.
+_PINNED = json.loads((HERE / "reasons.json").read_text(encoding="utf-8"))["reasons"] if (HERE / "reasons.json").exists() else {}
+for _name, (_dn, _py) in _PINNED.items():
+    REASONS.setdefault(_name, (re.escape(_dn), re.escape(_py)))
+
+def refused_for(name, dotnet_text, python_text):
+    """Whether a vector named in REASONS was refused for its own rule by both verifiers (true for every other vector)."""
+    if name not in REASONS:
+        return True
+    dn, pyn = REASONS[name]
+    return re.search(dn, dotnet_text, re.I) is not None and re.search(pyn, python_text, re.I) is not None
+
+
+def with_bytes(arm, each):
+    """An arm whose every task also records the bytes it offered (feature 05): [offered, correct, bytes]."""
+    return {**arm, "perTask": [[*e, each] for e in arm["perTask"]]}
+
+
+def arm_(tasks, hits, offered, correct, p95, cap=None, spacing=8):
+    """A certificate arm with consistent per-task evidence (review 5): items spread evenly, one right item on each of the first
+    `hits` tasks and the rest of the right items on them too; the cap is the most any task offers unless given."""
+    per = [[offered // tasks + (1 if i < offered % tasks else 0), 0] for i in range(tasks)] if tasks else []
+    if hits > tasks or correct < hits or correct > sum(e[0] for e in per[:hits]) or any(e[0] == 0 for e in per[:hits]):
+        raise ValueError(f"no arm of {tasks} tasks has {hits} hits and {correct} of {offered} items right")
+    for i in range(min(hits, tasks)):
+        per[i][1] = 1
+    left, i = correct - hits, 0
+    while left > 0 and hits > 0:
+        if per[i][1] < per[i][0]:
+            per[i][1] += 1
+            left -= 1
+        i = (i + 1) % hits
+    return {"tasks": tasks, "hits": hits, "offered": offered, "correct": correct, "p95Micros": p95,
+            "maximumOffered": cap if cap is not None else max([1] + [e[0] for e in per]), "spacing": spacing, "perTask": per}
+
+
+def reshaped(envelope_bytes, how):
+    envelope = json.loads(envelope_bytes)
+    entry = envelope["signatures"][0]
+    if how == "envelope-extra-field":
+        envelope["note"] = "x"
+    elif how == "entry-extra-key":
+        entry["x"] = 1
+    elif how == "entry-without-sig":
+        envelope["signatures"].append({"keyid": "a" * 64})
+    else:
+        # Review 5, L6: beside the valid entry, so only the closed shape refuses it (upper-casing the one entry refused it
+        # without that rule too: no trusted key had that id).
+        envelope["signatures"].append(dict(entry, keyid=entry["keyid"].upper()))
+    return py.canonical(envelope).encode()
+
+
+def relative_to_kit(text):
+    """A reader's message with the kit's absolute folder removed (either slash), so it names files as the kit does."""
+    for prefix in {str(OUT) + os.sep, str(OUT).replace("\\", "/") + "/", str(OUT).replace("/", "\\") + "\\"}:
+        text = text.replace(prefix, "")
+    return text
+
+
+def main():
+    # Review 1, M14: the Python verifier keeps instants to 100 ns, as .NET does; two lists 100 ns apart are not the same instant.
+    assert py.instant("2026-10-29T00:00:00.0000001Z") > py.instant("2026-10-29T00:00:00Z")
+    assert py.instant("2026-10-29T00:00:00.0000002Z") > py.instant("2026-10-29T00:00:00.0000001Z")
+    assert py.instant("2026-10-29T00:00:00.1Z") == py.instant("2026-10-29T00:00:00.1000000Z")
+    if VECTORS.exists():
+        shutil.rmtree(VECTORS)
+    VECTORS.mkdir(parents=True)
+    work = OUT / ".work"
+    shutil.rmtree(work, ignore_errors=True)
+    work.mkdir()
+    code, text = ampack("keygen", "--out", str(work / "keys"), "--prefix", "io.example")
+    assert code == 0, text
+    entry = json.loads(text[text.index("{"):])
+    pem = (work / "keys" / "publisher.key.pem").read_bytes()
+    key = serialization.load_pem_private_key(pem, password=None)
+    policy = {"format": "agentmemory.pack.trust/1.1", "keys": [entry]}
+    (OUT / "trust.json").write_text(json.dumps(policy, separators=(",", ":")), encoding="utf-8")
+    # Feature 09: a signing key may carry a confidence cap; one that signs no pack may not (review 09, M1). Written here, before
+    # any vector reads them.
+    for name_, keys_ in {"trust-confidence-capped.json": [dict(entry, confidenceMicro=300000)],
+                         "trust-confidence-on-an-evaluator.json": [dict(entry, roles=["evaluator"], confidenceMicro=300000)]}.items():
+        (OUT / name_).write_text(json.dumps({**policy, "keys": keys_}, separators=(",", ":")), encoding="utf-8")
+    other_scope = {"format": "agentmemory.pack.trust/1.1", "keys": [dict(entry, idPrefixes=["io.other"])]}
+    (OUT / "trust-other-scope.json").write_text(json.dumps(other_scope, separators=(",", ":")), encoding="utf-8")
+    # PACK-conformance-v12: a key's window and the revocations' freshness, as host policies.
+    policies = {
+        "trust-key-expired.json": {"keys": [dict(entry, notAfter="2020-01-01T00:00:00Z")]},
+        "trust-key-not-yet-valid.json": {"keys": [dict(entry, notBefore="2099-01-01T00:00:00Z")]},
+        "trust-key-window-open.json": {"keys": [dict(entry, notBefore="2020-01-01T00:00:00Z", notAfter="2099-01-01T00:00:00Z")]},
+        # Review 6, L6: expired after the signature (2026-10-26) and before now, so only the check against now refuses it.
+        "trust-key-expired-after-signing.json": {"keys": [dict(entry, notAfter="2026-10-27T00:00:00Z")]},
+        "trust-revocations-stale.json": {"keys": [entry], "revoked": {"digests": [], "expires": "2020-01-01T00:00:00Z"}},
+    }
+    for name, body in policies.items():
+        (OUT / name).write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", **body}, separators=(",", ":")), encoding="utf-8")
+    # PACK-harden: a revoker key beside the publisher's, for signed revocation documents.
+    code, text = ampack("keygen", "--out", str(work / "keys"), "--name", "revoker", "--role", "revoker", "--prefix", "io.example")
+    assert code == 0, text
+    revoker = json.loads(text[text.index("{"):])
+    (OUT / "trust-with-revoker.json").write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", "keys": [entry, revoker]},
+                                                            separators=(",", ":")), encoding="utf-8")
+
+    assert ampack("init", str(work / "notes"), "--id", "io.example.notes", "--version", "1.0.0")[0] == 0
+    code, text = ampack("build", str(work / "notes"), "--key", str(work / "keys" / "publisher.key.pem"), "--out", str(VECTORS / "valid-dotnet.ampack"))
+    assert code == 0, text
+    base = py.read_zip((VECTORS / "valid-dotnet.ampack").read_bytes())
+    content = {p: b for p, b in base.items() if p != py.FILES and not p.startswith(py.SIGNATURES)}
+    pid, version = "io.example.notes", "1.0.0"
+
+    def signed(content_, pid_=pid, version_=version):
+        lb = files_list(pid_, version_, content_)
+        path, env = sign(lb, pid_, version_, key)
+        return {**content_, py.FILES: lb, path: env}
+
+    record = "records/note.jsonl"
+    vectors = {}  # name -> (files or raw bytes, policy file, expected)
+    vectors["valid-python-built"] = (signed(content), "trust.json", "verified")
+    vectors["valid-python-stored-from-dotnet"] = (dict(base), "trust.json", "verified")
+    vectors["tampered-record"] = ({**base, record: base[record].replace(b"Replace me", b"Replace me!")}, "trust.json", "refused")
+    vectors["extra-file"] = ({**base, "records/extra.jsonl": b'{"key":"x"}\n'}, "trust.json", "refused")
+    vectors["missing-file"] = ({p: b for p, b in base.items() if p != "ontology.json"}, "trust.json", "refused")
+    forged = {**content, record: base[record].replace(b"Replace me", b"Forged")}
+    vectors["relisted-with-old-signature"] = ({**forged, py.FILES: files_list(pid, version, forged),
+                                               **{p: b for p, b in base.items() if p.startswith(py.SIGNATURES)}}, "trust.json", "refused")
+    pretty = json.dumps(json.loads(base[py.FILES]), indent=1).encode()
+    vectors["non-canonical-list"] = ({**base, py.FILES: pretty}, "trust.json", "refused")
+    vectors["key-scoped-elsewhere"] = (dict(base), "trust-other-scope.json", "refused")
+    vectors["crlf-record"] = (signed({**content, record: content[record].replace(b"\n", b"\r\n")}), "trust.json", "refused")
+    vectors["bom-manifest"] = (signed({**content, "pack.json": b"\xef\xbb\xbf" + content["pack.json"]}), "trust.json", "refused")
+    # Completeness review (02): a lone surrogate, escaped, is not text; the JSON profile refuses it in every verifier.
+    vectors["json-lone-surrogate-escape"] = (signed({**content, record: b'{"key":"a","properties":{"text":"\\ud800"}}\n'}), "trust.json", "refused")
+    vectors["duplicate-key-record"] = (signed({**content, record: b'{"key":"a","key":"b"}\n'}), "trust.json", "refused")
+    vectors["device-name-path"] = (signed({**content, "records/CON.jsonl": b'{"key":"c"}\n'}), "trust.json", "refused")
+    vectors["pack-json-names-other-id"] = (signed(content, pid_="io.example.other"), "trust.json", "refused")
+    # Review 5, H1: authenticate first, and bounded parsing after: a listed JSON file and a JSONL line at most 1 MiB, the signed
+    # list at most 2 MiB (4,096 entries of the longest paths fit). At the bound and one byte over, each signed.
+    mib = 1 << 20
+    ontology = content["ontology.json"]
+    vectors["json-file-at-1-mib"] = (signed({**content, "ontology.json": ontology[:-1] + b" " * (mib - len(ontology)) + b"\n"}), "trust.json", "verified")
+    vectors["json-file-over-1-mib"] = (signed({**content, "ontology.json": ontology[:-1] + b" " * (mib + 1 - len(ontology)) + b"\n"}), "trust.json", "refused")
+    line = b'{"key":"long","text":"'
+    vectors["jsonl-line-at-1-mib"] = (signed({**content, "records/long.jsonl": line + b"a" * (mib - len(line) - 2) + b'"}\n'}), "trust.json", "verified")
+    vectors["jsonl-line-over-1-mib"] = (signed({**content, "records/long.jsonl": line + b"a" * (mib - len(line) - 1) + b'"}\n'}), "trust.json", "refused")
+    vectors["files-list-over-2-mib"] = ({**base, py.FILES: b"[" + b"{}," * (2 * mib // 3) + b"{}]"}, "trust.json", "refused")
+    # Unsigned, with a JSON file a verifier that parsed first would spend most of a second on: refused at its signatures.
+    vectors["unsigned-with-wide-json"] = ({**{p: b for p, b in signed({**content, "ontology.json": b"[" + b"{}," * (300 * 1024) + b"{}]\n"}).items()
+                                              if not p.startswith(py.SIGNATURES)}}, "trust.json", "refused")
+
+    # PACK-conformance-v12: pack.json's fields and kinds, as both verifiers check them.
+    def edited(**fields):
+        m = json.loads(content["pack.json"])
+        m.update(fields)
+        return {**content, "pack.json": (json.dumps(m, indent=2, ensure_ascii=False) + chr(10)).encode("utf-8")}
+    vectors["unknown-kind"] = (signed(edited(kind="bundle")), "trust.json", "refused")
+    vectors["unknown-tier"] = (signed(edited(tier="gold")), "trust.json", "refused")
+    vectors["unknown-code-tier"] = (signed(edited(code="E9")), "trust.json", "refused")
+    vectors["valid-until-passed"] = (signed(edited(validUntil="2020-01-01T00:00:00Z")), "trust.json", "refused")
+    vectors["valid-until-ahead"] = (signed(edited(validUntil="2099-01-01T00:00:00Z")), "trust.json", "verified")
+    # Feature 01 (review C8): verified packs that use profiles, so the kit compares how both verifiers derive them.
+    newline = chr(10).encode()
+    vectors["profile-open-pack-with-seal"] = (signed({**content, "META/seal.json": b'{"format":"agentmemory.pack.seal/1.2"}' + newline}), "trust.json", "verified")
+    vectors["profile-walk"] = (signed({**content, "traversal.json": b"{}" + newline}), "trust.json", "verified")
+    vectors["profile-code-tier"] = (signed(edited(code="E1")), "trust.json", "verified")
+    # Feature 03: the Embeddings profile. A set is embeddings/<name>.st (one tensor in the safetensors layout) and its index
+    # embeddings/<name>.json; both verifiers read them strictly, against each other and the pack's records.
+    row = ["NotesNote", "note-1"]
+
+    def tensor(rows=1, dim=4, dtype="F32", values=None, header=None, pad=0, trailing=b"", length=None):
+        size = 4 if dtype == "F32" else 2
+        values = values if values is not None else [0.5] * (rows * dim)
+        data = b"".join(struct.pack("<f" if dtype == "F32" else "<e", v) for v in values)
+        head = header if header is not None else {"vectors": {"dtype": dtype, "shape": [rows, dim], "data_offsets": [0, rows * dim * size]}}
+        body = json.dumps(head, separators=(",", ":")).encode() + b" " * pad
+        return struct.pack("<Q", len(body) if length is None else length) + body + data + trailing
+
+    def index(**over):
+        value = {"format": "ampack.embeddings/1", "model": "example-embedder-4", "dtype": "F32", "dimension": 4, "normalized": False,
+                 "distance": "cosine", "rows": [row]}
+        value.update(over)
+        return json.dumps(value).encode()
+
+    def embedded(st=None, ix=None, name="notes"):
+        files = {**content}
+        if st is not False:
+            files[f"embeddings/{name}.st"] = st if st is not None else tensor()
+        if ix is not False:
+            files[f"embeddings/{name}.json"] = ix if ix is not None else index()
+        return signed(files)
+
+    vectors["embeddings-valid"] = (embedded(), "trust.json", "verified")
+    vectors["embeddings-f16"] = (embedded(tensor(dtype="F16"), index(dtype="F16")), "trust.json", "verified")
+    vectors["embeddings-header-padded"] = (embedded(tensor(pad=7)), "trust.json", "verified")
+    vectors["embeddings-header-lies"] = (embedded(tensor(length=4096)), "trust.json", "refused")
+    vectors["embeddings-shape-not-the-rows"] = (embedded(tensor(rows=2)), "trust.json", "refused")
+    vectors["embeddings-second-tensor"] = (embedded(tensor(header={"vectors": {"dtype": "F32", "shape": [1, 4], "data_offsets": [0, 16]},
+                                                                    "other": {"dtype": "F32", "shape": [1, 4], "data_offsets": [16, 32]}})), "trust.json", "refused")
+    vectors["embeddings-metadata"] = (embedded(tensor(header={"__metadata__": {"model": "x"}, "vectors": {"dtype": "F32", "shape": [1, 4], "data_offsets": [0, 16]}})),
+                                      "trust.json", "refused")
+    vectors["embeddings-row-not-a-record"] = (embedded(ix=index(rows=[["NotesNote", "note-2"]])), "trust.json", "refused")
+    vectors["embeddings-nan"] = (embedded(tensor(values=[0.5, float("nan"), 0.5, 0.5])), "trust.json", "refused")
+    vectors["embeddings-trailing-bytes"] = (embedded(tensor(trailing=b"\x00\x00\x00\x00")), "trust.json", "refused")
+    vectors["embeddings-without-its-index"] = (embedded(ix=False), "trust.json", "refused")
+    vectors["embeddings-dtype-not-the-index-s"] = (embedded(ix=index(dtype="F16")), "trust.json", "refused")
+    # Review F03: the rest of each rule, one vector a rule (M4), and the two disagreements found (H1, H2).
+    vectors["embeddings-f16-nan"] = (embedded(tensor(dtype="F16", values=[0.5, float("nan"), 0.5, 0.5]), index(dtype="F16")), "trust.json", "refused")
+    vectors["embeddings-header-at-64-kib"] = (embedded(tensor(pad=65536 - len(tensor()[8:-16]))), "trust.json", "verified")
+    vectors["embeddings-header-past-64-kib"] = (embedded(tensor(pad=65537 - len(tensor()[8:-16]))), "trust.json", "refused")
+    head, data = tensor()[8:-16], tensor()[-16:]
+    vectors["embeddings-header-leading-space"] = (embedded(struct.pack("<Q", len(head) + 1) + b" " + head + data), "trust.json", "refused")
+    vectors["embeddings-header-trailing-line-feed"] = (embedded(struct.pack("<Q", len(head) + 1) + head + b"\n" + data), "trust.json", "refused")
+    vectors["embeddings-dimension-zero"] = (embedded(tensor(dim=0), index(dimension=0)), "trust.json", "refused")
+    vectors["embeddings-dimension-past-4096"] = (embedded(tensor(dim=4097), index(dimension=4097)), "trust.json", "refused")
+    vectors["embeddings-row-twice"] = (embedded(tensor(rows=2), index(rows=[row, row])), "trust.json", "refused")
+    vectors["embeddings-index-without-its-tensor"] = (embedded(st=False), "trust.json", "refused")
+    nine = {**content, **{f"embeddings/s{i}.st": tensor() for i in range(9)}, **{f"embeddings/s{i}.json": index() for i in range(9)}}
+    vectors["embeddings-nine-sets"] = (signed(nine), "trust.json", "refused")
+    eight = {**content, **{f"embeddings/s{i}.st": tensor() for i in range(8)}, **{f"embeddings/s{i}.json": index() for i in range(8)}}
+    vectors["embeddings-eight-sets"] = (signed(eight), "trust.json", "verified")
+    keyless = {**content, "records/keyless.jsonl": b'{"type":"NotesNote","properties":{"title":"t","text":"x"}}\n',
+               "embeddings/notes.st": tensor(), "embeddings/notes.json": index(rows=[["NotesNote", ""]])}
+    vectors["embeddings-row-of-a-line-without-a-key"] = (signed(keyless), "trust.json", "refused")
+    deep = {**content, "records/deep.jsonl": b'{"type":"NotesNote","key":"d","properties":' + b"[" * 5000 + b"]" * 5000 + b"}\n",
+            "embeddings/notes.st": tensor(), "embeddings/notes.json": index()}
+    vectors["embeddings-beside-a-line-nested-too-deep"] = (signed(deep), "trust.json", "refused")
+    vectors["valid-until-not-rfc3339"] = (signed(edited(validUntil="2099-01-01")), "trust.json", "refused")
+    vectors["source-commit-not-hex"] = (signed(edited(source={"commit": "main"})), "trust.json", "refused")
+    vectors["source-valid"] = (signed(edited(source={"repository": "https://example.com/notes", "commit": "0a1b2c3",
+                                                     "builtAt": "2026-10-27T00:00:00Z"})), "trust.json", "verified")
+    vectors["containable-by-not-an-id"] = (signed(edited(containableBy=["Not An Id"])), "trust.json", "refused")
+    vectors["knowledge-without-records"] = (signed({p: b for p, b in content.items() if not p.startswith("records/")}), "trust.json", "refused")
+    vectors["definition-with-records"] = (signed(edited(kind="definition")), "trust.json", "refused")
+    vectors["protected-without-seal"] = (signed(edited(protection="audience")), "trust.json", "refused")
+
+    # A key's window and the revocations, judged against now as well as the claimed signing time.
+    vectors["key-expired"] = (dict(base), "trust-key-expired.json", "refused")
+    vectors["key-not-yet-valid"] = (dict(base), "trust-key-not-yet-valid.json", "refused")
+    vectors["key-window-open"] = (dict(base), "trust-key-window-open.json", "verified")
+    vectors["revocations-stale"] = (dict(base), "trust-revocations-stale.json", "refused")
+
+    # Signed revocation documents (PACK-harden): applied to the policy by both verifiers.
+    digest = "sha256:" + hashlib.sha256(base[py.FILES]).hexdigest()
+    def revoke(name, *args, env=None):
+        code, text = ampack("revoke", str(OUT / name), *args, env=env)
+        assert code == 0, text
+        return name
+    keys_dir = work / "keys"
+    revocations = {
+        "revocations-none": (revoke("revocations-none.json", "--key", str(keys_dir / "revoker.key.pem"), "--expires", "2099-01-01T00:00:00Z"), "verified"),
+        "revocations-digest": (revoke("revocations-digest.json", "--key", str(keys_dir / "revoker.key.pem"), "--expires", "2099-01-01T00:00:00Z",
+                                      "--digests", digest), "refused"),
+        "revocations-key": (revoke("revocations-key.json", "--key", str(keys_dir / "revoker.key.pem"), "--expires", "2099-01-01T00:00:00Z",
+                                   "--keys", entry["keyId"]), "refused"),
+        "revocations-expired": (revoke("revocations-expired.json", "--key", str(keys_dir / "revoker.key.pem"), "--expires", "2020-06-01T00:00:00Z",
+                                       env={"SOURCE_DATE_EPOCH": "1577836800"}), "refused"),
+        "revocations-issued-in-the-future": (revoke("revocations-future.json", "--key", str(keys_dir / "revoker.key.pem"), "--expires", "2100-01-01T00:00:00Z",
+                                                    env={"SOURCE_DATE_EPOCH": "4070908800"}), "refused"),
+        "revocations-by-a-publisher-key": (revoke("revocations-publisher.json", "--key", str(keys_dir / "publisher.key.pem"), "--expires", "2099-01-01T00:00:00Z"),
+                                           "refused"),
+    }
+    none_env = json.loads((OUT / "revocations-none.json").read_bytes())
+    none_doc = json.loads(base64.b64decode(none_env["payload"]))
+    tampered = {**none_env, "payload": base64.b64encode(py.canonical({**none_doc, "expires": "2199-01-01T00:00:00Z"}).encode()).decode()}
+    (OUT / "revocations-tampered.json").write_bytes(py.canonical(tampered).encode())
+    revocations["revocations-tampered"] = ("revocations-tampered.json", "refused")
+    # Signed by this writer, applied by .NET: the document is language-neutral too.
+    revoker_key = serialization.load_pem_private_key((keys_dir / "revoker.key.pem").read_bytes(), password=None)
+    payload = py.canonical({"format": py.REVOCATIONS_FORMAT, "issuedAt": "2026-10-27T00:00:00Z", "expires": "2099-01-01T00:00:00Z",
+                            "digests": [digest], "keys": []}).encode()
+    signed_doc = f"DSSEv1 {len(py.REVOCATIONS_TYPE)} {py.REVOCATIONS_TYPE} {len(payload)} ".encode() + payload
+    sig = revoker_key.sign(signed_doc, ec.ECDSA(hashes.SHA256()))
+    (OUT / "revocations-python.json").write_bytes(py.canonical({"payloadType": py.REVOCATIONS_TYPE, "payload": base64.b64encode(payload).decode(),
+        "signatures": [{"keyid": revoker["keyId"], "sig": base64.b64encode(sig).decode()}]}).encode())
+    revocations["revocations-python-signed"] = ("revocations-python.json", "refused")
+    # The sixth review: an ECDSA INTEGER whose sign pad was dropped reads as negative. OpenSSL refuses it; .NET took it, so
+    # anyone holding a signed pack or list could make the verifiers disagree. Both refuse it now.
+    def unpadded(der):
+        r = der[4:4 + der[3]]
+        s_ = der[6 + der[3]:]
+        if len(r) == 33: r = r[1:]
+        elif len(s_) == 33: s_ = s_[1:]
+        else: return None
+        return bytes([0x30, 4 + len(r) + len(s_), 0x02, len(r)]) + r + bytes([0x02, len(s_)]) + s_
+    # On a list that revokes nothing, so only the signature's encoding decides: well formed it verifies, unpadded it is refused.
+    nothing = py.canonical({"format": py.REVOCATIONS_FORMAT, "issuedAt": "2026-10-27T00:00:00Z", "expires": "2099-01-01T00:00:00Z",
+                            "digests": [], "keys": []}).encode()
+    nothing_signed = f"DSSEv1 {len(py.REVOCATIONS_TYPE)} {py.REVOCATIONS_TYPE} {len(nothing)} ".encode() + nothing
+    while (negative := unpadded(padded := revoker_key.sign(nothing_signed, ec.ECDSA(hashes.SHA256())))) is None:
+        pass
+    # The seventh review: a list from a revoker the policy revokes still denies what it names, and nothing else.
+    revoked_revoker = {"format": "agentmemory.pack.trust/1.1", "keys": [entry, revoker], "revoked": {"digests": [], "keys": [{"keyId": revoker["keyId"]}]}}
+    (OUT / "trust-revoker-revoked.json").write_text(json.dumps(revoked_revoker, separators=(",", ":")), encoding="utf-8")
+    for name, signature, expected in (("revocations-padded-integer", padded, "verified"), ("revocations-negative-integer", negative, "refused")):
+        (OUT / f"{name}.json").write_bytes(py.canonical({"payloadType": py.REVOCATIONS_TYPE, "payload": base64.b64encode(nothing).decode(),
+            "signatures": [{"keyid": revoker["keyId"], "sig": base64.b64encode(signature).decode()}]}).encode())
+        revocations[name] = (f"{name}.json", expected)
+    for name, (document, expected) in revocations.items():
+        vectors[name] = (dict(base), "trust-with-revoker.json", expected, document)
+    vectors["revocations-by-a-revoked-revoker-revoking-nothing"] = (dict(base), "trust-revoker-revoked.json", "verified", "revocations-none.json")
+    vectors["revocations-by-a-revoked-revoker-revoking-the-pack"] = (dict(base), "trust-revoker-revoked.json", "refused", "revocations-digest.json")
+    # The eighth review: a revoker that a non-live list revoked must not come back to life; a revoker holds that role alone.
+    code, text = ampack("keygen", "--out", str(work / "keys2"), "--name", "second", "--role", "revoker", "--prefix", "io.example")
+    assert code == 0, text
+    second = json.loads(text[text.index("{"):])
+    (OUT / "trust-two-revokers-first-revoked.json").write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", "keys": [entry, revoker, second],
+        "revoked": {"digests": [], "keys": [{"keyId": revoker["keyId"]}]}}, separators=(",", ":")), encoding="utf-8")
+    revoke("revocations-revoking-the-second-revoker.json", "--key", str(keys_dir / "revoker.key.pem"), "--expires", "2099-01-01T00:00:00Z", "--keys", second["keyId"])
+    vectors["revocations-non-live-list-revoking-a-live-revoker"] = (dict(base), "trust-two-revokers-first-revoked.json", "refused", "revocations-revoking-the-second-revoker.json")
+    (OUT / "trust-revoker-also-publisher.json").write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", "keys": [dict(entry, roles=["publisher", "revoker"])]},
+        separators=(",", ":")), encoding="utf-8")
+    vectors["policy-with-a-revoker-that-also-publishes"] = (dict(base), "trust-revoker-also-publisher.json", "refused")
+    # The ninth review: the rule for one run of several lists, now in both verifiers. The first revoker is rotated out (the
+    # policy revokes it); its list revoked the third, a compromised revoker; the second is in good standing.
+    code, text = ampack("keygen", "--out", str(work / "keys3"), "--name", "third", "--role", "revoker", "--prefix", "io.example")
+    assert code == 0, text
+    third = json.loads(text[text.index("{"):])
+    first_key, second_key, third_key = str(keys_dir / "revoker.key.pem"), str(work / "keys2" / "second.key.pem"), str(work / "keys3" / "third.key.pem")
+    (OUT / "trust-first-rotated-out.json").write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", "keys": [entry, revoker, second, third],
+        "revoked": {"digests": [], "keys": [{"keyId": revoker["keyId"]}]}}, separators=(",", ":")), encoding="utf-8")
+    (OUT / "trust-two-live-revokers.json").write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", "keys": [entry, second, third]},
+        separators=(",", ":")), encoding="utf-8")
+    (OUT / "trust-successor-not-yet-valid.json").write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", "keys": [entry, revoker,
+        dict(second, notBefore="2099-01-01T00:00:00Z")], "revoked": {"digests": [], "keys": [{"keyId": revoker["keyId"]}]}}, separators=(",", ":")), encoding="utf-8")
+    revoke("run-first-revokes-third.json", "--key", first_key, "--expires", "2099-01-01T00:00:00Z", "--keys", third["keyId"])
+    revoke("run-third-revokes-second.json", "--key", third_key, "--expires", "2099-01-01T00:00:00Z", "--keys", second["keyId"])
+    revoke("run-third-revokes-second-and-itself.json", "--key", third_key, "--expires", "2099-01-01T00:00:00Z", "--keys", f"{second['keyId']},{third['keyId']}")
+    revoke("run-second-revokes-third.json", "--key", second_key, "--expires", "2099-01-01T00:00:00Z", "--keys", third["keyId"])
+    revoke("run-second-revokes-the-pack.json", "--key", second_key, "--expires", "2099-01-01T00:00:00Z", "--digests", digest)
+    vectors["run-rotated-revoker-not-carried-forward"] = (dict(base), "trust-first-rotated-out.json", "refused",
+        ["run-first-revokes-third.json", "run-third-revokes-second.json"])
+    vectors["run-rotated-revoker-carried-forward"] = (dict(base), "trust-first-rotated-out.json", "verified",
+        ["run-first-revokes-third.json", "run-second-revokes-third.json"])
+    vectors["run-revoked-revoker-revoking-itself-to-dodge"] = (dict(base), "trust-first-rotated-out.json", "refused",
+        ["run-first-revokes-third.json", "run-third-revokes-second-and-itself.json"])
+    vectors["run-two-revokers-in-a-circle"] = (dict(base), "trust-two-live-revokers.json", "refused",
+        ["run-second-revokes-third.json", "run-third-revokes-second.json"])
+    vectors["run-the-same-list-twice"] = (dict(base), "trust-two-live-revokers.json", "verified",
+        ["run-second-revokes-third.json", "run-second-revokes-third.json"])
+    both = {"format": py.REVOCATIONS_FORMAT, "issuedAt": "2026-10-28T00:00:00Z", "expires": "2099-01-01T00:00:00Z", "digests": [],
+            "keys": sorted([{"keyId": second["keyId"]}, {"keyId": third["keyId"]}], key=lambda k: k["keyId"])}
+    def list_signed_by(document, key_path, key_id):
+        signer_ = serialization.load_pem_private_key(Path(key_path).read_bytes(), None)
+        payload = py.canonical(document).encode()
+        pae_ = f"DSSEv1 {len(py.REVOCATIONS_TYPE)} {py.REVOCATIONS_TYPE} {len(payload)} ".encode() + payload
+        return py.canonical({"payloadType": py.REVOCATIONS_TYPE, "payload": base64.b64encode(payload).decode(),
+                             "signatures": [{"keyid": key_id, "sig": base64.b64encode(signer_.sign(pae_, ec.ECDSA(hashes.SHA256()))).decode()}]})
+    (OUT / "run-both-revoked-by-second.json").write_text(list_signed_by(both, second_key, second["keyId"]), encoding="utf-8")
+    (OUT / "run-both-revoked-by-third.json").write_text(list_signed_by(both, third_key, third["keyId"]), encoding="utf-8")
+    vectors["run-one-list-signed-by-both-revokers-in-two-envelopes"] = (dict(base), "trust-two-live-revokers.json", "verified",
+        ["run-both-revoked-by-second.json", "run-both-revoked-by-third.json"])
+    # Review 5, L6: one list's signers are merged across its envelopes, in either order. A list with no live signer may revoke
+    # packs and keys for the run (it fails closed), but not a live revoker: that refuses the run. So one list revoking the live
+    # third revoker arrives in two envelopes, the rotated-out revoker's and the live second's. It verifies only if the live
+    # envelope's signer counts wherever it comes; the rotated-out envelope alone refuses (the control).
+    revokes_third = {"format": py.REVOCATIONS_FORMAT, "issuedAt": "2026-10-28T00:00:00Z", "expires": "2099-01-01T00:00:00Z", "digests": [],
+                     "keys": [{"keyId": third["keyId"]}]}
+    (OUT / "run-third-revoked-by-first.json").write_text(list_signed_by(revokes_third, first_key, revoker["keyId"]), encoding="utf-8")
+    (OUT / "run-third-revoked-by-second.json").write_text(list_signed_by(revokes_third, second_key, second["keyId"]), encoding="utf-8")
+    vectors["run-merged-signers-live-envelope-second"] = (dict(base), "trust-first-rotated-out.json", "verified",
+        ["run-third-revoked-by-first.json", "run-third-revoked-by-second.json"])
+    vectors["run-merged-signers-live-envelope-first"] = (dict(base), "trust-first-rotated-out.json", "verified",
+        ["run-third-revoked-by-second.json", "run-third-revoked-by-first.json"])
+    vectors["run-merged-signers-control-rotated-out-alone"] = (dict(base), "trust-first-rotated-out.json", "refused",
+        ["run-third-revoked-by-first.json"])
+    vectors["run-live-list-revoking-the-pack-beside-others"] = (dict(base), "trust-first-rotated-out.json", "refused",
+        ["run-first-revokes-third.json", "run-second-revokes-third.json", "run-second-revokes-the-pack.json"])
+    revoke("run-first-revokes-the-successor.json", "--key", first_key, "--expires", "2099-01-01T00:00:00Z", "--keys", second["keyId"])
+    vectors["run-non-live-list-revoking-a-successor-not-yet-valid"] = (dict(base), "trust-successor-not-yet-valid.json", "refused",
+        ["run-first-revokes-the-successor.json"])
+
+    # The second red team's divergences and crashes (27 Oct): one verdict for each, in both verifiers.
+    def signed_with(content_, **options):
+        lb = files_list(pid, version, content_)
+        path, env = sign(lb, pid, version, key, **options)
+        return {**content_, py.FILES: lb, path: env}
+    listing = json.loads(files_list(pid, version, content))
+    def relisted(change):
+        changed = json.loads(json.dumps(listing))
+        change(changed["files"][0])
+        lb = py.canonical(changed).encode()
+        path, env = sign(lb, pid, version, key)
+        return {**content, py.FILES: lb, path: env}
+    vectors["files-entry-extra-field"] = (relisted(lambda e: e.__setitem__("mode", "rw")), "trust.json", "refused")
+    vectors["files-entry-length-true"] = (relisted(lambda e: e.__setitem__("length", True)), "trust.json", "refused")
+    vectors["signature-outside-the-alphabet"] = (signed_with(content, sig_text=lambda s: s[:10] + "*" + s[10:]), "trust.json", "refused")
+    vectors["payload-base64-with-a-line-break"] = (signed_with(content, payload_text=lambda s: s[:40] + "\n" + s[40:]), "trust.json", "refused")
+    # Review 2, L7: an entry is a key id and a signature, shaped as the format writes them, or the envelope refuses the pack.
+    vectors["second-signature-entry-not-base64"] = (signed_with(content, extra_signatures=[{"keyid": entry["keyId"], "sig": "abc"}]), "trust.json", "refused")
+    vectors["second-signature-entry-without-sig"] = (signed_with(content, extra_signatures=[{"keyid": entry["keyId"]}]), "trust.json", "refused")
+    vectors["signed-at-without-leading-zero"] = (signed_with(content, signed_at="2026-1-05T12:00:00Z"), "trust.json", "refused")
+    vectors["signed-at-lowercase"] = (signed_with(content, signed_at="2026-10-26t12:00:00z"), "trust.json", "refused")
+    vectors["valid-until-offset-beyond-14-hours"] = (signed(edited(validUntil="2099-01-01T00:00:00+15:00")), "trust.json", "refused")
+    vectors["valid-until-as-a-number"] = (signed(edited(validUntil=1767225600)), "trust.json", "refused")
+    vectors["protection-null"] = (signed(edited(protection=None)), "trust.json", "refused")
+    vectors["code-as-a-list"] = (signed(edited(code=["E2"])), "trust.json", "refused")
+    vectors["sdk-as-a-number"] = (signed(edited(sdk=1)), "trust.json", "refused")
+    vectors["display-as-a-string"] = (signed(edited(display="notes")), "trust.json", "refused")
+    # Feature 04: what pack.json shows a person is display-safe: a one-line title of at most 60 characters, a description of 300.
+    vectors["display-title-plain"] = (signed(edited(display={"title": "Notes", "description": "What the team knows."})), "trust.json", "verified")
+    vectors["display-title-bidi-override"] = (signed(edited(display={"title": "Notes ‮txt.exe"})), "trust.json", "refused")
+    vectors["display-title-two-lines"] = (signed(edited(display={"title": "Notes" + chr(10) + "More"})), "trust.json", "refused")
+    vectors["display-title-61-characters"] = (signed(edited(display={"title": "x" * 61})), "trust.json", "refused")
+    vectors["display-description-soft-hyphen"] = (signed(edited(display={"title": "Notes", "description": "Hid­den"})), "trust.json", "refused")
+    # Feature 04 review: display text is not blank, and one line holds no line or paragraph separator either.
+    vectors["display-title-line-separator"] = (signed(edited(display={"title": "Notes" + chr(0x2028) + "More"})), "trust.json", "refused")
+    vectors["display-title-blank"] = (signed(edited(display={"title": " " + chr(0x3000)})), "trust.json", "refused")
+    vectors["display-description-paragraph-separator"] = (signed(edited(display={"title": "Notes", "description": "One." + chr(0x2029) + "Two."})), "trust.json", "verified")
+    vectors["number-beyond-double"] = (signed({**content, record: b'{"key":"a","n":1e400}\n'}), "trust.json", "refused")
+    vectors["integer-int64-min"] = (signed({**content, record: b'{"key":"a","n":-9223372036854775808}\n'}), "trust.json", "refused")
+    nested = lambda depth: ("[" * depth + "]" * depth).encode()
+    vectors["nesting-64-deep"] = (signed({**content, record: b'{"key":"a","n":' + nested(63) + b'}\n'}), "trust.json", "verified")
+    vectors["nesting-65-deep"] = (signed({**content, record: b'{"key":"a","n":' + nested(64) + b'}\n'}), "trust.json", "refused")
+    vectors["combining-marks-30-in-a-row"] = (signed({**content, record: ('{"key":"q' + "\u0301" * 30 + '"}\n').encode("utf-8")}), "trust.json", "verified")
+    vectors["combining-marks-31-in-a-row"] = (signed({**content, record: ('{"key":"q' + "\u0301" * 31 + '"}\n').encode("utf-8")}), "trust.json", "refused")
+    # Feature 02: 200 characters (code points), so 200 emoji are within the bound and 201 are not.
+    vectors["source-200-astral-characters"] = (signed(edited(source={"repository": "\U0001F600" * 200})), "trust.json", "verified")
+    vectors["source-201-astral-characters"] = (signed(edited(source={"repository": "\U0001F600" * 201})), "trust.json", "refused")
+    arabic = "1\u0663.0.0"
+    arabic_content = {**content, "pack.json": (json.dumps({**json.loads(content["pack.json"]), "version": arabic}, ensure_ascii=False) + chr(10)).encode("utf-8")}
+    vectors["version-with-an-arabic-digit"] = (signed(arabic_content, version_=arabic), "trust.json", "refused")
+    extra_statement = base64.b64encode(py.canonical({"_type": 1, "subject": [], "predicateType": 2, "predicate": {"role": 3}}).encode()).decode()
+    odd = py.canonical({"payloadType": py.PAYLOAD_TYPE, "payload": extra_statement, "signatures": [{"keyid": entry["keyId"], "sig": "AAAA"}]}).encode()
+    # Review 1, L7: an envelope that does not sign this pack is unlisted content riding beside it, and refuses it (it was ignored).
+    vectors["extra-envelope-of-wrong-types"] = ({**signed(content), py.SIGNATURES + "zz.dsse.json": odd}, "trust.json", "refused")
+    base_list = files_list(pid, version, content)
+    other_list = files_list(pid, version, {**content, "records/extra.jsonl": content[record]})
+    _, for_other = sign(other_list, pid, version, key, role="curator")
+    vectors["envelope-signing-another-list"] = ({**signed(content), py.SIGNATURES + "curator-other.dsse.json": for_other}, "trust.json", "refused")
+    _, unentried = sign(base_list, pid, version, key, role="curator")
+    unentried = py.canonical({**json.loads(unentried), "signatures": []}).encode()
+    vectors["envelope-with-no-signature"] = ({**signed(content), py.SIGNATURES + "curator-none.dsse.json": unentried}, "trust.json", "refused")
+    stranger_key = ec.generate_private_key(ec.SECP256R1())
+    path_, by_stranger = sign(base_list, pid, version, stranger_key, role="curator")
+    vectors["countersignature-by-a-key-not-trusted-ignored"] = ({**signed(content), path_: by_stranger}, "trust.json", "verified")
+    # Policies the red team found read differently: both verifiers refuse them before any pack is looked at.
+    for name, body in {
+        "trust-require-no-roles.json": {"keys": [entry], "requireRoles": []},
+        "trust-key-listed-twice.json": {"keys": [entry, entry]},
+        "trust-prefix-null.json": {"keys": [dict(entry, idPrefixes=[None])]},
+        "trust-time-not-rfc3339.json": {"keys": [dict(entry, notAfter="next year")]},
+    }.items():
+        (OUT / name).write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", **body}, separators=(",", ":")), encoding="utf-8")
+    unsigned = {**content, py.FILES: files_list(pid, version, content)}
+    vectors["unsigned-pack-with-no-required-roles"] = (unsigned, "trust-require-no-roles.json", "refused")
+    vectors["policy-with-a-key-listed-twice"] = (dict(base), "trust-key-listed-twice.json", "refused")
+    vectors["policy-with-a-null-prefix"] = (dict(base), "trust-prefix-null.json", "refused")
+    vectors["policy-with-a-time-not-rfc3339"] = (dict(base), "trust-time-not-rfc3339.json", "refused")
+
+    # The third review's (27 Oct): the Stream-Safe count on the NFKD decomposition and on keys, times, versions, policies.
+    # U+00A8 is a starter whose NFKD trails one mark: with 29 more it is 30 in a row, with 30 it is 31.
+    vectors["stream-safe-nfkd-30"] = (signed({**content, record: ('{"key":"q\u00a8' + "\u0316" * 29 + '"}\n').encode("utf-8")}), "trust.json", "verified")
+    vectors["stream-safe-nfkd-31"] = (signed({**content, record: ('{"key":"q\u00a8' + "\u0316" * 30 + '"}\n').encode("utf-8")}), "trust.json", "refused")
+    vectors["stream-safe-expanding-starters"] = (signed({**content, record: ('{"key":"q' + "\u0f73" * 16 + '"}\n').encode("utf-8")}), "trust.json", "refused")
+    vectors["object-key-30-marks"] = (signed({**content, record: ('{"key":"a","q' + "\u0301" * 30 + '":1}\n').encode("utf-8")}), "trust.json", "verified")
+    vectors["object-key-31-marks"] = (signed({**content, record: ('{"key":"a","q' + "\u0301" * 31 + '":1}\n').encode("utf-8")}), "trust.json", "refused")
+    vectors["nesting-100000-deep"] = (signed({**content, record: b'{"key":"a","n":' + nested(100000) + b'}\n'}), "trust.json", "refused")
+    vectors["valid-until-offset-minutes-60"] = (signed(edited(validUntil="2099-01-01T00:00:00+05:60")), "trust.json", "refused")
+    prerelease = "1.0.0-01"
+    prerelease_content = {**content, "pack.json": (json.dumps({**json.loads(content["pack.json"]), "version": prerelease}, indent=2) + chr(10)).encode("utf-8")}
+    vectors["version-prerelease-leading-zero"] = (signed(prerelease_content, version_=prerelease), "trust.json", "refused")
+    vectors["files-list-a-number"] = ({**content, py.FILES: b"5"}, "trust.json", "refused")
+    vectors["files-list-an-array"] = ({**content, py.FILES: b"[{}]"}, "trust.json", "refused")
+    # The signatures array is not signed: anyone may append an entry, and a malformed one only fails to count.
+    vectors["signature-entry-keyid-a-list"] = (signed_with(content, extra_signatures=({"keyid": ["x"], "sig": "AAAA"},)), "trust.json", "refused")
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    rsa_public = rsa.generate_private_key(public_exponent=65537, key_size=2048).public_key()
+    rsa_pem = rsa_public.public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode()
+    rsa_id = hashlib.sha256(rsa_public.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)).hexdigest()
+    for name, body in {
+        "trust-time-null.json": {"keys": [dict(entry, notAfter=None)]},
+        "trust-revoked-expires-null.json": {"keys": [entry], "revoked": {"digests": [], "expires": None}},
+        "trust-revoked-key-null.json": {"keys": [entry], "revoked": {"keys": [{"keyId": None}]}},
+        "trust-prefix-double-dot.json": {"keys": [dict(entry, idPrefixes=["io.example.."])]},
+        "trust-rsa-key.json": {"keys": [entry, {"keyId": rsa_id, "publicKey": rsa_pem, "idPrefixes": ["io.other"], "roles": ["publisher"]}]},
+    }.items():
+        (OUT / name).write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", **body}, separators=(",", ":")), encoding="utf-8")
+    plain = json.dumps(policy, separators=(",", ":")).encode()
+    (OUT / "trust-two-boms.json").write_bytes(b"\xef\xbb\xbf\xef\xbb\xbf" + plain)
+    (OUT / "trust-one-bom.json").write_bytes(b"\xef\xbb\xbf" + plain)
+    (OUT / "trust-not-utf8.json").write_bytes(plain.replace(b'"publisher"', b'"publisher\xff"'))
+    vectors["policy-with-a-null-time"] = (dict(base), "trust-time-null.json", "refused")
+    vectors["policy-with-revocations-expiring-null"] = (dict(base), "trust-revoked-expires-null.json", "refused")
+    vectors["policy-with-a-null-revoked-key"] = (dict(base), "trust-revoked-key-null.json", "refused")
+    vectors["policy-prefix-with-two-dots"] = (dict(base), "trust-prefix-double-dot.json", "refused")
+    vectors["policy-with-an-rsa-key"] = (dict(base), "trust-rsa-key.json", "refused")
+    vectors["policy-with-two-boms"] = (dict(base), "trust-two-boms.json", "refused")
+    vectors["policy-with-one-bom"] = (dict(base), "trust-one-bom.json", "verified")
+    # Review 1, H3: a misspelt or malformed policy field is refused by both verifiers, never ignored.
+    for name, body in {
+        "trust-misspelt-require-roles.json": {"keys": [entry], "requiredRoles": ["publisher", "curator"]},
+        "trust-key-misspelt-not-after.json": {"keys": [dict(entry, notafter="2020-01-01T00:00:00Z")]},
+        "trust-revoked-misspelt-digests.json": {"keys": [entry], "revoked": {"digest": ["sha256:" + "0" * 64]}},
+        "trust-revoked-digest-uppercase.json": {"keys": [entry], "revoked": {"digests": ["SHA256:" + "A" * 64]}},
+        "trust-revoked-key-id-short.json": {"keys": [entry], "revoked": {"keys": [{"keyId": "abc"}]}},
+        "trust-revoked-key-extra-field.json": {"keys": [entry], "revoked": {"keys": [{"keyId": "0" * 64, "reason": "lost"}]}},
+        "trust-prefix-uppercase.json": {"keys": [dict(entry, idPrefixes=["IO.Example"])]},
+        "trust-prefix-trailing-dot.json": {"keys": [dict(entry, idPrefixes=["io.example."])]},
+        "trust-root-extra-field.json": {"keys": [entry], "comment": "a note"},
+    }.items():
+        (OUT / name).write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", **body}, separators=(",", ":")), encoding="utf-8")
+    for name, expected in (("trust-misspelt-require-roles.json", "refused"), ("trust-key-misspelt-not-after.json", "refused"),
+                           ("trust-revoked-misspelt-digests.json", "refused"), ("trust-revoked-digest-uppercase.json", "refused"),
+                           ("trust-revoked-key-id-short.json", "refused"), ("trust-revoked-key-extra-field.json", "refused"),
+                           ("trust-prefix-uppercase.json", "refused"), ("trust-prefix-trailing-dot.json", "verified"),
+                           ("trust-root-extra-field.json", "refused")):
+        vectors["policy-" + name[len("trust-"):-len(".json")]] = (dict(base), name, expected)
+    vectors["policy-not-utf8"] = (dict(base), "trust-not-utf8.json", "refused")
+    # The fourth review's: a key on another curve, a version numeral too long to read, members named by non-strings.
+    p384 = ec.generate_private_key(ec.SECP384R1()).public_key()
+    p384_pem = p384.public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode()
+    p384_id = hashlib.sha256(p384.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)).hexdigest()
+    (OUT / "trust-p384-key.json").write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", "keys": [entry, {"keyId": p384_id, "publicKey": p384_pem,
+        "idPrefixes": ["io.other"], "roles": ["publisher"]}]}, separators=(",", ":")), encoding="utf-8")
+    vectors["policy-with-a-p384-key"] = (dict(base), "trust-p384-key.json", "refused")
+    long_version = "1" * 5000 + ".0.0"
+    long_content = {**content, "pack.json": (json.dumps({**json.loads(content["pack.json"]), "version": long_version}, indent=2) + chr(10)).encode("utf-8")}
+    vectors["version-5000-digits"] = (signed(long_content, version_=long_version), "trust.json", "refused")
+    # The fifth review's bounds before any signature holds: a version is at most 256 characters; an envelope at most 64 KiB
+    # and 16 signature entries; a pack at most 16 envelopes. Each bound, and one past it.
+    def versioned(text):
+        changed = {**content, "pack.json": (json.dumps({**json.loads(content["pack.json"]), "version": text}, indent=2) + chr(10)).encode("utf-8")}
+        return signed(changed, version_=text)
+    vectors["version-256-characters"] = (versioned("1.0.0-" + "a" * 250), "trust.json", "verified")
+    vectors["version-257-characters"] = (versioned("1.0.0-" + "a" * 251), "trust.json", "refused")
+    junk_entry = {"keyid": "0" * 64, "sig": "AAAA"}
+    vectors["envelope-16-signatures"] = (signed_with(content, extra_signatures=(junk_entry,) * 15), "trust.json", "verified")
+    vectors["envelope-17-signatures"] = (signed_with(content, extra_signatures=(junk_entry,) * 16), "trust.json", "refused")
+    one = signed(content)
+    envelope_path, envelope = next((p, b) for p, b in one.items() if p.startswith(py.SIGNATURES))
+    def copies(n):
+        return {**one, **{f"{py.SIGNATURES}copy-{i:02}.dsse.json": envelope for i in range(n)}}
+    vectors["sixteen-envelopes"] = (copies(15), "trust.json", "verified")
+    vectors["seventeen-envelopes"] = (copies(16), "trust.json", "refused")
+    # Padded with whitespace, so only the size rule refuses it (review 6, L6: an unknown field was refused by the closed shape
+    # with the size rule removed); the control at 60 KiB verifies.
+    padded_over = envelope + b" " * (64 * 1024 + 1 - len(envelope))
+    padded_under = envelope + b" " * (60 * 1024 - len(envelope))
+    while True:
+        listed = files_list(pid, version, content)
+        sig_path, sig_env = sign(listed, pid, version, key)
+        envelope_json = json.loads(sig_env)
+        if (negative_pack := unpadded_pack(base64.b64decode(envelope_json["signatures"][0]["sig"]))) is not None:
+            break
+    envelope_json["signatures"][0]["sig"] = base64.b64encode(negative_pack).decode()
+    vectors["signature-integer-without-sign-pad"] = ({**content, py.FILES: listed, sig_path: py.canonical(envelope_json).encode()}, "trust.json", "refused")
+    vectors["envelope-over-64-kib"] = ({**one, py.SIGNATURES + "padded.dsse.json": padded_over}, "trust.json", "refused")
+    vectors["envelope-at-60-kib"] = ({**one, py.SIGNATURES + "padded.dsse.json": padded_under}, "trust.json", "verified")
+    vectors["key-expired-after-signing"] = (dict(one), "trust-key-expired-after-signing.json", "refused")
+    future_list = files_list(pid, version, content)
+    future_path, future_env = sign(future_list, pid, version, key, signed_at="2099-01-01T00:00:00Z")
+    vectors["signature-in-the-future"] = ({**content, py.FILES: future_list, future_path: future_env}, "trust.json", "refused")
+
+    # The JSON profile and the archive, more ways.
+    vectors["junk-signature-file"] = ({**signed(content), py.SIGNATURES + "junk.dsse.json": b'{"hello":1}\n'}, "trust.json", "refused")
+    vectors["integer-beyond-2-53"] = (signed({**content, record: b'{"key":"a","n":9007199254740993}\n'}), "trust.json", "refused")
+    vectors["nfd-string"] = (signed({**content, record: '{"key":"cafe\u0301"}\n'.encode("utf-8")}), "trust.json", "refused")
+    vectors["empty-line-record"] = (signed({**content, record: content[record] + b"\n"}), "trust.json", "refused")
+    vectors["no-final-line-feed"] = (signed({**content, record: content[record].rstrip(b"\n")}), "trust.json", "refused")
+    vectors["case-collision"] = (signed({**content, "records/Note.jsonl": content[record]}), "trust.json", "refused")
+
+    # Composites: built with ampack (lock pins the member's digest), then changed by this writer and signed again.
+    family = work / "family"
+    family.mkdir()
+    (family / "pack.json").write_bytes((json.dumps({"format": py.PACK_FORMAT, "id": "io.example.family", "version": "1.0.0", "kind": "composite",
+                                                    "contains": [pid], "tier": "open", "protection": "open", "code": "E0"}, indent=2) + chr(10)).encode())
+    (family / "members.json").write_bytes((json.dumps({"members": [{"id": pid, "version": "[1,2)"}]}, indent=2) + chr(10)).encode())
+    code, text = ampack("lock", str(family), str(VECTORS / "valid-dotnet.ampack"), "--policy", str(OUT / "trust.json"))
+    assert code == 0, text
+    code, text = ampack("build", str(family), "--key", str(work / "keys" / "publisher.key.pem"), "--out", str(work / "family.ampack"))
+    assert code == 0, text
+    composite = py.read_zip((work / "family.ampack").read_bytes())
+    composite_content = {p: b for p, b in composite.items() if p != py.FILES and not p.startswith(py.SIGNATURES)}
+    lock = json.loads(composite_content[py.LOCK])
+    def family_with(**files):
+        return signed({**composite_content, **files}, pid_="io.example.family")
+    vectors["composite-valid"] = (dict(composite), "trust.json", "verified")
+    vectors["composite-lock-pins-other"] = (family_with(**{py.LOCK: py.canonical({**lock, "members": [{**lock["members"][0], "id": "io.example.other"}]}).encode()}),
+                                            "trust.json", "refused")
+    vectors["composite-members-not-strings"] = (family_with(**{"members.json": b'{"members":[{"id":1,"version":"[1,2)"}]}\n'}), "trust.json", "refused")
+    vectors["composite-lock-not-canonical"] = (family_with(**{py.LOCK: (json.dumps(lock, indent=1) + chr(10)).encode()}), "trust.json", "refused")
+    vectors["composite-lock-extra-field"] = (family_with(**{py.LOCK: py.canonical({**lock, "note": "x"}).encode()}), "trust.json", "refused")
+    vectors["composite-members-differ"] = (family_with(**{"members.json": (json.dumps({"members": [{"id": "io.example.other", "version": "[1,2)"}]}) + chr(10)).encode()}),
+                                           "trust.json", "refused")
+
+    vectors["composite-lock-id-a-number"] = (family_with(**{py.LOCK: py.canonical({**lock, "members": [{**lock["members"][0], "id": 5}]}).encode()}),
+                                             "trust.json", "refused")
+
+    # Pack sets: built with ampack (each member keeps its own list and signatures), then changed and signed again as a whole.
+    code, text = ampack("set", str(work / "bundle.ampack"), str(VECTORS / "valid-dotnet.ampack"), "--id", "io.example.bundle", "--version", "1.0.0",
+                        "--key", str(work / "keys" / "publisher.key.pem"), "--policy", str(OUT / "trust.json"))
+    assert code == 0, text
+    bundle = py.read_zip((work / "bundle.ampack").read_bytes())
+    bundle_content = {p: b for p, b in bundle.items() if p != py.FILES and not p.startswith(py.SIGNATURES)}
+    member = f"packs/{pid}/"
+    def bundle_with(files, contains=None):
+        m = json.loads(files["pack.json"])
+        if contains is not None:
+            m["contains"] = contains
+        files = {**files, "pack.json": (json.dumps(m, indent=2) + chr(10)).encode()}
+        return signed(files, pid_="io.example.bundle")
+    vectors["set-valid"] = (dict(bundle), "trust.json", "verified")
+    vectors["set-member-tampered"] = (bundle_with({**bundle_content, member + record: bundle_content[member + record].replace(b"Replace me", b"Changed")}),
+                                      "trust.json", "refused")
+    renamed = {(p.replace(member, "packs/io.example.renamed/", 1) if p.startswith(member) else p): b for p, b in bundle_content.items()}
+    vectors["set-member-misnamed"] = (bundle_with(renamed, contains=["io.example.renamed"]), "trust.json", "refused")
+    vectors["set-file-outside-member"] = (bundle_with({**bundle_content, "packs/loose.json": b'{"a":1}\n'}), "trust.json", "refused")
+
+    def manifest_with(**fields):
+        m = json.loads(content["pack.json"])
+        m.update(fields)
+        return {**content, "pack.json": (json.dumps(m, indent=2, ensure_ascii=False) + chr(10)).encode("utf-8")}
+    # PACK-strict: a field the format does not define refuses the pack; inside "extensions" it is ignored unless critical.
+    vectors["unknown-field"] = (signed(manifest_with(homepage="https://example.com")), "trust.json", "refused")
+    vectors["extension-ignored"] = (signed(manifest_with(extensions={"io.example.cache": {"ttl": 3600}})), "trust.json", "verified")
+    vectors["critical-extension"] = (signed(manifest_with(extensions={"io.example.cache": {"ttl": 3600}, "critical": ["io.example.cache"]})),
+                                     "trust.json", "refused")
+    vectors["critical-names-nothing"] = (signed(manifest_with(extensions={"critical": ["io.example.absent"]})), "trust.json", "refused")
+
+    # Readable minors (v1.2 §2.1, review 1 M18). A later 1.x is read as far as the reader knows it: a field it does not know is
+    # ignored unless the pack names it in "critical"; at the reader's own minor an unknown field refuses, critical or not; the
+    # values of known fields stay closed at every minor; earlier minors, another major and odd spellings are not read.
+    later, stamp = "agentmemory.pack/1.3", {"authority": "https://tsa.example/", "policy": "1.2.3.4"}
+    vectors["minor-later-known-fields"] = (signed(manifest_with(format=later)), "trust.json", "verified")
+    vectors["minor-later-unknown-field-ignored"] = (signed(manifest_with(format=later, timestamps=stamp)), "trust.json", "verified")
+    vectors["minor-later-unknown-field-critical"] = (signed(manifest_with(format=later, timestamps=stamp, critical=["timestamps"])), "trust.json", "refused")
+    vectors["minor-own-unknown-field-critical"] = (signed(manifest_with(timestamps=stamp, critical=["timestamps"])), "trust.json", "refused")
+    vectors["minor-later-unknown-kind"] = (signed(manifest_with(format=later, kind="dataset")), "trust.json", "refused")
+    for name, spelled in (("minor-earlier", "agentmemory.pack/1.1"), ("minor-leading-zero", "agentmemory.pack/1.02"),
+                          ("minor-major-two", "agentmemory.pack/2.0"), ("minor-four-digits", "agentmemory.pack/1.1000")):
+        vectors[name] = (signed(manifest_with(format=spelled)), "trust.json", "refused")
+    vectors["critical-known-field"] = (signed(manifest_with(critical=["kind", "sdk"])), "trust.json", "verified")
+    vectors["critical-names-absent-field"] = (signed(manifest_with(critical=["validUntil"])), "trust.json", "refused")
+    vectors["critical-names-itself"] = (signed(manifest_with(critical=["critical"])), "trust.json", "refused")
+    vectors["critical-twice"] = (signed(manifest_with(critical=["kind", "kind"])), "trust.json", "refused")
+    vectors["critical-empty"] = (signed(manifest_with(critical=[])), "trust.json", "refused")
+    vectors["critical-not-a-list"] = (signed(manifest_with(critical="kind")), "trust.json", "refused")
+
+    # The timestamp-token slot reserved for trusted time (format 1.3, review 1 M15): <envelope>.tsr beside its envelope is kept and
+    # not judged by a 1.2 reader, so a 1.3 pack that carries tokens still opens; one beside nothing, or too large, is junk.
+    stamped = signed(content)
+    envelope_path = next(p_ for p_ in stamped if p_.startswith(py.SIGNATURES))
+    token = bytes([0x30, 0x82, 0x01, 0x00]) + bytes(256)
+    vectors["timestamp-token-beside-envelope"] = ({**stamped, envelope_path + ".tsr": token}, "trust.json", "verified")
+    vectors["timestamp-token-beside-nothing"] = ({**stamped, py.SIGNATURES + "other.dsse.json.tsr": token}, "trust.json", "refused")
+    vectors["timestamp-token-over-64-kib"] = ({**stamped, envelope_path + ".tsr": token + bytes(64 * 1024)}, "trust.json", "refused")
+
+    # Federated packs (federated packs §3-§5): the publisher WebID bound to the signing key by the host, the host inside the
+    # audience, and publication receipts for one URL and the exact archive bytes.
+    pub, buyer, stranger = ("https://supplier-a.example/profile/card#org", "https://buyer-b.example/profile/card#agent",
+                            "https://stranger.example/profile/card#me")
+
+    def federated_policy(name, webid=pub, host=(buyer,), more=()):
+        body = {"format": "agentmemory.pack.trust/1.1", "keys": [dict(entry, **({"webId": webid} if webid else {})), *more]}
+        if host:
+            body["host"] = {"webIds": list(host)}
+        (OUT / name).write_text(json.dumps(body, separators=(",", ":")), encoding="utf-8")
+    federated_policy("trust-federated-buyer.json")
+    federated_policy("trust-federated-stranger.json", host=(stranger,))
+    federated_policy("trust-federated-no-host.json", host=())
+    federated_policy("trust-federated-unbound.json", webid=None)
+    federated_policy("trust-federated-other-webid.json", webid="https://other.example/profile/card#org")
+    code, text = ampack("keygen", "--out", str(work / "keys"), "--name", "mirror", "--prefix", "io.example")
+    assert code == 0, text
+    mirror_entry = json.loads(text[text.index("{"):])
+    mirror = serialization.load_pem_private_key((work / "keys" / "mirror.key.pem").read_bytes(), password=None)
+    federated_policy("trust-federated-buyer-and-mirror.json", more=(dict(mirror_entry, webId="https://mirror.example/profile/card#org"),))
+    # FED-review round 1: receipts signed by a second key of the same publisher, in each state a key can be in.
+    code, text = ampack("keygen", "--out", str(work / "keys"), "--name", "curator", "--role", "curator", "--prefix", "io.example")
+    assert code == 0, text
+    curator_entry = json.loads(text[text.index("{"):])
+    curator = serialization.load_pem_private_key((work / "keys" / "curator.key.pem").read_bytes(), password=None)
+    federated_policy("trust-federated-second-key.json", more=(dict(mirror_entry, webId=pub),))
+    federated_policy("trust-federated-curator.json", more=(dict(curator_entry, webId=pub),))
+    federated_policy("trust-federated-second-key-expired.json", more=(dict(mirror_entry, webId=pub, notAfter="2020-01-01T00:00:00Z"),))
+    revoked_policy = json.loads((OUT / "trust-federated-second-key.json").read_text(encoding="utf-8"))
+    revoked_policy["revoked"] = {"digests": [], "keys": [{"keyId": mirror_entry["keyId"]}]}
+    (OUT / "trust-federated-second-key-revoked.json").write_text(json.dumps(revoked_policy, separators=(",", ":")), encoding="utf-8")
+    for name, body in {"trust-federated-host-empty.json": {"keys": [entry], "host": {"webIds": []}},
+                       "trust-federated-host-extra.json": {"keys": [entry], "host": {"webIds": [buyer], "name": "buyer"}},
+                       "trust-federated-webid-http.json": {"keys": [dict(entry, webId="http://supplier-a.example/p#me")]},
+                       "trust-federated-revoker-webid.json": {"keys": [entry, dict(revoker, webId=pub)]}}.items():
+        (OUT / name).write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", **body}, separators=(",", ":")), encoding="utf-8")
+
+    def federation(audience=(buyer,), critical=True, **extra):
+        f = {"format": "agentmemory.pack.federation/1", "publisher": pub, "audience": list(audience) if isinstance(audience, tuple) else audience, **extra}
+        return {"federation": f, **({"critical": ["federation"]} if critical else {})}
+    federated = signed(manifest_with(extensions=federation(purpose="Supply-chain handoff")))
+    vectors["federated-valid"] = (federated, "trust-federated-buyer.json", "verified")
+    vectors["federated-host-outside-audience"] = (federated, "trust-federated-stranger.json", "refused")
+    vectors["federated-host-names-no-webid"] = (federated, "trust-federated-no-host.json", "refused")
+    vectors["federated-public-host-names-no-webid"] = (signed(manifest_with(extensions=federation(audience="public"))), "trust-federated-no-host.json", "verified")
+    vectors["federated-key-unbound"] = (federated, "trust-federated-unbound.json", "refused")
+    vectors["federated-key-bound-elsewhere"] = (federated, "trust-federated-other-webid.json", "refused")
+    vectors["federated-not-critical"] = (signed(manifest_with(extensions=federation(critical=False))), "trust-federated-buyer.json", "refused")
+    vectors["federated-purpose-300"] = (signed(manifest_with(extensions=federation(purpose="x" * 300))), "trust-federated-buyer.json", "verified")
+    two_readers = signed(manifest_with(extensions=federation(audience=(buyer, stranger))))
+    vectors["federated-two-readers"] = (two_readers, "trust-federated-buyer.json", "verified")
+    # FED-review H1, feature 02: the purpose counts characters (code points) in both verifiers, so 300 emoji, 600 UTF-16 units,
+    # are within the bound and 301 are not.
+    vectors["federated-purpose-300-astral"] = (signed(manifest_with(extensions=federation(purpose="\U0001F600" * 300))), "trust-federated-buyer.json", "verified")
+    vectors["federated-purpose-301-astral"] = (signed(manifest_with(extensions=federation(purpose="\U0001F600" * 301))), "trust-federated-buyer.json", "refused")
+    vectors["federated-purpose-bidi-override"] = (signed(manifest_with(extensions=federation(purpose="Handoff " + chr(0x202E) + "exe"))), "trust-federated-buyer.json", "refused")
+
+    # FED-review M5 and H2: a federated set's members are federated, by its publisher, for no wider an audience; and every
+    # member verifies.
+    def fed_set(member_ext, member_key=None):
+        member_content = manifest_with(extensions=member_ext) if member_ext else dict(content)
+        mlb = files_list(pid, version, member_content)
+        mpath, menv = sign(mlb, pid, version, member_key or key)
+        set_manifest = {"format": "agentmemory.pack/1.2", "id": "io.example.bundle", "version": "1.0.0", "kind": "set", "contains": [pid],
+                        "extensions": federation()}
+        set_content = {"pack.json": (json.dumps(set_manifest) + chr(10)).encode(),
+                       **{f"packs/{pid}/{name}": data for name, data in {**member_content, py.FILES: mlb, mpath: menv}.items()}}
+        return signed(set_content, pid_="io.example.bundle")
+    federated_set = fed_set(federation())
+    vectors["set-federated-valid"] = (federated_set, "trust-federated-buyer.json", "verified")
+    vectors["set-federated-member-not-federated"] = (fed_set(None), "trust-federated-buyer.json", "refused")
+    vectors["set-federated-member-wider"] = (fed_set(federation(audience=(buyer, stranger))), "trust-federated-buyer.json", "refused")
+    untrusted_member_set = fed_set(federation(), member_key=mirror)
+    vectors["set-federated-member-untrusted"] = (untrusted_member_set, "trust-federated-buyer.json", "refused")
+    public_federated = signed(manifest_with(extensions=federation(audience="public")))
+    for name, ext in {"federated-audience-empty": federation(audience=[]),
+                      "federated-audience-everyone": federation(audience="everyone"),
+                      "federated-audience-http": federation(audience=["http://buyer-b.example/profile/card#agent"]),
+                      "federated-audience-turtle-breaker": federation(audience=["https://buyer-b.example/profile/card>#agent"]),
+                      "federated-audience-two-fragments": federation(audience=["https://buyer-b.example/card#a#b"]),
+                      "federated-audience-twice": federation(audience=[buyer, buyer]),
+                      "federated-audience-65": federation(audience=[f"https://b{i}.example/p#me" for i in range(65)]),
+                      "federated-unknown-field": federation(maxScope="partners"),
+                      "federated-other-format": {"critical": ["federation"], "federation": {**federation()["federation"], "format": "agentmemory.pack.federation/2"}},
+                      "federated-no-audience": {"critical": ["federation"], "federation": {"format": "agentmemory.pack.federation/1", "publisher": pub}},
+                      "federated-publisher-not-webid": {"critical": ["federation"], "federation": {**federation()["federation"], "publisher": "urn:uuid:4f0c21a0"}},
+                      "federated-purpose-301": federation(purpose="x" * 301)}.items():
+        vectors[name] = (signed(manifest_with(extensions=ext)), "trust-federated-buyer.json", "refused")
+    for policy_name in ("trust-federated-host-empty.json", "trust-federated-host-extra.json", "trust-federated-webid-http.json",
+                        "trust-federated-revoker-webid.json"):
+        vectors["policy-" + policy_name[6:-5]] = (federated, policy_name, "refused")
+
+    raw = {}
+    # A federated pack built and signed by ampack itself.
+    fed_folder = work / "fed-notes"
+    assert ampack("init", str(fed_folder), "--id", "io.example.handoff", "--version", "1.0.0")[0] == 0
+    fed_manifest = json.loads((fed_folder / "pack.json").read_text(encoding="utf-8"))
+    fed_manifest["extensions"] = federation()
+    (fed_folder / "pack.json").write_text(json.dumps(fed_manifest, separators=(",", ":")), encoding="utf-8")
+    code, text = ampack("build", str(fed_folder), "--key", str(work / "keys" / "publisher.key.pem"), "--out", str(work / "fed-dotnet.ampack"))
+    assert code == 0, text
+    fed_dotnet = (work / "fed-dotnet.ampack").read_bytes()
+    raw["federated-valid-dotnet"] = (fed_dotnet, "trust-federated-buyer.json", "verified")
+    good = write_zip(signed(content))
+    raw["prefix-bytes"] = (b"MZ-prefix" + good, "trust.json", "refused")
+    raw["trailing-bytes"] = (good + b"\x00", "trust.json", "refused")
+    raw["archive-comment"] = (good[:-2] + struct.pack("<H", 2) + b"hi", "trust.json", "refused")
+    s = signed(content)
+    raw["unsorted-entries"] = (write_zip(s, order=sorted(s, reverse=True)), "trust.json", "refused")
+
+    def flag_descriptor(b):
+        b = bytearray(b)
+        b[6:8] = struct.pack("<H", 8)
+        cd = struct.unpack("<I", b[-6:-2])[0]
+        b[cd + 8:cd + 10] = struct.pack("<H", 8)
+        return b
+    raw["data-descriptor-flag"] = (write_zip(s, mutate=flag_descriptor), "trust.json", "refused")
+
+    def local_name(b):
+        b = bytearray(b)
+        b[30] = ord("X")  # the first entry's local name only
+        return b
+    raw["local-name-differs"] = (write_zip(s, mutate=local_name), "trust.json", "refused")
+    # PACK-harden 4.13: a deflate stream must end where its entry's bytes end.
+    raw["deflate-valid"] = (write_deflated_zip(s), "trust.json", "verified")
+    raw["deflate-trailing-bytes"] = (write_deflated_zip(s, junk={record: b"\x00junk"}), "trust.json", "refused")
+    raw["deflate-without-its-final-block"] = (write_deflated_zip(s, unfinished={record}), "trust.json", "refused")
+    # Review 7, M8: a damaged deflate stream (a reserved block type in its first byte) crashed the second verifier.
+    damaged = bytearray(write_deflated_zip(s))
+    damaged[30 + struct.unpack_from("<H", damaged, 26)[0]] = 0xFF
+    raw["deflate-damaged"] = (bytes(damaged), "trust.json", "refused")
+    # Review 18, H1: a stream zlib refuses must be refused by every reader, whatever its inflater.
+    raw["deflate-incomplete-distance-code"] = (write_deflated_zip(s, streams={"pack.json": odd_deflate(s["pack.json"])}), "trust.json", "refused")
+    # Review 18, H2: a compressed size of 0xFFFFFFFF, which wrapped a 32-bit sum and crashed the component.
+    raw["zip-compressed-size-wraps-32-bit"] = (write_deflated_zip({"a": b""}, streams={"a": b"\x03\x00"}, sizes={"a": 0xFFFFFFFF}), "trust.json", "refused")
+    # Review 6, L6 and I8: the archive limits, each beside its control.
+    zeros = signed({**content, "assets/zeros.bin": bytes(1 << 20)})
+    raw["archive-ratio-over-250"] = (write_deflated_zip(zeros), "trust.json", "refused")
+    raw["archive-ratio-control-stored"] = (write_zip(zeros), "trust.json", "verified")
+
+    def empty_deflate(b):
+        # The first entry (a deflated one) keeps its declared size but carries 0 compressed bytes: cut its data out, fix offsets.
+        b = bytearray(b)
+        nlen = struct.unpack("<H", b[26:28])[0]
+        csize = struct.unpack("<I", b[18:22])[0]
+        data_start = 30 + nlen
+        del b[data_start:data_start + csize]
+        b[18:22] = struct.pack("<I", 0)
+        cd = struct.unpack("<I", b[-6:-2])[0] - csize  # the central directory, where it is now
+        entries = struct.unpack("<H", b[-12:-10])[0]
+        pos = cd
+        for i in range(entries):
+            n, x, c = struct.unpack("<HHH", b[pos + 28:pos + 34])
+            if i == 0:
+                b[pos + 20:pos + 24] = struct.pack("<I", 0)
+            else:
+                off = struct.unpack("<I", b[pos + 42:pos + 46])[0]
+                b[pos + 42:pos + 46] = struct.pack("<I", off - csize)
+            pos += 46 + n + x + c
+        b[-6:-2] = struct.pack("<I", cd)
+        return bytes(b)
+    raw["archive-deflate-empty-declares-content"] = (empty_deflate(write_deflated_zip(s)), "trust.json", "refused")
+    many = {f"assets/f{i:04}.txt": b"x" for i in range(4096 - len(content) - 2)}
+    raw["archive-4096-files"] = (write_zip(signed({**content, **many})), "trust.json", "verified")
+    raw["archive-4097-files"] = (write_zip(signed({**content, **many, "assets/one-more.txt": b"x"})), "trust.json", "refused")
+
+    # The pack card (v1.2 §15): card.json, read strictly by both verifiers. ampack init writes one into the base pack.
+    def with_card(card_):
+        return signed({**content, "card.json": json.dumps(card_, ensure_ascii=False).encode("utf-8") + b"\n"})
+    full_card = {"format": "agentmemory.pack.card/1", "owner": {"name": "Example Supplier", "contact": "https://example.com/contact"},
+                 "intendedUse": "Notes for one team.", "limitations": "Not for anything else.\nIt may be out of date.\tCheck the date.",
+                 "boundaries": ["Do not export the notes."], "risks": ["Stale notes."], "provenance": "Written by the team.",
+                 "audience": "The team.", "domain": "notes", "references": ["https://example.com/notes"]}
+    vectors["card-valid-full"] = (with_card(full_card), "trust.json", "verified")
+    vectors["card-absent"] = (signed({k: v for k, v in content.items() if k != "card.json"}), "trust.json", "verified")
+    # Feature 09: META/derivation.json, inside the signed content, canonical and strict in both verifiers.
+    def with_derivation(derivation_, raw=None):
+        return signed({**content, "META/derivation.json": raw if raw is not None else py.canonical(derivation_).encode("utf-8")})
+    a_digest = "sha256:" + "ab" * 32
+    derivation = {"format": "agentmemory.pack.derivation/1", "inputs": [{"digest": a_digest, "name": "handbook", "licence": "CC-BY-4.0",
+                  "confidenceMicro": 900000}], "tool": {"name": "notes-extractor", "version": "1.2.0"}, "model": {"id": "example-model", "version": "2026-10"},
+                  "promptDigest": a_digest, "parameters": {"temperature": "0"}, "parent": {"id": "com.example.handbook", "digest": a_digest},
+                  "actions": ["extract", "redact"]}
+    vectors["derivation-valid"] = (with_derivation(derivation), "trust.json", "verified")
+    vectors["derivation-minimal"] = (with_derivation({"format": "agentmemory.pack.derivation/1", "inputs": [{"digest": a_digest, "name": "handbook"}],
+                                                      "tool": {"name": "t", "version": "1"}, "actions": ["import"]}), "trust.json", "verified")
+    vectors["derivation-not-canonical"] = (with_derivation(None, raw=json.dumps(derivation, indent=1).encode("utf-8")), "trust.json", "refused")
+    vectors["derivation-extra-field"] = (with_derivation({**derivation, "note": "x"}), "trust.json", "refused")
+    vectors["derivation-confidence-above-a-million"] = (with_derivation({**derivation, "inputs": [{**derivation["inputs"][0], "confidenceMicro": 1000001}]}), "trust.json", "refused")
+    vectors["derivation-confidence-negative"] = (with_derivation({**derivation, "inputs": [{**derivation["inputs"][0], "confidenceMicro": -1}]}), "trust.json", "refused")
+    vectors["derivation-confidence-a-string"] = (with_derivation({**derivation, "inputs": [{**derivation["inputs"][0], "confidenceMicro": "900000"}]}), "trust.json", "refused")
+    vectors["derivation-input-twice"] = (with_derivation({**derivation, "inputs": derivation["inputs"] * 2}), "trust.json", "refused")
+    vectors["derivation-no-inputs"] = (with_derivation({**derivation, "inputs": []}), "trust.json", "refused")
+    vectors["derivation-digest-uppercase"] = (with_derivation({**derivation, "inputs": [{**derivation["inputs"][0], "digest": a_digest.upper()}]}), "trust.json", "refused")
+    vectors["derivation-action-unknown"] = (with_derivation({**derivation, "actions": ["invent"]}), "trust.json", "refused")
+    vectors["derivation-action-twice"] = (with_derivation({**derivation, "actions": ["extract", "extract"]}), "trust.json", "refused")
+    vectors["derivation-tool-without-version"] = (with_derivation({**derivation, "tool": {"name": "t"}}), "trust.json", "refused")
+    vectors["derivation-parent-bad-id"] = (with_derivation({**derivation, "parent": {"id": "Not An Id", "digest": a_digest}}), "trust.json", "refused")
+    vectors["derivation-name-with-a-newline"] = (with_derivation({**derivation, "inputs": [{**derivation["inputs"][0], "name": "hand\nbook"}]}), "trust.json", "refused")
+    # Feature 10: policy.json, inside the signed content, canonical and strict in both verifiers; the read door at verify.
+    def with_policy(rules_, raw=None, **extra):
+        body = {"format": "agentmemory.pack.policy/1", "rules": rules_, **extra}
+        return signed({**content, "policy.json": raw if raw is not None else py.canonical(body).encode("utf-8")})
+    everyone_reads = {"audience": ["*"], "allow": ["read", "export"], "deny": ["rehydrate:external"]}
+    vectors["policy-valid"] = (with_policy([everyone_reads]), "trust.json", "verified")
+    vectors["policy-export-denied-read-allowed"] = (with_policy([{"audience": ["*"], "allow": ["read"], "deny": ["export"]}]), "trust.json", "verified")
+    vectors["policy-deny-beats-allow"] = (with_policy([{"audience": ["*"], "allow": ["read"]}, {"audience": ["*"], "deny": ["read"]}]), "trust.json", "refused")
+    vectors["policy-read-ended"] = (with_policy([{"audience": ["*"], "allow": ["read"], "notAfter": "2020-01-01T00:00:00Z"}]), "trust.json", "refused")
+    vectors["policy-read-ended-another-rule-grants"] = (with_policy([{"audience": ["*"], "allow": ["read"], "notAfter": "2020-01-01T00:00:00Z"},
+                                                                     {"audience": ["*"], "allow": ["read"]}]), "trust.json", "verified")
+    vectors["policy-ended-denial-still-denies"] = (with_policy([{"audience": ["*"], "allow": ["read"]},
+                                                                {"audience": ["*"], "deny": ["read"], "notAfter": "2020-01-01T00:00:00Z"}]), "trust.json", "refused")
+    vectors["policy-read-for-another-host"] = (with_policy([{"audience": ["https://other.example/profile#me"], "allow": ["read"]}]), "trust.json", "refused")
+    vectors["policy-read-for-this-named-host"] = (with_policy([{"audience": [buyer], "allow": ["read"]}]), "trust-federated-buyer.json", "verified")
+    vectors["policy-read-for-another-named-host"] = (with_policy([{"audience": [stranger], "allow": ["read"]}]), "trust-federated-buyer.json", "refused")
+    vectors["policy-not-after-impossible-date"] = (with_policy([{"audience": ["*"], "allow": ["read"], "notAfter": "2030-02-30T00:00:00Z"}]), "trust.json", "refused")
+    vectors["policy-read-not-granted"] = (with_policy([{"audience": ["*"], "allow": ["export"]}]), "trust.json", "refused")
+    vectors["policy-unknown-verb"] = (with_policy([{"audience": ["*"], "allow": ["read", "sell"]}]), "trust.json", "refused")
+    vectors["policy-verb-twice"] = (with_policy([{"audience": ["*"], "allow": ["read", "read"]}]), "trust.json", "refused")
+    vectors["policy-rule-allows-nothing"] = (with_policy([{"audience": ["*"]}, everyone_reads]), "trust.json", "refused")
+    vectors["policy-no-rules"] = (with_policy([]), "trust.json", "refused")
+    vectors["policy-audience-empty"] = (with_policy([{"audience": [], "allow": ["read"]}]), "trust.json", "refused")
+    vectors["policy-audience-not-a-webid"] = (with_policy([{"audience": ["partner x"], "allow": ["read"]}]), "trust.json", "refused")
+    vectors["policy-audience-twice"] = (with_policy([{"audience": ["*", "*"], "allow": ["read"]}]), "trust.json", "refused")
+    vectors["policy-not-after-with-an-offset"] = (with_policy([{"audience": ["*"], "allow": ["read"], "notAfter": "2030-01-01T00:00:00+01:00"}]), "trust.json", "refused")
+    vectors["policy-not-after-fraction"] = (with_policy([{"audience": ["*"], "allow": ["read"], "notAfter": "2030-01-01T00:00:00.5Z"}]), "trust.json", "refused")
+    vectors["policy-extra-field"] = (with_policy([everyone_reads], note="x"), "trust.json", "refused")
+    vectors["policy-rule-extra-field"] = (with_policy([{**everyone_reads, "purpose": "x"}]), "trust.json", "refused")
+    vectors["policy-not-canonical"] = (with_policy(None, raw=json.dumps({"format": "agentmemory.pack.policy/1", "rules": [everyone_reads]}, indent=1).encode("utf-8")),
+                                       "trust.json", "refused")
+    vectors["policy-format-other"] = (with_policy(None, raw=py.canonical({"format": "agentmemory.pack.policy/2", "rules": [everyone_reads]}).encode("utf-8")),
+                                      "trust.json", "refused")
+    vectors["trust-key-confidence-capped"] = (signed(content), "trust-confidence-capped.json", "verified")
+    vectors["trust-key-confidence-on-an-evaluator"] = (signed(content), "trust-confidence-on-an-evaluator.json", "refused")
+    # Review 09: a digest ends where its 64 hexadecimal characters end, in both verifiers (a trailing line feed is no digest).
+    vectors["derivation-digest-trailing-newline"] = (with_derivation({**derivation, "inputs": [{**derivation["inputs"][0], "digest": a_digest + "\n"}]}), "trust.json", "refused")
+    vectors["derivation-prompt-digest-trailing-newline"] = (with_derivation({**derivation, "promptDigest": a_digest + "\n"}), "trust.json", "refused")
+    vectors["derivation-parent-digest-trailing-newline"] = (with_derivation({**derivation, "parent": {"id": "com.example.handbook", "digest": a_digest + "\n"}}), "trust.json", "refused")
+    vectors["derivation-confidence-zero"] = (with_derivation({**derivation, "inputs": [{**derivation["inputs"][0], "confidenceMicro": 0}]}), "trust.json", "verified")
+    vectors["derivation-confidence-a-million"] = (with_derivation({**derivation, "inputs": [{**derivation["inputs"][0], "confidenceMicro": 1000000}]}), "trust.json", "verified")
+    vectors["derivation-confidence-a-boolean"] = (with_derivation({**derivation, "inputs": [{**derivation["inputs"][0], "confidenceMicro": True}]}), "trust.json", "refused")
+    vectors["derivation-model-empty"] = (with_derivation({**derivation, "model": {}}), "trust.json", "refused")
+    vectors["derivation-licence-empty"] = (with_derivation({**derivation, "inputs": [{**derivation["inputs"][0], "licence": ""}]}), "trust.json", "refused")
+    vectors["derivation-parameter-a-number"] = (with_derivation({**derivation, "parameters": {"temperature": 0}}), "trust.json", "refused")
+    # Feature 06: whenToUse is written for the model and shown every turn: display text of at most 400 characters.
+    vectors["card-when-to-use"] = (with_card({**full_card, "whenToUse": "Ask for the team's notes when a question names the team or its projects."}), "trust.json", "verified")
+    vectors["card-when-to-use-400-emoji"] = (with_card({**full_card, "whenToUse": chr(0x1F600) * 400}), "trust.json", "verified")
+    vectors["card-when-to-use-401"] = (with_card({**full_card, "whenToUse": "x" * 401}), "trust.json", "refused")
+    vectors["card-when-to-use-bidi-override"] = (with_card({**full_card, "whenToUse": "Ask " + chr(0x202E) + "always"}), "trust.json", "refused")
+    vectors["card-unknown-field"] = (with_card({**full_card, "rating": "five stars"}), "trust.json", "refused")
+    vectors["card-without-intended-use"] = (with_card({k: v for k, v in full_card.items() if k != "intendedUse"}), "trust.json", "refused")
+    vectors["card-other-format"] = (with_card({**full_card, "format": "agentmemory.pack.card/2"}), "trust.json", "refused")
+    vectors["card-terminal-escape"] = (with_card({**full_card, "owner": {"name": "Example\u001b[31m Supplier"}}), "trust.json", "refused")
+    vectors["card-c1-control"] = (with_card({**full_card, "domain": "notes\u0085"}), "trust.json", "refused")
+    # Lengths in characters (code points), as every text bound in the format since feature 02: 2,000 emoji are 4,000 UTF-16
+    # units and within the bound.
+    vectors["card-astral-at-limit"] = (with_card({**full_card, "intendedUse": "\U0001F600" * 2000}), "trust.json", "verified")
+    vectors["card-astral-over-limit"] = (with_card({**full_card, "intendedUse": "\U0001F600" * 2000 + "a"}), "trust.json", "refused")
+    # Feature 04: display-safe text, by the registry's ranges (Unicode 15.0) in both verifiers.
+    vectors["card-bidi-override"] = (with_card({**full_card, "intendedUse": "Safe to use ‮eman"}), "trust.json", "refused")
+    vectors["card-zero-width-space"] = (with_card({**full_card, "limitations": "No​personal data"}), "trust.json", "refused")
+    vectors["card-private-use"] = (with_card({**full_card, "limitations": "Mark  here"}), "trust.json", "refused")
+    vectors["card-emoji-joined-by-zwj"] = (with_card({**full_card, "intendedUse": "For the family \U0001F468‍\U0001F469‍\U0001F467"}), "trust.json", "verified")
+    vectors["card-boundary-repeated"] = (with_card({**full_card, "boundaries": ["Same.", "Same."]}), "trust.json", "refused")
+    vectors["card-owner-empty"] = (with_card({**full_card, "owner": {"name": ""}}), "trust.json", "refused")
+    vectors["card-owner-blank"] = (with_card({**full_card, "owner": {"name": "  "}}), "trust.json", "refused")
+    vectors["card-subdivision-flag"] = (with_card({**full_card, "intendedUse": "For England " + "".join(map(chr, (0x1F3F4, 0xE0067, 0xE0062, 0xE0065, 0xE006E, 0xE0067, 0xE007F)))}), "trust.json", "refused")
+    vectors["card-right-to-left-mark"] = (with_card({**full_card, "intendedUse": "Hebrew " + chr(0x05E9) + chr(0x200F) + " text"}), "trust.json", "refused")
+    vectors["card-variation-selector-emoji"] = (with_card({**full_card, "intendedUse": "Heart " + chr(0x2764) + chr(0xFE0F) + " and keycap 1" + chr(0xFE0F) + chr(0x20E3)}), "trust.json", "verified")
+
+    # The attestations area (v1.2 §16): outside the files list, shaped and bounded; a certificate's content is not trusted here.
+    stem = "0123456789abcdef-20261028t120000z"
+    beside = signed(content)
+    raw["attestation-certificate-content-unchecked"] = (write_zip({**beside, f"META/attestations/{stem}.certificate.dsse.json": b"not even JSON"}),
+                                                        "trust.json", "verified")
+    raw["attestation-stray-file"] = (write_zip({**beside, "META/attestations/notes.txt": b"x"}), "trust.json", "refused")
+    raw["attestation-run-without-certificate"] = (write_zip({**beside, f"META/attestations/{stem}.aef/run.json": b"{}"}), "trust.json", "refused")
+    raw["attestation-certificate-too-large"] = (write_zip({**beside, f"META/attestations/{stem}.certificate.dsse.json": b" " * (64 * 1024 + 1)}),
+                                                "trust.json", "refused")
+    raw["attestation-nine-certificates"] = (write_zip({**beside, **{f"META/attestations/{i:016x}-20261028t120000z.certificate.dsse.json": b"{}"
+                                                                    for i in range(9)}}), "trust.json", "refused")
+    raw["attestation-uppercase-stem"] = (write_zip({**beside, "META/attestations/ABC.certificate.dsse.json": b"{}"}), "trust.json", "refused")
+
+    # Review 2: the rules of round 1 and 2 held to agreement by both verifiers, not only by .NET unit tests.
+    vectors["folders-differ-only-by-case"] = (signed({**content, "assets/Icons/a.png": b"x", "assets/icons/b.png": b"y"}), "trust.json", "refused")
+    vectors["file-named-like-a-folder"] = (signed({**content, "notes": b"x", "notes/a.json": b'{}\n'}), "trust.json", "refused")
+    set_manifest = json.loads(bundle_content["pack.json"])
+    def set_of(set_id, members):
+        files = {"pack.json": (json.dumps({**set_manifest, "id": set_id, "contains": sorted(members)}, indent=2) + chr(10)).encode()}
+        for member_id, member_files in members.items():
+            files.update({f"packs/{member_id}/{name}": data for name, data in member_files.items()})
+        return signed(files, pid_=set_id)
+    vectors["set-inside-a-set"] = (set_of("io.example.outer", {"io.example.bundle": dict(bundle)}), "trust.json", "refused")
+    same_id = json.loads(content["pack.json"])
+    same_id_content = {**content, "pack.json": (json.dumps({**same_id, "id": "io.example.bundle"}, indent=2) + chr(10)).encode()}
+    vectors["set-member-with-the-set-id"] = (set_of("io.example.bundle", {"io.example.bundle": signed(same_id_content, pid_="io.example.bundle")}),
+                                             "trust.json", "refused")
+    vectors["composite-with-records"] = (family_with(**{"records/x.jsonl": b'{"key":"x"}\n'}), "trust.json", "refused")
+    # Review 7, L10: a composite or a set declares no restriction of its own; one it declared was verified, then dropped.
+    family_manifest = json.loads(composite_content["pack.json"])
+    vectors["composite-declares-sdk"] = (family_with(**{"pack.json": (json.dumps({**family_manifest, "sdk": "[0.1,0.2)"}, indent=2) + chr(10)).encode()}),
+                                         "trust.json", "refused")
+    vectors["composite-declares-containable-by"] = (family_with(**{"pack.json": (json.dumps({**family_manifest, "containableBy": ["io.example.host"]}, indent=2)
+                                                                                  + chr(10)).encode()}), "trust.json", "refused")
+    restricted = dict(set_manifest, requires={"host": ["Inference"]})
+    vectors["set-declares-requires"] = (signed({**{k: v for k, v in bundle_content.items()}, "pack.json": (json.dumps(restricted, indent=2) + chr(10)).encode()},
+                                               pid_=set_manifest["id"]), "trust.json", "refused")
+    # Feature 10 review, M5: a set or a composite carries no usage policy of its own, as it declares no sdk.
+    a_policy = py.canonical({"format": "agentmemory.pack.policy/1", "rules": [{"allow": ["read"], "audience": ["*"]}]}).encode("utf-8")
+    vectors["composite-carries-a-policy"] = (family_with(**{"policy.json": a_policy}), "trust.json", "refused")
+    vectors["set-carries-a-policy"] = (signed({**bundle_content, "policy.json": a_policy}, pid_=set_manifest["id"]), "trust.json", "refused")
+    vectors["composite-member-extra-field"] = (family_with(**{"members.json": (json.dumps({"members": [{"id": pid, "version": "[1,2)", "note": "x"}]}) + chr(10)).encode()}),
+                                               "trust.json", "refused")
+    for name, member in {"member-without-version": {"id": pid}, "member-priority-text": {"id": pid, "version": "[1,2)", "priority": "1"},
+                         "member-enabled-text": {"id": pid, "version": "[1,2)", "enabled": "yes"},
+                         "member-contains-a-number": {"id": pid, "version": "[1,2)", "contains": [1]}}.items():
+        vectors[f"composite-{name}"] = (family_with(**{"members.json": (json.dumps({"members": [member]}) + chr(10)).encode()}), "trust.json", "refused")
+    vectors["valid-until-fraction-with-offset"] = (signed(edited(validUntil="2099-01-01T00:00:00.5+01:00")), "trust.json", "verified")
+    vectors["valid-until-seven-digit-fraction"] = (signed(edited(validUntil="2099-01-01T00:00:00.1234567Z")), "trust.json", "verified")
+    (OUT / "trust-key-window-fraction-offset.json").write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", "keys": [
+        dict(entry, notBefore="2020-01-01T00:00:00.25-05:30", notAfter="2099-01-01T00:00:00.5+01:00")]}, separators=(",", ":")), encoding="utf-8")
+    vectors["key-window-fraction-with-offset"] = (dict(base), "trust-key-window-fraction-offset.json", "verified")
+    private_pem = (work / "keys" / "publisher.key.pem").read_text(encoding="utf-8")
+    # A private key never lands in the tree: this policy lives in the work folder, which is git-ignored and removed after the
+    # last reader has run (the third included; 2026-11-06: removing it before the third verifier made the Rust reader refuse
+    # a missing file and count that as the expected refusal). --keep-work keeps it for a standalone run_third.py.
+    (work / "trust-private-key.json").write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", "keys": [dict(entry, publicKey=private_pem)]},
+                                                            separators=(",", ":")), encoding="utf-8")
+    vectors["policy-with-a-private-key"] = (dict(base), ".work/trust-private-key.json", "refused")
+    (OUT / "trust-two-key-blocks.json").write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", "keys": [
+        dict(entry, publicKey=entry["publicKey"].rstrip("\n") + "\n" + entry["publicKey"])]}, separators=(",", ":")), encoding="utf-8")
+    vectors["policy-with-two-key-blocks"] = (dict(base), "trust-two-key-blocks.json", "refused")
+    # Review 3: the key itself in one form. A compressed or hybrid point, or base64 with stray bits, was read differently.
+    publisher_public = serialization.load_pem_public_key(entry["publicKey"].encode())
+    uncompressed = publisher_public.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+    point = uncompressed[27:]
+    def pem_of(der):
+        body = base64.b64encode(der).decode()
+        return "-----BEGIN PUBLIC KEY-----\n" + "\n".join(body[i:i + 64] for i in range(0, len(body), 64)) + "\n-----END PUBLIC KEY-----\n"
+    compressed = bytes.fromhex("3039301306072a8648ce3d020106082a8648ce3d030107032200") + bytes([2 + (point[63] & 1)]) + point[:32]
+    hybrid = uncompressed[:26] + bytes([6 + (point[63] & 1)]) + point
+    body = base64.b64encode(uncompressed).decode()
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    stray = body[:-3] + alphabet[alphabet.index(body[-3]) | 1] + body[-2:]
+    for name, pem in {"compressed-point": pem_of(compressed), "hybrid-point": pem_of(hybrid),
+                      "stray-base64-bits": "-----BEGIN PUBLIC KEY-----\n" + "\n".join(stray[i:i + 64] for i in range(0, len(stray), 64)) + "\n-----END PUBLIC KEY-----\n"}.items():
+        (OUT / f"trust-key-{name}.json").write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", "keys": [dict(entry, publicKey=pem)]},
+                                                              separators=(",", ":")), encoding="utf-8")
+        vectors[f"policy-key-{name}"] = (dict(base), f"trust-key-{name}.json", "refused")
+    p256 = 2**256 - 2**224 + 2**192 + 2**96 - 1
+    b256 = 0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b
+    small_x = next(x for x in range(1, 1000) if pow((x**3 - 3 * x + b256) % p256, (p256 + 1) // 4, p256) ** 2 % p256 == (x**3 - 3 * x + b256) % p256)
+    small_y = pow((small_x**3 - 3 * small_x + b256) % p256, (p256 + 1) // 4, p256)
+    off_curve_y = bytearray(point[32:]); off_curve_y[-1] ^= 1
+    for name, der in {"off-curve": uncompressed[:27] + point[:32] + bytes(off_curve_y),
+                      "x-not-reduced": uncompressed[:27] + (small_x + p256).to_bytes(32, "big") + small_y.to_bytes(32, "big")}.items():
+        second_key = dict(entry, keyId=hashlib.sha256(der).hexdigest(), publicKey=pem_of(der))
+        (OUT / f"trust-second-key-{name}.json").write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", "keys": [entry, second_key]},
+                                                                      separators=(",", ":")), encoding="utf-8")
+        vectors[f"policy-second-key-{name}"] = (dict(base), f"trust-second-key-{name}.json", "refused")
+    vectors["revocations-empty-list-in-two-envelopes"] = (dict(base), "trust-with-revoker.json", "verified",
+                                                          ["revocations-none.json", "revocations-none-reencoded.json"])
+    (OUT / "revocations-none-reencoded.json").write_text("{ " + (OUT / "revocations-none.json").read_text(encoding="utf-8")[1:], encoding="utf-8")
+    digest_list = (OUT / "revocations-digest.json").read_text(encoding="utf-8")
+    (OUT / "revocations-digest-reencoded.json").write_text("{ " + digest_list[1:], encoding="utf-8")
+    vectors["revocations-one-list-in-two-envelopes"] = (dict(base), "trust-with-revoker.json", "refused",
+                                                         ["revocations-digest.json", "revocations-digest-reencoded.json"])
+    vectors["revocations-65-lists"] = (dict(base), "trust-with-revoker.json", "refused", ["revocations-none.json"] * 65)
+    none_list = (OUT / "revocations-none.json").read_bytes()
+    for how in SHAPES:
+        (OUT / f"revocations-shape-{how}.json").write_bytes(reshaped(none_list, how))
+        vectors[f"revocations-shape-{how}"] = (dict(base), "trust-with-revoker.json", "refused", f"revocations-shape-{how}.json")
+
+    # Review 2, L7: every shape in an envelope closed, in both verifiers.
+    def signed_statement(content_, statement_extra=None, predicate_extra=None, envelope_extra=None):
+        lb = files_list(pid, version, content_)
+        statement = {"_type": py.STATEMENT, "subject": [{"name": py.FILES, "digest": {"sha256": hashlib.sha256(lb).hexdigest()}}],
+                     "predicateType": "urn:agentmemory:pack:publisher:v1",
+                     "predicate": {"id": pid, "version": version, "role": "publisher", "signedAt": "2026-10-26T12:00:00Z", **(predicate_extra or {})},
+                     **(statement_extra or {})}
+        payload = py.canonical(statement).encode()
+        spki = key.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+        kid = hashlib.sha256(spki).hexdigest()
+        signature = base64.b64encode(key.sign(py.pae(payload), ec.ECDSA(hashes.SHA256()))).decode()
+        envelope = py.canonical({"payloadType": py.PAYLOAD_TYPE, "payload": base64.b64encode(payload).decode(),
+                                 "signatures": [{"keyid": kid, "sig": signature}], **(envelope_extra or {})}).encode()
+        return {**content_, py.FILES: lb, f"{py.SIGNATURES}publisher-{kid[:16]}.dsse.json": envelope}
+    vectors["envelope-closed-shapes-hold"] = (signed_statement(content), "trust.json", "verified")
+    vectors["envelope-extra-field"] = (signed_statement(content, envelope_extra={"note": "x"}), "trust.json", "refused")
+    vectors["statement-extra-field"] = (signed_statement(content, statement_extra={"note": "x"}), "trust.json", "refused")
+    vectors["predicate-extra-field"] = (signed_statement(content, predicate_extra={"note": "x"}), "trust.json", "refused")
+
+    results, failures = [], 0
+    for name, (files, policy_file, expected, *document) in {**{k: (write_zip(v[0]), *v[1:]) for k, v in vectors.items()}, **raw}.items():
+        path = VECTORS / f"{name}.ampack"
+        path.write_bytes(files)
+        documents = ([document[0]] if isinstance(document[0], str) else list(document[0])) if document else []
+        extra = [arg for name_ in documents for arg in ("--revocations", str(OUT / name_))]
+        dn_code, dn_text = ampack("verify", str(path), "--policy", str(OUT / policy_file), *extra)
+        pr = subprocess.run([sys.executable, "-I", str(HERE / "python" / "ampack_verify.py"), str(path), str(OUT / policy_file),
+                             *[str(OUT / name_) for name_ in documents]],
+                            capture_output=True, text=True, encoding="utf-8", errors="replace")
+        # Exit 1 is a refusal; anything else but 0 is a crash, which agrees with nothing.
+        dotnet = {0: "verified", 1: "refused"}.get(dn_code, f"error ({dn_code})")
+        python = {0: "verified", 1: "refused"}.get(pr.returncode, f"error ({pr.returncode})")
+        agree = dotnet == python == expected and refused_for(name, dn_text, pr.stdout + pr.stderr)
+        # Feature 01: on a verified pack both verifiers derive the same profiles from the registry's map.
+        if agree and expected == "verified":
+            dn_profiles = next((line.strip()[len("profiles "):] for line in dn_text.splitlines() if line.strip().startswith("profiles ")), None)
+            py_profiles = next((line[len("profiles "):] for line in pr.stdout.splitlines() if line.startswith("profiles ")), None)
+            agree = dn_profiles is not None and dn_profiles == py_profiles
+        failures += not agree
+        results.append({"vector": name, "expected": expected, "dotnet": dotnet, "python": python, "agree": agree,
+                        "dotnetSays": dn_text.splitlines()[0] if dn_text else "", "pythonSays": pr.stdout.strip().splitlines()[0] if pr.stdout.strip() else pr.stderr.strip()[-200:],
+                        "sha256": hashlib.sha256(files).hexdigest(), "kind": "pack", "policy": policy_file, "revocations": documents})
+        print(f"{'ok  ' if agree else 'FAIL'} {name:34} expected {expected:8} dotnet {dotnet:8} python {python}")
+    # Publication receipts: each verified by `ampack receipt verify` and by the Python verifier's --receipt.
+    here = "https://supplier-a.example/ampack/handoff.ampack"
+    fed_bytes = write_zip(federated)
+
+    def receipt(pack_bytes, location=here, audience=(buyer,), access="wac", denied=("anonymous",), allowed=(buyer,),
+                published="2026-10-26T12:05:00Z", signer=None, archive_sha=None, subjects=None, extra=None, edit=None):
+        files_ = py.read_zip(pack_bytes)
+        listing = json.loads(files_[py.FILES])
+        pred = {"id": listing["id"], "version": listing["version"], "location": location,
+                "archiveSha256": archive_sha or hashlib.sha256(pack_bytes).hexdigest(),
+                "audience": list(audience) if isinstance(audience, tuple) else audience, "access": access,
+                "checked": {"denied": list(denied), "allowed": list(allowed)}, "publishedAt": published, **(extra or {})}
+        statement = {"_type": py.STATEMENT, "predicateType": "urn:agentmemory:pack:publication:v1", "predicate": pred,
+                     "subject": subjects or [{"name": py.FILES, "digest": {"sha256": hashlib.sha256(files_[py.FILES]).hexdigest()}}]}
+        payload = py.canonical(statement).encode()
+        who = signer or key
+        spki = who.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+        sig = who.sign(py.pae(payload), ec.ECDSA(hashes.SHA256()))
+        if edit:
+            payload = edit(payload)
+        return py.canonical({"payloadType": py.PAYLOAD_TYPE, "payload": base64.b64encode(payload).decode(),
+                             "signatures": [{"keyid": hashlib.sha256(spki).hexdigest(), "sig": base64.b64encode(sig).decode()}]}).encode()
+    code, text = ampack("receipt", "sign", str(work / "fed-dotnet.ampack"), "--location", here, "--key", str(work / "keys" / "publisher.key.pem"),
+                        "--denied", "anonymous," + stranger, "--allowed", buyer, "--out", str(work / "fed-dotnet.receipt.json"))
+    assert code == 0, text
+    two_bytes = write_zip(two_readers)
+    pub_bytes = write_zip(public_federated)
+    set_bytes = write_zip(federated_set)
+    untrusted_set_bytes = write_zip(untrusted_member_set)
+    receipts = {
+        "receipt-valid-python": (fed_bytes, receipt(fed_bytes), here, "trust-federated-buyer.json", "verified"),
+        **{f"receipt-shape-{how}": (fed_bytes, reshaped(receipt(fed_bytes), how), here, "trust-federated-buyer.json", "refused") for how in SHAPES},
+        "receipt-valid-dotnet": (fed_dotnet, (work / "fed-dotnet.receipt.json").read_bytes(), here, "trust-federated-buyer.json", "verified"),
+        "receipt-narrower-placement": (two_bytes, receipt(two_bytes), here, "trust-federated-buyer.json", "verified"),
+        "receipt-other-location": (fed_bytes, receipt(fed_bytes), "https://mirror.example/ampack/handoff.ampack", "trust-federated-buyer.json", "refused"),
+        "receipt-other-bytes": (fed_bytes, receipt(fed_bytes, archive_sha="0" * 64), here, "trust-federated-buyer.json", "refused"),
+        "receipt-wider-audience": (fed_bytes, receipt(fed_bytes, audience=(buyer, stranger)), here, "trust-federated-buyer.json", "refused"),
+        "receipt-public-placement-of-named-pack": (fed_bytes, receipt(fed_bytes, audience="public", access="public", denied=()), here, "trust-federated-buyer.json", "refused"),
+        "receipt-host-outside-placement": (two_bytes, receipt(two_bytes, audience=(stranger,), allowed=()), here, "trust-federated-buyer.json", "refused"),
+        # FED-review round 1: the probe's record agrees with the placement.
+        "receipt-named-without-anonymous-refused": (fed_bytes, receipt(fed_bytes, denied=()), here, "trust-federated-buyer.json", "refused"),
+        "receipt-allowed-outside-audience": (fed_bytes, receipt(fed_bytes, allowed=(stranger,)), here, "trust-federated-buyer.json", "refused"),
+        "receipt-audience-member-refused": (fed_bytes, receipt(fed_bytes, denied=("anonymous", buyer), allowed=()), here, "trust-federated-buyer.json", "refused"),
+        "receipt-public-valid": (pub_bytes, receipt(pub_bytes, audience="public", access="public", denied=()), here, "trust-federated-buyer.json", "verified"),
+        "receipt-public-anonymous-refused": (pub_bytes, receipt(pub_bytes, audience="public", access="public", denied=("anonymous",)), here, "trust-federated-buyer.json", "refused"),
+        # FED-review round 2: a public placement refuses nobody, so its receipt lists nobody as refused.
+        "receipt-public-webid-refused": (pub_bytes, receipt(pub_bytes, audience="public", access="public", denied=(stranger,)), here, "trust-federated-buyer.json", "refused"),
+        # A second key of the same publisher: live (accepted), curator only, revoked, expired.
+        "receipt-signed-by-second-bound-key": (fed_bytes, receipt(fed_bytes, signer=mirror), here, "trust-federated-second-key.json", "verified"),
+        "receipt-signer-curator-only": (fed_bytes, receipt(fed_bytes, signer=curator), here, "trust-federated-curator.json", "refused"),
+        "receipt-signer-revoked": (fed_bytes, receipt(fed_bytes, signer=mirror), here, "trust-federated-second-key-revoked.json", "refused"),
+        "receipt-signer-expired": (fed_bytes, receipt(fed_bytes, signer=mirror), here, "trust-federated-second-key-expired.json", "refused"),
+        "receipt-subject-other-digest": (fed_bytes, receipt(fed_bytes, subjects=[{"name": py.FILES, "digest": {"sha256": "0" * 64}}]), here, "trust-federated-buyer.json", "refused"),
+        # FED-review H2: a set's receipt holds only when every member verifies.
+        "receipt-set-valid": (set_bytes, receipt(set_bytes), here, "trust-federated-buyer.json", "verified"),
+        "receipt-set-member-untrusted": (untrusted_set_bytes, receipt(untrusted_set_bytes), here, "trust-federated-buyer.json", "refused"),
+        "receipt-signer-bound-elsewhere": (fed_bytes, receipt(fed_bytes, signer=mirror), here, "trust-federated-buyer-and-mirror.json", "refused"),
+        "receipt-signer-untrusted": (fed_bytes, receipt(fed_bytes, signer=mirror), here, "trust-federated-buyer.json", "refused"),
+        "receipt-edited-after-signing": (fed_bytes, receipt(fed_bytes, location="https://mirror.example/ampack/handoff.ampack",
+                                                             edit=lambda b: b.replace(b"https://mirror.example/ampack/handoff.ampack", here.encode())),
+                                         here, "trust-federated-buyer.json", "refused"),
+        "receipt-extra-field": (fed_bytes, receipt(fed_bytes, extra={"note": "x"}), here, "trust-federated-buyer.json", "refused"),
+        "receipt-access-public-with-names": (fed_bytes, receipt(fed_bytes, access="public"), here, "trust-federated-buyer.json", "refused"),
+        "receipt-access-unknown": (fed_bytes, receipt(fed_bytes, access="ftp"), here, "trust-federated-buyer.json", "refused"),
+        "receipt-in-the-future": (fed_bytes, receipt(fed_bytes, published="2099-01-01T00:00:00Z"), here, "trust-federated-buyer.json", "refused"),
+        "receipt-time-not-utc": (fed_bytes, receipt(fed_bytes, published="2026-10-26T12:05:00+00:00"), here, "trust-federated-buyer.json", "refused"),
+        "receipt-location-fragment": (fed_bytes, receipt(fed_bytes, location=here + "#x"), here + "#x", "trust-federated-buyer.json", "refused"),
+        "receipt-two-subjects": (fed_bytes, receipt(fed_bytes, subjects=[{"name": py.FILES, "digest": {"sha256": "0" * 64}}] * 2), here,
+                                 "trust-federated-buyer.json", "refused"),
+        "receipt-probe-not-webid": (fed_bytes, receipt(fed_bytes, allowed=("anonymous",)), here, "trust-federated-buyer.json", "refused"),
+        "receipt-for-unfederated-pack": ((VECTORS / "valid-dotnet.ampack").read_bytes(), receipt((VECTORS / "valid-dotnet.ampack").read_bytes()), here,
+                                         "trust-federated-buyer.json", "refused"),
+    }
+    for name, (pack_bytes, receipt_bytes, location, policy_file, expected) in receipts.items():
+        pack_path, receipt_path = VECTORS / f"{name}.ampack", VECTORS / f"{name}.receipt.dsse.json"
+        pack_path.write_bytes(pack_bytes)
+        receipt_path.write_bytes(receipt_bytes)
+        dn_code, dn_text = ampack("receipt", "verify", str(pack_path), str(receipt_path), "--location", location, "--policy", str(OUT / policy_file))
+        pr = subprocess.run([sys.executable, "-I", str(HERE / "python" / "ampack_verify.py"), str(pack_path), str(OUT / policy_file),
+                             "--receipt", str(receipt_path), "--location", location],
+                            capture_output=True, text=True, encoding="utf-8", errors="replace")
+        dotnet = {0: "verified", 1: "refused"}.get(dn_code, f"error ({dn_code})")
+        python = {0: "verified", 1: "refused"}.get(pr.returncode, f"error ({pr.returncode})")
+        agree = dotnet == python == expected and refused_for(name, dn_text, pr.stdout + pr.stderr)
+        failures += not agree
+        results.append({"vector": name, "expected": expected, "dotnet": dotnet, "python": python, "agree": agree,
+                        "dotnetSays": dn_text.splitlines()[0] if dn_text else "", "pythonSays": pr.stdout.strip().splitlines()[-1] if pr.stdout.strip() else pr.stderr.strip()[-200:],
+                        "sha256": hashlib.sha256(pack_bytes + receipt_bytes).hexdigest(), "kind": "receipt", "policy": policy_file, "location": location})
+        print(f"{'ok  ' if agree else 'FAIL'} {name:34} expected {expected:8} dotnet {dotnet:8} python {python}")
+    # Evaluation certificates (v1.2 §16): each verified by `ampack certificate verify` and by the Python verifier's --certificate.
+    code, text = ampack("keygen", "--out", str(work / "keys"), "--name", "evaluator", "--role", "evaluator", "--prefix", "io.example")
+    assert code == 0, text
+    evaluator_entry = json.loads(text[text.index("{"):])
+    evaluator = serialization.load_pem_private_key((work / "keys" / "evaluator.key.pem").read_bytes(), password=None)
+    code, text = ampack("keygen", "--out", str(work / "keys"), "--name", "host", "--prefix", "io.example")
+    assert code == 0, text
+    host = serialization.load_pem_private_key((work / "keys" / "host.key.pem").read_bytes(), password=None)
+    certificate_policies = {
+        "trust-evaluator.json": {"keys": [entry, evaluator_entry]},
+        "trust-evaluator-other-prefix.json": {"keys": [entry, dict(evaluator_entry, idPrefixes=["io.other"])]},
+        "trust-evaluator-expired.json": {"keys": [entry, dict(evaluator_entry, notAfter="2020-01-01T00:00:00Z")]},
+        "trust-evaluator-revoked.json": {"keys": [entry, evaluator_entry], "revoked": {"digests": [], "keys": [{"keyId": evaluator_entry["keyId"]}]}},
+        "trust-evaluator-as-assurer.json": {"keys": [entry, dict(evaluator_entry, roles=["assurer"])]},
+        # The key that signs a pack never certifies it too: an evaluator key holds that role alone, as a revoker's does.
+        "trust-evaluator-also-publisher.json": {"keys": [entry, dict(evaluator_entry, roles=["evaluator", "publisher"])]},
+    }
+    for name_, body in certificate_policies.items():
+        (OUT / name_).write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", **body}, separators=(",", ":")), encoding="utf-8")
+    federated_policy("trust-federated-buyer-evaluator.json", more=(evaluator_entry,))
+    trial = {"measure": "test-impact", "tasks": 40, "baseline": "none", "targets": {"hitRateMicro": 500000}}
+    certified = signed({**content, "evals/trial.json": json.dumps(trial).encode() + b"\n"})
+
+    def certificate(files_, signer=None, evaluated="2026-10-27T12:00:00Z", checks=None, with_arm=None, without=None, passed=True, extra=None,
+                    aef=None, subjects=None, edit=None, pid_=None, version_=None, trial_=None, payload_override=None):
+        listing = json.loads(files_[py.FILES])
+        pred = {"id": pid_ or listing["id"], "version": version_ or listing["version"], "evaluator": "Kit evaluator",
+                "tool": {"name": "kit", "version": "1.0.0"}, "evaluatedAt": evaluated,
+                "trial": trial_ or {"measure": "test-impact", "baseline": "none", "taskSource": "the kit's synthetic tasks"},
+                "checks": checks or [{"target": "hitRate", "requiredMicro": 500000, "observedMicro": 600000, "met": True}],
+                "statistic": "agentmemory.trial.hedged/4",
+                "with": with_arm or arm_(40, 24, 120, 30, 12500), "passed": passed, **(extra or {})}
+        if without is not None:
+            pred["without"] = without
+        if aef is not None:
+            pred["aef"] = aef
+        statement = {"_type": py.STATEMENT, "predicateType": py.CERTIFICATE, "predicate": pred,
+                     "subject": subjects or [{"name": py.FILES, "digest": {"sha256": hashlib.sha256(files_[py.FILES]).hexdigest()}}]}
+        payload = payload_override(statement) if payload_override else py.canonical(statement).encode()
+        who = signer or evaluator
+        spki = who.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+        sig = who.sign(py.pae(payload), ec.ECDSA(hashes.SHA256()))
+        if edit:
+            payload = edit(payload)
+        return py.canonical({"payloadType": py.PAYLOAD_TYPE, "payload": base64.b64encode(payload).decode(),
+                             "signatures": [{"keyid": hashlib.sha256(spki).hexdigest(), "sig": base64.b64encode(sig).decode()}]}).encode()
+
+    # A carried certificate travels under its evaluator's key and evaluation time (review 6, M3).
+    cert_stem = py.stem_for(evaluator_entry["keyId"], datetime(2026, 10, 27, 12, 0, 0, tzinfo=timezone.utc))
+    certificate_path = f"META/attestations/{cert_stem}.certificate.dsse.json"
+
+    def carrying(envelope, run=None, files_=certified, stem_=None):
+        out = {**files_, f"META/attestations/{stem_ or cert_stem}.certificate.dsse.json": envelope}
+        for path_, bytes_ in (run or {}).items():
+            out[f"META/attestations/{stem_ or cert_stem}.aef/{path_}"] = bytes_
+        return write_zip(out)
+
+    certified_listing = json.loads(certified[py.FILES])
+    # A run is the evidence of one decision: its subject names this pack at this digest and version (round 10, B10-M1).
+    run_subject = {"ref": f"pack:{certified_listing['id']}@sha256:{hashlib.sha256(certified[py.FILES]).hexdigest()}", "version": certified_listing["version"]}
+    run = {"run.json": json.dumps({"schemaVersion": "1.0", "runId": "trial.io.example.notes.1.0.0.20261028T120000000Z", "subject": run_subject}).encode(),
+           "results.ndjson": b'{"lane":"with-pack","passed":true}\n', "seal.json": b"{}", "attestation.dsse.json": b"{}"}
+    aef = {"runId": "trial.io.example.notes.1.0.0.20261028T120000000Z", "runHash": py.run_hash(run)}
+    tampered = {**run, "results.ndjson": b'{"lane":"with-pack","passed":false}\n'}
+    certified_bytes = write_zip(certified)
+    other = signed({**content, "evals/trial.json": json.dumps(trial).encode() + b"\n", "records/extra.jsonl": content[record]})
+
+    # One certificate signed by .NET itself: ampack certify from a host-signed trial decision for exactly this pack.
+    (work / "cert-pack.ampack").write_bytes(certified_bytes)
+    code, text = ampack("verify", str(work / "cert-pack.ampack"), "--policy", str(OUT / "trust-evaluator.json"))
+    assert code == 0, text
+    declarations = next(line.split()[1] for line in text.splitlines() if line.strip().startswith("declarations "))
+    pack_digest = "sha256:" + hashlib.sha256(certified[py.FILES]).hexdigest()
+    decision = {"ModuleId": pid, "Version": version, "ManifestDigest": declarations, "PackDigest": pack_digest, "Active": True,
+                "Reason": "every target met", "DecidedAt": "2026-10-27T12:00:00+00:00",
+                "Checks": [{"Target": "hitRate", "Required": 0.5, "Observed": 0.6, "Met": True, "Estimate": None}],
+                "With": {"Tasks": 40, "Hits": 24, "Offered": 120, "Correct": 30, "P95Ms": 12.5, "MaximumOffered": 16,
+                         "PerTask": [{"Offered": o_, "Correct": c_} for o_, c_ in arm_(40, 24, 120, 30, 12500)["perTask"]]},
+                "Without": {"Tasks": 40, "Hits": 0, "Offered": 0, "Correct": 0, "P95Ms": 2.5, "MaximumOffered": 0,
+                            "PerTask": [{"Offered": 0, "Correct": 0}] * 40},
+                "Statistic": "agentmemory.trial.hedged/4",
+                # Review 7: the caps are the declarations' (no traversal: the format's 16), and a baseline of none offers nothing.
+                # Review 3: certify takes only a trial at each commit's parent.
+                "History": "parent"}
+    decision_payload = json.dumps({"_type": py.STATEMENT, "subject": [{"name": f"{pid}@{version}", "digest": {"sha256": pack_digest[7:]}}],
+                                   "predicateType": "urn:agentmemory:pack:trial:v1", "predicate": decision}).encode()
+    (work / "decisions").mkdir()
+    (work / "decisions" / "notes.dsse.json").write_text(json.dumps({
+        "payloadType": py.PAYLOAD_TYPE, "payload": base64.b64encode(decision_payload).decode(),
+        "signatures": [{"keyid": "host", "sig": base64.b64encode(host.sign(py.pae(decision_payload), ec.ECDSA(hashes.SHA256()))).decode()}]}),
+        encoding="utf-8")
+    code, text = ampack("certify", str(work / "cert-pack.ampack"), "--policy", str(OUT / "trust-evaluator.json"),
+                        "--activations", str(work / "decisions"), "--host-key", str(work / "keys" / "host.pub.pem"),
+                        "--key", str(work / "keys" / "evaluator.key.pem"), "--evaluator", "Kit evaluator (.NET)",
+                        "--task-source", "the kit's synthetic tasks", "--out", str(work / "cert-dotnet.ampack"))
+    assert code == 0, text
+    dotnet_certified = (work / "cert-dotnet.ampack").read_bytes()
+    dotnet_certificate = next(p for p in py.read_zip(dotnet_certified) if p.startswith(py.ATTESTATIONS))
+
+    certificates = {  # name -> (pack bytes, certificate inside the pack or None, certificate file or None, policy, expected)
+        "certificate-valid-python": (carrying(certificate(certified)), certificate_path, None, "trust-evaluator.json", "verified"),
+        "certificate-valid-dotnet": (dotnet_certified, dotnet_certificate, None, "trust-evaluator.json", "verified"),
+        "certificate-as-a-separate-file": (certified_bytes, None, certificate(certified), "trust-evaluator.json", "verified"),
+        **{f"certificate-shape-{how}": (certified_bytes, None, reshaped(certificate(certified), how), "trust-evaluator.json", "refused") for how in SHAPES},
+        "certificate-honest-failure": (carrying(certificate(certified, checks=[{"target": "hitRate", "requiredMicro": 500000, "observedMicro": 400000, "met": False}],
+                                                            passed=False)), certificate_path, None, "trust-evaluator.json", "verified"),
+        "certificate-with-host-baseline": (carrying(certificate(certified, trial_={"measure": "test-impact", "baseline": "host", "confidencePermille": 950,
+                                                                                    "taskSource": "the kit's synthetic tasks"},
+                                                                without=arm_(40, 20, 120, 24, 9000),
+                                                                checks=[{"target": "hitRate", "requiredMicro": 500000, "observedMicro": 520000, "met": True, "estimateMicro": 600000},
+                                                                        {"target": "lift", "requiredMicro": 0, "observedMicro": 100000, "met": True}])),
+                                           certificate_path, None, "trust-evaluator.json", "verified"),
+        # The AEF run beside the certificate: named by its run hash, exactly.
+        "certificate-aef-run-matches": (carrying(certificate(certified, aef=aef), run), certificate_path, None, "trust-evaluator.json", "verified"),
+        "certificate-aef-run-named-elsewhere": (carrying(certificate(certified, aef=aef)), certificate_path, None, "trust-evaluator.json", "verified"),
+        "certificate-aef-run-tampered": (carrying(certificate(certified, aef=aef), tampered), certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-aef-run-not-named": (carrying(certificate(certified), run), certificate_path, None, "trust-evaluator.json", "refused"),
+        # A run.json outside the profile cannot show whose evidence it is (round 10, B10-M1), so it no longer passes.
+        "certificate-aef-run-json-outside-profile": (carrying(certificate(certified, aef={**aef, "runHash": py.run_hash({**run, "run.json": b'{"runId":"another.run","runId":"another.run"}'})}),
+                                                     {**run, "run.json": b'{"runId":"another.run","runId":"another.run"}'}),
+                                                     certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-aef-run-of-another-pack": (carrying(certificate(certified, aef={**aef, "runHash": py.run_hash(other_run := {**run, "run.json": json.dumps(
+            {"schemaVersion": "1.0", "runId": aef["runId"], "subject": {**run_subject, "version": "9.9.9"}}).encode()})}), other_run),
+            certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-aef-run-other-id": (carrying(certificate(certified, aef={**aef, "runId": "another.run"}), run), certificate_path, None,
+                                         "trust-evaluator.json", "refused"),
+        # Whose certificate: a key the host names as evaluator for this pack's id, valid when it evaluated and now.
+        "certificate-key-not-trusted": (carrying(certificate(certified)), certificate_path, None, "trust.json", "refused"),
+        "certificate-key-other-prefix": (carrying(certificate(certified)), certificate_path, None, "trust-evaluator-other-prefix.json", "refused"),
+        "certificate-key-expired": (carrying(certificate(certified)), certificate_path, None, "trust-evaluator-expired.json", "refused"),
+        "certificate-key-revoked": (carrying(certificate(certified)), certificate_path, None, "trust-evaluator-revoked.json", "refused"),
+        "certificate-key-assurer-not-evaluator": (carrying(certificate(certified)), certificate_path, None, "trust-evaluator-as-assurer.json", "refused"),
+        # Review 1, H3: a certified set verifies whole, member by member, before its certificate is read.
+        "certificate-set-valid": (carrying(certificate(federated_set), files_=federated_set), certificate_path, None,
+                                  "trust-federated-buyer-evaluator.json", "verified"),
+        "certificate-set-member-untrusted": (carrying(certificate(untrusted_member_set), files_=untrusted_member_set), certificate_path, None,
+                                             "trust-federated-buyer-evaluator.json", "refused"),
+        "certificate-path-of-a-run-file": (carrying(certificate(certified, aef=aef), run), f"META/attestations/{cert_stem}.aef/run.json", None,
+                                           "trust-evaluator.json", "refused"),
+        "certificate-policy-evaluator-also-publisher": (carrying(certificate(certified)), certificate_path, None, "trust-evaluator-also-publisher.json", "refused"),
+        "certificate-by-the-publisher": (carrying(certificate(certified, signer=key)), certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-in-the-future": (carrying(certificate(certified, evaluated="2099-01-01T00:00:00Z")), certificate_path, None, "trust-evaluator.json", "refused"),
+        # Review 6, M3: a copy (here the very certificate) under a name that is not its evaluator's key and time is refused, so
+        # nobody can place a respelled copy where it sorts first.
+        "certificate-under-another-stem": (carrying(certificate(certified), stem_=cert_stem[:17] + "20261027t120001z"),
+                                           f"META/attestations/{cert_stem[:17]}20261027t120001z.certificate.dsse.json", None, "trust-evaluator.json", "refused"),
+        # For exactly this pack.
+        "certificate-for-another-pack": (carrying(certificate(other)), certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-other-version": (carrying(certificate(certified, version_="1.0.1")), certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-two-subjects": (carrying(certificate(certified, subjects=[{"name": py.FILES, "digest": {"sha256": hashlib.sha256(certified[py.FILES]).hexdigest()}}] * 2)),
+                                     certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-edited-after-signing": (carrying(certificate(certified, edit=lambda b: b.replace(b'"observedMicro":600', b'"observedMicro":900'))),
+                                             certificate_path, None, "trust-evaluator.json", "refused"),
+        # A verdict that agrees with its record.
+        "certificate-passed-with-a-missed-check": (carrying(certificate(certified, checks=[{"target": "hitRate", "requiredMicro": 500000, "observedMicro": 400000, "met": False}])),
+                                                   certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-passed-on-nine-tasks": (carrying(certificate(certified, with_arm=arm_(9, 9, 9, 9, 1))),
+                                             certificate_path, None, "trust-evaluator.json", "refused"),
+        # Review 7, L8: a baseline of none that offers nothing, so the vector is refused for its own rule, the arms' task counts,
+        # and no longer for offering items, which the verifiers check in different orders.
+        "certificate-arms-differ": (carrying(certificate(certified, without=arm_(39, 0, 0, 0, 1, cap=0))),
+                                    certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-host-baseline-without-arm": (carrying(certificate(certified, trial_={"measure": "test-impact", "baseline": "host", "taskSource": "x"})),
+                                                  certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-hits-above-tasks": (carrying(certificate(certified, with_arm={**arm_(40, 1, 40, 1, 1), "hits": 41})),
+                                         certificate_path, None, "trust-evaluator.json", "refused"),
+        # Review 5, root RB: the evidence travels with the verdict, consistent with it, so every host derives the verdict again.
+        "certificate-without-per-task": (carrying(certificate(certified, with_arm={k: v for k, v in arm_(40, 24, 120, 30, 12500).items() if k != "perTask"})),
+                                         certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-per-task-sums-disagree": (carrying(certificate(certified, with_arm={**arm_(40, 24, 120, 30, 12500), "correct": 31})),
+                                               certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-per-task-hits-disagree": (carrying(certificate(certified, with_arm={**arm_(40, 24, 120, 30, 12500), "hits": 23})),
+                                               certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-per-task-above-cap": (carrying(certificate(certified, with_arm={**arm_(40, 24, 120, 30, 12500), "maximumOffered": 2})),
+                                           certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-cap-above-sixteen": (carrying(certificate(certified, with_arm=arm_(40, 24, 120, 30, 12500, cap=17))),
+                                          certificate_path, None, "trust-evaluator.json", "refused"),
+        # Review 6: a baseline that offers nothing by design records a cap of 0; how far apart the tasks were drawn, 1 to 2,000.
+        "certificate-baseline-cap-zero": (carrying(certificate(certified, without=arm_(40, 0, 0, 0, 9000, cap=0),
+                                                               checks=[{"target": "hitRate", "requiredMicro": 500000, "observedMicro": 600000, "met": True},
+                                                                       {"target": "lift", "requiredMicro": 0, "observedMicro": 100000, "met": True}])),
+                                          certificate_path, None, "trust-evaluator.json", "verified"),
+        "certificate-baseline-cap-zero-offering": (carrying(certificate(certified, without={**arm_(40, 1, 1, 1, 9000), "maximumOffered": 0})),
+                                                   certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-spacing-zero": (carrying(certificate(certified, with_arm=arm_(40, 24, 120, 30, 12500, spacing=0))),
+                                     certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-spacing-absent": (carrying(certificate(certified, with_arm={k: v for k, v in arm_(40, 24, 120, 30, 12500).items() if k != "spacing"})),
+                                       certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-spacing-one": (carrying(certificate(certified, with_arm=arm_(40, 24, 120, 30, 12500, spacing=1))),
+                                    certificate_path, None, "trust-evaluator.json", "verified"),
+        # Review 7, G4 and G5: arms that ran the same tasks were drawn at one spacing, within the 2,000 commits a trial draws
+        # from (51 x 39 = 1,989 fits, 60 x 39 = 2,340 does not); a baseline of none offers nothing, a host baseline can offer.
+        "certificate-arms-spaced-differently": (carrying(certificate(certified, without=arm_(40, 0, 0, 0, 9000, cap=0, spacing=1))),
+                                                certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-spacing-at-window": (carrying(certificate(certified, with_arm=arm_(40, 24, 120, 30, 12500, spacing=51))),
+                                          certificate_path, None, "trust-evaluator.json", "verified"),
+        "certificate-spacing-past-window": (carrying(certificate(certified, with_arm=arm_(40, 24, 120, 30, 12500, spacing=60))),
+                                            certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-none-baseline-offers": (carrying(certificate(certified, without=arm_(40, 10, 40, 10, 9000))),
+                                             certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-host-baseline-cap-zero": (carrying(certificate(certified, trial_={"measure": "test-impact", "baseline": "host", "taskSource": "x"},
+                                                                    without=arm_(40, 0, 0, 0, 9000, cap=0))),
+                                               certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-more-than-200-tasks": (carrying(certificate(certified, with_arm=arm_(201, 24, 201, 24, 12500))),
+                                            certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-two-hundred-tasks": (carrying(certificate(certified, with_arm=arm_(200, 120, 600, 150, 12500))),
+                                          certificate_path, None, "trust-evaluator.json", "verified"),
+        "certificate-without-statistic": (carrying(certificate(certified, payload_override=lambda st: py.canonical(
+            {**st, "predicate": {k: v for k, v in st["predicate"].items() if k != "statistic"}}).encode())),
+                                          certificate_path, None, "trust-evaluator.json", "refused"),
+        # Strict shape: integers only, known fields, known targets, one line of text.
+        "certificate-fraction-not-integer": (carrying(certificate(certified, payload_override=lambda st: json.dumps(st, separators=(",", ":")).replace(
+            '"requiredMicro":500000', '"requiredMicro":0.5').encode())), certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-extra-field": (carrying(certificate(certified, extra={"note": "x"})), certificate_path, None, "trust-evaluator.json", "refused"),
+        # Feature 05: a cost check's bound is exact, so its met is that bound at or above its target; it needs each task's bytes.
+        "certificate-cost-check": (carrying(certificate(certified, trial_={"measure": "test-impact", "baseline": "host", "taskSource": "x"}, checks=[{"target": "hitRate", "requiredMicro": 500000, "observedMicro": 600000, "met": True}, {"target": "savingBytes", "requiredMicro": 300_000_000, "observedMicro": 400_000_000, "met": True}],
+                                                        with_arm=with_bytes(arm_(40, 24, 120, 30, 12500), 600), without=with_bytes(arm_(40, 12, 80, 12, 9000, cap=3), 1000))),
+                                   certificate_path, None, "trust-evaluator.json", "verified"),
+        "certificate-cost-met-below-its-target": (carrying(certificate(certified, trial_={"measure": "test-impact", "baseline": "host", "taskSource": "x"}, checks=[{"target": "hitRate", "requiredMicro": 500000, "observedMicro": 600000, "met": True}, {"target": "savingBytes", "requiredMicro": 300_000_000, "observedMicro": 200_000_000, "met": True}],
+                                                                       with_arm=with_bytes(arm_(40, 24, 120, 30, 12500), 600), without=with_bytes(arm_(40, 12, 80, 12, 9000, cap=3), 1000))),
+                                                  certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-cost-unmet-at-its-target": (carrying(certificate(certified, trial_={"measure": "test-impact", "baseline": "host", "taskSource": "x"}, checks=[{"target": "hitRate", "requiredMicro": 500000, "observedMicro": 600000, "met": True}, {"target": "savingRatio", "requiredMicro": 300_000, "observedMicro": 300_000, "met": False}],
+                                                                      passed=False, with_arm=with_bytes(arm_(40, 24, 120, 30, 12500), 600), without=with_bytes(arm_(40, 12, 80, 12, 9000, cap=3), 1000))),
+                                                 certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-cost-without-bytes": (carrying(certificate(certified, checks=[{"target": "hitRate", "requiredMicro": 500000, "observedMicro": 600000, "met": True}, {"target": "savingBytes", "requiredMicro": 300_000_000, "observedMicro": 400_000_000, "met": True}],
+                                                                without=arm_(40, 0, 0, 0, 9000, cap=0))),
+                                           certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-bytes-from-an-arm-offering-nothing": (carrying(certificate(certified, with_arm=with_bytes(arm_(40, 24, 120, 30, 12500), 600),
+                                                                                without=with_bytes(arm_(40, 0, 0, 0, 9000, cap=0), 1000))),
+                                                           certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-bytes-past-a-billion": (carrying(certificate(certified, trial_={"measure": "test-impact", "baseline": "host", "taskSource": "x"}, with_arm=with_bytes(arm_(40, 24, 120, 30, 12500), 1_000_000_001),
+                                                                  without=with_bytes(arm_(40, 12, 80, 12, 9000, cap=3), 1000))),
+                                             certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-bytes-negative": (carrying(certificate(certified, trial_={"measure": "test-impact", "baseline": "host", "taskSource": "x"}, with_arm=with_bytes(arm_(40, 24, 120, 30, 12500), -1),
+                                                            without=with_bytes(arm_(40, 12, 80, 12, 9000, cap=3), 1000))),
+                                       certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-bytes-on-some-tasks": (carrying(certificate(certified, with_arm=with_bytes(arm_(40, 24, 120, 30, 12500), 600), without=arm_(40, 0, 0, 0, 9000, cap=0))),
+                                            certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-unknown-target": (carrying(certificate(certified, checks=[{"target": "recall", "requiredMicro": 500000, "observedMicro": 600000, "met": True}])),
+                                       certificate_path, None, "trust-evaluator.json", "refused"),
+        # Review 7, G3: no regression is a host's own comparison; a certificate carries no arm for it.
+        "certificate-no-regression-target": (carrying(certificate(certified, checks=[{"target": "noRegression.hitRate", "requiredMicro": 0, "observedMicro": 0, "met": True}])),
+                                             certificate_path, None, "trust-evaluator.json", "refused"),
+        # Feature 12: noHarm is a host's own target; a certificate that certifies it is refused by both verifiers.
+        "certificate-checks-no-harm": (carrying(certificate(certified, checks=[{"target": "noHarm", "requiredMicro": 900000, "observedMicro": 950000, "met": True}])),
+                                       certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-confidence-unknown": (carrying(certificate(certified, trial_={"measure": "test-impact", "baseline": "none", "confidencePermille": 800, "taskSource": "x"})),
+                                           certificate_path, None, "trust-evaluator.json", "refused"),
+        # Feature 02: a unit field is an integer written as one; 950.0 is a known confidence written with a fraction.
+        "certificate-confidence-written-with-a-fraction": (carrying(certificate(certified, trial_={"measure": "test-impact", "baseline": "none", "confidencePermille": 950.0, "taskSource": "x"})),
+                                                           certificate_path, None, "trust-evaluator.json", "refused"),
+        "certificate-evaluator-two-lines": (carrying(certificate(certified, extra={"evaluator": "Kit\nevaluator"})), certificate_path, None,
+                                            "trust-evaluator.json", "refused"),
+    }
+    # Feature 13: a host's trial aggregate, by the kit's evaluator, of the certified pack.
+    def aggregate(files_, signer=None, **change):
+        digest_hex = hashlib.sha256(files_[py.FILES]).hexdigest()
+        listing = json.loads(files_[py.FILES])
+        pred = {"id": listing["id"], "version": listing["version"], "digest": "sha256:" + digest_hex, "measure": "retrieval", "tasks": 40,
+                "window": {"from": "2026-10-01T00:00:00Z", "to": "2026-10-27T12:00:00Z"}, "mechanism": "none", "decision": "sha256:" + "cd" * 32,
+                "checks": [{"target": "hitRate", "successes": 30, "trials": 40, "requiredMicro": 500000, "boundMicro": 600000, "met": True}], "passed": True}
+        pred.update(change)
+        pred = {k: v for k, v in pred.items() if v is not None}
+        statement = {"_type": py.STATEMENT, "predicateType": "urn:agentmemory:pack:trial-aggregate:v1", "predicate": pred,
+                     "subject": [{"name": py.FILES, "digest": {"sha256": digest_hex}}]}
+        payload = py.canonical(statement).encode()
+        who = signer or evaluator
+        spki = who.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+        sig = who.sign(py.pae(payload), ec.ECDSA(hashes.SHA256()))
+        return py.canonical({"payloadType": py.PAYLOAD_TYPE, "payload": base64.b64encode(payload).decode(),
+                             "signatures": [{"keyid": hashlib.sha256(spki).hexdigest(), "sig": base64.b64encode(sig).decode()}]}).encode()
+    one_check = {"target": "hitRate", "successes": 30, "trials": 40, "requiredMicro": 500000, "boundMicro": 600000, "met": True}
+    aggregates = {
+        "aggregate-valid": (aggregate(certified), "trust-evaluator.json", "verified"),
+        # Review 11-13, H7: noise is not offered, so an aggregate that claims it is refused.
+        "aggregate-noisy": (aggregate(certified, mechanism="discrete-laplace", epsilonMilli=1000,
+                                      checks=[{"target": "hitRate", "successes": 31, "trials": 39, "requiredMicro": 500000, "met": True}]), "trust-evaluator.json", "refused"),
+        # Review 11-13, H6: an aggregate names this pack's id and version too, not only its digest.
+        "aggregate-under-another-id": (aggregate(certified, id="io.example.other"), "trust-evaluator.json", "refused"),
+        "aggregate-under-another-version": (aggregate(certified, version="9.9.9"), "trust-evaluator.json", "refused"),
+        "aggregate-with-a-task-name": (aggregate(certified, tasks_=["When is the Lyon review?"]), "trust-evaluator.json", "refused"),
+        "aggregate-check-with-a-path": (aggregate(certified, checks=[{**one_check, "path": "src/Map.cs"}]), "trust-evaluator.json", "refused"),
+        # Completeness review (13): a rate over tasks counts no more trials than the aggregate's tasks.
+        "aggregate-trials-above-tasks": (aggregate(certified, checks=[{**one_check, "trials": 41}]), "trust-evaluator.json", "refused"),
+        "aggregate-successes-above-trials": (aggregate(certified, checks=[{**one_check, "successes": 41}]), "trust-evaluator.json", "refused"),
+        "aggregate-bound-disagrees-with-met": (aggregate(certified, checks=[{**one_check, "boundMicro": 400000}]), "trust-evaluator.json", "refused"),
+        "aggregate-noisy-with-a-bound": (aggregate(certified, mechanism="discrete-laplace", epsilonMilli=1000), "trust-evaluator.json", "refused"),
+        "aggregate-noisy-without-epsilon": (aggregate(certified, mechanism="discrete-laplace", checks=[{k: v for k, v in one_check.items() if k != "boundMicro"}]),
+                                            "trust-evaluator.json", "refused"),
+        "aggregate-negative-count": (aggregate(certified, checks=[{**one_check, "successes": -1, "boundMicro": 600000}]), "trust-evaluator.json", "refused"),
+        "aggregate-passed-disagrees": (aggregate(certified, passed=False), "trust-evaluator.json", "refused"),
+        "aggregate-of-another-pack": (aggregate(certified, digest="sha256:" + "ab" * 32), "trust-evaluator.json", "refused"),
+        "aggregate-by-a-publisher-key": (aggregate(certified, signer=key), "trust.json", "refused"),
+    }
+    for name, (aggregate_bytes, policy_file, expected) in aggregates.items():
+        pack_path, aggregate_path = VECTORS / f"{name}.ampack", VECTORS / f"{name}.aggregate.dsse.json"
+        pack_path.write_bytes(write_zip(certified))
+        aggregate_path.write_bytes(aggregate_bytes)
+        dn_code, dn_text = ampack("aggregate", "verify", str(pack_path), "--aggregate", str(aggregate_path), "--policy", str(OUT / policy_file))
+        pr = subprocess.run([sys.executable, "-I", str(HERE / "python" / "ampack_verify.py"), str(pack_path), str(OUT / policy_file),
+                             "--aggregate", str(aggregate_path)], capture_output=True, text=True, encoding="utf-8", errors="replace")
+        dotnet = {0: "verified", 1: "refused"}.get(dn_code, f"error ({dn_code})")
+        python = {0: "verified", 1: "refused"}.get(pr.returncode, f"error ({pr.returncode})")
+        agree = dotnet == python == expected and refused_for(name, dn_text, pr.stdout + pr.stderr)
+        failures += not agree
+        results.append({"vector": name, "expected": expected, "dotnet": dotnet, "python": python, "agree": agree,
+                        "dotnetSays": dn_text.splitlines()[0] if dn_text else "", "pythonSays": pr.stdout.strip().splitlines()[-1] if pr.stdout.strip() else pr.stderr.strip()[-200:],
+                        "sha256": hashlib.sha256(aggregate_bytes).hexdigest(), "kind": "aggregate", "policy": policy_file, "document": aggregate_path.name})
+        print(f"{'ok  ' if agree else 'FAIL'} {name:34} expected {expected:8} dotnet {dotnet:8} python {python}")
+    for name, (pack_bytes, inside, external, policy_file, expected) in certificates.items():
+        pack_path = VECTORS / f"{name}.ampack"
+        pack_path.write_bytes(pack_bytes)
+        target = inside
+        if external is not None:
+            target = str(VECTORS / f"{name}.certificate.dsse.json")
+            Path(target).write_bytes(external)
+        dn_code, dn_text = ampack("certificate", "verify", str(pack_path), "--policy", str(OUT / policy_file), "--certificate", target)
+        pr = subprocess.run([sys.executable, "-I", str(HERE / "python" / "ampack_verify.py"), str(pack_path), str(OUT / policy_file),
+                             "--certificate", target],
+                            capture_output=True, text=True, encoding="utf-8", errors="replace")
+        dotnet = {0: "verified", 1: "refused"}.get(dn_code, f"error ({dn_code})")
+        python = {0: "verified", 1: "refused"}.get(pr.returncode, f"error ({pr.returncode})")
+        agree = dotnet == python == expected and refused_for(name, dn_text, pr.stdout + pr.stderr)
+        failures += not agree
+        results.append({"vector": name, "expected": expected, "dotnet": dotnet, "python": python, "agree": agree,
+                        "dotnetSays": dn_text.splitlines()[0] if dn_text else "", "pythonSays": pr.stdout.strip().splitlines()[-1] if pr.stdout.strip() else pr.stderr.strip()[-200:],
+                        "sha256": hashlib.sha256(pack_bytes + (external or b"")).hexdigest(), "kind": "certificate", "policy": policy_file,
+                        "document": Path(target).name if Path(target).is_absolute() else target})
+        print(f"{'ok  ' if agree else 'FAIL'} {name:34} expected {expected:8} dotnet {dotnet:8} python {python}")
+    # Feature 08: erasures, signed by a key trusted as publisher or revoker for the pack's id, verified by both.
+    def erasure(signer, pid_=pid, records=None, reason="withdrawn", salt="0123456789abcdef0123456789abcdef", extra=None, issued="2026-10-31T12:00:00Z"):
+        pred = {"id": pid_, "issuedAt": issued, "reason": reason, "salt": salt,
+                "records": records if records is not None else [{"type": "NotesNote", "key": "note-1"}], **(extra or {})}
+        statement = {"_type": py.STATEMENT, "predicateType": "urn:agentmemory:pack:erasure:v1", "predicate": pred,
+                     "subject": [{"name": pid_, "digest": {"sha256": hashlib.sha256(pid_.encode()).hexdigest()}}]}
+        payload = py.canonical(statement).encode()
+        spki = signer.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+        sig = signer.sign(py.pae(payload), ec.ECDSA(hashes.SHA256()))
+        return py.canonical({"payloadType": py.PAYLOAD_TYPE, "payload": base64.b64encode(payload).decode(),
+                             "signatures": [{"keyid": hashlib.sha256(spki).hexdigest(), "sig": base64.b64encode(sig).decode()}]}).encode()
+
+    salt_ = "0123456789abcdef0123456789abcdef"
+    hashed = hashlib.sha256((salt_ + ":note-1").encode()).hexdigest()
+    erased_pack = write_zip(signed(content))
+    erasure_stem = py.stem_for(entry["keyId"], datetime(2026, 10, 31, 12, 0, 0, tzinfo=timezone.utc))
+    erasure_path = f"META/attestations/{erasure_stem}.erasure.dsse.json"
+    erasures = {  # name -> (pack bytes, erasure inside the pack or None, erasure file or None, policy, expected)
+        "erasure-by-the-publisher": (erased_pack, None, erasure(key), "trust.json", "verified"),
+        "erasure-by-a-revoker": (erased_pack, None, erasure(revoker_key), "trust-with-revoker.json", "verified"),
+        "erasure-by-salted-hash": (erased_pack, None, erasure(key, records=[{"type": "NotesNote", "keyHash": hashed}]), "trust.json", "verified"),
+        "erasure-carried-in-the-pack": (write_zip({**signed(content), erasure_path: erasure(key)}), erasure_path, None, "trust.json", "verified"),
+        "erasure-by-an-evaluator": (erased_pack, None, erasure(evaluator), "trust-evaluator.json", "refused"),
+        "erasure-by-a-stranger": (erased_pack, None, erasure(stranger_key), "trust.json", "refused"),
+        "erasure-for-another-pack": (erased_pack, None, erasure(key, pid_="io.example.other"), "trust.json", "refused"),
+        "erasure-key-and-hash": (erased_pack, None, erasure(key, records=[{"type": "NotesNote", "key": "note-1", "keyHash": hashed}]), "trust.json", "refused"),
+        "erasure-hash-uppercase": (erased_pack, None, erasure(key, records=[{"type": "NotesNote", "keyHash": hashed.upper()}]), "trust.json", "refused"),
+        "erasure-reason-unknown": (erased_pack, None, erasure(key, reason="bored"), "trust.json", "refused"),
+        "erasure-salt-short": (erased_pack, None, erasure(key, salt="0123"), "trust.json", "refused"),
+        "erasure-extra-field": (erased_pack, None, erasure(key, extra={"note": "x"}), "trust.json", "refused"),
+        "erasure-record-twice": (erased_pack, None, erasure(key, records=[{"type": "NotesNote", "key": "note-1"}, {"type": "NotesNote", "key": "note-1"}]), "trust.json", "refused"),
+        "erasure-issued-with-an-offset": (erased_pack, None, erasure(key, issued="2026-10-31T12:00:00+01:00"), "trust.json", "refused"),
+        # Review F08: the verifiers disagreed on these (other digits, a key that is not a string beside a hash, a reason not a string).
+        "erasure-issued-in-other-digits": (erased_pack, None, erasure(key, issued="٢٠٢٦-10-31T12:00:00Z"), "trust.json", "refused"),
+        "erasure-key-null-beside-a-hash": (erased_pack, None, erasure(key, records=[{"type": "NotesNote", "key": None, "keyHash": hashed}]), "trust.json", "refused"),
+        "erasure-key-a-number": (erased_pack, None, erasure(key, records=[{"type": "NotesNote", "key": 5}]), "trust.json", "refused"),
+        "erasure-reason-a-list": (erased_pack, None, erasure(key, reason=["withdrawn"]), "trust.json", "refused"),
+    }
+    for name, (pack_bytes, inside, external, policy_file, expected) in erasures.items():
+        pack_path = VECTORS / f"{name}.ampack"
+        pack_path.write_bytes(pack_bytes)
+        target = inside
+        if external is not None:
+            target = str(VECTORS / f"{name}.erasure.dsse.json")
+            Path(target).write_bytes(external)
+        dn_code, dn_text = ampack("erasure", "verify", str(pack_path), "--policy", str(OUT / policy_file), "--erasure", target)
+        pr = subprocess.run([sys.executable, "-I", str(HERE / "python" / "ampack_verify.py"), str(pack_path), str(OUT / policy_file), "--erasure", target],
+                            capture_output=True, text=True, encoding="utf-8", errors="replace")
+        dotnet = {0: "verified", 1: "refused"}.get(dn_code, f"error ({dn_code})")
+        python = {0: "verified", 1: "refused"}.get(pr.returncode, f"error ({pr.returncode})")
+        agree = dotnet == python == expected and refused_for(name, dn_text, pr.stdout + pr.stderr)
+        failures += not agree
+        results.append({"vector": name, "expected": expected, "dotnet": dotnet, "python": python, "agree": agree,
+                        "dotnetSays": dn_text.splitlines()[0] if dn_text else "", "pythonSays": pr.stdout.strip().splitlines()[-1] if pr.stdout.strip() else pr.stderr.strip()[-200:],
+                        "sha256": hashlib.sha256(pack_bytes + (external or b"")).hexdigest(), "kind": "erasure", "policy": policy_file,
+                        "document": Path(target).name if Path(target).is_absolute() else target})
+        print(f"{'ok  ' if agree else 'FAIL'} {name:34} expected {expected:8} dotnet {dotnet:8} python {python}")
+    # Feature 01: every vector names the spec requirements it tests (spec/vectors.json); one the spec does not map fails here.
+    vector_map_path = HERE.parent.parent / "spec" / "vectors.json"
+    if vector_map_path.exists():
+        mapped = json.loads(vector_map_path.read_text(encoding="utf-8"))["vectors"]
+        unmapped = [r["vector"] for r in results if not mapped.get(r["vector"])]
+        for name_ in unmapped:
+            print(f"FAIL {name_:34} is not mapped to a requirement in spec/vectors.json")
+        failures += len(unmapped)
+        # A name the map carries that the kit no longer runs is coverage that does not exist (feature 01 review, C3).
+        stale = sorted(set(mapped) - {r["vector"] for r in results})
+        for name_ in stale:
+            print(f"FAIL {name_:34} is in spec/vectors.json but the kit runs no such vector")
+        failures += len(stale)
+        print(f"requirements covered by the kit: {len({req for r in results for req in mapped.get(r['vector'], [])})}")
+    else:
+        print("FAIL spec/vectors.json is missing: every vector must name the requirements it tests")
+        failures += 1
+    # Reader messages name vector files by their absolute path on the machine that ran the kit; the record carries them
+    # relative to the kit, so a published results.json holds no local path (2026-11-06).
+    for r in results:
+        for key in [k for k in r if k.endswith("Says") and isinstance(r[k], str)]:
+            r[key] = relative_to_kit(r[key])
+    (OUT / "results.json").write_text(json.dumps({"format": "agentmemory.pack.conformance/1.2", "vectors": results,
+                                                  "agreed": len(results) - failures, "total": len(results)}, indent=1) + "\n", encoding="utf-8")
+    print(f"{len(results) - failures}/{len(results)} vectors: both verifiers agree with the expected outcome")
+    # The third verifier (feature 18): when the Rust reader is built, it must agree on every vector too (completeness review,
+    # 18: three-way agreement ran by hand only). Not built, it is said, not failed: the kit needs no Rust toolchain.
+    exe = ".exe" if os.name == "nt" else ""
+    third = next((p for p in (HERE.parent.parent / "reader-rs" / "target" / "release" / ("ampack-rs" + exe),
+                              HERE.parent.parent / "reader-rs" / "target" / "debug" / ("ampack-rs" + exe)) if p.exists()), None)
+    if third is None:
+        print("third verifier (reader-rs) not built: three-way agreement not checked")
+    # The kit is the heavy task already: the third verifier must not wait for a .NET run, which may be the kit's own caller.
+    else:
+        # The third reader reads the folder this run wrote (an out folder, not this one, when given).
+        code = subprocess.run([sys.executable, "-I", str(HERE / "run_third.py"), str(third), "--kit", str(OUT), "--no-wait"]).returncode
+        if code == 3:
+            print(f"FAIL the third verifier ({third}) could not run every vector: a test input is missing")
+            failures += 1
+        elif code != 0:
+            print(f"FAIL the third verifier ({third}) disagrees on a vector")
+            failures += 1
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    try:
+        exit_code = main()
+    finally:
+        # Only now, after every reader, and on every exit: the work folder holds throwaway keys and the private-key
+        # policy. --keep-work keeps it for a standalone run_third.py.
+        if "--keep-work" not in sys.argv:
+            shutil.rmtree(OUT / ".work", ignore_errors=True)
+    sys.exit(exit_code)

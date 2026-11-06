@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text.Json;
@@ -10,6 +11,12 @@ internal static class ModuleRenderTemplate
 {
     internal static readonly Regex Parts = new(@"\{\{|\}\}|\{([A-Za-z][A-Za-z0-9_]*)(?::([^{}]+))?\}|[{}]",
         RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
+
+    internal static IReadOnlyList<string> TextProperties(ModuleType type) =>
+        [.. (type.Render is { } template
+                ? Parts.Matches(template).Select(m => m.Groups[1]).Where(g => g.Success).Select(g => g.Value)
+                : type.Properties.Keys.Order(StringComparer.Ordinal))
+            .Where(name => type.Properties.TryGetValue(name, out var property) && property.Type == "string").Distinct(StringComparer.Ordinal)];
 
     internal static string Render(ModuleType type, IReadOnlyDictionary<string, JsonElement> properties)
     {

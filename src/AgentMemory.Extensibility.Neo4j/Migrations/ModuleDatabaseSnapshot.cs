@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 using AgentMemory.Extensibility.Neo4j.Queries;
 using Neo4j.Driver;
 
@@ -40,15 +41,12 @@ internal sealed record ModuleDatabaseSnapshot(
                 isConstraint ? null : r["state"]?.As<string>())));
         }
         cancellationToken.ThrowIfCancellationRequested();
-        var labelCursor = await runner.RunAsync(ModuleLedgerQueries.Labels).ConfigureAwait(false);
-        var labels = (await labelCursor.ToListAsync().ConfigureAwait(false)).Select(r => r["label"].As<string>()).ToHashSet(StringComparer.Ordinal);
-        cancellationToken.ThrowIfCancellationRequested();
-        var relationCursor = await runner.RunAsync(ModuleLedgerQueries.Relations).ConfigureAwait(false);
-        var relations = (await relationCursor.ToListAsync().ConfigureAwait(false)).Select(r => r["relationshipType"].As<string>()).ToHashSet(StringComparer.Ordinal);
-        cancellationToken.ThrowIfCancellationRequested();
-        var ledgerCursor = await runner.RunAsync(ModuleLedgerQueries.Ledger, parameters).ConfigureAwait(false);
-        var entries = (await ledgerCursor.ToListAsync().ConfigureAwait(false))
-            .Select(r => ModuleLedgerEntry.FromRow(r["row"].As<Dictionary<string, object>>())).ToArray();
+        // Labels, relationship types and the ledger in one round trip (review 4, performance).
+        var catalogCursor = await runner.RunAsync(ModuleLedgerQueries.Catalog, parameters).ConfigureAwait(false);
+        var catalog = await catalogCursor.SingleAsync().ConfigureAwait(false);
+        var labels = catalog["labels"].As<List<string>>().ToHashSet(StringComparer.Ordinal);
+        var relations = catalog["relations"].As<List<string>>().ToHashSet(StringComparer.Ordinal);
+        var entries = catalog["rows"].As<List<Dictionary<string, object>>>().Select(ModuleLedgerEntry.FromRow).ToArray();
         return new(objects.AsReadOnly(), labels, relations, Array.AsReadOnly(entries));
     }
 }

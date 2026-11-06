@@ -1,0 +1,96 @@
+{
+  "format": "agentmemory.module/v1alpha1",
+  "id": "io.agentmemory.packs.repository",
+  "version": "0.1.0-preview.1",
+  "sdk": "[0.1,0.2)",
+  "requires": {
+    "host": [
+      "Inference"
+    ]
+  },
+  "display": {
+    "title": "Repository experience",
+    "description": "What a coding agent learned in this repository: failures and fixes, commands, conventions, pitfalls and environment constraints, each bound to the commit it was seen at.",
+    "color": "#A8642A"
+  },
+  "ontology": {
+    "labelPrefix": "Repo",
+    "types": [
+      {
+        "name": "RepoLesson",
+        "scope": "owner",
+        "color": "#A8642A",
+        "description": "One lesson a future task in this repository needs and cannot easily rediscover.",
+        "render": "{lesson} [{kind}, {repository}]",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "required": true,
+            "values": [
+              "failure-fix",
+              "command",
+              "convention",
+              "pitfall",
+              "environment"
+            ]
+          },
+          "lesson": {
+            "type": "string",
+            "required": true,
+            "maxLength": 400
+          },
+          "repository": {
+            "type": "string",
+            "required": true,
+            "maxLength": 200,
+            "indexed": true
+          },
+          "component": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "A path, project or area of the repository"
+          },
+          "failure": {
+            "type": "string",
+            "maxLength": 400,
+            "description": "The failure signature: error text or symptom"
+          },
+          "fix": {
+            "type": "string",
+            "maxLength": 400
+          },
+          "command": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "commit": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "The commit the lesson was seen at, from the host, never the model"
+          }
+        }
+      }
+    ]
+  },
+  "views": [
+    {
+      "id": "current",
+      "type": "RepoLesson",
+      "limit": 30
+    },
+    {
+      "id": "relevant",
+      "type": "RepoLesson",
+      "search": {
+        "properties": [
+          "lesson",
+          "failure",
+          "fix",
+          "command",
+          "component"
+        ]
+      },
+      "limit": 8
+    }
+  ]
+}

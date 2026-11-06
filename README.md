@@ -27,7 +27,7 @@ time, not a guaranteed response window. Review the
 [Production Checklist](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/security/production-checklist.md)
 before production use, pin versions deliberately, and check the
 [CHANGELOG](https://github.com/joslat/agent-memory-dotnet/blob/main/CHANGELOG.md) between upgrades. As
-with any MIT-licensed software, it's provided as-is, without warranty (see [License](#license)).
+with any permissively licensed software, it is provided as is, without warranty (see [Licensing](#licensing)).
 
 ## Why Agent Memory for .NET
 
@@ -136,10 +136,36 @@ ecosystem to lean on, so it was built natively rather than bound or ported. It i
 repository or product; schema and behavioral compatibility with the original are verified explicitly (see
 [Neo4j Memory Ecosystem](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/neo4j-memory-ecosystem.md)).
 
+## Memory packs and the preprint
+
+Version 2.0.0 adds **ampack**, a format for memory packs that a host verifies, walks within declared budgets
+and switches on only after a trial on its own work. The format, the admission procedure and the evidence
+behind them are described in a preprint (not peer reviewed):
+
+> José Luis Latorre Millas. *ampack: signed, declaratively traversable memory packs for AI agents, with trial-gated activation.* Preprint, version 0.10, 5 November 2026.
+> [doi:10.5281/zenodo.24012989](https://doi.org/10.5281/zenodo.24012989)
+
+The specification is in [`spec/`](spec/), the conformance kit in [`conformance/`](conformance/), and a
+citation file in [`CITATION.cff`](CITATION.cff). The evidence behind the preprint (the signed trial decisions with
+their public keys and a verifier, the conformance runs, the measurement commits) is attached to the
+[2.0.0 release](https://github.com/joslat/agent-memory-dotnet/releases/tag/v2.0.0).
+
+## Related projects
+
+- [GraphBridge](https://github.com/joslat/GraphBridge.EFCore): an Entity Framework Core provider for Neo4j, from the same author, with an experimental GraphRAG toolkit for .NET. Its answers show the stored text each quote came from, or say why they can't answer, and its graphs can be shared with neo4j-graphrag.
+
 ## Contributing
 
 See [CONTRIBUTING.md](https://github.com/joslat/agent-memory-dotnet/blob/main/CONTRIBUTING.md) for build, test, and contribution guidance.
 
-## License
+## Licensing
 
-This project is licensed under the [MIT License](https://github.com/joslat/agent-memory-dotnet/blob/main/LICENSE).
+Three licences live in this repository from version 2.0.0: two for code, project by project, and one for the specification. The complete map, with what each licence asks of you and why the root `LICENSE` file stays MIT, is [LICENSING.md](https://github.com/joslat/agent-memory-dotnet/blob/main/LICENSING.md).
+
+| Licence | What |
+|---|---|
+| **Apache-2.0** | `src/AgentMemory.Extensibility` (the module SDK; 0.1.0 and earlier were MIT; Apache-2.0 from package version 0.1.1, the version in repository release 2.0.0, whose NuGet packages follow on the preview line and adds the declared traversal and the trial gate; the 0.1 line is kept because every pack declares the SDK range `[0.1,0.2)`), `src/AgentMemory.Extensibility.Ampack`, `src/AgentMemory.Extensibility.Neo4j`, `src/AgentMemory.Extensibility.AgentFramework`, every `src/AgentMemory.Packs.*` library, `tools/Ampack`, `reader-rs`, `conformance/pack-v1.1` |
+| **MIT** | Everything else: `AgentMemory.Core`, `AgentMemory.Abstractions`, `AgentMemory.Neo4j`, the Agent Framework, Semantic Kernel and MCP adapters, the samples, the benchmarks, the remaining tools, and the sample knowledge pack under `packs/` |
+| **CC BY 4.0** | The specification texts and data files in `spec/` (see `spec/LICENSE.md`) |
+
+Why two code licences: the Apache-2.0 projects implement the ampack format and its host procedure, on which the author has filed a patent application (pending, not granted). Apache-2.0 section 3 gives every user of that code an express patent licence; MIT has no express patent-grant clause. The core library stays MIT as it has been since its first release. Each Apache-2.0 project carries its own `LICENSE` and `NOTICE`, its source files carry an SPDX header, and its package declares `Apache-2.0`. For implementations of the specification that do not use this code, [PATENTS.md](https://github.com/joslat/agent-memory-dotnet/blob/main/PATENTS.md) holds a proposed patent non-assertion pledge: royalty-free for conforming implementations of the listed specification versions, with the conditions stated there. It is a draft until the author issues it; until then it grants nothing. "2.0.0" names the repository release; package versions differ by project. The root [LICENSE](https://github.com/joslat/agent-memory-dotnet/blob/main/LICENSE) file is the MIT licence that applies where no project-level licence says otherwise.

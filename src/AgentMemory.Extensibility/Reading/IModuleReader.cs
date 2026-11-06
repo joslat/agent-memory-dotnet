@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using AgentMemory.Extensibility.Ingestion;
@@ -32,6 +33,10 @@ public sealed record ModuleRecord
     public required DateTimeOffset CreatedAtUtc { get; init; }
     /// <summary>Exclusive end of this version's transaction-time interval.</summary>
     public DateTimeOffset? InvalidatedAtUtc { get; init; }
+    /// <summary>Its life in world time (feature 07): null for a record without one, which is always valid.</summary>
+    public ModuleRecordLife? Life { get; init; }
+    /// <summary>How far it is trusted, in millionths (feature 09): capped by its source and its signer; null when nothing caps it.</summary>
+    public int? ConfidenceMicro { get; init; }
     /// <summary>Declared scalar values as independent JSON values.</summary>
     public IReadOnlyDictionary<string, JsonElement> Properties { get; init; } = new Dictionary<string, JsonElement>().AsReadOnly();
     /// <summary>Declared links resolved within the permitted scope.</summary>

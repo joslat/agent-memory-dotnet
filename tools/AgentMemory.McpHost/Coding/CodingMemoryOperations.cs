@@ -3,6 +3,8 @@ using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using Microsoft.Extensions.Options;
 
+#pragma warning disable AMEXT001 // Opt-in memory packs (Extensibility 0.13 §M).
+
 namespace AgentMemory.McpHost.Coding;
 
 /// <summary>Operations shared by local HTTP hooks and coding MCP tools.</summary>
@@ -23,6 +25,31 @@ internal sealed class CodingMemoryOperations(CodingOperationScope scopes, IOptio
                 Query = query, Options = options.Value.Recall with { Scope = MemoryScope.For(identity.OwnerId, false),
                     IncludeDiagnostics = receipts is not null || options.Value.Recall.IncludeDiagnostics },
             }, ct), cancellationToken);
+    }
+
+    /// <summary>Recall with the opt-in memory packs' items beside the core context; without modules, the core result alone.</summary>
+    public Task<CodingRecall> RecallWithModulesAsync(CodingIdentity identity, string session, string query,
+        IReadOnlyList<AgentMemory.Extensibility.Context.ContextAnchor>? anchors = null, CancellationToken cancellationToken = default)
+    {
+        CodingInput.RequireText(session, 256, nameof(session));
+        CodingInput.RequireText(query, 8000, nameof(query));
+        content.CheckText(session);
+        content.CheckText(query);
+        anchors ??= [];
+        if (anchors.Count > CodingAnchors.Maximum) throw new ArgumentException("Too many anchors.", nameof(anchors));
+        foreach (var anchor in anchors) content.CheckText(anchor.Value);
+        return scopes.RunAsync(identity, async (services, ct) =>
+        {
+            var request = new RecallRequest
+            {
+                SessionId = CodingInput.SessionId(identity, session), UserId = identity.OwnerId,
+                Query = query, Options = options.Value.Recall with { Scope = MemoryScope.For(identity.OwnerId, false),
+                    IncludeDiagnostics = receipts is not null || options.Value.Recall.IncludeDiagnostics },
+            };
+            if (services.GetService<AgentMemory.Extensibility.Context.ModuleContextSelection>() is not { } selection)
+                return new CodingRecall(await services.GetRequiredService<IMemoryRecall>().RecallAsync(request, ct).ConfigureAwait(false), null);
+            return await CodingModuleRecall.RecallAsync(services, selection, request, anchors, ct).ConfigureAwait(false);
+        }, cancellationToken);
     }
 
     public Task<bool> ForgetAsync(CodingIdentity identity, MemoryHistoryKind kind, string id,

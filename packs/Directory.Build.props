@@ -1,0 +1,42 @@
+<Project>
+  <!-- Knowledge packs (Extensibility 0.13 §K7) carry data, no code: one package each, of type AgentMemoryKnowledgePack, with
+       the signed bundle under agentmemory/ and buildTransitive props that copy it to a referencing host's output.
+       Deliberately not the repository's Directory.Build.props: that one multi-targets and adds symbols to AgentMemory.*
+       library projects, and a package without assemblies has neither. -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <IncludeSymbols>false</IncludeSymbols>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <PackageType>AgentMemoryKnowledgePack</PackageType>
+    <DevelopmentDependency>false</DevelopmentDependency>
+    <!-- NU5128: no lib/ or ref/ folder, by design. -->
+    <NoWarn>$(NoWarn);NU5128</NoWarn>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Authors>Jose Luis Latorre Millas</Authors>
+    <Company>Jose Luis Latorre Millas</Company>
+    <Product>AgentMemory for .NET</Product>
+    <Copyright>Copyright © Jose Luis Latorre Millas</Copyright>
+    <PackageProjectUrl>https://github.com/joslat/agent-memory-dotnet</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/joslat/agent-memory-dotnet</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageIcon>logoIcon.png</PackageIcon>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+    <None Include="$(MSBuildThisFileDirectory)..\resources\logoIcon.png" Pack="true" PackagePath="\" Visible="false" />
+    <None Include="agentmemory\**\*" Pack="true" PackagePath="agentmemory\" />
+    <None Include="$(MSBuildThisFileDirectory)KnowledgePack.props" Pack="true" PackagePath="buildTransitive\$(PackageId).props" Visible="false" />
+  </ItemGroup>
+
+  <!-- A pack is packed only signed: the files list and signature are written by `agentmemory packs sign` (eng/pack-knowledge-packs.py). -->
+  <Target Name="RequireSignedBundle" BeforeTargets="GenerateNuspec">
+    <Error Condition="!Exists('agentmemory\agentmemory.module.files.json') or !Exists('agentmemory\agentmemory.module.sig')"
+           Text="Sign the bundle before packing: python eng/pack-knowledge-packs.py --key &lt;private key&gt;." />
+  </Target>
+</Project>

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 using System.Diagnostics.CodeAnalysis;
 
 namespace AgentMemory.Extensibility.Context;
@@ -36,8 +37,16 @@ public sealed record ContextItemProvenance
     public required DateTimeOffset CreatedAtUtc { get; init; }
     /// <summary>Exclusive stored transaction-time end, when present.</summary>
     public DateTimeOffset? InvalidatedAtUtc { get; init; }
+    /// <summary>How traversal context reached the record, from the turn's anchor (CMP-1); null for an item a view found.</summary>
+    public string? Via { get; init; }
+    /// <summary>The first relation of that path, <c>NAME:out</c> or <c>NAME:in</c> (feature 11): the part of the pack that offered it.</summary>
+    public string? ViaRelation { get; init; }
+    /// <summary>The record's effective confidence in millionths (feature 09): capped by its source and signer; null when nothing caps it.</summary>
+    public int? ConfidenceMicro { get; init; }
     /// <summary>The original source session.</summary>
     public required string SourceSessionId { get; init; }
     /// <summary>Copied source message identities; no excerpt or owner authority is implied.</summary>
     public IReadOnlyList<string> SourceMessageIds { get; init; } = [];
+    /// <summary>For a knowledge pack record, the pack, version, digest and seed line it came from; null otherwise.</summary>
+    public Ingestion.PackSource? SourcePack { get; init; }
 }

@@ -1,0 +1,14 @@
+{
+  "name": "ampack-reader-js",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "description": "The ampack-rs component transpiled for JavaScript with jco (feature 18, step 4).",
+  "scripts": {
+    "transpile": "jco transpile ../dist/ampack-reader.wasm -o ../dist/js --name ampack-reader",
+    "kit": "node kit.mjs"
+  },
+  "devDependencies": {
+    "@bytecodealliance/jco": "1.11.1"
+  }
+}

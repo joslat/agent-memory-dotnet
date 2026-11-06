@@ -1,7 +1,9 @@
+// SPDX-License-Identifier: Apache-2.0
 using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 using System.Text.Json;
 using AgentMemory.Extensibility.Capabilities;
+using AgentMemory.Extensibility.Context;
 using AgentMemory.Extensibility.Ingestion;
 using AgentMemory.Extensibility.Reading;
 using Microsoft.Extensions.Configuration;
@@ -24,13 +26,19 @@ public sealed class ModuleSet
 {
     private const string ImplicitStore = "memory";
     private readonly IReadOnlyList<ModuleRegistration> _registrations;
+    // One walk service per service scope: the store's traversal reader may depend on scoped services (CMP-1).
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<IServiceProvider, Context.Traversal.TraversalService> _traversal = new();
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<IServiceProvider, Context.Traversal.TraversalService> _darkTraversal = new();
 
     private ModuleSet(ModuleResolution resolution, IReadOnlyList<ActiveModule> modules, string compositionFingerprint,
-        string fingerprint, IModuleStoreAdapter? store, IReadOnlyList<ModuleRegistration> registrations)
+        string fingerprint, IModuleStoreAdapter? store, IReadOnlyList<ModuleRegistration> registrations, IReadOnlyList<SwitchedOffModule> switchedOff)
     {
         Resolution = resolution; Modules = modules; CompositionFingerprint = compositionFingerprint;
-        Fingerprint = fingerprint; Store = store; _registrations = registrations;
+        Fingerprint = fingerprint; Store = store; _registrations = registrations; SwitchedOff = switchedOff;
     }
+
+    /// <summary>The added modules a trial left off (<see cref="ModuleSetBuilder.RequireTrials"/>), and why. Empty when trials are not required.</summary>
+    public IReadOnlyList<SwitchedOffModule> SwitchedOff { get; }
 
     /// <summary>The validated metadata of the active modules, in dependency order, for the bound store.</summary>
     public ModuleResolution Resolution { get; }
@@ -53,10 +61,14 @@ public sealed class ModuleSet
 
     internal static ModuleSet Activate(ModuleSetBuilder builder, IServiceProvider services)
     {
-        var registrations = builder.Modules;
+        var policy = PackTrialPolicy.Of(builder);
+        if (policy.Problems(decisions: builder.Activations is not null) is { Count: > 0 } invalid) throw new ModuleActivationException(invalid);
+        // A module that runs dark is exempt from the gate: it offers nothing, and its trial is what it runs dark for (review 11-13, H1).
+        var (registrations, switchedOff) = PackTrialGate.Apply(builder.Modules, builder.Activations, policy,
+            (services.GetService<TimeProvider>() ?? TimeProvider.System).GetUtcNow(), builder.Shadows.Keys.ToHashSet(StringComparer.Ordinal));
         var store = builder.Store;
         var provider = store?.Provider ?? "none";
-        var profile = builder.Profile ?? ImplicitProfile(registrations, provider);
+        var profile = builder.Profile?.Without(switchedOff.Select(o => o.ModuleId).ToHashSet(StringComparer.Ordinal)) ?? ImplicitProfile(registrations, provider);
         if (profile.Stores.Count != 1)
             throw new ModuleActivationException([$"Static composition binds one module store; the profile declares {profile.Stores.Count}."]);
         var alias = profile.Stores.Keys.Single();
@@ -98,10 +110,13 @@ public sealed class ModuleSet
             modules.Add(new ActiveModule(composed.Manifest, composed.ConfigurationSection, configurationHash,
                 registration.Implementation, options));
         }
+        foreach (var prioritized in builder.Priorities.Keys.Where(id => modules.All(m => m.Manifest.Id != id) && switchedOff.All(o => o.ModuleId != id))
+                     .Order(StringComparer.Ordinal))
+            errors.Add($"Priority set for module '{prioritized}', which is not added.");
         if (errors.Count != 0) throw new ModuleActivationException([.. errors]);
 
-        var resolution = composition.ForStore(alias);
-        var fingerprint = Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new
+        var resolution = composition.ForStore(alias) with { ConsentGrants = [.. builder.ConsentGrants] };
+        var canonical = JsonSerializer.SerializeToUtf8Bytes(new
         {
             format = "agentmemory.module-set/v1alpha1",
             composition = composition.CompositionFingerprint,
@@ -112,33 +127,230 @@ public sealed class ModuleSet
                 id = m.Manifest.Id, version = m.Manifest.Version.ToString(), implementation = m.Implementation,
                 configuration = m.ConfigurationSha256,
             }),
-        }))).ToLowerInvariant();
+        });
+        // Host-set priorities change the order contributors run in, so they join the fingerprint; without any, it is unchanged.
+        var priorities = builder.Priorities.OrderBy(p => p.Key, StringComparer.Ordinal).ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
+        if (priorities.Count != 0) canonical = [.. canonical, .. JsonSerializer.SerializeToUtf8Bytes(new { priorities })];
+        // Consent grants change what may link and walk where, so they join it too; without any, it is unchanged.
+        if (builder.ConsentGrants.Count != 0)
+            canonical = [.. canonical, .. JsonSerializer.SerializeToUtf8Bytes(new
+            {
+                consentGrants = builder.ConsentGrants.OrderBy(g => g.Module, StringComparer.Ordinal).ThenBy(g => g.Into, StringComparer.Ordinal)
+                    .Select(g => new[] { g.Module, g.Into }),
+            })];
+        var fingerprint = Convert.ToHexString(SHA256.HashData(canonical)).ToLowerInvariant();
         var set = new ModuleSet(resolution, modules.AsReadOnly(), composition.CompositionFingerprint!, fingerprint, store,
-            registrations) { ChatClient = builder.ChatClient };
-        services.GetService<ILoggerFactory>()?.CreateLogger<ModuleSet>().LogInformation(
-            "Module set {Fingerprint} active: {Modules}.", fingerprint,
+            registrations, switchedOff)
+        {
+            ChatClient = builder.ChatClient, Priorities = priorities.AsReadOnly(), Erasures = [.. builder.Erasures], MinimumConfidenceMicro = builder.MinimumConfidenceMicro,
+            Endpoint = builder.Endpoint, Shadows = new Dictionary<string, (IShadowRecorder, Func<ContextItem, string?>?)>(builder.Shadows, StringComparer.Ordinal), PackPolicies = builder.PackPolicies.ToDictionary(p => p.Digest, p => p.Allows, StringComparer.Ordinal),
+            Slots = [.. builder.Modules.SelectMany(m => Enumerable.Repeat(m.Manifest.Id, m.Contributors.Count))],
+        };
+        var log = services.GetService<ILoggerFactory>()?.CreateLogger<ModuleSet>();
+        log?.LogInformation("Module set {Fingerprint} active: {Modules}.", fingerprint,
             string.Join(", ", modules.Select(m => m.Manifest.Id + "@" + m.Manifest.Version)));
+        foreach (var off in switchedOff) log?.LogInformation("Module {Module}@{Version} is off: {Reason}.", off.ModuleId, off.Version, off.Reason);
         return set;
     }
 
     /// <summary>Creates every module's contributors for one scope, refusing any identity outside its own module.</summary>
     internal IReadOnlyList<IContextContributor> CreateContributors(IServiceProvider services) =>
-        Create(services, r => r.Contributors, (module, contributor) =>
+        [.. Create(services, r => r.Contributors, (module, contributor) =>
         {
             var descriptor = contributor.Descriptor
                 ?? throw new InvalidOperationException($"Module '{module}' added a contributor without a descriptor.");
             Owned(module, "contributor", descriptor.Id);
             foreach (var section in descriptor.SectionTypes) Owned(module, "section", section);
-        });
+        }).Select(c => Priorities.FirstOrDefault(p => ModuleIdentity.IsOwnedId(p.Key, c.Descriptor.Id)) is { Key: not null } p
+            ? new PrioritizedContributor(c, p.Value) : c)
+          .Select(c => _registrations.FirstOrDefault(r => r.OffAfter is not null && ModuleIdentity.IsOwnedId(r.Manifest.Id, c.Descriptor.Id)) is { } expiring
+            ? new ExpiringContributor(c, expiring.OffAfter!.Value, services.GetService<TimeProvider>() ?? TimeProvider.System,
+                expiring.OffAfter == expiring.DecisionExpires ? "its trial decision expired" : "the pack was valid until then") : c)
+          // A module that runs dark: its offers are recorded, never contributed (feature 11, R2).
+          .Select(c => Shadows.FirstOrDefault(s => ModuleIdentity.IsOwnedId(s.Key, c.Descriptor.Id)) is { Key: not null } shadow
+            ? new ShadowContributor(c, shadow.Key, shadow.Value.Recorder, shadow.Value.Locate, services.GetService<TimeProvider>() ?? TimeProvider.System,
+                _registrations.FirstOrDefault(r => r.Manifest.Id == shadow.Key)?.PackDigest, _registrations.FirstOrDefault(r => r.Manifest.Id == shadow.Key)?.Manifest.Version.ToString())
+            : c)];
+
+    /// <summary>
+    /// The module of each contributor slot the host registered (<see cref="CountContributors"/>: every contributor of every
+    /// module added, gated on or not), in registration order.
+    /// </summary>
+    internal IReadOnlyList<string> Slots { get; private init; } = [];
+
+    /// <summary>
+    /// This scope's contributor for every slot: a module the trial gate switched off keeps its slots, each an inert contributor
+    /// the compiler drops, so every other slot stays on its own module's contributor (review 2: the slots indexed a list of
+    /// the gated-on modules' contributors only, so one pack switched off shifted the rest and every compile threw).
+    /// </summary>
+    internal IReadOnlyList<IContextContributor> CreateSlots(IServiceProvider services)
+    {
+        var created = CreateContributors(services);
+        var byModule = new Dictionary<string, Queue<IContextContributor>>(StringComparer.Ordinal);
+        var next = 0;
+        foreach (var registration in _registrations)
+        {
+            var mine = byModule.TryGetValue(registration.Manifest.Id, out var queue) ? queue : byModule[registration.Manifest.Id] = new();
+            for (var i = 0; i < registration.Contributors.Count; i++) mine.Enqueue(created[next++]);
+        }
+        var inert = new Dictionary<string, int>(StringComparer.Ordinal);
+        return [.. Slots.Select(module => byModule.TryGetValue(module, out var queue) && queue.Count > 0 ? queue.Dequeue()
+            : new SwitchedOffContributor(module, inert[module] = inert.GetValueOrDefault(module) + 1,
+                SwitchedOff.FirstOrDefault(o => o.ModuleId == module)?.Reason ?? "the module is not active"))];
+    }
+
+    /// <summary>Host-set contributor priorities by module (<see cref="ModuleSetBuilder.Prioritize"/>).</summary>
+    internal IReadOnlyDictionary<string, int> Priorities { get; init; } = new Dictionary<string, int>().AsReadOnly();
+
+    /// <summary>A module's contributor at the priority its host set; everything else is the module's own.</summary>
+    private sealed class PrioritizedContributor(IContextContributor inner, int priority) : IContextContributor
+    {
+        public ContextContributorDescriptor Descriptor { get; } = inner.Descriptor with { Priority = priority };
+        public ValueTask<bool> AppliesAsync(ContextRequest request, CancellationToken cancellationToken) => inner.AppliesAsync(request, cancellationToken);
+        public Task<ContextSection?> ContributeAsync(ContextRequest request, CancellationToken cancellationToken) => inner.ContributeAsync(request, cancellationToken);
+        public Task<ContextContributionResult> ContributeResultAsync(ContextRequest request, CancellationToken cancellationToken = default) =>
+            inner.ContributeResultAsync(request, cancellationToken);
+    }
+
+    /// <summary>
+    /// A contributor of a pack that declares <c>validUntil</c> (PACK-staleness): once the host's clock passes it, the pack
+    /// contributes nothing, and says why, even in a host that loaded it while it was valid.
+    /// </summary>
+    private sealed class ExpiringContributor(IContextContributor inner, DateTimeOffset validUntil, TimeProvider clock, string why) : IContextContributor
+    {
+        public ContextContributorDescriptor Descriptor => inner.Descriptor;
+        public ValueTask<bool> AppliesAsync(ContextRequest request, CancellationToken cancellationToken) => inner.AppliesAsync(request, cancellationToken);
+        public Task<ContextSection?> ContributeAsync(ContextRequest request, CancellationToken cancellationToken) =>
+            Expired ? Task.FromResult<ContextSection?>(null) : inner.ContributeAsync(request, cancellationToken);
+        public Task<ContextContributionResult> ContributeResultAsync(ContextRequest request, CancellationToken cancellationToken = default) =>
+            Expired
+                ? Task.FromResult(new ContextContributionResult
+                {
+                    OmissionReason = ContextOmissionReason.Denied,
+                    Detail = why == "its trial decision expired"
+                        ? $"Its trial decision expired at {validUntil.ToUniversalTime():yyyy-MM-dd HH:mm:ss}Z (this host's floor); this host switched it off until it is trialled again."
+                        : $"The pack was valid until {validUntil.ToUniversalTime():yyyy-MM-dd HH:mm:ss}Z; this host switched it off.",
+                })
+                : inner.ContributeResultAsync(request, cancellationToken);
+        private bool Expired => clock.GetUtcNow() > validUntil;
+    }
 
     /// <summary>Creates every module's ingestion providers for one scope, refusing any identity outside its own module.</summary>
     internal IReadOnlyList<IIngestionProvider> CreateProviders(IServiceProvider services) =>
         Create(services, r => r.Providers, (module, provider) => Owned(module, "ingestion provider", provider.Descriptor?.Id));
 
     /// <summary>Creates a reader bound to one active module, through the bound store.</summary>
-    internal IModuleReader CreateReader(IServiceProvider services, string moduleId) =>
-        (Store ?? throw new InvalidOperationException($"Module '{moduleId}' reads, but no module store is bound (UseStore)."))
-        .CreateReader(services, Resolution, moduleId);
+    internal IModuleReader CreateReader(IServiceProvider services, string moduleId)
+    {
+        var reader = (Store ?? throw new InvalidOperationException($"Module '{moduleId}' reads, but no module store is bound (UseStore)."))
+            .CreateReader(services, Resolution, moduleId);
+        // A view may read its dependencies' types: an expired dependency's records leave its answers too (review 2, M2's twin).
+        // Every read also keeps only the records live in world time at its pin (feature 07).
+        var clock = services.GetService<TimeProvider>() ?? TimeProvider.System;
+        return new LiveReader(reader, Live(services, dark: Shadows.ContainsKey(moduleId)), clock, r => Erased(r) || Withheld(r, clock.GetUtcNow()), MinimumConfidenceMicro);
+    }
+
+    // Drops the records of modules that are not live now, and the records not live in world time at the read's valid-time pin
+    // (feature 07, R-CORE-128; the host's now when it names none), whatever the store returned.
+    /// <summary>The verified erasures this host holds (feature 08): no view or walk offers a record they name.</summary>
+    internal IReadOnlyList<Packs.ModuleErasure> Erasures { get; init; } = [];
+
+    /// <summary>The host's confidence floor in millionths (feature 09): no view or walk offers a record below it.</summary>
+    internal int? MinimumConfidenceMicro { get; init; }
+
+    /// <summary>The modules that run dark, each with its recorder and locator (feature 11).</summary>
+    internal IReadOnlyDictionary<string, (IShadowRecorder Recorder, Func<ContextItem, string?>? Locate)> Shadows { get; init; } =
+        new Dictionary<string, (IShadowRecorder, Func<ContextItem, string?>?)>();
+
+    /// <summary>Where the host's model runs (feature 10).</summary>
+    internal ModelEndpoint Endpoint { get; init; } = ModelEndpoint.External;
+
+    /// <summary>The usage policies this host holds, by digest (feature 10).</summary>
+    internal IReadOnlyDictionary<string, Func<string, DateTimeOffset, bool>> PackPolicies { get; init; } = new Dictionary<string, Func<string, DateTimeOffset, bool>>();
+
+    /// <summary>The verb a record's text needs to reach this host's model: <c>rehydrate:</c> and the endpoint's class.</summary>
+    internal string RehydrateVerb => "rehydrate:" + Endpoint.ToString().ToLowerInvariant();
+
+    // Whether the usage policy that governs the record keeps its text from this host's model now (feature 10, R-CORE-139): one
+    // the host does not hold (review F10, H1: a record imported under a policy was offered once its pack was not registered, and
+    // a grant that ended opened it up), one that no longer lets the host read the pack (M2), or one that does not allow
+    // rehydrate at the host's endpoint class. A record no policy governs is never withheld.
+    internal bool Withheld(ModuleRecord record, DateTimeOffset now) =>
+        record.Source?.Pack?.UsagePolicy is { } policy
+        && (!PackPolicies.TryGetValue(policy, out var allows) || !allows("read", now) || !allows(RehydrateVerb, now));
+
+    // Whether an erasure this host holds names the record (feature 08, R-CORE-134), whatever the store still holds.
+    internal bool Erased(ModuleRecord record) => ErasedBy(Erasures, record);
+
+    // The one rule (ModuleErasure.Names): by the pack that carried the record, never by its module.
+    internal static bool ErasedBy(IReadOnlyList<Packs.ModuleErasure> erasures, ModuleRecord record) =>
+        erasures.Count != 0 && erasures.Any(e => e.Names(record.Source, record.Type, record.Key));
+
+    internal sealed class LiveReader(IModuleReader inner, Func<string, bool>? live, TimeProvider clock, Func<ModuleRecord, bool>? erased = null,
+        int? minimumConfidence = null) : IModuleReader
+    {
+        public string CallerModuleId => inner.CallerModuleId;
+
+        public async Task<ModuleReadResult> FindAsync(ModuleQuery query, ModuleReadContext context, CancellationToken cancellationToken = default)
+        {
+            // The store is asked at the pin, else the host's now, so it keeps the live records before its limit; kept here too, for
+            // a store that does not (review F07, M1).
+            // The host's floor goes to the store the same way, so a store keeps it before its limit too (review F09, H4); the higher
+            // of the host's and the caller's.
+            var at = context.ValidAsOfUtc ?? clock.GetUtcNow();
+            var floor = Higher(minimumConfidence, context.MinimumConfidenceMicro);
+            var result = await inner.FindAsync(query, context with { ValidAsOfUtc = at, MinimumConfidenceMicro = floor }, cancellationToken).ConfigureAwait(false);
+            bool Keep(ModuleRecord r) => (live is null || live(r.ModuleId)) && (query.Selection == ModuleRecordSelection.History || ModuleRecordLife.IsLive(r.Life, at))
+                && erased?.Invoke(r) != true
+                && Packs.ModuleConfidence.Clears(r.ConfidenceMicro, floor);
+            return result.Records.All(Keep) ? result : result with { Records = [.. result.Records.Where(Keep)] };
+        }
+    }
+
+    internal static int? Higher(int? a, int? b) => a is { } x && b is { } y ? Math.Max(x, y) : a ?? b;
+
+    /// <summary>The traversal walk shared by every module's traversal contributor in one service scope (CMP-1).</summary>
+    // The floor holds in the walk as in a view (review F09, H3): the stores keep it before their cuts, and the walk where it seeds,
+    // steers and offers.
+    internal Context.Traversal.TraversalService Traversal(IServiceProvider services) =>
+        _traversal.GetValue(services, s => Walk(s, dark: false));
+
+    /// <summary>
+    /// The walk a module running dark takes (feature 11; review 11-13, H2): every module, its own included. The live walk leaves
+    /// dark modules out entirely, so they neither seed, steer, spend its budgets nor name anything in a live reason path.
+    /// </summary>
+    internal Context.Traversal.TraversalService DarkTraversal(IServiceProvider services) =>
+        _darkTraversal.GetValue(services, s => Walk(s, dark: true));
+
+    /// <summary>The walk for one module's traversal contributor: the dark walk for a module running dark, else the live one.</summary>
+    internal Context.Traversal.TraversalService TraversalFor(string moduleId, IServiceProvider services) =>
+        Shadows.ContainsKey(moduleId) ? DarkTraversal(services) : Traversal(services);
+
+    private Context.Traversal.TraversalService Walk(IServiceProvider s, bool dark) =>
+        new Context.Traversal.TraversalService(Resolution, Store?.CreateTraversalReader(s, Resolution), Live(s, dark),
+            s.GetService<TimeProvider>() ?? TimeProvider.System,
+            r => !Erased(r) && !Withheld(r, (s.GetService<TimeProvider>() ?? TimeProvider.System).GetUtcNow())
+                && Packs.ModuleConfidence.Clears(r.ConfidenceMicro, MinimumConfidenceMicro),
+            MinimumConfidenceMicro, _registrations.Any(r => r.AdmittedParts is not null) ? Admitted : null);
+
+    // Whether a module's decision admitted this part of it (feature 11, R3): a relation it starts a path with, or (null) an anchor's
+    // own record. A module admitted whole admits every part.
+    internal bool Admitted(string module, string? part) =>
+        _registrations.FirstOrDefault(r => r.Manifest.Id == module)?.AdmittedParts is not { } parts || parts.Contains(part ?? PackTrialGate.AnchorPart);
+
+    // Whether a module may take part in a walk now: a pack past its validUntil goes silent in the walk as its contributors
+    // do (review 1, M2), so it neither spends the walk's budgets nor leads it to other modules' records.
+    // dark: for a module running dark, which sees every module; otherwise the modules running dark are not live (review 11-13, H2).
+    private Func<string, bool>? Live(IServiceProvider services, bool dark = false)
+    {
+        var expiring = _registrations.Where(r => r.OffAfter is not null).ToDictionary(r => r.Manifest.Id, r => r.OffAfter!.Value, StringComparer.Ordinal);
+        var hidden = dark ? [] : Shadows.Keys.ToHashSet(StringComparer.Ordinal);
+        if (expiring.Count == 0 && hidden.Count == 0) return null;
+        var clock = services.GetService<TimeProvider>() ?? TimeProvider.System;
+        // Valid through the instant itself, off after it, as every twin reads validUntil (review 2: the walk dropped a pack at
+        // the instant its contributors and serve still kept).
+        return id => !hidden.Contains(id) && (!expiring.TryGetValue(id, out var until) || clock.GetUtcNow() <= until);
+    }
 
     /// <summary>The modules that add ingestion providers, which need a store binding.</summary>
     internal IEnumerable<string> ModulesWithProviders => _registrations.Where(r => r.Providers.Count > 0).Select(r => r.Manifest.Id);

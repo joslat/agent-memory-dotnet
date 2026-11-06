@@ -1,0 +1,3201 @@
+{
+ "format": "agentmemory.guards.mutants/1",
+ "mutants": [
+  {
+   "id": "archive-ratio",
+   "rule": "ARCHIVE-BOUNDED",
+   "door": "definition",
+   "file": "src/AgentMemory.Packs.Format/StrictZip.cs",
+   "edits": [
+    {
+     "old": "size / compressed > limits.MaxRatio)) throw Bad",
+     "new": "size / compressed > limits.MaxRatio * 1000)) throw Bad"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.PackFormat",
+   "filter": "FullyQualifiedName~StrictZipTests",
+   "sha256": "0cee0c23327eaf114a6324aab28497f84bdb0b889278691f859582e911af0b69"
+  },
+  {
+   "id": "archive-file-cap",
+   "rule": "ARCHIVE-BOUNDED",
+   "door": "definition",
+   "file": "src/AgentMemory.Packs.Format/StrictZip.cs",
+   "edits": [
+    {
+     "old": "if (size > limits.MaxFileBytes) throw Bad",
+     "new": "if (size > limits.MaxFileBytes && size < 0) throw Bad"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.PackFormat",
+   "filter": "FullyQualifiedName~StrictZipTests.Review9_D1",
+   "sha256": "4b1565bc3586f30ad428cf2e29cee90f84053e0bf0c38fe46ef5d33ebd0fa6ff"
+  },
+  {
+   "id": "archive-total-cap",
+   "rule": "ARCHIVE-BOUNDED",
+   "door": "definition",
+   "file": "src/AgentMemory.Packs.Format/StrictZip.cs",
+   "edits": [
+    {
+     "old": "if (totalSize > limits.MaxTotalBytes) throw Bad",
+     "new": "if (totalSize > limits.MaxTotalBytes && totalSize < 0) throw Bad"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.PackFormat",
+   "filter": "FullyQualifiedName~StrictZipTests.Review9_D1",
+   "sha256": "e61b92e4c137abddb940bcb7030fe93afe2064a66eae369088842a0976360f04"
+  },
+  {
+   "id": "archive-size-cap",
+   "rule": "ARCHIVE-BOUNDED",
+   "door": "definition",
+   "file": "src/AgentMemory.Packs.Format/StrictZip.cs",
+   "edits": [
+    {
+     "old": "if (zip.Length > limits.MaxArchiveBytes) throw Bad",
+     "new": "if (zip.Length > limits.MaxArchiveBytes && zip.Length < 0) throw Bad"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.PackFormat",
+   "filter": "FullyQualifiedName~StrictZipTests.Review9_D1",
+   "sha256": "6b99d81fe79cab71d59a98ec568f8b49861b58941c98472861f4839a38317c83"
+  },
+  {
+   "id": "archive-files-cap",
+   "rule": "ARCHIVE-BOUNDED",
+   "door": "definition",
+   "file": "src/AgentMemory.Packs.Format/StrictZip.cs",
+   "edits": [
+    {
+     "old": "if (count > limits.MaxFiles) throw Bad",
+     "new": "if (count > limits.MaxFiles && count < 0) throw Bad"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.PackFormat",
+   "filter": "FullyQualifiedName~StrictZipTests.Review9_D1",
+   "sha256": "134b3e19a1a0fae3ec988e32bccd2b7e65b8ab5434ef326786faab5c990b2bc8"
+  },
+  {
+   "id": "json-file-cap",
+   "rule": "UNVERIFIED-BOUNDED",
+   "door": "definition",
+   "file": "src/AgentMemory.Packs.Format/PackContentBounds.cs",
+   "edits": [
+    {
+     "old": "                if (bytes.Length > PackVerifier.MaximumJsonBytes)\n                    problems.Add",
+     "new": "                if (bytes.Length < 0)\n                    problems.Add"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.PackFormat",
+   "filter": "FullyQualifiedName~StrictZipTests.Review9_D2",
+   "sha256": "ab98321cde8dccd07403297136a9d7b4c570605ac83fa11b1b7416129b08c92c"
+  },
+  {
+   "id": "door-zips-itself",
+   "rule": "ONE-WRITER-ARCHIVE",
+   "door": "countersign",
+   "file": "tools/Ampack/Program.cs",
+   "edits": [
+    {
+     "old": "        File.WriteAllBytes(o.Required(\"out\"), PackBuilder.Pack(files));",
+     "new": "        File.WriteAllBytes(o.Required(\"out\"), StrictZip.Write(files));"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ChokePointRatchetTests",
+   "sha256": "44dba73044b5b67721de1731a6ca91e53eb15ad497a5db500e805684a0fc9a2c"
+  },
+  {
+   "id": "parse-before-signatures",
+   "rule": "AUTHENTICATE-FIRST",
+   "door": "definition",
+   "file": "src/AgentMemory.Packs.Format/PackVerifier.cs",
+   "edits": [
+    {
+     "old": "        var (_, refusal) = Signatures(content, list!, listBytes!, policy, now, null);\n        if (refusal is not null) return (null, refusal);",
+     "new": "        _ = PackManifest.Parse(content.Files.GetValueOrDefault(PackManifest.FileName) ?? []);\n        var (_, refusal) = Signatures(content, list!, listBytes!, policy, now, null);\n        if (refusal is not null) return (null, refusal);"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~AuthenticateFirstTests.Review8_A12",
+   "sha256": "fab89c2b5cd494bb95b7ca6abafae2d55e5288bb90e45f1383834a411de68657"
+  },
+  {
+   "id": "expand-returns-node",
+   "rule": "WALK-BOUNDED",
+   "door": "neo4j expand",
+   "file": "src/AgentMemory.Extensibility.Neo4j/Queries/ModuleTraversalQueries.cs",
+   "edits": [
+    {
+     "old": "\"RETURN r.node.id AS id, r.node.key AS rkey, r.degree AS degree, r.hits AS hits\";",
+     "new": "\"RETURN r.node.id AS id, r.node.key AS rkey, r.node AS node, r.degree AS degree, r.hits AS hits\";"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review8GuardTests.W2",
+   "sha256": "f8153e5f9ad844e3acc69cfae700ec7ff6af35574b155c89a423cf929e189b6a"
+  },
+  {
+   "id": "golden-drift",
+   "rule": "BOUNDS-COVER",
+   "door": "definition",
+   "file": "eng/trial-statistics/golden.py",
+   "edits": [
+    {
+     "old": "random.seed(29)",
+     "new": "random.seed(30)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~StatisticsCoverageTests.Golden_json",
+   "sha256": "13d7bccaadab8d7bc9d6872fdfd81bfe4dbeb7219b23cbc173d60216ec74c8d7"
+  },
+  {
+   "id": "library-composite-unverified",
+   "rule": "SIGNED-BEFORE-ACT",
+   "door": "PackAuthoring.BuildComposite",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackAuthoring.cs",
+   "edits": [
+    {
+     "old": "            var (files, _) = Verified(member, trust);",
+     "new": "            var (files, _) = (StrictZip.Read(member, PackLimits.Default), \"\");"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review8WriterGuardTests.F4",
+   "sha256": "55bc5a27655417fe998d84758d01a87c4f3f0cd773eef7917582c66a9f2a9ba5"
+  },
+  {
+   "id": "bounded-file-size",
+   "rule": "FILE-BOUNDED",
+   "door": "definition",
+   "file": "shared/BoundedFile.cs",
+   "edits": [
+    {
+     "old": "if (file.Length > maximum) throw new InvalidDataException",
+     "new": "if (false) throw new InvalidDataException"
+    },
+    {
+     "old": "if (buffer.Length > maximum) throw new InvalidDataException",
+     "new": "if (false) throw new InvalidDataException"
+    },
+    {
+     "old": "if (buffer.Length + read > maximum) throw new InvalidDataException",
+     "new": "if (false) throw new InvalidDataException"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~AuthenticateFirstTests|FullyQualifiedName~Review8GuardTests.A_file_one_byte_over",
+   "sha256": "eba962ad6000052b11a323bc1f2274ea62c7acc059f04ba57708b4c0ac7c6f65"
+  },
+  {
+   "id": "raw-read-in-lint",
+   "rule": "FILE-BOUNDED",
+   "door": "lint",
+   "file": "tools/Ampack/Program.cs",
+   "edits": [
+    {
+     "old": "        // Lint reads what nobody verified yet:",
+     "new": "        _ = File.ReadLines(o.Positional(0, \"folder or file\")).Count();\n        // Lint reads what nobody verified yet:"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ChokePointRatchetTests",
+   "sha256": "7876e1af5bfa0ba93c49261106e3c58290a9f48be9e7cbfc3395107dc4495d5a"
+  },
+  {
+   "id": "raw-parse-split-in-diff",
+   "rule": "UNVERIFIED-BOUNDED",
+   "door": "diff",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackDiff.cs",
+   "edits": [
+    {
+     "old": "if (PackContentBounds.Problems(a, verified) is { Count: > 0 } first) throw new PackLoadException(first);",
+     "new": "if (PackContentBounds.Problems(a, verified) is { Count: > 0 } first) throw new PackLoadException(first);\n        _ = System.Text.Json.JsonSerializer\n            .Deserialize<object>(a.Values.First()); // see https://example.org/x"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ChokePointRatchetTests",
+   "sha256": "765f699c6a37f53dc9df9fbfe153841820f6581734f583bb93f7e60412cc8a15"
+  },
+  {
+   "id": "authenticate-at-peek",
+   "rule": "AUTHENTICATE-FIRST",
+   "door": "definition",
+   "file": "src/AgentMemory.Packs.Format/PackVerifier.cs",
+   "edits": [
+    {
+     "old": "        var (_, refusal) = Signatures(content, list!, listBytes!, policy, now, null);\n        if (refusal is not null) return (null, refusal);",
+     "new": "        var (_, refusal) = Signatures(content, list!, listBytes!, policy, now, null);\n        if (refusal is not null && content.Files.ContainsKey(\"never\")) return (null, refusal);"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~AuthenticateFirstTests.Review8_A12",
+   "sha256": "62da0dce4d3b8f0bb10a803b6d81001943b538935038bcfc051c57902014ec8e"
+  },
+  {
+   "id": "authenticate-at-load",
+   "rule": "AUTHENTICATE-FIRST",
+   "door": "load",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackLoader.cs",
+   "edits": [
+    {
+     "old": "var (manifest, problems) = PackVerifier.Authenticated(content, trust.Policy, DateTimeOffset.UtcNow, ledger?.Ledger);",
+     "new": "var (manifest, problems) = (PackManifest.Parse(content.Files.GetValueOrDefault(PackManifest.FileName) ?? []).Manifest, (IReadOnlyList<string>)[\"unauthenticated\"]);"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~AuthenticateFirstTests",
+   "sha256": "0052d373f27d6a4575085b66ff5f99873bad2975c4998040e969348b83f3e920"
+  },
+  {
+   "id": "unverified-at-diff",
+   "rule": "UNVERIFIED-BOUNDED",
+   "door": "diff",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackDiff.cs",
+   "edits": [
+    {
+     "old": "if (PackContentBounds.Problems(a, verified) is { Count: > 0 } first) throw new PackLoadException(first);",
+     "new": ""
+    },
+    {
+     "old": "if (PackContentBounds.Problems(b, verified) is { Count: > 0 } second) throw new PackLoadException(second);",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review7GuardTests.H7",
+   "sha256": "43d040ee69e8221ef1ccf2b3129855b308aaa5a03db583a8f2a5595220e33734"
+  },
+  {
+   "id": "unverified-at-scan",
+   "rule": "UNVERIFIED-BOUNDED",
+   "door": "scan",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackScan.cs",
+   "edits": [
+    {
+     "old": "if (PackContentBounds.Problems(files, verified) is { Count: > 0 } problems) throw new PackLoadException(problems);",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review7GuardTests.H7",
+   "sha256": "786bb6f7c408577818ae95b481788cd0fbcb00e9db1459a68974027f05632e4f"
+  },
+  {
+   "id": "unverified-at-lint",
+   "rule": "UNVERIFIED-BOUNDED",
+   "door": "lint",
+   "file": "tools/Ampack/Program.cs",
+   "edits": [
+    {
+     "old": "if (PackContentBounds.Problems(content.Files, verified: false) is { Count: > 0 } bounds) return Report(bounds, \"\");",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackDoorMatrixTests.Every_command|FullyQualifiedName~PackDoorMatrixTests.Review8_lint_bounds",
+   "sha256": "e1978b932dcf474248eb09c703756e14491cee37b74f6b88bb717e57ea0079fa"
+  },
+  {
+   "id": "writer-minor-at-sign",
+   "rule": "ONE-WRITER-SIGN",
+   "door": "definition",
+   "file": "src/AgentMemory.Packs.Format/PackBuilder.cs",
+   "edits": [
+    {
+     "old": "if (manifest is null) throw new InvalidDataException(manifestProblem);\n            if (WriterProblem(manifest) is { } refused) throw new InvalidDataException(refused);",
+     "new": "if (manifest is null) throw new InvalidDataException(manifestProblem);"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review7GuardTests.M6",
+   "sha256": "d1da4705b6794c97960016d6ebcde403f91c9c9af98e52b987370af901e376ba"
+  },
+  {
+   "id": "writer-signs-future",
+   "rule": "ONE-WRITER-SIGN",
+   "door": "definition",
+   "file": "src/AgentMemory.Packs.Format/PackBuilder.cs",
+   "edits": [
+    {
+     "old": "        if (TrustPolicy.InTheFuture(signedAt, DateTimeOffset.UtcNow))\n",
+     "new": "        if (TrustPolicy.InTheFuture(signedAt, DateTimeOffset.MaxValue))\n"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review10GuardTests.A_M2",
+   "sha256": "bfce0937d8608e0d35d4cd84384a52bc8d14f9b720f5b7904c136002d3e8879e"
+  },
+  {
+   "id": "writer-read-back",
+   "rule": "ONE-WRITER-ARCHIVE",
+   "door": "definition",
+   "file": "src/AgentMemory.Packs.Format/PackBuilder.cs",
+   "edits": [
+    {
+     "old": "throw new InvalidDataException(\"No reader would accept this pack, so it was not written: \" + string.Join(\" \", problems));",
+     "new": "{ }"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review7GuardTests.M7",
+   "sha256": "764ca82861892d6d2a7abc0fc779ce4a7dd2d2a6131f25e2fbe44e100970eacc"
+  },
+  {
+   "id": "output-escaped",
+   "rule": "OUTPUT-ESCAPED",
+   "door": "definition",
+   "file": "tools/Ampack/Program.cs",
+   "edits": [
+    {
+     "old": "if (Console.Out is not ShownWriter) Console.SetOut(new ShownWriter(Console.Out));",
+     "new": ""
+    },
+    {
+     "old": "if (Console.Error is not ShownWriter) Console.SetError(new ShownWriter(Console.Error));",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackDoorMatrixTests.Every_command|FullyQualifiedName~ShownWriterTests",
+   "sha256": "1d7a336bf64bdaa14c83688403c3864333505ac350dffb4801f90184e542e3eb"
+  },
+  {
+   "id": "inspect-ignored-raw",
+   "rule": "OUTPUT-ESCAPED",
+   "door": "inspect",
+   "file": "tools/Ampack/Program.cs",
+   "edits": [
+    {
+     "old": "string.Join(\", \", manifest.IgnoredFields.Select(f => Shown(f, 80)))",
+     "new": "string.Join(\", \", manifest.IgnoredFields)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackDoorMatrixTests.Every_command",
+   "sha256": "1e55703f45bbbfbf71b1b93abc9bd51688d5e72545c7c1954570e849f60ac4a4"
+  },
+  {
+   "id": "bare-cr-passes",
+   "rule": "OUTPUT-ESCAPED",
+   "door": "definition",
+   "file": "tools/Ampack/ShownWriter.cs",
+   "edits": [
+    {
+     "old": "(char.IsControl(c) && c is not ('\\n' or '\\t'))",
+     "new": "(char.IsControl(c) && c is not ('\\n' or '\\r' or '\\t'))"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackDoorMatrixTests.Every_command|FullyQualifiedName~ShownWriterTests",
+   "sha256": "dba27e32b4c9b842519c75e7e26eccd83a09e4c5057586290a8a7ac53a73a918"
+  },
+  {
+   "id": "intake-at-decide",
+   "rule": "EVIDENCE-INTAKE",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "if (Intake(with, without, previous?.With) is { } refused) throw new ArgumentException(refused.Problem, refused.Arm);",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review7GuardTests.L11",
+   "sha256": "8a95da1e51d1a3ec69aabbf55f1fd82d01f049e56df610b45818e0b5c83e996b"
+  },
+  {
+   "id": "intake-at-recheck",
+   "rule": "EVIDENCE-INTAKE",
+   "door": "recheck",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "if (Intake(with, decision.Without, decision.Previous?.With) is { } refused) throw new ArgumentException(refused.Problem, nameof(decision));",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review7GuardTests.L16",
+   "sha256": "e47e1ae3856c0f2d1f5a684d1fddb6d243cd8c22c96ef25fdd7899e51226671a"
+  },
+  {
+   "id": "caps-at-decide",
+   "rule": "CAPS-DECLARED",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "if (CapProblem(manifest, with, without) is { } capProblem) throw new ArgumentException(capProblem.Problem, capProblem.Arm);",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review7GuardTests.M11",
+   "sha256": "eb00d9ecd05a029151f3f3874ddf4d258c1248004c38c252aacbb6b72a65eea4"
+  },
+  {
+   "id": "caps-at-admit",
+   "rule": "CAPS-DECLARED",
+   "door": "admit",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackCertificates.cs",
+   "edits": [
+    {
+     "old": "if (PackTrialGate.CapProblem(pack.Manifest, certificate.With!, certificate.Without) is { } cap)",
+     "new": "if (false && PackTrialGate.CapProblem(pack.Manifest, certificate.With!, certificate.Without) is { } cap)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackCertificateTests.Review8_A2",
+   "sha256": "7f1e49f61c0a3c9a78906b0f72a346fee0eac87aafb259de47683810a2e8179f"
+  },
+  {
+   "id": "floor-at-apply",
+   "rule": "FLOOR-ON-EVIDENCE",
+   "door": "gate",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": ": floor is not null && Below(decision, floor) is { } short_ ?",
+     "new": ": false && Below(decision, floor!) is { } short_ ?"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review8GuardTests.A3",
+   "sha256": "737cc70c70f4285ffd36a9a4c890bb84d85feb8ebe8df09e5b86a6e768ac475a"
+  },
+  {
+   "id": "floor-at-settle",
+   "rule": "FLOOR-ON-EVIDENCE",
+   "door": "upgrade chain",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "(floor is null || Below(a.Decision, floor) is null)",
+     "new": "(true || Below(a.Decision, floor!) is null)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review8GuardTests.A7|FullyQualifiedName~PackUpgradeTests",
+   "sha256": "de1023193baabf1a7c3d9090e53b6f30cd5f32cdd626a53909b0231cd0ba741f"
+  },
+  {
+   "id": "chain-counts-certificates",
+   "rule": "DECISION-COUNTS",
+   "door": "upgrade chain",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": ".Select(g => Counting(g, certificatesCount: false))",
+     "new": ".Select(g => Counting(g, certificatesCount: true))"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review8GuardTests.G2",
+   "sha256": "558ce13a468cc4c085fd6c0b8192a89f07ac548a5d6e8935af6d5630a06a3a43"
+  },
+  {
+   "id": "gate-keeps-stale-certificate",
+   "rule": "DECISION-COUNTS",
+   "door": "gate",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "if (decision?.Basis is { } basis && registration.TrustedCertificates?.Contains(basis.Certificate, StringComparer.Ordinal) is not true)",
+     "new": "if (decision?.Basis is { } basis && registration.TrustedCertificates is null)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackCertificateTests.An_admission_counts_only_while",
+   "sha256": "32d342c164eafd99c7f491927c4b6237b9d35ed0838be6c492ed6b3136ff1ed3"
+  },
+  {
+   "id": "floor-at-tool-gate",
+   "rule": "FLOOR-ON-EVIDENCE",
+   "door": "gate",
+   "file": "tools/Ampack/Program.Certificates.cs",
+   "edits": [
+    {
+     "old": "familyMembers, Floor(o)); }",
+     "new": "familyMembers, null); }"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~AmpackCommandLineTests.A_card_travels_in_the_pack",
+   "sha256": "c22072b6ac334623be479366bbcc5627de303b9998fcc86d136ce23d6acedefd"
+  },
+  {
+   "id": "policy-check-at-gate",
+   "rule": "FLOOR-ON-EVIDENCE",
+   "door": "gate",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackGateCheck.cs",
+   "edits": [
+    {
+     "old": ".Problems(decisions: true) is { Count: > 0 } invalid)",
+     "new": ".Problems(decisions: true) is { Count: > 99 } invalid)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~AmpackCommandLineTests.A_card_travels_in_the_pack",
+   "sha256": "4ef01176367e34182a1da4c31a648edebf989db39f7d1d4be7dca8e2d9ff07c4"
+  },
+  {
+   "id": "hedge-weight",
+   "rule": "BOUNDS-COVER",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "? q.HedgeQuarters / 4.0 : throw new ArgumentOutOfRangeException(nameof(confidence)",
+     "new": "? q.HedgeQuarters / 6.0 : throw new ArgumentOutOfRangeException(nameof(confidence)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~TrialStatisticsTests",
+   "sha256": "512c1a2d12e186d7823f4eed6dd579e1665bbd834826049470e2d99bce9010f2"
+  },
+  {
+   "id": "previous-cap",
+   "rule": "PREVIOUS-CAP",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "if ((previous.With.MaximumOffered ?? ModuleTraversal.MaximumOffered) != judged)",
+     "new": "if (Environment.ProcessorCount < 0)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackUpgradeTests.Review7_an_upgrade_holds",
+   "sha256": "9e27f5bed339d3f5637d24c718a462a7643da175a14ab8bc5239e1fdb0cbd91e"
+  },
+  {
+   "id": "walk-work-cap",
+   "rule": "WALK-BOUNDED",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Context/Traversal/AnchorMatcher.cs",
+   "edits": [
+    {
+     "old": "internal const long MaximumWork = 1L << 20;",
+     "new": "internal const long MaximumWork = long.MaxValue;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~AnchorMatcherWorkTests.Review8_W1_a_value",
+   "sha256": "a99f5b81f6d6a3e2a7dbf16ba79dd21244830aba21a940f49264b28e71057e1f"
+  },
+  {
+   "id": "walk-charged-by-length",
+   "rule": "WALK-BOUNDED",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Context/Traversal/AnchorMatcher.cs",
+   "edits": [
+    {
+     "old": "        work++;\n        if (aCharacters != bCharacters) return false;\n        work += aCharacters;",
+     "new": "        work += 1 + aCharacters + bCharacters;\n        if (aCharacters != bCharacters) return false;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~AnchorMatcherWorkTests.Review8_W1_ordinary",
+   "sha256": "407a69095b3ccaa34ad6b9bbb468c0b7877e83ec756a74cdde2122b3405666af"
+  },
+  {
+   "id": "equality-by-utf16",
+   "rule": "TEXT-BY-CHARACTER",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Context/Traversal/AnchorMatcher.cs",
+   "edits": [
+    {
+     "old": "        if (aCharacters != bCharacters) return false;\n        work += aCharacters;",
+     "new": "        if (a.Length != b.Length) return false;\n        work += a.Length;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~AnchorMatcherWorkTests.An_equality_is_charged_by_characters",
+   "sha256": "c97ef5da137d8b3c89e070b08226a0f88d2c6f97869deef1f0d38a45921c24c0"
+  },
+  {
+   "id": "expand-rows-whole",
+   "rule": "WALK-BOUNDED",
+   "door": "neo4j expand",
+   "file": "src/AgentMemory.Extensibility.Neo4j/Queries/ModuleTraversalQueries.cs",
+   "edits": [
+    {
+     "old": "\"RETURN r.node.id AS id, r.node.key AS rkey, r.degree AS degree, r.hits AS hits\";",
+     "new": "\"RETURN r.node.id AS id, r.node.key AS rkey, properties(r.node) AS whole, r.degree AS degree, r.hits AS hits\";"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review8GuardTests.W2",
+   "sha256": "06bc9feb7edb87af68275e85d1dd8020c77336669897bb0e36dfaaaafe871363"
+  },
+  {
+   "id": "walk-isolates-a-read",
+   "rule": "WALK-BOUNDED",
+   "door": "walk",
+   "file": "src/AgentMemory.Extensibility/Context/Traversal/TraversalWalk.cs",
+   "edits": [
+    {
+     "old": "catch (Exception e) when (e is not OperationCanceledException)",
+     "new": "catch (Exception e) when (e is OutOfMemoryException)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~TraversalBudgetTests.Review7_W2",
+   "sha256": "92932e25f6fdb7b35a18ff635723806be4061ae24b2681a8e7afddd032b65146"
+  },
+  {
+   "id": "walk-server-deadline",
+   "rule": "WALK-BOUNDED",
+   "door": "neo4j read",
+   "file": "src/AgentMemory.Extensibility.Neo4j/Storage/Neo4jModuleTraversalReader.cs",
+   "edits": [
+    {
+     "old": "? await _runner.ReadAsync(work, left, cancellationToken).ConfigureAwait(false)",
+     "new": "? await _runner.ReadAsync(work, cancellationToken).ConfigureAwait(false)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~TraversalDeadlineTests",
+   "sha256": "7a2628d4943931e63b77627466fd258382040a3ff2587aa217850715d863ca53"
+  },
+  {
+   "id": "path-one-pass",
+   "rule": "PATH-AND-GLOB",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Context/Traversal/AnchorMatcher.cs",
+   "edits": [
+    {
+     "old": "if (IsAsciiSpace(c) || c is '/' or '\\\\') start++;",
+     "new": "if (IsAsciiSpace(c) || c is '/') start++;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~AnchorMatcherWorkTests.The_path",
+   "sha256": "d416299a2818fd5805aa502c2ed6c449b469580c7609623fa5faa863bc82fce5"
+  },
+  {
+   "id": "glob-run",
+   "rule": "PATH-AND-GLOB",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Context/Traversal/AnchorMatcher.cs",
+   "edits": [
+    {
+     "old": "case Kind.Run: if (c != '/')",
+     "new": "case Kind.Run: if (true)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~AnchorMatcherWorkTests.The_glob",
+   "sha256": "2720d5106d1410bb636ea7e8d998967c195118d35b1f3867ea681162e812127f"
+  },
+  {
+   "id": "walk-fan-out-cut",
+   "rule": "STORES-AGREE",
+   "door": "walk",
+   "file": "src/AgentMemory.Extensibility/Context/Traversal/TraversalWalk.cs",
+   "edits": [
+    {
+     "old": "var fanOut = Math.Clamp(declared.FanOut, 1, ModuleTraversalRelation.MaximumFanOut);",
+     "new": "var fanOut = int.MaxValue;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~WalkWorkBoundsTests.Review7_W7",
+   "sha256": "308d4f4971295a7909df861bd04f291f365e10749cc8108d284971eaf5d976fa"
+  },
+  {
+   "id": "mount-plan-at-mount",
+   "rule": "ONE-MOUNT-PLAN",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackFamilies.cs",
+   "edits": [
+    {
+     "old": "            .. PackMountPlan.Problems(held),\n",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~AmpackLoaderTests|FullyQualifiedName~Review8GuardTests.A5|FullyQualifiedName~PackConsentTests.Review12|FullyQualifiedName~PackConsentTests.Review13",
+   "sha256": "27dff61738e0cc6d3f1b077bd7e879f28e68ea28470df7ff66dd5664a40468fd"
+  },
+  {
+   "id": "mount-plan-at-gate",
+   "rule": "ONE-MOUNT-PLAN",
+   "door": "gate",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackGateCheck.cs",
+   "edits": [
+    {
+     "old": "foreach (var pack in PackMountPlan.Of(packs))",
+     "new": "foreach (var pack in packs)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review8GuardTests.A5_the_gate",
+   "sha256": "3c4315268f2afe2e616e5c4160bac1107eac2ac1ff80bd6ce5a467ac7222f71b"
+  },
+  {
+   "id": "mount-plan-snapshots",
+   "rule": "ONE-MOUNT-PLAN",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackMountPlan.cs",
+   "edits": [
+    {
+     "old": "if (of.Select(p => p.Id).Distinct(StringComparer.Ordinal).Count() > 1)",
+     "new": "if (Environment.ProcessorCount < 0)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review8GuardTests.A5_two_snapshots",
+   "sha256": "588e26e5fb15f3b11fc33fc6a8c1968ec9035c92e3eb9bdc3941556a833500fc"
+  },
+  {
+   "id": "mount-plan-copies",
+   "rule": "ONE-MOUNT-PLAN",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackMountPlan.cs",
+   "edits": [
+    {
+     "old": "Count() == 1 && same.Count() > 1)",
+     "new": "Count() == 1 && same.Count() < 0)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review9GuardTests.C_H1",
+   "sha256": "c824864a298faa37654548440846a5e92e834e70ec0754c4c3352699493c65d4"
+  },
+  {
+   "id": "run-any-subject",
+   "rule": "CERTIFICATE-RUN-BOUND",
+   "door": "definition",
+   "file": "src/AgentMemory.Packs.Format/PackCertificate.cs",
+   "edits": [
+    {
+     "old": "        RunJson(run, root => root.TryGetProperty(\"subject\", out var subject)",
+     "new": "        RunJson(run, root => Environment.ProcessorCount > 0 || root.TryGetProperty(\"subject\", out var subject)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackCertificateTests.Review10_B10_M1",
+   "sha256": "e072edce34a6ef0f3c8e3f6676eeb5c132872029ec41eeccc08549898647418c"
+  },
+  {
+   "id": "certify-any-run",
+   "rule": "CERTIFICATE-RUN-BOUND",
+   "door": "certify",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackCertificates.cs",
+   "edits": [
+    {
+     "old": "            if (!PackAttestations.RunIsOf(run, pack.Id, pack.Digest, pack.Version))",
+     "new": "            if (Environment.ProcessorCount < 0 && !PackAttestations.RunIsOf(run, pack.Id, pack.Digest, pack.Version))"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackCertificateTests.Review10_B10_M1",
+   "sha256": "95f5e4f0d5aa35293ab84d8617fce2ca2569e2a19c1efb1bcacb8b22f3c053af"
+  },
+  {
+   "id": "python-run-any-subject",
+   "rule": "CERTIFICATE-RUN-BOUND",
+   "door": "certificate",
+   "file": "conformance/pack-v1.1/python/ampack_verify.py",
+   "edits": [
+    {
+     "old": "        if not run_is_of(run, pid, digest, version):\n",
+     "new": "        if False and not run_is_of(run, pid, digest, version):\n"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "7fbbd683b661342f8b85d8f7c3313892a91b984b82c23f6237fa7f44bf30f9c7"
+  },
+  {
+   "id": "pooled-first-copy",
+   "rule": "CERTIFICATE-COPIES",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackCertificates.cs",
+   "edits": [
+    {
+     "old": ".Select(g => g.OrderByDescending(e => e.Trusted).ThenBy(e => e.File, StringComparer.Ordinal).First())];",
+     "new": ".Select(g => g.First())];"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackCertificateTests.Review7_H5",
+   "sha256": "f4661361ab1196aaf21a2a146480c32ef631f76dafede4a69f1c1064d4e8bb32"
+  },
+  {
+   "id": "composed-any-copy",
+   "rule": "ONE-MOUNT-PLAN",
+   "door": "family routes",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackFamilies.cs",
+   "edits": [
+    {
+     "old": "origin[r] is var pack && pack.ValidUntil == r.ValidUntil\n",
+     "new": "origin[r] is var pack && true\n"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review10GuardTests.C_M2",
+   "sha256": "9b6504f13fc6b9ad64eb55b376ad0b43ab3e8d5e9ceda6ba7e626564f7f82b9d"
+  },
+  {
+   "id": "serve-own-composition",
+   "rule": "ONE-MOUNT-PLAN",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackMemory.cs",
+   "edits": [
+    {
+     "old": "        var loaded = PackFamilies.HostComposes(sets, direct).ToList();",
+     "new": "        var loaded = sets.SelectMany(s => s.AllPacks).Concat(direct).ToList();"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~AmpackLoaderTests.Review11|FullyQualifiedName~PackFamilyTests.Review11",
+   "sha256": "5c0b3d1f26ad0dd394db3d8309197cb2ae3ae5b41a80b20742a279eb2385785c"
+  },
+  {
+   "id": "composed-any-origin",
+   "rule": "ONE-MOUNT-PLAN",
+   "door": "family routes",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackFamilies.cs",
+   "edits": [
+    {
+     "old": "                origin[registration] = from.First(p => p.Digest == registration.PackDigest);",
+     "new": "                origin[registration] = setList.SelectMany(s => s.AllPacks).Concat(from).First(p => p.Digest == registration.PackDigest);"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review10GuardTests.R12_4",
+   "sha256": "da0c51901359aaaa840b4f04a4a784d7d1012a710c8baff114026b3cb6548389"
+  },
+  {
+   "id": "install-any-set",
+   "rule": "ONE-MOUNT-PLAN",
+   "door": "install",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackStore.cs",
+   "edits": [
+    {
+     "old": "        PackMemory.Held([.. others.Select(p => PackReader.ReadArchiveFile(Path.Combine(_root, p.File))), archive], trust);\n",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackFamilyTests.Review12|FullyQualifiedName~PackConsentTests.Review13",
+   "sha256": "35b226951e8829af5fc1e87da6b5a4ad4fd1e426d1c5d4eeaf486b0912a20418"
+  },
+  {
+   "id": "snapshot-without-definition",
+   "rule": "ONE-MOUNT-PLAN",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackFamilies.cs",
+   "edits": [
+    {
+     "old": ".Where(s => !definitions.Contains(s.of))",
+     "new": ".Where(s => Environment.ProcessorCount < 0)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackConsentTests.Review13",
+   "sha256": "6f92931623997942dee41be457a06fca99fefe0fe1f0f1a4944d3b03f177bbbd"
+  },
+  {
+   "id": "install-without-imports",
+   "rule": "ONE-MOUNT-PLAN",
+   "door": "install",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackMemory.cs",
+   "edits": [
+    {
+     "old": "        Build([.. held], [.. modules.SelectMany(m => modules.Where(i => i != m).Select(i => new ModuleConsentGrant(m, i)))]);\n",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackConsentTests.Review14",
+   "sha256": "f1a700f453eba57cab9448c0a86c2c56c731475c8e38817eef80ec4651c15f76"
+  },
+  {
+   "id": "profiles-file-match",
+   "rule": "PROFILES-DERIVED",
+   "door": "definition",
+   "file": "src/AgentMemory.Packs.Format/PackProfiles.cs",
+   "edits": [
+    {
+     "old": "? path.StartsWith(f, StringComparison.Ordinal) : path == f))",
+     "new": "? path.StartsWith(f, StringComparison.Ordinal) : path == f + \"~\"))"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.PackFormat",
+   "filter": "FullyQualifiedName~PackProfilesTests",
+   "sha256": "046e35fd12826e9e134553275115c99aa8e1056690e5f8e4cdb04b8b5965f791"
+  },
+  {
+   "id": "profiles-not-implemented",
+   "rule": "PROFILES-DERIVED",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackLoader.cs",
+   "edits": [
+    {
+     "old": "PackProfiles.Used(pack.Files.Keys, pack.Manifest).Where(p => !p.Implemented)",
+     "new": "PackProfiles.Used(pack.Files.Keys, pack.Manifest).Where(p => p.Implemented && !p.Implemented)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackReviewFindingsTests",
+   "sha256": "c24516601c13aed388a9873c85e2c100394813579b2dbb4c63612de74fc0e0a4"
+  },
+  {
+   "id": "python-profiles-file-match",
+   "rule": "PROFILES-DERIVED",
+   "door": "verify",
+   "file": "conformance/pack-v1.1/python/ampack_verify.py",
+   "edits": [
+    {
+     "old": "if f.endswith(\"/\") else path == f for f in",
+     "new": "if f.endswith(\"/\") else path == f + \"~\" for f in"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "09c65367272920ce39b8f849db42c9273fc4a752a171d57fcaf4960ba0a090e6"
+  },
+  {
+   "id": "decimal-read-as-integer",
+   "rule": "INTEGER-UNITS",
+   "door": "definition",
+   "file": "shared/PackNumbers.cs",
+   "edits": [
+    {
+     "old": "value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var n) && n is >= -MaxSafe and <= MaxSafe ? n : null",
+     "new": "value.ValueKind == JsonValueKind.Number ? (long)Math.Round(value.GetDouble()) : null"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ModuleEditorSchemaTests|FullyQualifiedName~PackUpgradeTests",
+   "sha256": "3be705ae300a09b663db73d68943cf4109af7d67cf4610ce79b3a6778126811d"
+  },
+  {
+   "id": "walk-rounds-to-nearest",
+   "rule": "INTEGER-UNITS",
+   "door": "definition",
+   "file": "shared/PackNumbers.cs",
+   "edits": [
+    {
+     "old": "internal static long MulFloor(long a, long b) => (long)Math.Floor((decimal)a * b / One);",
+     "new": "internal static long MulFloor(long a, long b) => (long)Math.Round((decimal)a * b / One);"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.PackFormat",
+   "filter": "FullyQualifiedName~PackNumbersTests",
+   "sha256": "32a9425a7e0139e4778e0ed3c3bb151b88896cce196b56006bef0f5368924f79"
+  },
+  {
+   "id": "verdict-by-float",
+   "rule": "EXACT-VERDICT",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "return new(target, required, Math.Round(estimate, 6), exact >= t);",
+     "new": "return new(target, required, Math.Round(estimate, 6), estimate >= required);"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~TrialGateTests.A_lift_exactly_at_its_target_is_met_exactly",
+   "sha256": "8ad4f30250d4f81e063b4e061805b223099e95722a8a6bebf824660d7a139189"
+  },
+  {
+   "id": "verdict-by-float-bound",
+   "rule": "EXACT-VERDICT",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "meets((int)Math.Round(level * 1000), t), Math.Round(estimate, 6));",
+     "new": "lower >= required, Math.Round(estimate, 6));"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~TrialGateTests.A_bound_exactly_at_its_target_is_met_through_the_decision",
+   "sha256": "4da354973ee4732c5f399e75fefc3331c529bec3c74569d72d12ed4fbe4620a8"
+  },
+  {
+   "id": "tie-refused",
+   "rule": "EXACT-VERDICT",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Modules/PackTrialGate.Exact.cs",
+   "edits": [
+    {
+     "old": "return tail <= Alpha(permille);",
+     "new": "return tail < Alpha(permille);"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~TrialStatisticsTests.A_bound_exactly_at_its_target_is_decided_the_same_everywhere",
+   "sha256": "1511e5e10c6e2eac723abe54d51571bb1c6e669fb3c65e3d983ba6ab151d3ac8"
+  },
+  {
+   "id": "python-exact-hedge",
+   "rule": "EXACT-VERDICT",
+   "door": "definition",
+   "file": "eng/trial-statistics/exact.py",
+   "edits": [
+    {
+     "old": "HEDGE = {c: Q(v[\"hedgeQuarters\"], 4) for c, v in DECIMALS.items()}",
+     "new": "HEDGE = {c: Q(v[\"hedgeQuarters\"], 5) for c, v in DECIMALS.items()}"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~StatisticsCoverageTests.Golden_json_is_the_reference_s_own_output",
+   "sha256": "81eb58baae967c397538fd1a685d42222330a871ab726c6b77b52ba98d9e0e07"
+  },
+  {
+   "id": "reuse-on-dimension",
+   "rule": "EMBEDDINGS-STRICT",
+   "door": "definition",
+   "file": "src/AgentMemory.Packs.Format/PackEmbeddings.cs",
+   "edits": [
+    {
+     "old": "set.Model == host.Model && set.ModelDigest == host.ModelDigest && set.Dimension == host.Dimension",
+     "new": "set.Dimension == host.Dimension"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackEmbeddingsTests",
+   "sha256": "cfbe7040ec2d454e781aaffeedf42830e876580867eb59e9dd59acf91bd979ee"
+  },
+  {
+   "id": "second-tensor",
+   "rule": "EMBEDDINGS-STRICT",
+   "door": "verify",
+   "file": "src/AgentMemory.Packs.Format/PackEmbeddings.cs",
+   "edits": [
+    {
+     "old": "root.EnumerateObject().Count() != 1 || !root.TryGetProperty(\"vectors\", out var tensor)",
+     "new": "!root.TryGetProperty(\"vectors\", out var tensor)"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "026c449fab483c420f726976788ccb7a49783754685863e28384e6d53d4a56ce"
+  },
+  {
+   "id": "python-second-tensor",
+   "rule": "EMBEDDINGS-STRICT",
+   "door": "verify",
+   "file": "conformance/pack-v1.1/python/ampack_verify.py",
+   "edits": [
+    {
+     "old": "if not isinstance(header, dict) or set(header) != {\"vectors\"}:",
+     "new": "if not isinstance(header, dict) or \"vectors\" not in header:"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "bc1efb1c089b02698600e1bb1620d7384653ee77418607dd39dff96afa935d13"
+  },
+  {
+   "id": "display-unsafe-shown",
+   "rule": "DISPLAY-SAFE",
+   "door": "definition",
+   "file": "shared/PackText.cs",
+   "edits": [
+    {
+     "old": "                else return false;",
+     "new": "                else break;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.PackFormat",
+   "filter": "FullyQualifiedName~PackTextTests",
+   "sha256": "fde45b7619aef2615472d5f176cf91da37bd2427f01846d4a5a7213d7d47e60c"
+  },
+  {
+   "id": "python-display-unsafe-shown",
+   "rule": "DISPLAY-SAFE",
+   "door": "verify",
+   "file": "conformance/pack-v1.1/python/ampack_verify.py",
+   "edits": [
+    {
+     "old": "        if i >= 0 and ord(c) <= DISPLAY_REFUSED[i][1]:\n            return False",
+     "new": "        if i >= 0 and ord(c) <= DISPLAY_REFUSED[i][1]:\n            break"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "9047ad98c9c7ef61a5e8413e3758a90a34e4085e22849576875765f215379cd9"
+  },
+  {
+   "id": "frame-skipped",
+   "rule": "FRAMED-RECORDS",
+   "door": "serve",
+   "file": "src/AgentMemory.AgentFramework/Neo4jMemoryContextProvider.Admission.cs",
+   "edits": [
+    {
+     "old": "frame is { } source ? AgentMemory.Core.Security.RecalledMemoryDelimiter.Frame(source, text) : AgentMemory.Core.Security.RecalledMemoryDelimiter.EscapeText(text);",
+     "new": "AgentMemory.Core.Security.RecalledMemoryDelimiter.EscapeText(text);"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ModuleDelimitingTests|FullyQualifiedName~NativeModuleSelectionTests",
+   "sha256": "f51928f53045ba6f01e65780b9f507cd02c9fec0d813c4bb840f38b2605720b1"
+  },
+  {
+   "id": "selection-unframed",
+   "rule": "FRAMED-RECORDS",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility.AgentFramework/ExtensibleMemoryContextProvider.Selection.cs",
+   "edits": [
+    {
+     "old": "candidate.Text, ContextFrames.Of(candidate.Binding, candidate.Provenance));",
+     "new": "candidate.Text, null);"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~NativeModuleSelectionTests",
+   "sha256": "9c74890c3c63941b0843ecb2a3afef7ef7e1e21580bc833cfb8378b373baa659"
+  },
+  {
+   "id": "frame-fails-open",
+   "rule": "FRAMED-RECORDS",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility.AgentFramework/ExtensibleMemoryContextProvider.cs",
+   "edits": [
+    {
+     "old": "(IReadOnlyList<KeyValuePair<string, string>>?)ContextFrames.Of(section.Binding, item.Provenance)",
+     "new": "(item.Provenance?.SourcePack is null ? null : ContextFrames.Of(section.Binding, item.Provenance))"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ModuleDelimitingTests",
+   "sha256": "c277f60f0f46a9f50c2dc60020be14fccf40fe30f932bee7b756d2165e96e943"
+  },
+  {
+   "id": "safety-certified",
+   "rule": "CERTIFICATE-STATES-ALL",
+   "door": "certify",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackCertificates.cs",
+   "edits": [
+    {
+     "old": "        if (trial.Safety is not null) problems.Add(",
+     "new": "        if (trial.Safety is null) problems.Add("
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackCertificateTests.A_trial_with_a_safety_target",
+   "sha256": "d226d0aafa3829a793bcfbb15e6adf6568bac15a9d39df3c1d3cf6a559f6b1bf"
+  },
+  {
+   "id": "floor-ignores-safety",
+   "rule": "FLOOR-ON-EVIDENCE",
+   "door": "gate",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "if (decision.Safety is not { } run || run.Suite != safe.Probes) gaps.Add($\"no run of {safe.Probes} kept\");",
+     "new": "if (decision.Safety is not { } run || run.Suite != safe.Probes) { }"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~TrialGateTests.A_safety_target_is_reachable",
+   "sha256": "4b9a7fc641143a4459f8fe42b5aebc016575e728fb6dc6b323f9dc1a2ee1e7ca"
+  },
+  {
+   "id": "display-blank-shown",
+   "rule": "DISPLAY-SAFE",
+   "door": "definition",
+   "file": "shared/PackText.cs",
+   "edits": [
+    {
+     "old": "        return !blank;",
+     "new": "        return !blank || text.Length > 0;"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "9ed85355cfa4e7b2a9e126b65e99b0890004e40b69ef88c27f9380923c40ba01"
+  },
+  {
+   "id": "display-line-separator-kept",
+   "rule": "DISPLAY-SAFE",
+   "door": "verify",
+   "file": "shared/PackText.cs",
+   "edits": [
+    {
+     "old": "if (line && c is '\\n' or '\\t' or 0x2028 or 0x2029) return false;",
+     "new": "if (line && c is '\\n' or '\\t') return false;"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "53added9e37d63493799abf9d7af16422f69c6c7f4908a3bc17402725f946f14"
+  },
+  {
+   "id": "python-display-blank-shown",
+   "rule": "DISPLAY-SAFE",
+   "door": "verify",
+   "file": "conformance/pack-v1.1/python/ampack_verify.py",
+   "edits": [
+    {
+     "old": "        and any(ord(c) not in WHITE_SPACE for c in text) and ",
+     "new": "        and "
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "92a520bf3147a9eb69bc691bcf3a7e4ddef2d73cd41b12eec94d24c587fbd951"
+  },
+  {
+   "id": "safety-always-met",
+   "rule": "EXACT-VERDICT",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "MeetsRate(safety.Probes - safety.Followed, safety.Probes, (int)Math.Round(c * 1000), 1 - most), Math.Round(shown, 6));",
+     "new": "true, Math.Round(shown, 6));"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~TrialGateTests.A_safety_target",
+   "sha256": "5e14bf5f8f8b17051480db25249c3b7475de01dd8ab6e14fe33c1c6ea4a442ea"
+  },
+  {
+   "id": "cost-sign-test-always-met",
+   "rule": "EXACT-VERDICT",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "return new(target, required, Shown(bound), bound >= least, confidence is null ? null : Shown(estimate));",
+     "new": "return new(target, required, Shown(bound), true, confidence is null ? null : Shown(estimate));"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~TrialGateTests.A_cost_target",
+   "sha256": "1d2da35b955d65e6107299c234ea863c2063f468cb6dcd2996f72f9ad1a40247"
+  },
+  {
+   "id": "cost-fixed-left-out",
+   "rule": "EXACT-VERDICT",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "var saving = b[i].OfferedBytes!.Value - a[i].OfferedBytes!.Value - fixedBytes;",
+     "new": "var saving = b[i].OfferedBytes!.Value - a[i].OfferedBytes!.Value;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~TrialGateTests.A_cost_target",
+   "sha256": "7e508fe7a139bdd030b97266ae538596667ef088a3747dffe074b688c4a8bfca"
+  },
+  {
+   "id": "cost-unclustered",
+   "rule": "EXACT-VERDICT",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "var units = m == 1 ? values : [.. values.Chunk(m).Select(cluster => cluster.Min())];",
+     "new": "var units = values;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~TrialGateTests.A_cost_target|FullyQualifiedName~TrialGateTests.The_cost_check",
+   "sha256": "a8a78b952185fbd816c15be6c8d123a4bcb020d39cbc00286612681b597e8297"
+  },
+  {
+   "id": "cost-halves-joined",
+   "rule": "EXACT-VERDICT",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "var halves = m == 1 ? [SignBound(units, permille)]",
+     "new": "var halves = true ? [SignBound(units, permille)]"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~TrialGateTests.A_cost_target|FullyQualifiedName~TrialGateTests.The_cost_check",
+   "sha256": "31f59d6483d9e193cf99c120128f95d7ba954b620b4ca3157a2215e43301fa50"
+  },
+  {
+   "id": "cost-cluster-median",
+   "rule": "EXACT-VERDICT",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "values.Chunk(m).Select(cluster => cluster.Min())",
+     "new": "values.Chunk(m).Select(cluster => LowerMedian(cluster))"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~TrialGateTests.A_cost_target|FullyQualifiedName~TrialGateTests.The_cost_check",
+   "sha256": "0a9687c8c6731b5ef5f63ca4b8b3598e04d70dee6b393dd2a4722bdf0239a537"
+  },
+  {
+   "id": "cost-no-bound-met",
+   "rule": "EXACT-VERDICT",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "bound = halves.Any(h => h is null) ? least - 1 : halves.Min(h => h!.Value);",
+     "new": "bound = halves.Any(h => h is null) ? least : halves.Min(h => h!.Value);"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~TrialGateTests.A_cost_target|FullyQualifiedName~TrialGateTests.The_cost_check",
+   "sha256": "cc42d6d85aef48ab333ad06abac2ccb6414a768076f8363cf2e85f36a05d0e36"
+  },
+  {
+   "id": "cost-ratio-truncated",
+   "rule": "EXACT-VERDICT",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "FloorDivide(checked(saving * PackNumbers.One), Math.Max(1, b[i].OfferedBytes!.Value))",
+     "new": "checked(saving * PackNumbers.One) / Math.Max(1, b[i].OfferedBytes!.Value)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~TrialGateTests.A_cost_target|FullyQualifiedName~TrialGateTests.The_cost_check",
+   "sha256": "23a7895d84de59c6eff41940ed25b7439f6fc9eb20ed55cd15538c83eb324ebc"
+  },
+  {
+   "id": "bytes-from-nothing",
+   "rule": "CERTIFICATE-STATES-ALL",
+   "door": "certificate",
+   "file": "src/AgentMemory.Packs.Format/PackCertificate.cs",
+   "edits": [
+    {
+     "old": "arm is { MaximumOffered: 0 } && arm.PerTask.Any(t => t.Bytes is > 0)",
+     "new": "arm is { MaximumOffered: -1 } && arm.PerTask.Any(t => t.Bytes is > 0)"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "b7d85525831b4804f1a8f18ea2956a2958b97fd5b6a19756e6bf2cf271ce123c"
+  },
+  {
+   "id": "python-bytes-unbounded",
+   "rule": "CERTIFICATE-STATES-ALL",
+   "door": "certificate",
+   "file": "conformance/pack-v1.1/python/ampack_verify.py",
+   "edits": [
+    {
+     "old": "or len(entry) == 3 and not 0 <= entry[2] <= CERTIFICATE_MAX_TASK_BYTES:",
+     "new": "or False:"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "b4923969347e1cb3edc91d268900bdfb4575863443d4a56d968d2f688b2118d3"
+  },
+  {
+   "id": "cost-met-unchecked",
+   "rule": "EXACT-VERDICT",
+   "door": "certificate",
+   "file": "src/AgentMemory.Packs.Format/PackCertificate.cs",
+   "edits": [
+    {
+     "old": "CostTargets.Contains(k.Target) && k.Met != (k.ObservedMicro >= k.RequiredMicro)) is { } wrong)",
+     "new": "CostTargets.Contains(k.Target) && false) is { } wrong)"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "1020b605a5c4dbf57fa06ec945aab1d7f78571e94e71c87849a2cbb705fdc857"
+  },
+  {
+   "id": "python-cost-met-unchecked",
+   "rule": "EXACT-VERDICT",
+   "door": "certificate",
+   "file": "conformance/pack-v1.1/python/ampack_verify.py",
+   "edits": [
+    {
+     "old": "if any(c[\"target\"] in COST_TARGETS and c[\"met\"] != (c[\"observedMicro\"] >= c[\"requiredMicro\"]) for c in checks):",
+     "new": "if False:"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "40371bde7c89a9d9dd0ea8ed9b8eada24fa3d9107bb21b0be4deb65da7599493"
+  },
+  {
+   "id": "certificate-bytes-dropped",
+   "rule": "CERTIFICATE-STATES-ALL",
+   "door": "certify",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackCertificates.cs",
+   "edits": [
+    {
+     "old": "new CertificateTask(t.Offered, t.Correct, t.OfferedBytes)",
+     "new": "new CertificateTask(t.Offered, t.Correct)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackCertificateTests.A_cost_target",
+   "sha256": "fcc7af5c4c64e572011124a864eea725d02fa75e49dcc0f88ce43535a1bb5dee"
+  },
+  {
+   "id": "when-to-use-free",
+   "rule": "COUNTED-IS-SHOWN",
+   "door": "gate",
+   "file": "src/AgentMemory.Extensibility/Modules/PackTrialRender.cs",
+   "edits": [
+    {
+     "old": "public static long FixedBytes(ModuleManifest manifest) => AlwaysShown(manifest) is { } shown ? Encoding.UTF8.GetByteCount(shown) : 0;",
+     "new": "public static long FixedBytes(ModuleManifest manifest) => AlwaysShown(manifest) is { } shown ? 0 : 0;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~WhenToUseTests",
+   "sha256": "8f2dbfeebb73508df5ef7dc137304d76cf1b5c762bb8f74cfee89d27c73286e7"
+  },
+  {
+   "id": "when-to-use-unbounded",
+   "rule": "COUNTED-IS-SHOWN",
+   "door": "verify",
+   "file": "src/AgentMemory.Packs.Format/PackCard.cs",
+   "edits": [
+    {
+     "old": "    internal const int MaximumWhenToUse = 400;",
+     "new": "    internal const int MaximumWhenToUse = 100_000;"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "27792532c44aade26af11cdea8a1b3ca7e5c342b3f1c34478a80f12464b6d650"
+  },
+  {
+   "id": "python-when-to-use-unbounded",
+   "rule": "COUNTED-IS-SHOWN",
+   "door": "verify",
+   "file": "conformance/pack-v1.1/python/ampack_verify.py",
+   "edits": [
+    {
+     "old": "(\"whenToUse\", 400, False)",
+     "new": "(\"whenToUse\", 100_000, False)"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "24b91fb39228e7f676261ede78300a02a2ced1f18695d10669859973ae77bf97"
+  },
+  {
+   "id": "reader-ignores-life",
+   "rule": "LIVE-IN-WORLD-TIME",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility/Modules/ModuleSet.cs",
+   "edits": [
+    {
+     "old": " && (query.Selection == ModuleRecordSelection.History || ModuleRecordLife.IsLive(r.Life, at))\n                && erased",
+     "new": "\n                && erased"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~RecordLifeTests",
+   "sha256": "fa3f623bf3d296eb4921e3288c4685d579c98ceaaa0fbdb6d50c36274b3ebf0f"
+  },
+  {
+   "id": "fan-out-before-life",
+   "rule": "LIVE-IN-WORLD-TIME",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackMemory.cs",
+   "edits": [
+    {
+     "old": "links.Where(r => ModuleRecordLife.IsLive(r.Life, at) && ModuleConfidence.Clears(r.ConfidenceMicro, context.MinimumConfidenceMicro)).Select(",
+     "new": "links.Where(r => ModuleConfidence.Clears(r.ConfidenceMicro, context.MinimumConfidenceMicro)).Select("
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~RecordLifeTests",
+   "sha256": "2215a3eaeb41881d315f77cc029e3b816c4499b590b15dd41bcb333424e5a73d"
+  },
+  {
+   "id": "snapshot-life-skipped",
+   "rule": "LIVE-IN-WORLD-TIME",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Packs/ModuleSnapshot.cs",
+   "edits": [
+    {
+     "old": "if (problems.Count == 0) records = KnowledgePack.Lives(module.Ontology, records, problems);",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~RecordLifeTests",
+   "sha256": "f8288b6ba6cc32119a79cf9b058de6401dd527c525dc594e6426e6e0bb94a91e"
+  },
+  {
+   "id": "supersession-ignored",
+   "rule": "LIVE-IN-WORLD-TIME",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Packs/KnowledgePack.cs",
+   "edits": [
+    {
+     "old": "resolved[target] = resolved[target] with { Life = life with { ValidToUtc = life.ValidToUtc is { } to && to < end ? to : end } };",
+     "new": "_ = end;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~RecordLifeTests",
+   "sha256": "46b997fff2debfefd00bd667a8089d01feeeef4b3f1c726ff794164c20b7d84f"
+  },
+  {
+   "id": "refresh-ignored",
+   "rule": "LIVE-IN-WORLD-TIME",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Packs/KnowledgePack.cs",
+   "edits": [
+    {
+     "old": "if (life.ValidToUtc is null) life = life with { ValidToUtc = from.AddDays(days) };",
+     "new": "_ = days;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~RecordLifeTests",
+   "sha256": "269571530c2e2ab18a2da32ac7db986b913ea646717d2d286ca0ab2428a06494"
+  },
+  {
+   "id": "erase-after-import",
+   "rule": "ERASED-STAYS-GONE",
+   "door": "install",
+   "file": "src/AgentMemory.Extensibility/Packs/KnowledgePackImporter.cs",
+   "edits": [
+    {
+     "old": "        if (mine.Count > 0) await _store.EraseAsync(pack.Manifest, mine, _clock.GetUtcNow(), cancellationToken).ConfigureAwait(false);\n        return await ImportAsync(pack, allowDowngrade, cancellationToken).ConfigureAwait(false);",
+     "new": "        var result = await ImportAsync(pack, allowDowngrade, cancellationToken).ConfigureAwait(false);\n        if (mine.Count > 0) await _store.EraseAsync(pack.Manifest, mine, _clock.GetUtcNow(), cancellationToken).ConfigureAwait(false);\n        return result;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ErasureTests",
+   "sha256": "6cfd27b30edaffaf639edebcd31c359813e18cfebf540f8e7694f249d9dede21"
+  },
+  {
+   "id": "memory-keeps-erased",
+   "rule": "ERASED-STAYS-GONE",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackMemory.cs",
+   "edits": [
+    {
+     "old": "                if (erased.Any(e => e.Names(record.Source, record.Type, record.Key))) continue;\n",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ErasureTests",
+   "sha256": "e21c5d5056e1e5a54b7933bb9a5cada34e6fe3dde0517ebce21fd96e0a4830a8"
+  },
+  {
+   "id": "erasure-by-anyone",
+   "rule": "ERASED-STAYS-GONE",
+   "door": "verify",
+   "file": "src/AgentMemory.Packs.Format/PackErasure.cs",
+   "edits": [
+    {
+     "old": "if (roleRefusals.Any(r => r is null)) return (erasure, keyId, []);",
+     "new": "if (roleRefusals.Count >= 0) return (erasure, keyId, []);"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "805688cfedf590ccf694ceaa07f0afccc64d44cc5b9c53c5d0c0cdadbf4fe335"
+  },
+  {
+   "id": "python-erasure-by-anyone",
+   "rule": "ERASED-STAYS-GONE",
+   "door": "verify",
+   "file": "conformance/pack-v1.1/python/ampack_verify.py",
+   "edits": [
+    {
+     "old": "        if any(key_refusal(key, role, pid, issued_at, now, revoked_keys) is None for role in ERASURE_ROLES):",
+     "new": "        if True:"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "d469ef496e0f0f6a060aaf3f8248eb58d51af1f5d90a4891c9d5eea68d5e3ce1"
+  },
+  {
+   "id": "offered-while-pending",
+   "rule": "ERASED-STAYS-GONE",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility/Modules/ModuleSet.cs",
+   "edits": [
+    {
+     "old": "                && erased?.Invoke(r) != true\n",
+     "new": "                && erased?.Invoke(r) != null\n"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ErasureTests",
+   "sha256": "d943d5ecbe7487afc845ac7fd6c3be25c8b3203abd829b7075f14eb4c46e299b"
+  },
+  {
+   "id": "set-erases-nothing",
+   "rule": "ERASED-STAYS-GONE",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility/Modules/ModuleSet.cs",
+   "edits": [
+    {
+     "old": "        erasures.Count != 0 && erasures.Any(",
+     "new": "        false && erasures.Any("
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ErasureTests",
+   "sha256": "291b8631edaf31900fb819a4b93eaa9d4c1a9ff2a0ae65764e9bb7ad73c87741"
+  },
+  {
+   "id": "erasure-by-module",
+   "rule": "ERASED-STAYS-GONE",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Packs/ModuleErasure.cs",
+   "edits": [
+    {
+     "old": "        (source?.Pack?.Carrier?.Id ?? source?.Pack?.Id) == PackId && Erases(type, key);",
+     "new": "        Erases(type, key);"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ErasureTests",
+   "sha256": "9ac06c4e7d43c3ce098eae906b9873c60cf428e1ea24482158c93c1f4fc3f4f2"
+  },
+  {
+   "id": "import-ignores-erasures",
+   "rule": "ERASED-STAYS-GONE",
+   "door": "install",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackImport.cs",
+   "edits": [
+    {
+     "old": "importer.ImportAsync(knowledge, pack.Erasures, allowDowngrade,",
+     "new": "importer.ImportAsync(knowledge, [], allowDowngrade,"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ErasureTests",
+   "sha256": "5395b52ea4d07d234077c1dfaa383e501f63edd6df843b35e7a6b44b411e1a4c"
+  },
+  {
+   "id": "loader-drops-erasures",
+   "rule": "ERASED-STAYS-GONE",
+   "door": "install",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackLoader.cs",
+   "edits": [
+    {
+     "old": "            Erasures = PackErasures.Read(pack, ledger is null ? trust.Policy : ledger.Ledger.Apply(trust.Policy), DateTimeOffset.UtcNow),\n",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ErasureTests",
+   "sha256": "eea3129f690f1eb9d81636560aa8f7157654be100444206258b8f5585cc18640"
+  },
+  {
+   "id": "python-issued-any-digit",
+   "rule": "ERASED-STAYS-GONE",
+   "door": "verify",
+   "file": "conformance/pack-v1.1/python/ampack_verify.py",
+   "edits": [
+    {
+     "old": "    if not isinstance(issued, str) or not SIGNED_AT.fullmatch(issued):",
+     "new": "    if not isinstance(issued, str):"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "41ca82777e9db6d4cac36a0647b58be6beefdc738f6079585827dfadd3395d34"
+  },
+  {
+   "id": "decision-never-expires",
+   "rule": "TRIAL-OVER-TIME",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "if (at > expires) reason =",
+     "new": "if (false && at > expires) reason ="
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~TrialGateTests.A_decision_counts_for_the_days",
+   "sha256": "3af2cda78b30b40c6c3d863793cbd2e9ba2ef680a0c6730c3badb8fea3522adb"
+  },
+  {
+   "id": "parts-uncorrected",
+   "rule": "TRIAL-OVER-TIME",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "if (permille is not { } p || parts <= 1) return (true, permille);",
+     "new": "if (permille is not { } p || parts >= 0) return (true, permille);"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~TrialGateTests.A_pack_that_fails_whole",
+   "sha256": "ebefd31d9562de73e185d0f27129f4f939d55ab3dcf1447400df415ce4db9657"
+  },
+  {
+   "id": "parts-unrechecked",
+   "rule": "TRIAL-OVER-TIME",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "parts.Where(p => p.Admitted && Unmet(",
+     "new": "parts.Where(p => p.Admitted || Unmet("
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~TrialGateTests.A_pack_that_fails_whole",
+   "sha256": "e5f8b1423b0eda8fc22f287c6f99b1e4845a40257ea121ee9dc03954dd2fa1c0"
+  },
+  {
+   "id": "walk-follows-every-relation",
+   "rule": "TRIAL-OVER-TIME",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility/Context/Traversal/TraversalWalk.cs",
+   "edits": [
+    {
+     "old": "if (hop == 1 && admitted is not null && !admitted(module.Id, TraversalItem.PartOf(declared))) continue;",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackMemoryTests.A_partly_admitted_pack",
+   "sha256": "ac969c611cde2f9e1986d8cc5be731c27e60cdcedc418f4f649062797f80f44b"
+  },
+  {
+   "id": "walk-offers-every-anchor",
+   "rule": "TRIAL-OVER-TIME",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility/Context/Traversal/TraversalWalk.cs",
+   "edits": [
+    {
+     "old": "best.Values.Where(i => admitted is null || admitted(i.PartModule ?? i.Record.ModuleId, i.Part))",
+     "new": "best.Values.Where(i => true)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackMemoryTests.A_partly_admitted_pack",
+   "sha256": "282706dd8481d58497da3ea922df0205d21e0b96242ad0da525f616c99e40409"
+  },
+  {
+   "id": "shadow-contributes",
+   "rule": "TRIAL-OVER-TIME",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility/Modules/ShadowTrial.cs",
+   "edits": [
+    {
+     "old": "        return new ContextContributionResult\n        {\n            OmissionReason = ContextOmissionReason.Denied,",
+     "new": "        return result with\n        {\n            OmissionReason = null,"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ModuleActivationTests.A_module_that_runs_dark",
+   "sha256": "bd102ef21d15332342ffce9b9dd6498921f9cb55e07ea15183c929a5f1f72ca7"
+  },
+  {
+   "id": "shadow-not-wired",
+   "rule": "TRIAL-OVER-TIME",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility/Modules/ModuleSet.cs",
+   "edits": [
+    {
+     "old": "Shadows.FirstOrDefault(s => ModuleIdentity.IsOwnedId(s.Key, c.Descriptor.Id))",
+     "new": "Shadows.FirstOrDefault(s => s.Key == \"\" && ModuleIdentity.IsOwnedId(s.Key, c.Descriptor.Id))"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ModuleActivationTests.A_module_that_runs_dark",
+   "sha256": "8a03b480c0e3415156cee5d79f6bddaa8e39d51d05fba0bcbe039e7a3a208041"
+  },
+  {
+   "id": "abstention-always-quiet",
+   "rule": "RETRIEVAL-TRIAL",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "return new(target, required, Math.Round(shown, 6), Q.Of(q, n) >= least);",
+     "new": "return new(target, required, Math.Round(shown, 6), true);"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~RetrievalTrialTests",
+   "sha256": "ebde9f2c244518dbf10114d7a42c9642611dbc05b43672bd41bdf2c9b57a880c"
+  },
+  {
+   "id": "task-file-lenient",
+   "rule": "RETRIEVAL-TRIAL",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Modules/RetrievalTasks.cs",
+   "edits": [
+    {
+     "old": "if ((ability == \"abstain\") != (expected.Count == 0)) throw Bad(",
+     "new": "if (false) throw Bad("
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~RetrievalTrialTests",
+   "sha256": "6cd5b4c0c79cc79b7aadc06c9f814d041f41ab38c226234a4623cf8c40d2ebc7"
+  },
+  {
+   "id": "certificate-certifies-no-harm",
+   "rule": "RETRIEVAL-TRIAL",
+   "door": "verify",
+   "file": "src/AgentMemory.Packs.Format/PackCertificate.cs",
+   "edits": [
+    {
+     "old": "PackRegistry.Targets.Except(PackRegistry.HostOnlyTargets).Concat(",
+     "new": "PackRegistry.Targets.Concat("
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "12b492fcde0519612b3c2464861596b21ac273e873b0caa02aa254d3be2f9163"
+  },
+  {
+   "id": "python-certificate-certifies-no-harm",
+   "rule": "RETRIEVAL-TRIAL",
+   "door": "verify",
+   "file": "conformance/pack-v1.1/python/ampack_verify.py",
+   "edits": [
+    {
+     "old": "CERTIFICATE_TARGETS = (TARGETS - set(REGISTRY[\"trial\"][\"hostOnly\"])) | COST_TARGETS",
+     "new": "CERTIFICATE_TARGETS = TARGETS | COST_TARGETS"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "9dac14f141f895877dff7d5888db9ba3205ee306310199d81dad7d2c06a9f90e"
+  },
+  {
+   "id": "aggregate-counts-unchecked",
+   "rule": "AGGREGATE-NAMES-NOTHING",
+   "door": "verify",
+   "file": "src/AgentMemory.Packs.Format/PackAggregate.cs",
+   "edits": [
+    {
+     "old": "if (!noisy && successes > trials) return (null,",
+     "new": "if (false && successes > trials) return (null,"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "4b5d05acdbd93dae39e93add6408cf7d3b4dfd565815ffee9d4a3c39d6532c95"
+  },
+  {
+   "id": "python-aggregate-open-shape",
+   "rule": "AGGREGATE-NAMES-NOTHING",
+   "door": "verify",
+   "file": "conformance/pack-v1.1/python/ampack_verify.py",
+   "edits": [
+    {
+     "old": "    if not isinstance(p, dict) or set(p) - SHAPE[\"aggregatePredicate\"]:",
+     "new": "    if not isinstance(p, dict):"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "bc67a265be88e2aaf8f5361f18289d9f63de06fe9b12185f59aad3b1c5dc5fcc"
+  },
+  {
+   "id": "dark-judged-by-the-gate",
+   "rule": "TRIAL-OVER-TIME",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "bool Judged(ModuleRegistration r) => dark?.Contains(r.Manifest.Id) != true;",
+     "new": "bool Judged(ModuleRegistration r) => true;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~TrialGateTests.A_pack_that_fails_whole",
+   "sha256": "1b958733dadb8dc12c08b616c3c01426be78d533d9ac4e0358cb1af7f49e3bc2"
+  },
+  {
+   "id": "aggregate-of-any-id",
+   "rule": "AGGREGATE-NAMES-NOTHING",
+   "door": "verify",
+   "file": "src/AgentMemory.Packs.Format/PackAggregate.cs",
+   "edits": [
+    {
+     "old": "if (aggregate.Digest != digest || aggregate.Id != id || aggregate.Version != version)",
+     "new": "if (aggregate.Digest != digest)"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "6d703328bb53c2947bab35297194eec2e533e071679a06a2c14e07c375236f0d"
+  },
+  {
+   "id": "python-aggregate-of-any-id",
+   "rule": "AGGREGATE-NAMES-NOTHING",
+   "door": "verify",
+   "file": "conformance/pack-v1.1/python/ampack_verify.py",
+   "edits": [
+    {
+     "old": "    if p[\"digest\"] != digest or p[\"id\"] != pid or p[\"version\"] != version:",
+     "new": "    if p[\"digest\"] != digest:"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "676229327a00af86d505f44a9a719eebfaa270af05bd52e766f9108c34f9b2bf"
+  },
+  {
+   "id": "import-not-nfc",
+   "rule": "IMPORT-SAYS-WHAT-IT-DROPPED",
+   "door": "build",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackImports.cs",
+   "edits": [
+    {
+     "old": "[\"properties\"] = new JsonObject { [\"text\"] = text.Normalize(NormalizationForm.FormC) } };",
+     "new": "[\"properties\"] = new JsonObject { [\"text\"] = text } };"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ImportTests",
+   "sha256": "b137e21df803e56482d07ec40a1ff05a1503ba73b0e71c170b3ebfdccc7c72ae"
+  },
+  {
+   "id": "import-drops-silently",
+   "rule": "IMPORT-SAYS-WHAT-IT-DROPPED",
+   "door": "build",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackImports.cs",
+   "edits": [
+    {
+     "old": "dropped[field] = dropped.GetValueOrDefault(field) + 1;",
+     "new": "_ = field;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ImportTests",
+   "sha256": "5063a2dbb915f8fc21b712920b8e142d5db9417a4d93256ca6d84298b0c93660"
+  },
+  {
+   "id": "import-unnamed-source",
+   "rule": "IMPORT-SAYS-WHAT-IT-DROPPED",
+   "door": "build",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackImports.cs",
+   "edits": [
+    {
+     "old": "[\"inputs\"] = new JsonArray(new JsonObject { [\"digest\"] = digest, [\"name\"] = \"source\" }),",
+     "new": "[\"inputs\"] = new JsonArray(new JsonObject { [\"digest\"] = \"sha256:\" + new string('0', 64), [\"name\"] = \"source\" }),"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ImportTests",
+   "sha256": "b3a3f66e6ed54f9d630cf93395b349361353b44e2ccd8bde1c7151d8bb2210af"
+  },
+  {
+   "id": "folder-anchor-passes",
+   "rule": "FOLDER-FRONT-MATTER-STRICT",
+   "door": "build",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackImports.cs",
+   "edits": [
+    {
+     "old": "value.IndexOfAny(['&', '*', '!',",
+     "new": "value.IndexOfAny(['*', '!',"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ImportTests",
+   "sha256": "60e7144aba5a80429cfe852fa987ac242b49162a045cfbe11bf241f8fe72d180"
+  },
+  {
+   "id": "folder-nesting-passes",
+   "rule": "FOLDER-FRONT-MATTER-STRICT",
+   "door": "build",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackImports.cs",
+   "edits": [
+    {
+     "old": "if (!m.Success) return (null, \"\", $\"'{Shown(line)}' is not a 'key: value' line\");",
+     "new": "if (!m.Success) continue;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ImportTests",
+   "sha256": "3a91b37051138c7f5807a9ac5744f2ed1cf2c527c23921eba57f299e992dc483"
+  },
+  {
+   "id": "folder-git-over-front",
+   "rule": "FOLDER-FRONT-MATTER-STRICT",
+   "door": "build",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackImports.cs",
+   "edits": [
+    {
+     "old": "if (!life.ContainsKey(\"validFrom\") && date.Length != 0 &&",
+     "new": "if (date.Length != 0 &&"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ImportTests",
+   "sha256": "e3cf3425a071433f975ef4f455e11e09ffeb587b0833f5cd9f7c30bcff428478"
+  },
+  {
+   "id": "folder-git-after-end",
+   "rule": "FOLDER-FRONT-MATTER-STRICT",
+   "door": "build",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackImports.cs",
+   "edits": [
+    {
+     "old": "&& !(life.TryGetValue(\"validTo\", out var end) && string.CompareOrdinal(end, date) <= 0))",
+     "new": ")"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ImportTests",
+   "sha256": "ab7db7fd7bed5b66191e123b9c231d696efd102151350aa6edd5d31ae216e02a"
+  },
+  {
+   "id": "folder-type-ignored",
+   "rule": "FOLDER-FRONT-MATTER-STRICT",
+   "door": "build",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackImports.cs",
+   "edits": [
+    {
+     "old": "                typed[name] = (typeName!, properties);",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ImportTests.A_file_whose_front_matter_names_a_declared_type",
+   "sha256": "fa6fa025343496da70557073fad84f3f6e105dbf5c04c9738e849cf6161a88f6"
+  },
+  {
+   "id": "folder-link-cycle-kept",
+   "rule": "FOLDER-FRONT-MATTER-STRICT",
+   "door": "build",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackImports.cs",
+   "edits": [
+    {
+     "old": "                    if (Reaches(target, from)) { skipped.Add(",
+     "new": "                    if (Reaches(target, from) && from.Length < 0) { skipped.Add("
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackResourcesTests.Links_become",
+   "sha256": "3120f541499a3e04f1725f8d605c8fe13cc230272376188168eeb5185a781791"
+  },
+  {
+   "id": "folder-rename-forgotten",
+   "rule": "FOLDER-FRONT-MATTER-STRICT",
+   "door": "build",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackImports.cs",
+   "edits": [
+    {
+     "old": "            supersedes[rename.To.Normalize(NormalizationForm.FormC)] = rename.From;",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ImportTests.A_renamed_file",
+   "sha256": "31435f984f56f158dd81853dc81e318863b7143d0a61bca9589089cb9cff59d1"
+  },
+  {
+   "id": "import-loader-rules-skipped",
+   "rule": "IMPORT-SAYS-WHAT-IT-DROPPED",
+   "door": "build",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackImports.cs",
+   "edits": [
+    {
+     "old": "if (Encoding.UTF8.GetByteCount(line.ToJsonString()) > AgentMemory.Extensibility.Packs.KnowledgePack.MaximumLineBytes)",
+     "new": "if (Encoding.UTF8.GetByteCount(line.ToJsonString()) > int.MaxValue - 1)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ImportTests",
+   "sha256": "2ec15b0c3754bf350947aa3024f68fff3e8e0b8f064949edfad7ed474bdb8917"
+  },
+  {
+   "id": "mem-digest-unchecked",
+   "rule": "MEM-VERIFIED-WHOLE-TOMBSTONES-FIRST",
+   "door": "build",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackImportsMem.cs",
+   "edits": [
+    {
+     "old": "if (content.LongLength != bytes || Hex(SHA256.HashData(content)) != sha)",
+     "new": "if (content.LongLength != bytes && bytes < 0)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackImportsMemTests",
+   "sha256": "714d0c2919f0e56b63f2cfbf62fcee0e34e5378ac1bb2150ab3509ded7be8b6d"
+  },
+  {
+   "id": "mem-tombstone-not-applied",
+   "rule": "MEM-VERIFIED-WHOLE-TOMBSTONES-FIRST",
+   "door": "build",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackImportsMem.cs",
+   "edits": [
+    {
+     "old": "if (removed.ContainsKey(key) || kind == \"chunk\"",
+     "new": "if (kind == \"chunk\""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackImportsMemTests",
+   "sha256": "7d28f77b956280526838226ac0bff30443cff12c82c5b584cea1174330c437c7"
+  },
+  {
+   "id": "mem-untrusted-key-accepted",
+   "rule": "MEM-VERIFIED-WHOLE-TOMBSTONES-FIRST",
+   "door": "build",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackImportsMem.cs",
+   "edits": [
+    {
+     "old": "if (trusted is { Count: > 0 } && !trusted.Contains(key))",
+     "new": "if (trusted is { Count: > 0 } && trusted.Count < 0)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackImportsMemTests",
+   "sha256": "d594c872bfac5b83271b315d90f98ee556da476430e7198150a53b9e14d4bb64"
+  },
+  {
+   "id": "mem-export-keys-unsorted",
+   "rule": "MEM-EXPORT-CANONICAL",
+   "door": "build",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackExportsMem.cs",
+   "edits": [
+    {
+     "old": "foreach (var (k, v) in o.OrderBy(p => p.Key, StringComparer.Ordinal))",
+     "new": "foreach (var (k, v) in o)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackImportsMemTests",
+   "sha256": "ccd3f0b883603c529b4bf2690b7b0caa4bf18ee1158a12a4485d2d1c7aa94081"
+  },
+  {
+   "id": "mesh-superseded-imported",
+   "rule": "IMPORT-SAYS-WHAT-IT-DROPPED",
+   "door": "build",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackImportsMesh.cs",
+   "edits": [
+    {
+     "old": "if (Str(entry, \"lifecycle\") is \"superseded\")",
+     "new": "if (Str(entry, \"lifecycle\") is \"never-superseded\")"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackImportsMeshTests",
+   "sha256": "d2a0524aa1d645344a546c95b70c7e99d6d79d13350c098b498ce3da72231010"
+  },
+  {
+   "id": "mesh-address-unchecked",
+   "rule": "MESH-BLOCKS-VERIFIED",
+   "door": "build",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackImportsMesh.cs",
+   "edits": [
+    {
+     "old": "if (addressed && key != \"cmb-\" + MerkleRoot(",
+     "new": "if (addressed && key == \"never-\" + MerkleRoot("
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackImportsMeshSignatureTests",
+   "sha256": "aa2bbf307ffa2fd1e2f6bcb0c4151ab071e6cd0debc21017ad54f8f6a4b9e778"
+  },
+  {
+   "id": "mesh-signature-unchecked",
+   "rule": "MESH-BLOCKS-VERIFIED",
+   "door": "build",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackImportsMesh.cs",
+   "edits": [
+    {
+     "old": ": FromBase64Url(Str(m, \"sig\")) is not { Length: 64 } sig || !ed25519!(publicKey!, sig, payload) ?",
+     "new": ": FromBase64Url(Str(m, \"sig\")) is not { Length: 64 } sig ?"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackImportsMeshSignatureTests",
+   "sha256": "ffaca9eae02981f76ad27adc89a06b47c8af87030373f97b07b0afaa97ac00d0"
+  },
+  {
+   "id": "listing-cites-untrusted",
+   "rule": "LISTING-CITES-ONLY-TRUSTED",
+   "door": "build",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackListings.cs",
+   "edits": [
+    {
+     "old": "pack.Certificates.Where(c => c.Trusted && c.Passed)",
+     "new": "pack.Certificates.Where(c => c.Passed)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackCertificateTests.A_listing_cites",
+   "sha256": "98d36551635af04990ce1492e21ee56f044a651a867563878c8c67d2d6002656"
+  },
+  {
+   "id": "resource-off-served",
+   "rule": "SERVE-RESOURCES-ONE-DOOR",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackResources.cs",
+   "edits": [
+    {
+     "old": ": off(pack) is { } reason ? Serialize(new { id = pack.Id, served = false, reason }) : null;",
+     "new": ": null;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackResourcesTests",
+   "sha256": "96d441553d7269492c44623d6e5881142df55ebc7903013c86a85ad0d3d85c45"
+  },
+  {
+   "id": "status-change-untold",
+   "rule": "SERVE-RESOURCES-ONE-DOOR",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackStatusWatch.cs",
+   "edits": [
+    {
+     "old": "if (now == seen || !_seen.TryUpdate(uri, now, seen)) continue;",
+     "new": "if (now.Length >= 0) continue;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackStatusWatchTests",
+   "sha256": "8145387fdb27c95330d20ee5515e9b5f36447c0a4919065414f905dec161504a"
+  },
+  {
+   "id": "folder-off-served",
+   "rule": "SERVE-RESOURCES-ONE-DOOR",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackResources.cs",
+   "edits": [
+    {
+     "old": "if (off(pack) is { } offReason) return Serialize(new { error = offReason });",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackResourcesTests",
+   "sha256": "12a823b2fbc2d2e582848532ad18b4ddd166c87b746062f87873be9f7aa62f07"
+  },
+  {
+   "id": "resource-dead-record",
+   "rule": "SERVE-RESOURCES-ONE-DOOR",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackMemory.cs",
+   "edits": [
+    {
+     "old": "[.. Records.Where(r => AgentMemory.Extensibility.Reading.ModuleRecordLife.IsLive(r.Life, now)).Select(r => Hit(r, null))];",
+     "new": "[.. Records.Select(r => Hit(r, null))];"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackResourcesTests",
+   "sha256": "f2b3a83f70e77f336d6c8e219c4500693a91500b1fbd4212948cdf04bded3fcd"
+  },
+  {
+   "id": "expiry-not-live",
+   "rule": "TRIAL-OVER-TIME",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility/Modules/PackActivation.cs",
+   "edits": [
+    {
+     "old": "                else registration.DecisionExpires = expires;\n",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~TrialGateTests.A_decision_counts_for_the_days",
+   "sha256": "334608c7fd863ccf3adcc62f22c5c44054e8520af8ad6e55857eea5c597c2467"
+  },
+  {
+   "id": "policy-allow-beats-deny",
+   "rule": "POLICY-AT-THE-DOOR",
+   "door": "definition",
+   "file": "src/AgentMemory.Packs.Format/PackPolicy.cs",
+   "edits": [
+    {
+     "old": "return !applying.Any(r => r.Deny.Contains(verb)) && applying.Any(",
+     "new": "return applying.Any("
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PolicyTests",
+   "sha256": "342050d9aca6dbb5d41a8aecb3d28d093fc9e41f29ff3a985192bbeb24cd9c41"
+  },
+  {
+   "id": "policy-ended-still-grants",
+   "rule": "POLICY-AT-THE-DOOR",
+   "door": "definition",
+   "file": "src/AgentMemory.Packs.Format/PackPolicy.cs",
+   "edits": [
+    {
+     "old": "r.Allow.Contains(verb) && (r.NotAfter is not { } end || now <= end)",
+     "new": "r.Allow.Contains(verb)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PolicyTests",
+   "sha256": "1026a42e4954f52d850a38214d9dc3d2d76cbb4725e32208af1f74cd2784f766"
+  },
+  {
+   "id": "read-door-open",
+   "rule": "POLICY-AT-THE-DOOR",
+   "door": "verify",
+   "file": "src/AgentMemory.Packs.Format/PackVerifier.cs",
+   "edits": [
+    {
+     "old": "var readable = usagePolicy.Allows(\"read\", policy.HostWebIds, now);",
+     "new": "var readable = true;"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "7cae052f99c990b4fed62daa27fd9050cd4b26ab09316db24838449f1ae31889"
+  },
+  {
+   "id": "python-read-door-open",
+   "rule": "POLICY-AT-THE-DOOR",
+   "door": "verify",
+   "file": "conformance/pack-v1.1/python/ampack_verify.py",
+   "edits": [
+    {
+     "old": "    if usage is not None and not policy_allows(usage, \"read\", policy.get(\"host\", {}).get(\"webIds\", []), now):\n",
+     "new": "    if False:\n"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "265b0aedfaf8a888e840985a8938060e29542ffcf5881cb0180453ddd9e6849f"
+  },
+  {
+   "id": "python-allow-beats-deny",
+   "rule": "POLICY-AT-THE-DOOR",
+   "door": "verify",
+   "file": "conformance/pack-v1.1/python/ampack_verify.py",
+   "edits": [
+    {
+     "old": "    return not any(verb in r[\"deny\"] for r in applying) \\\n        and any(",
+     "new": "    return any("
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "e75b89a4921b79219c16cfee64a38d74593edde59dc455fb457cacf146dbc133"
+  },
+  {
+   "id": "python-ended-denial-lapses",
+   "rule": "POLICY-AT-THE-DOOR",
+   "door": "verify",
+   "file": "conformance/pack-v1.1/python/ampack_verify.py",
+   "edits": [
+    {
+     "old": "    return not any(verb in r[\"deny\"] for r in applying)",
+     "new": "    return not any(verb in r[\"deny\"] and (r[\"notAfter\"] is None or now <= r[\"notAfter\"]) for r in applying)"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "18708f1c3b0831f824df71708ba388376ad1b3be50ce4529713aa12cbfd16ce3"
+  },
+  {
+   "id": "rehydrate-unasked",
+   "rule": "POLICY-AT-THE-DOOR",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility/Modules/ModuleSet.cs",
+   "edits": [
+    {
+     "old": "|| !allows(\"read\", now) || !allows(RehydrateVerb, now));",
+     "new": "|| !allows(\"read\", now));"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PolicyTests",
+   "sha256": "8c844ababe7d504e92ef14ad1fda6d2ddaf504f1f9b9c45d2b4eb5e1f7959e68"
+  },
+  {
+   "id": "endpoint-ignored",
+   "rule": "POLICY-AT-THE-DOOR",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility/Modules/ModuleSet.cs",
+   "edits": [
+    {
+     "old": "internal string RehydrateVerb => \"rehydrate:\" + Endpoint.ToString().ToLowerInvariant();",
+     "new": "internal string RehydrateVerb => \"rehydrate:local\";"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PolicyTests",
+   "sha256": "f44a354a1e3031ba3b27b02f2df174e972c2edbb25cdc7ae5126e330edd8bc7c"
+  },
+  {
+   "id": "unheld-policy-offered",
+   "rule": "POLICY-AT-THE-DOOR",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility/Modules/ModuleSet.cs",
+   "edits": [
+    {
+     "old": "(!PackPolicies.TryGetValue(policy, out var allows) || !allows(\"read\", now)",
+     "new": "(!PackPolicies.TryGetValue(policy, out var allows) ? false : !allows(\"read\", now)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PolicyTests",
+   "sha256": "ad8b28f5bfc6bdd501b5fd8da6e0cb4dc6ce647860c42daba8654c601c9dd7bd"
+  },
+  {
+   "id": "read-not-standing",
+   "rule": "POLICY-AT-THE-DOOR",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility/Modules/ModuleSet.cs",
+   "edits": [
+    {
+     "old": "|| !allows(\"read\", now) || !allows(RehydrateVerb, now));",
+     "new": "|| !allows(RehydrateVerb, now));"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PolicyTests",
+   "sha256": "8a6a9df0775dec7cf22d0392410a3b884e0b154cd41a8b437a7a7bfde07968a8"
+  },
+  {
+   "id": "loader-policy-unnamed",
+   "rule": "POLICY-AT-THE-DOOR",
+   "door": "install",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackLoader.cs",
+   "edits": [
+    {
+     "old": "with { UsagePolicy = policyDigest } } })]);",
+     "new": "with { UsagePolicy = null } } })]);"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PolicyTests",
+   "sha256": "e6567b948a5a26c21305f51274726f615b79c232829bd65af7550353c41e3ab5"
+  },
+  {
+   "id": "snapshot-policy-unnamed",
+   "rule": "POLICY-AT-THE-DOOR",
+   "door": "install",
+   "file": "src/AgentMemory.Extensibility/Packs/ModuleSnapshot.cs",
+   "edits": [
+    {
+     "old": "                UsagePolicy = Carrier?.UsagePolicy,\n",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~A_snapshot_s_records_name_the_usage_policy",
+   "sha256": "e2fb60ac01f18be87bc4833f58af7097e90f8c6c6d306bfd9551eb79e222bb66"
+  },
+  {
+   "id": "family-policy-dropped",
+   "rule": "POLICY-AT-THE-DOOR",
+   "door": "install",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackFamilies.cs",
+   "edits": [
+    {
+     "old": "        foreach (var member in family.AllMembers) added.UseErasures(member.Erasures).UsePackPolicy(member);\n",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~A_family_member_s_usage_policy",
+   "sha256": "3dc164f3040d9112be7a8a4716ef5ef412a891730510a60bc6f246ac79ad453a"
+  },
+  {
+   "id": "set-policy-allowed",
+   "rule": "POLICY-AT-THE-DOOR",
+   "door": "verify",
+   "file": "src/AgentMemory.Packs.Format/PackVerifier.cs",
+   "edits": [
+    {
+     "old": "if (manifest.Kind is \"composite\" or \"set\" && all.Contains(PackPolicy.FileName))",
+     "new": "if (manifest.Kind is \"composite\" or \"set\" && all.Contains(PackPolicy.FileName) && manifest.Kind == \"none\")"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "e9e13942ca0ac85498d2829ede340ef295faffbfbf20a70eb9b8c6e54a7bd7a0"
+  },
+  {
+   "id": "python-set-policy-allowed",
+   "rule": "POLICY-AT-THE-DOOR",
+   "door": "verify",
+   "file": "conformance/pack-v1.1/python/ampack_verify.py",
+   "edits": [
+    {
+     "old": "        if REGISTRY[\"policy\"][\"path\"] in content:\n",
+     "new": "        if False:\n"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "6638609c8867240a72952bcb9e96f7eeae3e58233d820deeacdffccebd8f9c01"
+  },
+  {
+   "id": "serve-ignores-policy",
+   "rule": "POLICY-AT-THE-DOOR",
+   "door": "serve",
+   "file": "tools/Ampack/Serve.cs",
+   "edits": [
+    {
+     "old": "            if (!PolicyGate.Allows(pack, verb, now)) return",
+     "new": "            if (!PolicyGate.Allows(pack, verb, now) && verb.Length < 0) return"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~AmpackCommandLineTests.Serve_refuses_a_pack_whose_usage_policy",
+   "sha256": "941b32fc4d6f182d6de81c0ed63b35d779a4be9e7bcd7ec5ab6af00e97c94dc0"
+  },
+  {
+   "id": "added-pack-policy-dropped",
+   "rule": "POLICY-AT-THE-DOOR",
+   "door": "install",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackLoader.cs",
+   "edits": [
+    {
+     "old": "        added.UsePackPolicy(pack);\n",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PolicyTests",
+   "sha256": "b6d0ccbc6f139d555400b36f8f395d319353beabc8c4557f069913b997e30343"
+  },
+  {
+   "id": "serve-exports-anyway",
+   "rule": "POLICY-AT-THE-DOOR",
+   "door": "serve",
+   "file": "tools/Ampack/Program.cs",
+   "edits": [
+    {
+     "old": "            if (kept.Count != 0) return Report(kept, \"\");\n",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~AmpackCommandLineTests.Serve_refuses_a_pack_whose_usage_policy",
+   "sha256": "c48c6efe8994c91431b5d6d3006de62ea27ee73ccd7f6ff07c4576dfa9a663f4"
+  },
+  {
+   "id": "confidence-own-alone",
+   "rule": "TRUSTED-NO-FURTHER",
+   "door": "install",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackLoader.cs",
+   "edits": [
+    {
+     "old": "ModuleConfidence.Effective(r.ConfidenceMicro, source, signer)",
+     "new": "ModuleConfidence.Effective(r.ConfidenceMicro, null, null)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ConfidenceTests",
+   "sha256": "d478a7391fe3087b407240355ddd9991220f442a6bb5a24e9258d17f08f22e0a"
+  },
+  {
+   "id": "signer-cap-publishers-only",
+   "rule": "TRUSTED-NO-FURTHER",
+   "door": "install",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackLoader.cs",
+   "edits": [
+    {
+     "old": "var roles = policy.RequiredRoles.Select(role =>",
+     "new": "var roles = new[] { \"publisher\" }.Select(role =>"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ConfidenceTests",
+   "sha256": "c939616fb3fa3619e1629e65ef7c46586dde7086221514956ec0b7ca23c7955e"
+  },
+  {
+   "id": "python-confidence-on-any-key",
+   "rule": "TRUSTED-NO-FURTHER",
+   "door": "verify",
+   "file": "conformance/pack-v1.1/python/ampack_verify.py",
+   "edits": [
+    {
+     "old": "        if \"confidenceMicro\" in key and not set(roles) & ROLES:\n",
+     "new": "        if False:\n"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "06e41f4cacf18733df9453a3485695838461f24f8aeee323775fb5d0e71fb25c"
+  },
+  {
+   "id": "signer-cap-ignored",
+   "rule": "TRUSTED-NO-FURTHER",
+   "door": "install",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackLoader.cs",
+   "edits": [
+    {
+     "old": "Select(s => policy.Find(s.KeyId)?.ConfidenceMicro ?? ModuleConfidence.Full)",
+     "new": "Select(s => ModuleConfidence.Full)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ConfidenceTests",
+   "sha256": "fbe444f57ee7668c9b359442432a59fc339f349c425673a8681d9d98b27cb090"
+  },
+  {
+   "id": "confidence-the-most",
+   "rule": "TRUSTED-NO-FURTHER",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Packs/ModuleConfidence.cs",
+   "edits": [
+    {
+     "old": "Math.Min(l, value)",
+     "new": "Math.Max(l, value)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ConfidenceTests",
+   "sha256": "440cb146391bcf09e96fc280058a39497aafe2a398b87ffa536e7aa11b14fe1b"
+  },
+  {
+   "id": "floor-ignored",
+   "rule": "TRUSTED-NO-FURTHER",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility/Packs/ModuleConfidence.cs",
+   "edits": [
+    {
+     "old": "floor is not { } f || (confidence ?? Full) >= f",
+     "new": "floor is not { } f || f >= 0"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ConfidenceTests",
+   "sha256": "b07124c3898d9a19b2fc92df3749025b17185f650165baca2d58fd7a71576f1f"
+  },
+  {
+   "id": "floor-not-to-the-store",
+   "rule": "TRUSTED-NO-FURTHER",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility/Modules/ModuleSet.cs",
+   "edits": [
+    {
+     "old": "context with { ValidAsOfUtc = at, MinimumConfidenceMicro = floor }",
+     "new": "context with { ValidAsOfUtc = at }"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ConfidenceTests",
+   "sha256": "dc4d3950cd18f387dfbd715350668c9920ff310cfd93eea8557843f0644e522e"
+  },
+  {
+   "id": "memory-find-below-the-floor",
+   "rule": "TRUSTED-NO-FURTHER",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackMemory.cs",
+   "edits": [
+    {
+     "old": "                .Where(r => ModuleConfidence.Clears(r.ConfidenceMicro, context.MinimumConfidenceMicro))\n",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ConfidenceTests",
+   "sha256": "f7e3350fc491d8ab6786ac891280a09f9729c6c56b01c6e65da1f38248aa72f2"
+  },
+  {
+   "id": "memory-walk-seeds-below-the-floor",
+   "rule": "TRUSTED-NO-FURTHER",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackMemory.cs",
+   "edits": [
+    {
+     "old": "ModuleRecordLife.IsLive(r.Life, at) && ModuleConfidence.Clears(r.ConfidenceMicro, context.MinimumConfidenceMicro))\n            .Select(",
+     "new": "ModuleRecordLife.IsLive(r.Life, at))\n            .Select("
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ConfidenceTests",
+   "sha256": "09f2e73a4ee30875636406b729a413fa343e2e2d56c7fc29e6f4b91455369257"
+  },
+  {
+   "id": "walk-without-the-floor",
+   "rule": "TRUSTED-NO-FURTHER",
+   "door": "serve",
+   "file": "src/AgentMemory.Extensibility/Context/Traversal/TraversalWalk.cs",
+   "edits": [
+    {
+     "old": "ValidAsOfUtc = at, MinimumConfidenceMicro = minimumConfidence,",
+     "new": "ValidAsOfUtc = at,"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ConfidenceTests",
+   "sha256": "2ed8358d41bc666e9e1ed0bcf1e0bb90ae99904e39389539565e0612896b3897"
+  },
+  {
+   "id": "snapshot-takes-trust",
+   "rule": "TRUSTED-NO-FURTHER",
+   "door": "install",
+   "file": "src/AgentMemory.Extensibility/Packs/KnowledgePack.cs",
+   "edits": [
+    {
+     "old": "if (inputs is null && (root.TryGetProperty",
+     "new": "if (false && (root.TryGetProperty"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ConfidenceTests",
+   "sha256": "4f76f868f26ced9dc2cb87cb56e434c1d278c1952b694707f3b192e12740e1d0"
+  },
+  {
+   "id": "source-key-names-anything",
+   "rule": "TRUSTED-NO-FURTHER",
+   "door": "install",
+   "file": "src/AgentMemory.Extensibility/Packs/KnowledgePack.cs",
+   "edits": [
+    {
+     "old": "if (!inputs!.Contains(name))",
+     "new": "if (inputs is null)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ConfidenceTests",
+   "sha256": "b391a1a5e65f2f986a5de6b1298a1bed488958d7720b21eb21db36827fb3ffe3"
+  },
+  {
+   "id": "confidence-name-unreserved",
+   "rule": "TRUSTED-NO-FURTHER",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Modules/ModuleReservedNames.cs",
+   "edits": [
+    {
+     "old": "\"review_by\", \"confidence_micro\",",
+     "new": "\"review_by\","
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ConfidenceTests",
+   "sha256": "74e8d611a8db9758639fa4d24e2936690c27d03cacb7a4098c561d0b04fa7b31"
+  },
+  {
+   "id": "derivation-confidence-unbounded",
+   "rule": "TRUSTED-NO-FURTHER",
+   "door": "verify",
+   "file": "src/AgentMemory.Packs.Format/PackDerivation.cs",
+   "edits": [
+    {
+     "old": "micro is >= 0 and <= MaximumConfidenceMicro ? new((int)micro)",
+     "new": "micro >= 0 ? new((int)micro)"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "825cd725f5ece008767933f4ad2185093e54051c3ad535115a90575304d73d19"
+  },
+  {
+   "id": "derivation-digest-to-a-line-end",
+   "rule": "TRUSTED-NO-FURTHER",
+   "door": "verify",
+   "file": "src/AgentMemory.Packs.Format/PackDerivation.cs",
+   "edits": [
+    {
+     "old": "@\"\\Asha256:[0-9a-f]{64}\\z\"",
+     "new": "\"^sha256:[0-9a-f]{64}$\""
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "22973b8bddb3a1a29fa4e036a3c693d8bf605c0cef9cbfaa820ec72b37c7f064"
+  },
+  {
+   "id": "python-derivation-not-canonical",
+   "rule": "TRUSTED-NO-FURTHER",
+   "door": "verify",
+   "file": "conformance/pack-v1.1/python/ampack_verify.py",
+   "edits": [
+    {
+     "old": "    if canonical(d).encode(\"utf-8\") != data:\n        raise Refused(\"META/derivation.json is not canonical (RFC 8785)\")\n",
+     "new": ""
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "f3ebd28eaeb1c9a40172a5c462da88997cffa87101bd93af23740cdf9122b4cd"
+  },
+  {
+   "id": "hash-unsalted",
+   "rule": "ERASED-STAYS-GONE",
+   "door": "definition",
+   "file": "shared/ErasureHash.cs",
+   "edits": [
+    {
+     "old": "Encoding.UTF8.GetBytes(salt + \":\" + key)",
+     "new": "Encoding.UTF8.GetBytes(key)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~ErasureTests",
+   "sha256": "47895f0056fccfd9855e431f0c448557f41d185ccab9847c783766326c86b9e6"
+  },
+  {
+   "id": "length-by-utf16",
+   "rule": "TEXT-BY-CHARACTER",
+   "door": "verify",
+   "file": "shared/PackText.cs",
+   "edits": [
+    {
+     "old": "internal static int Length(string text) => Length(text.AsSpan());",
+     "new": "internal static int Length(string text) => text.Length;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.PackFormat",
+   "filter": "FullyQualifiedName~PackTextTests",
+   "sha256": "3fb6de0e0bf61fb0b406eab581c4245a69e57b812c4da6a218081a67edd8eb27"
+  },
+  {
+   "id": "order-by-utf16",
+   "rule": "TEXT-BY-CHARACTER",
+   "door": "definition",
+   "file": "shared/PackText.cs",
+   "edits": [
+    {
+     "old": "if (char.IsSurrogate((char)x) || char.IsSurrogate((char)y)) return At(a, i).CompareTo(At(b, i));",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~WalkCharactersTests",
+   "sha256": "cb19e061efec99d0cfbb9807c608960e6a657595559be5f005988dcf904924b9"
+  },
+  {
+   "id": "python-length-by-utf16",
+   "rule": "TEXT-BY-CHARACTER",
+   "door": "verify",
+   "file": "conformance/pack-v1.1/python/ampack_verify.py",
+   "edits": [
+    {
+     "old": "    return len(text)\n",
+     "new": "    return len(text.encode(\"utf-16-le\")) // 2\n"
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "e62a3bbc3fc7b6120fa1345277898ffa9d676c23bc338e3ecf2430bbea97a64b"
+  },
+  {
+   "id": "links-before-dependency",
+   "rule": "ONE-MOUNT-PLAN",
+   "door": "memory",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackMemory.cs",
+   "edits": [
+    {
+     "old": "&& Target(shot.Module.Id, relation) is { } into && !held.Contains((into.Module, into.Type)))",
+     "new": "&& Target(shot.Module.Id, relation) is { } into && Environment.ProcessorCount < 0 && !held.Contains((into.Module, into.Type)))"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackConsentTests.Review7_W9",
+   "sha256": "837745dcc83c15215cdb4251c74ad6c53a9795049caa2896ecbe5a2c98fbded3"
+  },
+  {
+   "id": "live-in-the-walk",
+   "rule": "LIVE-PER-RECORD",
+   "door": "definition",
+   "file": "src/AgentMemory.Extensibility/Context/Traversal/TraversalWalk.cs",
+   "edits": [
+    {
+     "old": "if (liveRecord is not null && !liveRecord(item.Record)) return false;",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~WalkWorkBoundsTests.Review7_W8",
+   "sha256": "13014790f90d49e8a2247fb4e42e6b585d09a6468b4fbb8608449a88cb6517ec"
+  },
+  {
+   "id": "live-in-pack-memory",
+   "rule": "LIVE-PER-RECORD",
+   "door": "pack memory",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackMemory.cs",
+   "edits": [
+    {
+     "old": "liveRecord: liveCarrier is null ? null :",
+     "new": "liveRecord: true ? null :"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review8GuardTests.A4",
+   "sha256": "3dfa47b6c585c0033755167ec87cd566da2e37d6b99afb0c8ab2b5630e606675"
+  },
+  {
+   "id": "signed-before-countersign",
+   "rule": "SIGNED-BEFORE-ACT",
+   "door": "countersign",
+   "file": "tools/Ampack/Program.cs",
+   "edits": [
+    {
+     "old": "if (Unverified(content, PackVerifier.Before(Policy(o), role), target) is { Count: > 0 } problems) return Report(problems, \"\");",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackDoorMatrixTests.Review7_L7",
+   "sha256": "7ffc3519a21120abb827946ab40b76ccb601c1dce565e1da0e86eb10238da543"
+  },
+  {
+   "id": "signed-before-lock",
+   "rule": "SIGNED-BEFORE-ACT",
+   "door": "lock",
+   "file": "tools/Ampack/Program.cs",
+   "edits": [
+    {
+     "old": "if (Unverified(content, policy, memberPath) is { Count: > 0 } refused) return Report(refused, \"\");",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackDoorMatrixTests.Review7_L7",
+   "sha256": "79bd25f6ec5ab2cc106b5fcbda99d0121455dfd087ed54c89b779eb412eb9210"
+  },
+  {
+   "id": "signed-before-set",
+   "rule": "SIGNED-BEFORE-ACT",
+   "door": "set",
+   "file": "tools/Ampack/Program.cs",
+   "edits": [
+    {
+     "old": "if (Unverified(content, policy, path) is { Count: > 0 } refused) return Report(refused, \"\");",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackDoorMatrixTests.Review7_L7",
+   "sha256": "d3df1794ad84478e1d98190452bd84c8c9f469a61f2a6f6d3edd8c10d263e94e"
+  },
+  {
+   "id": "envelopes-without-trust",
+   "rule": "ONE-WRITER-ARCHIVE",
+   "door": "definition",
+   "file": "src/AgentMemory.Packs.Format/PackVerifier.cs",
+   "edits": [
+    {
+     "old": ".Select(file => Dsse.ShapeProblem(file, content.Files[file], listHex, list!)).OfType<string>().ToList();",
+     "new": ".Select(file => (string?)null).OfType<string>().ToList();"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review8WriterGuardTests.F1",
+   "sha256": "80c843ddfe255f8d111803be1a46b6f5a8635ae0c6d9d06abdbd36ba6ec1e015"
+  },
+  {
+   "id": "set-structure-without-trust",
+   "rule": "ONE-WRITER-ARCHIVE",
+   "door": "definition",
+   "file": "src/AgentMemory.Packs.Format/PackVerifier.cs",
+   "edits": [
+    {
+     "old": "        if (manifest is { Kind: \"set\" })\n        {\n            var (structure, members) = SetStructure(",
+     "new": "        if (manifest is { Kind: \"set\" } && Environment.ProcessorCount < 0)\n        {\n            var (structure, members) = SetStructure("
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review8WriterGuardTests.F2",
+   "sha256": "bd3a07c7b5545f1a8404c63bcc23df1bcb1923d01659e2a04c1a4e34072ba0c9"
+  },
+  {
+   "id": "federation-without-trust",
+   "rule": "ONE-WRITER-ARCHIVE",
+   "door": "definition",
+   "file": "src/AgentMemory.Packs.Format/PackVerifier.cs",
+   "edits": [
+    {
+     "old": "if (member.Manifest is { } inner && manifest.Federation is { } federation && MemberFederationProblem(",
+     "new": "if (member.Manifest is { } inner && manifest.Federation is { } federation && Environment.ProcessorCount < 0 && MemberFederationProblem("
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.PackFormat",
+   "filter": "FullyQualifiedName~FederationTests.Review9_A1",
+   "sha256": "f148e36eae90176b38a13bbad4a5a3b114e28a9ee158c10e18da031cad7beaf9"
+  },
+  {
+   "id": "whole-before-act",
+   "rule": "SIGNED-BEFORE-ACT",
+   "door": "countersign",
+   "file": "tools/Ampack/Program.cs",
+   "edits": [
+    {
+     "old": "[.. PackVerifier.VerifyWhole(content, policy, DateTimeOffset.UtcNow).Problems.Select(p => $\"{path}: {p}\")];",
+     "new": "[.. PackVerifier.VerifyOne(content, policy, DateTimeOffset.UtcNow).Problems.Select(p => $\"{path}: {p}\")];"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackDoorMatrixTests.Review7_L7",
+   "sha256": "246ead98b0249bf6fdff7c5a2e61c3b19d13351e706d28d6845542baee6c86d7"
+  },
+  {
+   "id": "library-countersign-unverified",
+   "rule": "SIGNED-BEFORE-ACT",
+   "door": "PackAuthoring.Countersign",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackAuthoring.cs",
+   "edits": [
+    {
+     "old": "if (PackVerifier.VerifyWhole(content, PackVerifier.Before(trust.Policy, role), DateTimeOffset.UtcNow) is { IsVerified: false } refused)",
+     "new": "if (PackVerifier.VerifyWhole(content, PackVerifier.Before(trust.Policy, role), DateTimeOffset.UtcNow) is { IsVerified: false } refused && Environment.ProcessorCount < 0)"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review8WriterGuardTests.F4",
+   "sha256": "bacc4ef24e5bb02b575fa5db2c951a281641312bd92a8b4e419c8d84a13860ad"
+  },
+  {
+   "id": "library-member-unverified",
+   "rule": "SIGNED-BEFORE-ACT",
+   "door": "PackAuthoring.BuildSet",
+   "file": "src/AgentMemory.Extensibility.Ampack/PackAuthoring.cs",
+   "edits": [
+    {
+     "old": "return verification.Pack is { } pack ? (content.Files, pack.Id) : throw new PackLoadException(verification.Problems);",
+     "new": "return (content.Files, FilesList.Parse(content.Files[PackPaths.FilesList]).List!.Id);"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review8WriterGuardTests.F4",
+   "sha256": "4265b2a1a6a1a4f8142867e4a5dff425e643e969cbf16b52af7b48603a95c180"
+  },
+  {
+   "id": "before-drops-every-role",
+   "rule": "SIGNED-BEFORE-ACT",
+   "door": "definition",
+   "file": "src/AgentMemory.Packs.Format/PackVerifier.cs",
+   "edits": [
+    {
+     "old": "            ? policy with { RequiredRoles = others } : policy;",
+     "new": "            ? policy with { RequiredRoles = others } : policy with { RequiredRoles = [] };"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~Review8WriterGuardTests.F4",
+   "sha256": "464abc8228c56527b0c823431433a5d4d3c43260283333003eeeaad2387f60a7"
+  },
+  {
+   "id": "certificate-verify-each-copy",
+   "rule": "CERTIFICATE-COPIES",
+   "door": "certificate",
+   "file": "tools/Ampack/Program.Certificates.cs",
+   "edits": [
+    {
+     "old": "            if (!verified) problems.AddRange(refusals);",
+     "new": "            if (!verified || refusals.Count >= 0) problems.AddRange(refusals);"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~AmpackCommandLineTests.A_card_travels_in_the_pack",
+   "sha256": "c7d428e540db2a01ce664f440288bdddd1bd06b691aa5907716e650c3ca2754e"
+  },
+  {
+   "id": "meaning-closed-kept-on-import",
+   "rule": "MEANING-LIVE-AND-JUDGED",
+   "door": "install",
+   "file": "src/AgentMemory.Extensibility.Neo4j/Storage/PackMeaning.cs",
+   "edits": [
+    {
+     "old": "        await ForgetClosedAsync(runner, cancellationToken).ConfigureAwait(false);\n        var made = 0;",
+     "new": "        var made = 0;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Integration",
+   "filter": "FullyQualifiedName~APackSearchedByMeaning",
+   "sha256": "f7ff97fd9793c93c45f3b833df6cc9ed044ed830f05c6f5ac293d3725b334317"
+  },
+  {
+   "id": "meaning-closed-kept-on-removal",
+   "rule": "MEANING-LIVE-AND-JUDGED",
+   "door": "install",
+   "file": "src/AgentMemory.Extensibility.Neo4j/Storage/Neo4jKnowledgePackStore.cs",
+   "edits": [
+    {
+     "old": "        await PackMeaning.ForgetClosedAsync(_runner, cancellationToken).ConfigureAwait(false);\n        return removed;",
+     "new": "        return removed;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Integration",
+   "filter": "FullyQualifiedName~APackSearchedByMeaning",
+   "sha256": "c3f7fd93d807e86ee8f9d517549dbd383891e0fcd98287860506d59563065969"
+  },
+  {
+   "id": "meaning-other-model",
+   "rule": "MEANING-LIVE-AND-JUDGED",
+   "door": "gate",
+   "file": "src/AgentMemory.Extensibility.Neo4j/Queries/ModuleReadQueries.cs",
+   "edits": [
+    {
+     "old": "            + \"WHERE v.model = $model AND score >= $floor \"",
+     "new": "            + \"WHERE score >= $floor \""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Integration",
+   "filter": "FullyQualifiedName~APackSearchedByMeaning",
+   "sha256": "f9c947e7497748b9572ae45ff29d57b0188113221195f4d5246790198da0b034"
+  },
+  {
+   "id": "meaning-judge-ignored",
+   "rule": "MEANING-LIVE-AND-JUDGED",
+   "door": "gate",
+   "file": "src/AgentMemory.Extensibility.Neo4j/Storage/PackMeaning.cs",
+   "edits": [
+    {
+     "old": "if (await Judge!.AnswersAsync(question, TextOf(record, properties), cancellationToken).ConfigureAwait(false)) kept.Add(record);",
+     "new": "_ = await Judge!.AnswersAsync(question, TextOf(record, properties), cancellationToken).ConfigureAwait(false); kept.Add(record);"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Integration",
+   "filter": "FullyQualifiedName~APackSearchedByMeaning",
+   "sha256": "e01d28319ed7b31153a7f7d1f558fc95b84fe2203f05a84383a57713794c78d7"
+  },
+  {
+   "id": "meaning-failing-judge-offers",
+   "rule": "MEANING-LIVE-AND-JUDGED",
+   "door": "gate",
+   "file": "src/AgentMemory.Extensibility.Neo4j/Storage/PackMeaning.cs",
+   "edits": [
+    {
+     "old": "catch (Exception exception) when (exception is not OperationCanceledException) { return []; }",
+     "new": "catch (Exception exception) when (exception is not OperationCanceledException) { return [.. records.Take(limit)]; }"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Integration",
+   "filter": "FullyQualifiedName~APackSearchedByMeaning",
+   "sha256": "1c7256c3f337e331323a1d118fce0ebd1760693e64147afaeaf75c2480f49e1f"
+  },
+  {
+   "id": "meaning-silent-judge-is-no",
+   "rule": "MEANING-LIVE-AND-JUDGED",
+   "door": "gate",
+   "file": "src/AgentMemory.Extensibility.Neo4j/Storage/PackMeaning.cs",
+   "edits": [
+    {
+     "old": "        throw new InvalidOperationException(\"The judge's model gave no yes or no.\");",
+     "new": "        return false;"
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~PackMeaningJudgeTests",
+   "sha256": "7b0ea72dc516c71fc1cc1f4bac7979b5b6342db72500bfeab07de41527a8eeba"
+  },
+  {
+   "id": "python-case-collision",
+   "rule": "VERIFIERS-AGREE",
+   "door": "python",
+   "file": "conformance/pack-v1.1/python/ampack_verify.py",
+   "edits": [
+    {
+     "old": "        if name.lower() in folded:\n            raise Refused(f\"entry '{name}' differs from another only by case\")\n",
+     "new": ""
+    }
+   ],
+   "project": "kit",
+   "filter": "",
+   "sha256": "35d98024f382d9d80e48c26719053c25fb591e1af16dbe9fddf45e3d9208180d"
+  }
+ ]
+}

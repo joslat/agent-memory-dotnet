@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 using System.Diagnostics.CodeAnalysis;
 using AgentMemory.Abstractions.Options;
 using Microsoft.Extensions.AI;
@@ -48,4 +49,17 @@ public sealed record ContextRequest
 
     /// <summary>Transaction-time pin: what was BELIEVED then. Null for a live read.</summary>
     public DateTimeOffset? SystemAsOf { get; init; }
+
+    /// <summary>
+    /// What core memory found for this turn before judging (Extensibility 0.13 §K4, S2). A search view adds these texts after
+    /// the question, so "what do I need for my next belt?" can find the grade the person's own memory names. Null when the
+    /// host has none; it completes empty when no judging gate searched.
+    /// </summary>
+    public Task<IReadOnlyList<string>>? CoreCandidates { get; init; }
+
+    /// <summary>
+    /// What the turn is about in the host's world: files being edited, symbols named (coding packs CMP-1). Traversal context
+    /// starts here; empty means no traversal. At most <see cref="ContextAnchor.MaximumPerRequest"/> are used.
+    /// </summary>
+    public IReadOnlyList<ContextAnchor> Anchors { get; init; } = [];
 }

@@ -1,0 +1,13 @@
+[package]
+name = "ampack-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "ampack-rs"
+path = "src/main.rs"
+
+[dependencies]
+ampack-core = { path = "../ampack-core" }

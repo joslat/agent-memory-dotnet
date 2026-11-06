@@ -20,7 +20,7 @@ internal sealed record CodingHookReply
 }
 
 internal sealed class CodingTurnHook(CodingHookOptions options, CodingContentPolicy policy, CodingHookState state,
-    HttpClient client, Func<string, CancellationToken, Task<string>> commit)
+    HttpClient client, Func<string, CancellationToken, Task<string>> commit, Func<string, CancellationToken, Task<string>>? status = null)
 {
     private readonly CodingHookHttp _http = new(options, client);
 
@@ -91,7 +91,9 @@ internal sealed class CodingTurnHook(CodingHookOptions options, CodingContentPol
                 await state.CaptureAsync(captured, cancellationToken).ConfigureAwait(false);
             }
             else notice = $"Memory recall only: missing {correlationField} prevents safe write pairing.";
-            body = new { session, query = prompt };
+            // CMP-1: the files and names the turn is about, so packs that declare traversal can say what governs them.
+            var anchors = await CodingHookAnchors.FindAsync(prompt, cwd, status, policy, cancellationToken).ConfigureAwait(false);
+            body = anchors.Count == 0 ? new { session, query = prompt } : new { session, query = prompt, anchors };
         }
         else body = new { };
         var profile = name == "SessionStart";

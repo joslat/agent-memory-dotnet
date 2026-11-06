@@ -73,6 +73,216 @@
       "items": {
         "$ref": "#/$defs/view"
       }
+    },
+    "seed": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "uniqueItems": true,
+      "description": "Knowledge pack seed record files (.jsonl), relative to the bundle root. A manifest with seed files declares only shared types, no host features and no dependencies.",
+      "items": {
+        "type": "string",
+        "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._-]{0,99}/){0,7}[A-Za-z0-9][A-Za-z0-9._-]{0,99}\\.jsonl(?![\\s\\S])"
+      }
+    },
+    "display": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "How a host shows the module or pack: shown to people, never to a model. An icon is allowed only in a knowledge pack bundle.",
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "icon": {
+          "type": "string",
+          "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._-]{0,99}/){0,7}[A-Za-z0-9][A-Za-z0-9._-]{0,99}\\.png(?![\\s\\S])"
+        },
+        "color": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}(?![\\s\\S])"
+        }
+      }
+    },
+    "whenToUse": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 400,
+      "description": "What the module shows the model on every turn: what it knows and when to ask it. A pack's comes from its card.json; its framed bytes are the pack's fixed cost in a trial."
+    },
+    "containableBy": {
+      "type": "array",
+      "description": "The modules allowed to walk into this one's records through their own links, by module id or parent namespace (a dotted id of three segments or more). Empty or absent: none may.",
+      "items": { "$ref": "#/$defs/moduleId" },
+      "uniqueItems": true
+    },
+    "trial": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The trial a host runs on its own history before switching this pack on: the tasks it draws, and targets every one of which must be met. Enforced only by a host that requires trials.",
+      "required": ["measure", "targets"],
+      "if": { "required": ["confidencePermille", "upgrade"], "properties": { "upgrade": { "required": ["noRegression"], "properties": { "noRegression": { "const": true } } } } },
+      "then": { "properties": { "upgrade": { "required": ["toleranceMicro"], "properties": { "toleranceMicro": { "minimum": 1 } } } } },
+      "properties": {
+        "measure": { "enum": ["test-impact"] },
+        "tasks": { "type": "integer", "minimum": 10, "maximum": 200 },
+        "baseline": { "enum": ["host", "none"] },
+        "confidencePermille": { "enum": [900, 950, 975, 990], "description": "Thousandths." },
+        "upgrade": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The upgrade rule: a new version goes on only if, on the same tasks in the same run, its hit rate and precision drop by at most the tolerance against the version active before it.",
+          "required": ["noRegression"],
+          "properties": {
+            "noRegression": { "type": "boolean" },
+            "toleranceMicro": { "type": "integer", "minimum": 0, "maximum": 500000, "description": "Millionths. With a confidence and noRegression, above 0: no bound shows a drop of exactly 0." }
+          }
+        },
+        "safety": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["probes"],
+          "description": "A probe suite the host runs (injection prompts placed as records) and the most its records may make the model follow.",
+          "properties": {
+            "probes": { "type": "string", "minLength": 1, "maxLength": 100 },
+            "maxFollowMicro": { "type": "integer", "minimum": 0, "maximum": 1000000, "description": "Millionths of the probes." }
+          }
+        },
+        "cost": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "description": "What the pack must save against the baseline in what the model reads, per task, after its fixed cost per turn.",
+          "properties": {
+            "savingBytesMedian": { "type": "integer", "minimum": 0, "maximum": 1000000000, "description": "Whole bytes: the least median saving." },
+            "savingRatioMicro": { "type": "integer", "minimum": 0, "maximum": 1000000, "description": "Millionths of the baseline's bytes." }
+          }
+        },
+        "targets": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "hitRateMicro": { "type": "integer", "minimum": 0, "maximum": 1000000, "description": "Millionths." },
+            "precisionMicro": { "type": "integer", "minimum": 0, "maximum": 1000000, "description": "Millionths." },
+            "liftMicro": { "type": "integer", "minimum": -1000000, "maximum": 1000000, "description": "Millionths." },
+            "precisionLiftMicro": { "type": "integer", "minimum": -1000000, "maximum": 1000000, "description": "Millionths." },
+            "addedP95Ms": { "type": "integer", "minimum": 1, "maximum": 60000, "description": "Whole milliseconds." },
+            "noHarmMicro": { "type": "integer", "minimum": 0, "maximum": 1000000, "description": "Millionths: a retrieval trial's least share of tasks not made worse (feature 12)." }
+          }
+        }
+      }
+    },
+    "traversal": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "How the module joins traversal context: which of its records a turn's anchors (the file or symbol in hand) match, which of its own links a walk may follow, and how many of the records reached it offers to the gate. It declares at least one anchor or one relation; anchors are unique by (type, property), relations by (name, direction), and the validator checks that they name owned types, string properties and owned relations.",
+      "minProperties": 1,
+      "anyOf": [
+        { "required": ["anchors"], "properties": { "anchors": { "minItems": 1 } } },
+        { "required": ["relations"], "properties": { "relations": { "minItems": 1 } } }
+      ],
+      "properties": {
+        "anchors": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type",
+              "property"
+            ],
+            "properties": {
+              "type": {
+                "$ref": "#/$defs/label"
+              },
+              "property": {
+                "$ref": "#/$defs/propertyName"
+              },
+              "match": {
+                "enum": [
+                  "exact",
+                  "prefix",
+                  "glob",
+                  "name"
+                ],
+                "description": "exact: equals the anchor; prefix: a folder that contains it; glob: patterns (* and **) that match it; name: a symbol's simple name or SCIP identity. Prefix and glob values may hold several, split by whitespace, ',' or ';'."
+              },
+              "kind": {
+                "enum": [
+                  "path",
+                  "symbol"
+                ],
+                "description": "Which anchors the property is compared with; path when omitted."
+              }
+            }
+          }
+        },
+        "relations": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^(?:[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*)(?![\\s\\S])",
+                "description": "An owned relationship."
+              },
+              "direction": {
+                "enum": [
+                  "out",
+                  "in"
+                ],
+                "description": "out follows the link from its source; in finds the sources that point at a record."
+              },
+              "weightMicro": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000000,
+                "description": "How much of a record's score passes along the link, in millionths; 800000 when omitted."
+              },
+              "fanOut": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 32,
+                "description": "Most records one record leads to; 8 when omitted."
+              }
+            }
+          }
+        },
+        "hubs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/label"
+          },
+          "description": "Owned types a walk passes through but never offers, such as files."
+        },
+        "maxItems": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16,
+          "description": "Most records offered for one turn; 4 when omitted."
+        },
+        "hops": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3,
+          "description": "Most links followed from an anchor; 2 when omitted."
+        }
+      }
     }
   },
   "required": [
@@ -270,6 +480,19 @@
         "render": {
           "$ref": "#/$defs/text"
         },
+        "text": {
+          "$ref": "#/$defs/text",
+          "description": "The string property that is the record's main text."
+        },
+        "lifecycle": {
+          "enum": ["pinned", "refreshes"],
+          "description": "How its records age (feature 07): pinned never (no expiresAt); refreshes ends ttlDays after validFrom unless a record states validTo."
+        },
+        "ttlDays": { "type": "integer", "minimum": 1, "maximum": 36500, "description": "Days a refreshes type's record stays valid after its validFrom." },
+        "memoryKind": {
+          "enum": ["semantic", "episodic", "procedural", "preference", "identity", "working"],
+          "description": "For mapping and display only; no rule depends on it."
+        },
         "properties": {
           "type": "object",
           "propertyNames": {
@@ -402,6 +625,12 @@
         "id": {
           "$ref": "#/$defs/localId"
         },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "description": "What the view answers, for the model choosing one (feature 06): display text."
+        },
         "type": {
           "$ref": "#/$defs/label"
         },
@@ -444,6 +673,25 @@
           ],
           "default": "snapshot",
           "description": "History requires an exact runtime key and uses fixed newest-version-first order."
+        },
+        "search": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "properties"
+          ],
+          "description": "Full-text search over declared string properties: results are ordered by score, current records only, at most 24.",
+          "properties": {
+            "properties": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 8,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/propertyName"
+              }
+            }
+          }
         }
       },
       "required": [
@@ -467,6 +715,44 @@
             "not": {
               "required": [
                 "orderBy"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "search"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "orderBy"
+                  ]
+                },
+                {
+                  "properties": {
+                    "selection": {
+                      "const": "history"
+                    }
+                  },
+                  "required": [
+                    "selection"
+                  ]
+                },
+                {
+                  "properties": {
+                    "limit": {
+                      "minimum": 25
+                    }
+                  },
+                  "required": [
+                    "limit"
+                  ]
+                }
               ]
             }
           }

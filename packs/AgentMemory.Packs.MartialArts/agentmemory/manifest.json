@@ -1,0 +1,289 @@
+{
+  "format": "agentmemory.module/v1alpha1",
+  "id": "io.agentmemory.packs.martialarts",
+  "version": "1.0.0",
+  "sdk": "[0.1,0.2)",
+  "seed": [
+    "seed/arts.jsonl",
+    "seed/ranks.jsonl",
+    "seed/techniques.jsonl",
+    "seed/kata.jsonl"
+  ],
+  "display": {
+    "title": "Martial arts",
+    "description": "Grades, techniques and kata of Shotokan karate, ITF Taekwon-Do and Judo, each from a named syllabus. Your dojo’s syllabus wins.",
+    "icon": "icon.png",
+    "color": "#BE123C"
+  },
+  "ontology": {
+    "labelPrefix": "MartialArts",
+    "types": [
+      {
+        "name": "MartialArtsArt",
+        "scope": "shared",
+        "color": "#b45309",
+        "description": "A martial art or style.",
+        "render": "{name} ({origin}): {summary} Source: {source}.",
+        "properties": {
+          "name": {
+            "type": "string",
+            "required": true,
+            "maxLength": 80
+          },
+          "origin": {
+            "type": "string",
+            "required": true,
+            "maxLength": 120
+          },
+          "summary": {
+            "type": "string",
+            "required": true,
+            "maxLength": 400
+          },
+          "source": {
+            "type": "string",
+            "required": true,
+            "maxLength": 200
+          }
+        }
+      },
+      {
+        "name": "MartialArtsRank",
+        "scope": "shared",
+        "color": "#7c3aed",
+        "description": "A grade of an art, with what its grading asks and what comes next.",
+        "render": "{art} {name}: {requirement} Next grade: {next}. Source: {source}.",
+        "properties": {
+          "art": {
+            "type": "string",
+            "required": true,
+            "maxLength": 80,
+            "indexed": true
+          },
+          "name": {
+            "type": "string",
+            "required": true,
+            "maxLength": 40
+          },
+          "step": {
+            "type": "int",
+            "required": true,
+            "min": 1,
+            "max": 40,
+            "description": "Order within the art; higher is more advanced"
+          },
+          "requirement": {
+            "type": "string",
+            "required": true,
+            "maxLength": 300
+          },
+          "next": {
+            "type": "string",
+            "required": true,
+            "maxLength": 200
+          },
+          "source": {
+            "type": "string",
+            "required": true,
+            "maxLength": 200
+          }
+        }
+      },
+      {
+        "name": "MartialArtsTechnique",
+        "scope": "shared",
+        "color": "#0f766e",
+        "description": "A stance, block, strike, kick or throw.",
+        "render": "{art} {category} {name} ({english}): {note}",
+        "properties": {
+          "art": {
+            "type": "string",
+            "required": true,
+            "maxLength": 80,
+            "indexed": true
+          },
+          "name": {
+            "type": "string",
+            "required": true,
+            "maxLength": 60
+          },
+          "english": {
+            "type": "string",
+            "required": true,
+            "maxLength": 80
+          },
+          "category": {
+            "type": "string",
+            "required": true,
+            "values": [
+              "stance",
+              "block",
+              "punch",
+              "strike",
+              "kick",
+              "throw"
+            ]
+          },
+          "note": {
+            "type": "string",
+            "required": true,
+            "maxLength": 300
+          },
+          "source": {
+            "type": "string",
+            "required": true,
+            "maxLength": 200
+          }
+        }
+      },
+      {
+        "name": "MartialArtsKata",
+        "scope": "shared",
+        "color": "#be123c",
+        "description": "A kata or pattern: a fixed sequence of techniques.",
+        "render": "{art} {kind} {name} ({moves} moves), for {rank}: {meaning} Key techniques: {techniques}. Source: {source}.",
+        "properties": {
+          "art": {
+            "type": "string",
+            "required": true,
+            "maxLength": 80,
+            "indexed": true
+          },
+          "kind": {
+            "type": "string",
+            "required": true,
+            "values": [
+              "kata",
+              "pattern"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "required": true,
+            "maxLength": 60
+          },
+          "moves": {
+            "type": "int",
+            "required": true,
+            "min": 1,
+            "max": 200
+          },
+          "rank": {
+            "type": "string",
+            "required": true,
+            "maxLength": 80
+          },
+          "meaning": {
+            "type": "string",
+            "required": true,
+            "maxLength": 300
+          },
+          "techniques": {
+            "type": "string",
+            "required": true,
+            "maxLength": 300
+          },
+          "source": {
+            "type": "string",
+            "required": true,
+            "maxLength": 200
+          }
+        }
+      }
+    ],
+    "relations": [
+      {
+        "name": "MARTIAL_ARTS_RANK_OF",
+        "from": "MartialArtsRank",
+        "to": "MartialArtsArt",
+        "required": true,
+        "max": 1
+      },
+      {
+        "name": "MARTIAL_ARTS_TECHNIQUE_OF",
+        "from": "MartialArtsTechnique",
+        "to": "MartialArtsArt",
+        "required": true,
+        "max": 1
+      },
+      {
+        "name": "MARTIAL_ARTS_KATA_OF",
+        "from": "MartialArtsKata",
+        "to": "MartialArtsArt",
+        "required": true,
+        "max": 1
+      },
+      {
+        "name": "MARTIAL_ARTS_KATA_FOR",
+        "from": "MartialArtsKata",
+        "to": "MartialArtsRank",
+        "max": 1
+      },
+      {
+        "name": "MARTIAL_ARTS_KATA_USES",
+        "from": "MartialArtsKata",
+        "to": "MartialArtsTechnique",
+        "max": 12
+      }
+    ]
+  },
+  "views": [
+    {
+      "id": "arts",
+      "type": "MartialArtsArt",
+      "search": {
+        "properties": [
+          "name",
+          "summary"
+        ]
+      },
+      "limit": 2
+    },
+    {
+      "id": "ranks",
+      "type": "MartialArtsRank",
+      "search": {
+        "properties": [
+          "art",
+          "name",
+          "requirement",
+          "next"
+        ]
+      },
+      "limit": 4
+    },
+    {
+      "id": "techniques",
+      "type": "MartialArtsTechnique",
+      "search": {
+        "properties": [
+          "art",
+          "name",
+          "english",
+          "note"
+        ]
+      },
+      "limit": 4
+    },
+    {
+      "id": "kata",
+      "type": "MartialArtsKata",
+      "search": {
+        "properties": [
+          "art",
+          "name",
+          "rank",
+          "meaning",
+          "techniques"
+        ]
+      },
+      "limit": 6
+    },
+    {
+      "id": "ladder",
+      "type": "MartialArtsRank",
+      "orderBy": "step",
+      "limit": 40
+    }
+  ]
+}

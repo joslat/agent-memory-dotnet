@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 using System.Diagnostics.CodeAnalysis;
 
 namespace AgentMemory.Extensibility.Reading;
@@ -12,4 +13,9 @@ public sealed record ModuleViewArguments
     public IReadOnlyList<ModuleLinkFilter> Links { get; init; } = [];
     /// <summary>Optional positive limit no greater than the declared view's limit.</summary>
     public int? Limit { get; init; }
+    /// <summary>The text a search view matches (Extensibility 0.13 §K4); required by search views, refused by list views.</summary>
+    public string? Search { get; init; }
+    /// <summary>The text a search view matches by meaning, where the host searches packs by meaning (feature 19); null means
+    /// <see cref="Search"/>. Never used for word matching.</summary>
+    public string? Meaning { get; init; }
 }

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 using System.Diagnostics.CodeAnalysis;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Extensibility.Ingestion;
@@ -29,7 +30,52 @@ public sealed class Neo4jModuleStoreAdapter : IModuleStoreAdapter
     /// <inheritdoc/>
     public IModuleReader CreateReader(IServiceProvider services, ModuleResolution resolution, string moduleId) =>
         new Neo4jModuleReader(services.GetRequiredService<INeo4jTransactionRunner>(), resolution, moduleId,
-            services.GetRequiredService<IMemoryIsolationPolicy>(), services.GetService<TimeProvider>());
+            services.GetRequiredService<IMemoryIsolationPolicy>(), services.GetService<TimeProvider>(), meaning: Storage.PackMeaning.Of(services));
+
+    /// <inheritdoc/>
+    public IModuleTraversalReader? CreateTraversalReader(IServiceProvider services, ModuleResolution resolution) =>
+        new Neo4jModuleTraversalReader(services.GetRequiredService<INeo4jTransactionRunner>(), resolution,
+            services.GetRequiredService<IMemoryIsolationPolicy>());
+}
+
+/// <summary>Knowledge packs in the host's Neo4j database (Extensibility 0.13 §K3).</summary>
+[Experimental("AMEXT001")]
+public static class Neo4jKnowledgePackServiceCollectionExtensions
+{
+    /// <summary>
+    /// Registers <see cref="Packs.IKnowledgePackStore"/> on the host's Neo4j database and the <see cref="Packs.KnowledgePackImporter"/>.
+    /// Packs are searched by meaning by default when the host has an embedder (feature 19, owner 2 Nov): with a registered
+    /// <see cref="Storage.IPackMeaningJudge"/>, by meaning alone with the nearest records judged; without one, merged with their
+    /// words. <paramref name="searchByMeaning"/> false finds packs by their words only; <see cref="AddNeo4jPackMeaning"/> sets
+    /// the options explicitly.
+    /// </summary>
+    public static IServiceCollection AddNeo4jKnowledgePacks(this IServiceCollection services, bool searchByMeaning = true)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        services.AddSingleton(sp => new Storage.PackMeaningDefault(searchByMeaning ? Storage.PackMeaning.ByDefault(sp) : null));
+        services.AddSingleton<Packs.IKnowledgePackStore>(sp =>
+            new Neo4jKnowledgePackStore(sp.GetRequiredService<INeo4jTransactionRunner>(), sp.GetService<TimeProvider>(), Storage.PackMeaning.Of(sp)));
+        services.AddSingleton(sp => new Packs.KnowledgePackImporter(sp.GetRequiredService<Packs.IKnowledgePackStore>(), sp.GetService<TimeProvider>()));
+        // CMP-2a: host-generated snapshots, such as the code map of a repository at a commit.
+        services.AddSingleton<Packs.IModuleSnapshotStore>(sp =>
+            new Neo4jModuleSnapshotStore(sp.GetRequiredService<INeo4jTransactionRunner>(), sp.GetService<TimeProvider>()));
+        return services;
+    }
+
+    /// <summary>
+    /// Searches packs by meaning (feature 19) with these options and the host's registered embedder: imports embed the records a
+    /// search view reads, and search views take the nearest records, alone or merged with their full-text hits. A registered
+    /// <see cref="Storage.IPackMeaningJudge"/> judges the nearest records, and only those it says answer are offered. Without
+    /// this call, <see cref="AddNeo4jKnowledgePacks"/> chooses the options by default.
+    /// </summary>
+    public static IServiceCollection AddNeo4jPackMeaning(this IServiceCollection services, Storage.PackMeaningOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        services.AddSingleton(sp => new Storage.PackMeaning(
+            sp.GetRequiredService<Microsoft.Extensions.AI.IEmbeddingGenerator<string, Microsoft.Extensions.AI.Embedding<float>>>(), options,
+            sp.GetService<Storage.IPackMeaningJudge>()));
+        return services;
+    }
 }
 
 /// <summary>Neo4j binding for <see cref="ModuleSetBuilder"/>.</summary>

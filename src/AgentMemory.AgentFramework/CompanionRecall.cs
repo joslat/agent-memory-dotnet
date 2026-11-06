@@ -23,6 +23,12 @@ public sealed class CompanionRecall
     /// <summary>The companion candidates handed to core recall.</summary>
     public Task<IReadOnlyList<MemoryGateCandidate>> Candidates => Request.Candidates;
 
+    /// <summary>
+    /// What core memory found for this turn before judging, for companion searches that look with it (Extensibility 0.13
+    /// §K4). Completes empty when no judging gate searched, and always by the time core recall returns.
+    /// </summary>
+    public Task<IReadOnlyList<string>> CoreCandidates => Request.CoreCandidates;
+
     /// <summary>Whether core recall ran with the companions this turn (false: no user message, the recall policy skipped
     /// recall, or recall failed).</summary>
     public bool Offered { get; private set; }

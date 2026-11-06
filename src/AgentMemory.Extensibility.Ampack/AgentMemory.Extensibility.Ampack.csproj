@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Apache-2.0 from 2.0.0: this project practises the ampack format or its host procedure; see PATENTS.md at the repository root. -->
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="LICENSE" Pack="true" PackagePath="" Visible="false" />
+    <None Include="NOTICE" Pack="true" PackagePath="" Visible="false" />
+  </ItemGroup>
+
+  <!-- Hosts load memory packs (pack format v1.2 §4, ledger PACK-host): open a folder or an .ampack, verify it with the
+       format library, map its layout onto the module model, and compose it. The SDK stays Abstractions-only; this bridge
+       is where the format library and the SDK meet. -->
+  <PropertyGroup>
+    <RootNamespace>AgentMemory.Extensibility.Ampack</RootNamespace>
+    <AssemblyName>AgentMemory.Extensibility.Ampack</AssemblyName>
+    <Description>Loads memory packs (.ampack files and pack folders) into AgentMemory hosts: verified, mapped onto modules, composed.</Description>
+    <PackageTags>agent-memory;ai;memory;packs;extensibility</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <Version>0.1.1</Version>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AgentMemory.Extensibility\AgentMemory.Extensibility.csproj" />
+    <ProjectReference Include="..\AgentMemory.Packs.Format\AgentMemory.Packs.Format.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The ampack tool issues certificates with any signer, a keychain or KMS included (PackSigner is internal to the format). -->
+    <InternalsVisibleTo Include="Ampack" />
+    <!-- Tests reach a door's own rule (the mount plan, the walk's carrier liveness), not only its public wrapper (review 8, A4, A5). -->
+    <InternalsVisibleTo Include="AgentMemory.Tests.Unit.Extensibility" />
+  </ItemGroup>
+</Project>

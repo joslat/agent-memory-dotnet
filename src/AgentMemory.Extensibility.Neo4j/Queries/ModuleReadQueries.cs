@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 using System.Diagnostics.CodeAnalysis;
 using AgentMemory.Extensibility.Modules;
 using AgentMemory.Extensibility.Reading;
@@ -21,6 +22,34 @@ internal static class ModuleReadQueries
             + temporal
             + string.Concat(clauses.Select(c => "AND (" + c + ") "))
             + "RETURN properties(n) AS row ORDER BY " + order + "n.id ASC SKIP $skip LIMIT $take";
+    }
+
+    // A search view's full-text index (Extensibility 0.13 §K4): the same scope, key, time and filters as a list read,
+    // ordered by score. $search is space-separated word terms, which full-text matches as any of them.
+    internal static string Search(ModuleQuery query, ModuleType type)
+    {
+        var clauses = query.Where.Select((filter, index) => Filter(filter, type.Properties[filter.Property].Type, index));
+        return "CALL db.index.fulltext.queryNodes($index, $search) YIELD node AS n, score "
+            + "WHERE n:`" + type.Name + "` AND ($owner IS NULL OR n.owner_id=$owner OR ($shared AND n.owner_id IS NULL)) "
+            + "AND ($key IS NULL OR n.key=$key) AND "
+            + "(($asOf IS NULL AND n.invalidated_at IS NULL) OR ($asOf IS NOT NULL AND n.created_at<=datetime($asOf) AND (n.invalidated_at IS NULL OR n.invalidated_at>datetime($asOf)))) "
+            + string.Concat(clauses.Select(c => "AND (" + c + ") "))
+            + "RETURN properties(n) AS row ORDER BY score DESC, n.id ASC SKIP $skip LIMIT $take";
+    }
+
+    // The same read by meaning (feature 19): the vector index's nearest records of this model, above the floor, then the same
+    // scope, key, time and filters as the full-text read, ordered by score.
+    internal static string Meaning(ModuleQuery query, ModuleType type)
+    {
+        var clauses = query.Where.Select((filter, index) => Filter(filter, type.Properties[filter.Property].Type, index));
+        return "CALL db.index.vector.queryNodes($vindex, $k, $vector) YIELD node AS v, score "
+            + "WHERE v.model = $model AND score >= $floor "
+            + "MATCH (v)-[:" + Storage.PackMeaning.Means + "]->(n:`" + type.Name + "`) "
+            + "WHERE ($owner IS NULL OR n.owner_id=$owner OR ($shared AND n.owner_id IS NULL)) "
+            + "AND ($key IS NULL OR n.key=$key) AND "
+            + "(($asOf IS NULL AND n.invalidated_at IS NULL) OR ($asOf IS NOT NULL AND n.created_at<=datetime($asOf) AND (n.invalidated_at IS NULL OR n.invalidated_at>datetime($asOf)))) "
+            + string.Concat(clauses.Select(c => "AND (" + c + ") "))
+            + "RETURN properties(n) AS row ORDER BY score DESC, n.id ASC";
     }
 
     private static string Filter(ModuleViewFilter filter, string type, int index)

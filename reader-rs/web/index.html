@@ -1,0 +1,54 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pack Validator</title>
+<style>
+  :root { --bg: #f7f6f2; --fg: #1d1c19; --muted: #6b6860; --line: #d9d6cc; --ok: #1f6b3a; --no: #9b2c22; --card: #fffdf8; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #171614; --fg: #ece9e1; --muted: #a29e93; --line: #3a3832; --ok: #6cc48c; --no: #ef8a7e; --card: #201f1c; color-scheme: dark; } }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, sans-serif; }
+  main { max-width: 46rem; margin: 0 auto; padding: 2rem max(16px, env(safe-area-inset-left, 0px)); display: grid; gap: 1.25rem; }
+  h1 { font-size: 1.4rem; margin: 0; }
+  p { margin: 0; color: var(--muted); }
+  label { display: grid; gap: .3rem; font-weight: 600; }
+  input[type=file], input[type=text] { font: inherit; padding: .5rem; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--fg); }
+  button { font: inherit; font-weight: 600; padding: .6rem 1rem; border: 0; border-radius: 6px; background: var(--fg); color: var(--bg); cursor: pointer; justify-self: start; }
+  #out { border: 1px solid var(--line); border-radius: 8px; background: var(--card); padding: 1rem; white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.5 ui-monospace, monospace; min-height: 3rem; }
+  .ok { color: var(--ok); } .no { color: var(--no); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Pack validator</h1>
+  <p>Verifies a signed memory pack against a trust policy in this browser, with the Rust reader built as a WebAssembly
+     component. Nothing is uploaded: both files are read here.</p>
+  <label>Pack (.ampack) <input id="pack" type="file" accept=".ampack,.zip"></label>
+  <label>Trust policy (trust.json) <input id="policy" type="file" accept=".json"></label>
+  <label>Verify at (UTC, empty for now) <input id="at" type="text" placeholder="2026-11-01T12:00:00Z"></label>
+  <button id="go" type="button">Verify</button>
+  <div id="out" aria-live="polite">Load a pack and its trust policy.</div>
+</main>
+<script type="module">
+  // Served from reader-rs/ (for example: python -m http.server, then /web/): the binding fetches its core module beside it.
+  import { verifier } from "../dist/js/ampack-reader.js";
+  const out = document.getElementById("out");
+  const bytes = async id => { const f = document.getElementById(id).files[0]; return f ? new Uint8Array(await f.arrayBuffer()) : null; };
+  const show = (cls, text) => { out.className = cls; out.textContent = text; };
+  document.getElementById("go").addEventListener("click", async () => {
+    const [pack, policy] = [await bytes("pack"), await bytes("policy")];
+    if (!pack || !policy) return show("no", "Give both a pack and a trust policy.");
+    const at = document.getElementById("at").value.trim() || new Date().toISOString().replace(/\.\d+Z$/, "Z");
+    try {
+      const verdict = verifier.verify(pack, policy, at);
+      if (verdict.tag !== "verified") return show("no", "Refused: " + String(verdict.val ?? ""));
+      const summary = verifier.inspect(pack);
+      // The pack's own words are data: shown as text, never as markup. The profiles say which this reader does not implement.
+      const big = (k, x) => typeof x === "bigint" ? Number(x) : x;
+      show("ok", "Verified at " + at + "\n\n" + JSON.stringify({ verified: verdict.val, archive: summary }, big, 2));
+    } catch (e) { show("no", "The reader could not run: " + e); }
+  });
+</script>
+</body>
+</html>

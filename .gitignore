@@ -435,3 +435,13 @@ FodyWeavers.xsd
 
 # DemoBrain: Avalonia brain visualization prototype - local-only for now (not part of the published repo)
 /demobrain/
+
+# Knowledge pack signatures are written at pack time (eng/pack-knowledge-packs.py), never committed.
+packs/**/agentmemory/agentmemory.module.files.json
+packs/**/agentmemory/agentmemory.module.sig
+
+# The conformance kit works in .work while it runs: throwaway private keys live there (review 1, L14).
+conformance/pack-v1.1/.work/
+
+# Mutants the differential harness kept for triage (review 1, I5): rebuilt from the seed, never needed in the tree.
+conformance/pack-v1.1/differential/

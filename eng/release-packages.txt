@@ -49,3 +49,23 @@ PREVIEW:AgentMemory.Extensibility|src/AgentMemory.Extensibility/AgentMemory.Exte
 PREVIEW:AgentMemory.Extensibility.AgentFramework|src/AgentMemory.Extensibility.AgentFramework/AgentMemory.Extensibility.AgentFramework.csproj
 PREVIEW:AgentMemory.Extensibility.Neo4j|src/AgentMemory.Extensibility.Neo4j/AgentMemory.Extensibility.Neo4j.csproj
 PREVIEW:AgentMemory.Validation|src/AgentMemory.Validation/AgentMemory.Validation.csproj
+
+# The repository-experience memory pack (Extensibility 0.13 §C) ships inside the coding host tool for 2.0, not as its own
+# package: a module carries its own version in its embedded manifest, and the preview line would restamp it at each
+# preview release. Publishing it waits for a module release line (the owner decides).
+HELD:AgentMemory.Packs.Repository
+
+# The code map memory pack and its C# reader (coding packs CMP-2a): held like the repository pack, until their trial on this
+# repository passes (owner decision 26 Oct: packs held until their trial passes).
+HELD:AgentMemory.Packs.CodeMap
+HELD:AgentMemory.Packs.CodeMap.Roslyn
+HELD:AgentMemory.Packs.Decisions
+HELD:AgentMemory.Packs.Architecture
+HELD:AgentMemory.Packs.Intent
+HELD:AgentMemory.Packs.Coding
+HELD:AgentMemory.Packs.Work
+# The memory pack format, its host bridge and the Solid adapter: internal APIs used by ampack and hosts; held until
+# the format ships with 2.0.
+HELD:AgentMemory.Packs.Format
+HELD:AgentMemory.Extensibility.Ampack
+HELD:AgentMemory.Packs.Solid

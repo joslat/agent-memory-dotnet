@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 namespace AgentMemory.Extensibility.Neo4j.Migrations;
 
 internal sealed record ModuleMigrationSchemaObject
@@ -10,7 +11,7 @@ internal sealed record ModuleMigrationSchemaObject
     internal required bool IsConstraint { get; init; }
 }
 
-// Parses an exact range-index or uniqueness-constraint shape. This is not authorization to execute:
+// Parses an exact range-index, full-text index or uniqueness-constraint shape. This is not authorization to execute:
 // the composition compiler must still validate module ownership and reserve the shape before DDL.
 internal static class ModuleSchemaStatement
 {
@@ -21,7 +22,8 @@ internal static class ModuleSchemaStatement
         var reader = new ModuleCypherReader(statements[0].Tokens);
         reader.Word("CREATE");
         var range = reader.TakeWord("RANGE");
-        var constraint = !range && reader.TakeWord("CONSTRAINT");
+        var fullText = !range && reader.TakeWord("FULLTEXT");
+        var constraint = !range && !fullText && reader.TakeWord("CONSTRAINT");
         if (!constraint) reader.Word("INDEX");
         var name = reader.Identifier();
         reader.Word("IF");
@@ -46,8 +48,14 @@ internal static class ModuleSchemaStatement
         }
         reader.Symbol(")");
         reader.Word(constraint ? "REQUIRE" : "ON");
-        var parenthesized = reader.TakeSymbol("(");
-        if (!constraint && !parenthesized) throw Invalid("index properties require parentheses");
+        if (fullText)
+        {
+            if (relationship) throw Invalid("full-text indexes are node indexes here");
+            reader.Word("EACH");
+            reader.Symbol("[");
+        }
+        var parenthesized = !fullText && reader.TakeSymbol("(");
+        if (!constraint && !fullText && !parenthesized) throw Invalid("index properties require parentheses");
         var properties = new List<string>();
         do
         {
@@ -55,8 +63,9 @@ internal static class ModuleSchemaStatement
                 throw Invalid("property reference does not name the schema pattern variable");
             reader.Symbol(".");
             properties.Add(reader.Identifier());
-        } while (parenthesized && reader.TakeSymbol(","));
+        } while ((parenthesized || fullText) && reader.TakeSymbol(","));
         if (parenthesized) reader.Symbol(")");
+        if (fullText) reader.Symbol("]");
         if (constraint)
         {
             reader.Word("IS");
@@ -68,7 +77,7 @@ internal static class ModuleSchemaStatement
         return new ModuleMigrationSchemaObject
         {
             Name = name,
-            Kind = constraint ? relationship ? "RELATIONSHIP_UNIQUENESS" : "UNIQUENESS" : "RANGE",
+            Kind = constraint ? relationship ? "RELATIONSHIP_UNIQUENESS" : "UNIQUENESS" : fullText ? "FULLTEXT" : "RANGE",
             EntityType = relationship ? "RELATIONSHIP" : "NODE",
             Labels = Array.AsReadOnly(new[] { label }),
             Properties = properties.AsReadOnly(),

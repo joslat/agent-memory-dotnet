@@ -1,0 +1,96 @@
+// SPDX-License-Identifier: Apache-2.0
+using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
+using AgentMemory.Extensibility.Modules;
+
+namespace AgentMemory.Extensibility.Ampack;
+
+/// <summary>One piece of advice about a loaded pack: the rule, the pack it is about, and what to do. Advice never refuses a pack.</summary>
+[Experimental("AMEXT001")]
+public sealed record PackAdviceItem(string Rule, string Pack, string Text);
+
+/// <summary>
+/// PACK-composer: advice on a pack that verifies and loads, about what a host will do with it later rather than whether it
+/// is valid now (<c>ampack lint</c> checks validity). A pack with no trial is refused by a host that requires trials; a
+/// trial with no upgrade rule lets a later version do worse and still go on; links into another pack's types need that
+/// pack's consent; a pack about to stop being valid will be switched off. Each rule is one the format enforces somewhere.
+/// </summary>
+[Experimental("AMEXT001")]
+public static class PackAdvice
+{
+    /// <summary>Fewer trial tasks than this give a 95% bound too wide to tell a good pack from chance.</summary>
+    public const int FewTasks = 30;
+    /// <summary>A pack that stops being valid within this many days is flagged.</summary>
+    public const int SoonDays = 30;
+
+    /// <summary>Advice on every pack an inspection loaded, in order.</summary>
+    public static IReadOnlyList<PackAdviceItem> Of(PackInspection inspection, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(inspection);
+        IEnumerable<LoadedPack> packs = inspection.Pack is { } single ? [single]
+            : inspection.Set is { } set ? set.AllPacks : [];
+        return [.. packs.SelectMany(p => Of(p, now))];
+    }
+
+    /// <summary>Advice on one loaded pack.</summary>
+    public static IReadOnlyList<PackAdviceItem> Of(LoadedPack pack, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(pack);
+        var advice = new List<PackAdviceItem>();
+        void Add(string rule, string text) => advice.Add(new(rule, pack.Id, text));
+        var manifest = pack.Manifest;
+        // A snapshot is measured through its definition; a set or composite through its members.
+        if (pack.Kind is "knowledge" or "definition")
+        {
+            if (manifest.Trial is not { } trial)
+                Add("trial.missing", "It declares no trial: a host that requires trials for its namespace refuses it, and nothing measures it on that host's history.");
+            else
+            {
+                if (trial.Upgrade is not { NoRegression: true })
+                    Add("trial.upgrade", "Its trial has no upgrade rule: unless an earlier version set one on that host, a later version could do worse than this one and still go on. Declare upgrade.noRegression.");
+                if (trial.Tasks < FewTasks)
+                    Add("trial.small", $"Its trial runs {trial.Tasks} tasks: a 95% bound on so few is wide; {FewTasks} or more tell a good pack from chance.");
+                // What the declared trial can never show, at the pack's own cap (review 5): better said now than at a host.
+                foreach (var note in PackTrialGate.Unreachable(trial, manifest.Traversal?.MaxItems ?? ModuleTraversal.MaximumOffered))
+                    Add("trial.unreachable", note);
+                // The history that best evidence assumes (review 7, G15): tasks a burst apart, within the window a trial draws from;
+                // said where it needs more than half that window, where a host's history is likely to fall short.
+                if (trial.ConfidencePermille is not null && PackTrialGate.BurstLength * (trial.Tasks - 1) + 1 > PackTrialGate.HistoryWindow / 2)
+                    Add("trial.history", $"Its bounds count tasks as independent only {PackTrialGate.BurstLength} eligible commits apart: {trial.Tasks} tasks need "
+                        + $"{PackTrialGate.BurstLength * (trial.Tasks - 1) + 1} eligible commits among a host's last {PackTrialGate.HistoryWindow}; on a shorter history they cluster, and every bound shows less.");
+            }
+        }
+        if (pack.Publication is { } publication)
+            Add("federation.placement", publication.IsPublic
+                ? $"It is federated and public, published by {publication.Publisher}: a host fetching it from a Pod takes it only with a publication receipt for that place; a file installed directly claims no placement."
+                : $"It is federated for {publication.Audience!.Count} WebID(s), published by {publication.Publisher}: hosts outside that audience refuse it, and a host fetching it from a Pod takes it only with a publication receipt for that place.");
+        if (pack.Card is null && pack.Kind is "knowledge" or "definition")
+            Add("card.missing", "It has no pack card (card.json): owner, intended use, limitations and boundaries are what a host's operator reads before installing.");
+        else if (pack.Card is { IsTemplate: true })
+            Add("card.template", "Its card still holds the texts ampack init wrote: say who owns it, what it is for and what it is not for before it travels.");
+        else if (pack.Card is { WhenToUse: null } && pack.Kind is "knowledge" or "definition")
+            Add("card.when-to-use", "Its card says nothing for the model (whenToUse): with many packs mounted, a model asks the ones that say what they know and when to ask them.");
+        else if (pack.Card is { WhenToUse: not null } && pack.Kind is not ("knowledge" or "definition"))
+            Add("card.when-to-use-unused", $"Its card's whenToUse goes nowhere: a {pack.Kind} pack runs {(pack.Kind == "snapshot" ? "its definition's" : "its members'")} (R-CORE-127).");
+        if (pack.Certificates.Count > 0 && pack.Certificates.All(c => !c.Trusted))
+            Add("certificate.untrusted", $"It carries {pack.Certificates.Count} evaluation certificate(s), none from a key this host trusts as evaluator for it: they inform, and admit nothing.");
+        else if (manifest.Trial is not null && PackCertificates.Admit(pack, now).Decision is not null)
+            Add("certificate.admits", "A trusted certificate covers its declared trial: where this host trusts certificates for its namespace, it can go on without a trial here (ampack admit).");
+        if (pack.Kind == "knowledge" && !pack.HasDerivation)
+            Add("derivation.missing", "It says nothing of what it was made from (META/derivation.json): a host cannot cap its records' confidence by their sources, nor see the pack it was derived from.");
+        if (pack.Kind == "knowledge" && string.IsNullOrWhiteSpace(manifest.Display?.Description))
+            Add("display.description", "It has no description: hosts and composers can show only its id.");
+        if (manifest.Traversal is { } walk && walk.Anchors.Count == 0)
+            Add("walk.anchors", "Its walk declares no anchors: it starts only where another pack's walk reaches it.");
+        foreach (var module in (manifest.Ontology?.Relations ?? []).Select(r => r.To).Where(t => t.Contains(':', StringComparison.Ordinal))
+            .Select(t => t[..t.IndexOf(':', StringComparison.Ordinal)]).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
+            Add("links.consent", $"It links into {module}: a host follows those links only if {module} consents (containableBy) or the host grants the pair.");
+        if (pack.ValidUntil is { } until && until - now < TimeSpan.FromDays(SoonDays))
+            Add("validity.soon", until <= now
+                ? $"It stopped being valid here on {Day(until)}."
+                : $"It stops being valid here on {Day(until)}, in {Math.Max(1, (int)Math.Ceiling((until - now).TotalDays))} days: its own date, its set's, the trust's or a signing key's, whichever is first.");
+        return advice;
+    }
+
+    private static string Day(DateTimeOffset at) => at.UtcDateTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+}

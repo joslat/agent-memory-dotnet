@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 using System.Diagnostics.CodeAnalysis;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Extensibility.Modules;
@@ -27,6 +28,32 @@ public sealed record ModuleQuery
     public ModuleViewOrder? OrderBy { get; init; }
     /// <summary>Positive record limit, at most <see cref="MaximumLimit"/>.</summary>
     public required int Limit { get; init; }
+    /// <summary>A full-text match through a declared search view's index; results are ordered by score. Null for a list read.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public ModuleSearch? Search { get; init; }
+}
+
+/// <summary>Search terms for a declared search view (Extensibility 0.13 §K4); never query syntax.</summary>
+[Experimental("AMEXT001")]
+public sealed record ModuleSearch
+{
+    /// <summary>At most this many terms a search matches.</summary>
+    public const int MaximumTerms = 32;
+    /// <summary>The search view whose full-text index is used; it must query the same type.</summary>
+    public required string ViewId { get; init; }
+    /// <summary>Lowercase word terms (letters, digits, underscore), any of which may match.</summary>
+    public required IReadOnlyList<string> Terms { get; init; }
+    /// <summary>The free text a host that searches packs by meaning embeds (feature 19); null for word matching alone.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? Meaning { get; init; }
+
+    /// <summary>The terms of a free text: lowercase words of 2 to 64 characters, English stop words removed, first 32 distinct.</summary>
+    public static IReadOnlyList<string> TermsOf(string? text) => string.IsNullOrWhiteSpace(text) ? [] :
+        [.. Shared.StopWordFilter.ExtractKeywords(text).Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Where(t => t.Length <= 64).Distinct(StringComparer.Ordinal).Take(MaximumTerms)];
+
+    internal static bool IsTerm(string? term) =>
+        term is { Length: >= 2 and <= 64 } && term.All(c => char.IsLetterOrDigit(c) || c == '_') && term == term.ToLowerInvariant();
 }
 
 /// <summary>Host-supplied owner, session and time context; no administrative isolation bypass.</summary>
@@ -41,6 +68,11 @@ public sealed record ModuleReadContext
     public DateTimeOffset? SystemAsOfUtc { get; init; }
     /// <summary>Valid-time pin. Module records do not support it and return NotApplicable.</summary>
     public DateTimeOffset? ValidAsOfUtc { get; init; }
+    /// <summary>
+    /// The host's confidence floor in millionths (feature 09, R-CORE-137): a store keeps out every record below it, a record with
+    /// no confidence counting as full, before its limit, as it keeps out a record not live. Null keeps every record.
+    /// </summary>
+    public int? MinimumConfidenceMicro { get; init; }
 }
 
 /// <summary>Explicit distinction between a refused read, a successful empty read and an unsupported clock.</summary>

@@ -23,11 +23,24 @@ while IFS='|' read -r package_id project; do
     echo "::error::preview package '$package_id' has no 0.x <Version> in $project"
     missing=1
   fi
+  if ! grep -q 'TreatAsLocalProperty="Version"' "$project"; then
+    echo "::error::preview package '$package_id' can be restamped by a bundling host's -p:Version ($project needs TreatAsLocalProperty=\"Version\")"
+    missing=1
+  fi
   if ! grep -q 'PreviewVersion' "$project"; then
     echo "::error::preview package '$package_id' does not take its release version from PreviewVersion ($project)"
     missing=1
   fi
 done <<< "$(bash eng/release-lines.sh preview)"
+
+# Memory packs bundled into a tool keep their own version, which their embedded manifest repeats.
+for project in src/AgentMemory.Packs.*/*.csproj; do
+  [[ -f "$project" ]] || continue
+  if ! grep -q 'TreatAsLocalProperty="Version"' "$project"; then
+    echo "::error::memory pack $project can be restamped by a bundling host's -p:Version (needs TreatAsLocalProperty=\"Version\")"
+    missing=1
+  fi
+done
 
 accounted_ids="$(bash eng/release-lines.sh all | sort -u)"
 actual_ids="$(find src -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)"

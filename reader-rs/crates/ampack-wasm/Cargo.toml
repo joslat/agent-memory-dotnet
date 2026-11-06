@@ -1,0 +1,14 @@
+[package]
+name = "ampack-wasm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "ampack-core as a WebAssembly component: verify(archive, policy, now) and inspect(archive)."
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+ampack-core = { path = "../ampack-core" }
+wit-bindgen = { version = "=0.41.0", default-features = false, features = ["macros", "realloc"] }

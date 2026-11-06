@@ -193,3 +193,7 @@ Use [GitHub Issues](https://github.com/joslat/agent-memory-dotnet/issues) for bu
 - .NET version and OS
 - Neo4j version
 - A minimal reproducible example if reporting a bug
+
+## 8. Licensing of Contributions
+
+Contributions are accepted under the licence of the project they change: Apache-2.0 (its section 5 applies) for the projects listed in [LICENSING.md](LICENSING.md), MIT for the rest.

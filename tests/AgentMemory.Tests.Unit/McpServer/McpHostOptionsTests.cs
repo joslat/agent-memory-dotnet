@@ -349,4 +349,14 @@ public sealed class McpHostOptionsTests
 
         parse.Should().Throw<ArgumentException>();
     }
+
+    [Fact]
+    public void StrictRecallIsTheUnionOfFlagAndEnvironment()
+    {
+        // The checklist tells operators to run strict recall; the shipped host must be able to (review, 6 Nov 2026).
+        Parse([], Env()).StrictRecall.Should().BeFalse();
+        Parse(["--strict-recall"], Env()).StrictRecall.Should().BeTrue();
+        Parse([], Env(("AGENT_MEMORY_MCP_STRICT_RECALL", "true"))).StrictRecall.Should().BeTrue();
+        Parse(["--strict-recall"], Env(("AGENT_MEMORY_MCP_STRICT_RECALL", "false"))).StrictRecall.Should().BeTrue();
+    }
 }

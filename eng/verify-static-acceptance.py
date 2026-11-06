@@ -18,6 +18,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--output', required=True, help='New evidence directory under artifacts; existing directories are refused.')
 parser.add_argument('--sdk-version', default='0.1.0', help='The preview line version to pack (PreviewVersion).')
 parser.add_argument('--build-only', action='store_true', help='Compile the consumer without service access; not acceptance.')
+parser.add_argument('--live', action='store_true', help='Also run part C with the real lessons writer and JEV (EXT-live-e2e; spends).')
 args = parser.parse_args()
 if not args.build_only:
     uri = urlparse(os.environ.get('NEO4J_URI', ''))
@@ -70,7 +71,7 @@ def chain(projects):
 
 core_version = re.search(r'<Version>([^<]+)</Version>', (ROOT / 'Directory.Build.props').read_text(encoding='utf-8')).group(1)
 preview = ['AgentMemory.Extensibility', 'AgentMemory.Extensibility.AgentFramework', 'AgentMemory.Extensibility.Neo4j', 'AgentMemory.Validation']
-projects = chain(preview + ['AgentMemory.Gate'])
+projects = chain(preview + ['AgentMemory.Gate', 'AgentMemory.Inference'])
 version_property = '-p:PreviewVersion=' + args.sdk_version
 for project in projects:
     run('build-' + project, ['dotnet', 'build', f'src/{project}/{project}.csproj', '-c', 'Release', version_property])
@@ -80,6 +81,19 @@ props = ['-p:ModuleSdkVersion=' + args.sdk_version, '-p:CoreVersion=' + core_ver
          '-p:RestoreConfigFile=' + str(out / 'NuGet.Config')]
 run('pack-commitments', ['dotnet', 'pack', 'eng/module-consumers/Commitments/Commitments.csproj', '-c', 'Release', '-o', str(feed), *props])
 run('pack-lessons', ['dotnet', 'pack', 'eng/module-consumers/RepositoryLessons/RepositoryLessons.csproj', '-c', 'Release', '-o', str(feed), *props])
+# The knowledge pack (design 0.13 §K6-K7), signed with a developer key made for this run only; the host trusts its public half.
+keys = out / 'keys'; keys.mkdir()
+run('build-cli', ['dotnet', 'build', 'tools/AgentMemory.Cli/AgentMemory.Cli.csproj', '-c', 'Release'])
+cli = str(ROOT / 'tools/AgentMemory.Cli/bin/Release/net10.0/AgentMemory.Cli.dll')
+pack_bundle = ROOT / 'packs/AgentMemory.Packs.MartialArts/agentmemory'
+run('pack-key', ['dotnet', cli, 'packs', 'keygen', '--private', str(keys / 'pack.private.pem'), '--public', str(keys / 'pack.public.pem')])
+try:
+    run('pack-sign', ['dotnet', cli, 'packs', 'sign', str(pack_bundle), '--key', str(keys / 'pack.private.pem')])
+finally:
+    (keys / 'pack.private.pem').unlink(missing_ok=True)
+run('pack-verify', ['dotnet', cli, 'packs', 'verify', str(pack_bundle), '--developer-key', str(keys / 'pack.public.pem')])
+run('pack-repository', ['dotnet', 'pack', 'src/AgentMemory.Packs.Repository/AgentMemory.Packs.Repository.csproj', '-c', 'Release', '-o', str(feed), version_property])
+run('pack-martial-arts', ['dotnet', 'pack', 'packs/AgentMemory.Packs.MartialArts/AgentMemory.Packs.MartialArts.csproj', '-c', 'Release', '-o', str(feed)])
 consumer = ROOT / 'eng/module-consumers/StaticAcceptance/StaticAcceptance.csproj'
 run('build-consumer', ['dotnet', 'build', str(consumer), '-c', 'Release', *props])
 assets = json.loads((consumer.parent / 'obj/project.assets.json').read_bytes())
@@ -98,7 +112,16 @@ for identity in assets['libraries']:
             if (binaries / Path(name).name).read_bytes() != data:
                 raise SystemExit('Consumer DLL differs from its fresh nupkg: ' + name)
             loaded[Path(name).name] = {'package': package_id, 'version': version, 'sha256': sha(data)}
-source = {p.relative_to(ROOT).as_posix(): sha(p.read_bytes()) for p in (ROOT / 'eng/module-consumers').rglob('*')
+# The pack's bundle reached the output byte for byte from its nupkg.
+with zipfile.ZipFile(feed / 'AgentMemory.Packs.MartialArts.1.0.0.nupkg') as nupkg:
+    bundle = {n[len('agentmemory/'):]: nupkg.read(n) for n in nupkg.namelist() if n.startswith('agentmemory/') and not n.endswith('/')}
+copied = binaries / 'agentmemory-packs/io.agentmemory.packs.martialarts'
+on_disk = {p.relative_to(copied).as_posix(): p.read_bytes() for p in copied.rglob('*') if p.is_file()} if copied.is_dir() else {}
+if on_disk != bundle:
+    raise SystemExit('The knowledge pack bundle in the output differs from its nupkg.')
+loaded['agentmemory-packs/io.agentmemory.packs.martialarts'] = {'package': 'AgentMemory.Packs.MartialArts', 'version': '1.0.0',
+                                                                 'files': {k: sha(v) for k, v in sorted(bundle.items())}}
+source = {p.relative_to(ROOT).as_posix(): sha(p.read_bytes()) for p in [*(ROOT / 'eng/module-consumers').rglob('*'), *(ROOT / 'packs').rglob('*')]
           if p.is_file() and 'bin' not in p.parts and 'obj' not in p.parts}
 source['eng/verify-static-acceptance.py'] = sha(Path(__file__).read_bytes())
 report = {'createdAtUtc': datetime.now(timezone.utc).isoformat(),
@@ -111,7 +134,9 @@ report = {'createdAtUtc': datetime.now(timezone.utc).isoformat(),
 if args.build_only:
     print(json.dumps({'status': 'build_only', 'packages': len(report['packages']), 'loadedDlls': len(loaded)}))
     sys.exit(0)
-result = run('acceptance', ['dotnet', str(binaries / 'StaticAcceptance.dll'), '--output', str(out / 'primary')], allow_failure=True)
+os.environ['AGENTMEMORY_PACK_DEVELOPER_KEY'] = str(keys / 'pack.public.pem')
+result = run('acceptance', ['dotnet', str(binaries / 'StaticAcceptance.dll'), '--output', str(out / 'primary'), *(['--live'] if args.live else [])],
+             allow_failure=True)
 receipt = out / 'primary/report.json'
 report['serviceExecuted'] = True
 if receipt.exists():

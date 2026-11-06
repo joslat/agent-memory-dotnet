@@ -1,0 +1,1181 @@
+{
+ "format": "agentmemory.pack.conformance.reasons/1",
+ "reasons": {
+  "missing-file": [
+   "is listed but missing",
+   "the pack does not hold exactly the listed files"
+  ],
+  "relisted-with-old-signature": [
+   "a pack is refused unless a key the host trusts for",
+   "does not sign this pack"
+  ],
+  "key-scoped-elsewhere": [
+   "may not sign for",
+   "no valid signature in role publisher"
+  ],
+  "crlf-record": [
+   "contains a carriage return (LF only)",
+   "a JSON file has a BOM or a carriage return"
+  ],
+  "bom-manifest": [
+   "starts with a byte order mark",
+   "a JSON file has a BOM or a carriage return"
+  ],
+  "json-lone-surrogate-escape": [
+   "has a string with an unpaired surrogate at $.properties.text",
+   "a JSON string has an unpaired surrogate"
+  ],
+  "device-name-path": [
+   "is not a safe pack path",
+   "is not in the profile"
+  ],
+  "unknown-kind": [
+   "knowledge, definition, snapshot, composite, set",
+   "pack.json needs a known kind"
+  ],
+  "unknown-tier": [
+   "pack.json has an unknown tier",
+   "pack.json has an unknown tier"
+  ],
+  "unknown-code-tier": [
+   "pack.json has an unknown code tier",
+   "pack.json has an unknown code"
+  ],
+  "embeddings-header-lies": [
+   "bytes, past its bound or its end",
+   "an embeddings tensor states a header past its bound or its end"
+  ],
+  "embeddings-shape-not-the-rows": [
+   "its rows and dimension",
+   "shape is not its rows and dimension"
+  ],
+  "embeddings-second-tensor": [
+   "header holds exactly one tensor",
+   "header holds exactly one tensor"
+  ],
+  "embeddings-metadata": [
+   "header holds exactly one tensor",
+   "header holds exactly one tensor"
+  ],
+  "embeddings-row-not-a-record": [
+   "the pack holds no record of",
+   "an embeddings index names a row the pack holds no record of"
+  ],
+  "embeddings-nan": [
+   "holds a NaN or infinite value at row",
+   "an embeddings tensor holds a NaN or infinite value"
+  ],
+  "embeddings-trailing-bytes": [
+   "data bytes; its tensor is",
+   "an embeddings tensor holds other than its"
+  ],
+  "embeddings-dtype-not-the-index-s": [
+   "as its index says",
+   "an embeddings tensor is not of its"
+  ],
+  "embeddings-f16-nan": [
+   "holds a NaN or infinite value at row",
+   "an embeddings tensor holds a NaN or infinite value"
+  ],
+  "embeddings-header-past-64-kib": [
+   "bytes, past its bound or its end",
+   "an embeddings tensor states a header past its bound or its end"
+  ],
+  "embeddings-header-leading-space": [
+   "header is a JSON object from its first byte, padded with spaces only",
+   "header is a JSON object from its first byte, padded with spaces only"
+  ],
+  "embeddings-header-trailing-line-feed": [
+   "header is a JSON object from its first byte, padded with spaces only",
+   "header is a JSON object from its first byte, padded with spaces only"
+  ],
+  "embeddings-dimension-zero": [
+   "names a dimension, an integer of",
+   "an embeddings index names a dimension of"
+  ],
+  "embeddings-dimension-past-4096": [
+   "names a dimension, an integer of",
+   "an embeddings index names a dimension of"
+  ],
+  "embeddings-nine-sets": [
+   "A pack carries at most",
+   "a pack carries at most"
+  ],
+  "embeddings-row-of-a-line-without-a-key": [
+   "the pack holds no record of",
+   "an embeddings index names a row the pack holds no record of"
+  ],
+  "embeddings-beside-a-line-nested-too-deep": [
+   "has been exceeded. Cannot read next JSON array",
+   "a JSON file nests deeper than"
+  ],
+  "valid-until-not-rfc3339": [
+   "pack.json has a validUntil that is not an RFC",
+   "pack.json has a validUntil that is not a date and time"
+  ],
+  "source-commit-not-hex": [
+   "pack.json has a source.commit that is not",
+   "pack.json has a source.commit that is not"
+  ],
+  "containable-by-not-an-id": [
+   "pack.json has a malformed",
+   "pack.json has a malformed"
+  ],
+  "knowledge-without-records": [
+   "A knowledge pack holds records under",
+   "a knowledge pack holds records"
+  ],
+  "definition-with-records": [
+   "A definition pack declares only; its records come from the",
+   "a definition pack holds no records"
+  ],
+  "protected-without-seal": [
+   "A pack marked audience must carry",
+   "a protected pack carries"
+  ],
+  "key-expired": [
+   "had expired at the signing time",
+   "the key had expired at the signing time"
+  ],
+  "key-not-yet-valid": [
+   "was not yet valid at the signing time",
+   "no valid signature in role publisher"
+  ],
+  "revocations-stale": [
+   "revocation list expired at",
+   "revocation list has expired"
+  ],
+  "revocations-expired": [
+   "revocation list expired at",
+   "revocation list has expired"
+  ],
+  "revocations-issued-in-the-future": [
+   "The revocation document claims to be issued at",
+   "the revocation document claims to be issued in the future"
+  ],
+  "revocations-by-a-publisher-key": [
+   "The revocation document is not signed by a key the trust policy names as revoker",
+   "the revocation document is not signed by a key the trust policy names as revoker"
+  ],
+  "revocations-tampered": [
+   "The revocation document is not signed by a key the trust policy names as revoker",
+   "the revocation document is not signed by a key the trust policy names as revoker"
+  ],
+  "revocations-negative-integer": [
+   "The revocation document is not signed by a key the trust policy names as revoker",
+   "the revocation document is not signed by a key the trust policy names as revoker"
+  ],
+  "revocations-non-live-list-revoking-a-live-revoker": [
+   "which has not expired; a live revoker must carry that revocation forward before this host can apply these lists. Never fall back to verifying without the lists",
+   "a revocation document without a live signer revokes a revoker that has not expired; a live revoker must carry it forward"
+  ],
+  "policy-with-a-revoker-that-also-publishes": [
+   "is a revoker and also signs packs; a revoker key holds that role alone",
+   "a revoker key holds that role alone"
+  ],
+  "run-rotated-revoker-not-carried-forward": [
+   "which has not expired; a live revoker must carry that revocation forward before this host can apply these lists. Never fall back to verifying without the lists",
+   "a revocation document without a live signer revokes a revoker that has not expired; a live revoker must carry it forward"
+  ],
+  "run-revoked-revoker-revoking-itself-to-dodge": [
+   "which has not expired; a live revoker must carry that revocation forward before this host can apply these lists. Never fall back to verifying without the lists",
+   "a revocation document without a live signer revokes a revoker that has not expired; a live revoker must carry it forward"
+  ],
+  "run-two-revokers-in-a-circle": [
+   "The revocation document set given in this run revokes its own signers in a circle; give only the lists of the revokers you still trust",
+   "the revocation documents of this run revoke their own signers in a circle"
+  ],
+  "run-non-live-list-revoking-a-successor-not-yet-valid": [
+   "which has not expired; a live revoker must carry that revocation forward before this host can apply these lists. Never fall back to verifying without the lists",
+   "a revocation document without a live signer revokes a revoker that has not expired; a live revoker must carry it forward"
+  ],
+  "files-entry-extra-field": [
+   "has a malformed entry",
+   "has a malformed entry"
+  ],
+  "files-entry-length-true": [
+   "has a malformed entry",
+   "has a malformed entry"
+  ],
+  "signature-outside-the-alphabet": [
+   "a pack is refused unless a key the host trusts for",
+   "has a signature entry that is not a key id and a signature"
+  ],
+  "payload-base64-with-a-line-break": [
+   "a pack is refused unless a key the host trusts for",
+   "has a payload that is not"
+  ],
+  "second-signature-entry-not-base64": [
+   "a pack is refused unless a key the host trusts for",
+   "has a signature entry that is not a key id and a signature"
+  ],
+  "second-signature-entry-without-sig": [
+   "a pack is refused unless a key the host trusts for",
+   "has a signature entry that is not a key id and a signature"
+  ],
+  "signed-at-without-leading-zero": [
+   "a pack is refused unless a key the host trusts for",
+   "does not sign this pack"
+  ],
+  "signed-at-lowercase": [
+   "a pack is refused unless a key the host trusts for",
+   "does not sign this pack"
+  ],
+  "valid-until-offset-beyond-14-hours": [
+   "pack.json has a validUntil that is not an RFC",
+   "pack.json has a validUntil that is not a date and time"
+  ],
+  "valid-until-as-a-number": [
+   "that is not a string",
+   "that is not a string"
+  ],
+  "protection-null": [
+   "that is not a string",
+   "that is not a string"
+  ],
+  "code-as-a-list": [
+   "that is not a string",
+   "that is not a string"
+  ],
+  "sdk-as-a-number": [
+   "that is not a string",
+   "that is not a string"
+  ],
+  "display-as-a-string": [
+   "that is not an object",
+   "that is not an object"
+  ],
+  "display-title-bidi-override": [
+   "pack.json has a display.title that is not display-safe text of",
+   "pack.json has a display.title that is not display-safe text of"
+  ],
+  "display-title-two-lines": [
+   "pack.json has a display.title that is not display-safe text of",
+   "pack.json has a display.title that is not display-safe text of"
+  ],
+  "display-title-61-characters": [
+   "pack.json has a display.title that is not display-safe text of",
+   "pack.json has a display.title that is not display-safe text of"
+  ],
+  "display-description-soft-hyphen": [
+   "pack.json has a display.description that is not display-safe text of",
+   "pack.json has a display.description that is not display-safe text of"
+  ],
+  "display-title-line-separator": [
+   "pack.json has a display.title that is not display-safe text of",
+   "pack.json has a display.title that is not display-safe text of"
+  ],
+  "display-title-blank": [
+   "pack.json has a display.title that is not display-safe text of",
+   "pack.json has a display.title that is not display-safe text of"
+  ],
+  "number-beyond-double": [
+   "has a number out of range at $.n",
+   "a JSON number is out of range"
+  ],
+  "integer-int64-min": [
+   "has an integer beyond",
+   "a JSON integer is beyond"
+  ],
+  "combining-marks-31-in-a-row": [
+   "combining marks in a row at $.key",
+   "a JSON string has more than"
+  ],
+  "source-201-astral-characters": [
+   "an object of repository, commit and builtAt, each a string of",
+   "pack.json has a malformed"
+  ],
+  "version-with-an-arabic-digit": [
+   "names no valid SemVer version",
+   "names no valid id or version"
+  ],
+  "extra-envelope-of-wrong-types": [
+   "does not carry an in-toto Statement",
+   "does not sign this pack"
+  ],
+  "unsigned-pack-with-no-required-roles": [
+   "requireRoles must name known roles",
+   "requireRoles must name known roles"
+  ],
+  "policy-with-a-null-prefix": [
+   "is a list of strings",
+   "a trusted key names no pack id prefixes"
+  ],
+  "policy-with-a-time-not-rfc3339": [
+   "The trust policy is",
+   "the trust policy has a time that is not an RFC"
+  ],
+  "stream-safe-nfkd-31": [
+   "combining marks in a row at $.key",
+   "a JSON string has more than"
+  ],
+  "stream-safe-expanding-starters": [
+   "combining marks in a row at $.key",
+   "a JSON string has more than"
+  ],
+  "object-key-31-marks": [
+   "combining marks in a row at $",
+   "a JSON string has more than"
+  ],
+  "valid-until-offset-minutes-60": [
+   "pack.json has a validUntil that is not an RFC",
+   "pack.json has a validUntil that is not a date and time"
+  ],
+  "version-prerelease-leading-zero": [
+   "names no valid SemVer version",
+   "names no valid id or version"
+  ],
+  "signature-entry-keyid-a-list": [
+   "a pack is refused unless a key the host trusts for",
+   "has a signature entry that is not a key id and a signature"
+  ],
+  "policy-with-a-null-time": [
+   "The trust policy is",
+   "the trust policy has a time that is not an RFC"
+  ],
+  "policy-with-revocations-expiring-null": [
+   "The trust policy is",
+   "the trust policy has a time that is not an RFC"
+  ],
+  "policy-with-a-null-revoked-key": [
+   "The trust policy is",
+   "the trust policy has a malformed revoked key"
+  ],
+  "policy-prefix-with-two-dots": [
+   "which is not a pack id prefix (lowercase segments such as io.example)",
+   "a trusted key names something that is not a pack id prefix"
+  ],
+  "policy-with-an-rsa-key": [
+   "key in its one form (an uncompressed point, canonical",
+   "key in its one form (an uncompressed point, canonical"
+  ],
+  "policy-with-two-boms": [
+   "The trust policy starts with a byte order mark",
+   "a JSON file has a BOM or a carriage return"
+  ],
+  "policy-misspelt-require-roles": [
+   "The trust policy holds a field the trust policy does not",
+   "the trust policy holds a field the trust policy does not"
+  ],
+  "policy-key-misspelt-not-after": [
+   "A key in the trust policy holds a field the trust policy does not",
+   "a trusted key holds a field the trust policy does not"
+  ],
+  "policy-revoked-misspelt-digests": [
+   "holds a field the trust policy does not",
+   "holds a field the trust policy does not"
+  ],
+  "policy-revoked-key-id-short": [
+   "The revoked key id",
+   "a revoked key id is not"
+  ],
+  "policy-revoked-key-extra-field": [
+   "A revoked key holds a field the trust policy does not",
+   "a revoked key holds a field the trust policy does not"
+  ],
+  "policy-prefix-uppercase": [
+   "which is not a pack id prefix (lowercase segments such as io.example)",
+   "a trusted key names something that is not a pack id prefix"
+  ],
+  "policy-root-extra-field": [
+   "The trust policy holds a field the trust policy does not",
+   "the trust policy holds a field the trust policy does not"
+  ],
+  "policy-with-a-p384-key": [
+   "key in its one form (an uncompressed point, canonical",
+   "key in its one form (an uncompressed point, canonical"
+  ],
+  "version-5000-digits": [
+   "names no valid SemVer version",
+   "names no valid id or version"
+  ],
+  "version-257-characters": [
+   "names no valid SemVer version",
+   "names no valid id or version"
+  ],
+  "seventeen-envelopes": [
+   "signature envelopes; at most",
+   "signature envelopes; at most"
+  ],
+  "signature-integer-without-sign-pad": [
+   "is not strict DER",
+   "no valid signature in role publisher"
+  ],
+  "junk-signature-file": [
+   "is not a DSSE envelope of an in-toto statement",
+   "is not a DSSE envelope of an in-toto statement"
+  ],
+  "integer-beyond-2-53": [
+   "has an integer beyond",
+   "a JSON integer is beyond"
+  ],
+  "nfd-string": [
+   "has a string that is not in NFC at $.key",
+   "a JSON string is not NFC"
+  ],
+  "no-final-line-feed": [
+   "does not end with a line feed",
+   "does not end with a line feed"
+  ],
+  "composite-lock-pins-other": [
+   "pins other members than the composite contains",
+   "pins other members than the composite contains"
+  ],
+  "composite-lock-extra-field": [
+   "format and members, nothing else",
+   "format and members, nothing else"
+  ],
+  "composite-members-differ": [
+   "members.json and pack.json name different members",
+   "members.json and pack.json name different members"
+  ],
+  "composite-lock-id-a-number": [
+   "has a malformed member",
+   "has a malformed member"
+  ],
+  "set-file-outside-member": [
+   "is not inside a member folder",
+   "is not inside a member folder"
+  ],
+  "unknown-field": [
+   "a field this format does not define goes in",
+   "pack.json has an unknown field"
+  ],
+  "critical-extension": [
+   "critical, and this reader does not understand it",
+   "critical, and this verifier does not understand it"
+  ],
+  "critical-names-nothing": [
+   "holds no such extension",
+   "critical, but holds no such extension"
+  ],
+  "federated-host-outside-audience": [
+   "The pack is published for",
+   "the pack is not published for this host"
+  ],
+  "federated-host-names-no-webid": [
+   "The pack is published for named WebIDs, and this host names none of its own (trust policy",
+   "the pack is not published for this host"
+  ],
+  "federated-key-unbound": [
+   "No publisher signature from a key this host bound to",
+   "no publisher signature from a key this host bound to the"
+  ],
+  "federated-key-bound-elsewhere": [
+   "that signed it as publisher is bound to",
+   "a key bound to another WebID signed the pack as publisher"
+  ],
+  "federated-not-critical": [
+   "extension without marking it critical; a host that cannot enforce an audience must refuse the pack, not ignore it",
+   "extension without marking it critical"
+  ],
+  "federated-purpose-301-astral": [
+   "The federation purpose is display-safe text of",
+   "the federation purpose is display-safe text of"
+  ],
+  "federated-purpose-bidi-override": [
+   "The federation purpose is display-safe text of",
+   "the federation purpose is display-safe text of"
+  ],
+  "set-federated-member-not-federated": [
+   "The member io.example.notes of a federated set is not federated",
+   "a member of a federated set is not federated itself"
+  ],
+  "set-federated-member-wider": [
+   "The member io.example.notes is published for a wider audience than its set",
+   "the member is published for a wider audience than its set"
+  ],
+  "set-federated-member-untrusted": [
+   "is not in the trust policy",
+   "no valid signature in role publisher"
+  ],
+  "federated-audience-empty": [
+   "The federation audience is",
+   "the federation audience is"
+  ],
+  "federated-audience-everyone": [
+   "The federation audience is",
+   "the federation audience is"
+  ],
+  "federated-audience-http": [
+   "https and a host (http only for localhost), a path starting with",
+   "the federation audience names something that is not a WebID"
+  ],
+  "federated-audience-turtle-breaker": [
+   "https and a host (http only for localhost), a path starting with",
+   "the federation audience names something that is not a WebID"
+  ],
+  "federated-audience-two-fragments": [
+   "https and a host (http only for localhost), a path starting with",
+   "the federation audience names something that is not a WebID"
+  ],
+  "federated-audience-twice": [
+   "The federation audience names a WebID twice",
+   "the federation audience names a WebID twice"
+  ],
+  "federated-audience-65": [
+   "The federation audience is",
+   "the federation audience is"
+  ],
+  "federated-unknown-field": [
+   "extension has an unknown field",
+   "extension has an unknown field"
+  ],
+  "federated-other-format": [
+   "extension must name format",
+   "extension must name format"
+  ],
+  "federated-no-audience": [
+   "or a list of WebIDs",
+   "extension names no audience"
+  ],
+  "federated-publisher-not-webid": [
+   "https and a host (http only for localhost), a path starting with",
+   "the federation publisher is not a WebID"
+  ],
+  "federated-purpose-301": [
+   "The federation purpose is display-safe text of",
+   "the federation purpose is display-safe text of"
+  ],
+  "policy-federated-host-extra": [
+   "is an object holding only",
+   "is an object holding only"
+  ],
+  "policy-federated-webid-http": [
+   "https and a host (http only for localhost), a path starting with",
+   "webId is not a WebID"
+  ],
+  "policy-federated-revoker-webid": [
+   "is a revoker; a WebID binds publishing keys only",
+   "a revoker key is never bound to a WebID"
+  ],
+  "derivation-not-canonical": [
+   "is not canonical (RFC",
+   "is not canonical (RFC"
+  ],
+  "derivation-extra-field": [
+   "holds other fields than a derivation",
+   "holds other fields than a derivation"
+  ],
+  "derivation-confidence-above-a-million": [
+   "characters, and optionally a licence and a confidenceMicro of",
+   "characters, and optionally a licence and a confidenceMicro of"
+  ],
+  "derivation-confidence-negative": [
+   "characters, and optionally a licence and a confidenceMicro of",
+   "characters, and optionally a licence and a confidenceMicro of"
+  ],
+  "derivation-confidence-a-string": [
+   "characters, and optionally a licence and a confidenceMicro of",
+   "characters, and optionally a licence and a confidenceMicro of"
+  ],
+  "derivation-digest-uppercase": [
+   "characters, and optionally a licence and a confidenceMicro of",
+   "characters, and optionally a licence and a confidenceMicro of"
+  ],
+  "derivation-action-unknown": [
+   "actions are distinct, of consolidate, extract, import, redact, translate",
+   "actions are distinct, of consolidate, extract, import, redact, translate"
+  ],
+  "derivation-action-twice": [
+   "actions are distinct, of consolidate, extract, import, redact, translate",
+   "actions are distinct, of consolidate, extract, import, redact, translate"
+  ],
+  "derivation-tool-without-version": [
+   "names its tool as a name and a version, each",
+   "names its tool as a name and a version, each"
+  ],
+  "derivation-parent-bad-id": [
+   "names its parent as a pack id and the digest of its file list",
+   "names its parent as a pack id and the digest of its file list"
+  ],
+  "derivation-name-with-a-newline": [
+   "characters, and optionally a licence and a confidenceMicro of",
+   "characters, and optionally a licence and a confidenceMicro of"
+  ],
+  "policy-deny-beats-allow": [
+   "usage policy (policy.json) does not let this host read it now",
+   "usage policy (policy.json) does not let this host read it now"
+  ],
+  "policy-read-ended": [
+   "usage policy (policy.json) does not let this host read it now",
+   "usage policy (policy.json) does not let this host read it now"
+  ],
+  "policy-ended-denial-still-denies": [
+   "usage policy (policy.json) does not let this host read it now",
+   "usage policy (policy.json) does not let this host read it now"
+  ],
+  "policy-read-for-another-host": [
+   "usage policy (policy.json) does not let this host read it now",
+   "usage policy (policy.json) does not let this host read it now"
+  ],
+  "policy-read-for-another-named-host": [
+   "usage policy (policy.json) does not let this host read it now",
+   "usage policy (policy.json) does not let this host read it now"
+  ],
+  "policy-not-after-impossible-date": [
+   "notAfter is an instant in UTC to the second",
+   "notAfter is an instant in UTC to the second"
+  ],
+  "policy-read-not-granted": [
+   "usage policy (policy.json) does not let this host read it now",
+   "usage policy (policy.json) does not let this host read it now"
+  ],
+  "policy-unknown-verb": [
+   "allow and deny are distinct verbs, of derive, export, read, redact",
+   "allow and deny are distinct verbs, of derive, export, read, redact"
+  ],
+  "policy-verb-twice": [
+   "allow and deny are distinct verbs, of derive, export, read, redact",
+   "allow and deny are distinct verbs, of derive, export, read, redact"
+  ],
+  "policy-rule-allows-nothing": [
+   "a rule allows or denies at least one verb",
+   "a rule allows or denies at least one verb"
+  ],
+  "policy-not-after-with-an-offset": [
+   "notAfter is an instant in UTC to the second",
+   "notAfter is an instant in UTC to the second"
+  ],
+  "policy-not-after-fraction": [
+   "notAfter is an instant in UTC to the second",
+   "notAfter is an instant in UTC to the second"
+  ],
+  "policy-extra-field": [
+   "policy.json holds other fields than a usage policy",
+   "policy.json holds other fields than a usage policy"
+  ],
+  "policy-rule-extra-field": [
+   "a rule holds an audience, and allow, deny and notAfter only",
+   "a rule holds an audience, and allow, deny and notAfter only"
+  ],
+  "policy-not-canonical": [
+   "policy.json is not canonical (RFC",
+   "policy.json is not canonical (RFC"
+  ],
+  "policy-format-other": [
+   "policy.json must name format",
+   "policy.json must name format"
+  ],
+  "trust-key-confidence-on-an-evaluator": [
+   "signs no pack, so it carries no confidenceMicro",
+   "a trusted key that signs no pack carries no confidenceMicro"
+  ],
+  "derivation-digest-trailing-newline": [
+   "characters, and optionally a licence and a confidenceMicro of",
+   "characters, and optionally a licence and a confidenceMicro of"
+  ],
+  "derivation-parent-digest-trailing-newline": [
+   "names its parent as a pack id and the digest of its file list",
+   "names its parent as a pack id and the digest of its file list"
+  ],
+  "derivation-confidence-a-boolean": [
+   "characters, and optionally a licence and a confidenceMicro of",
+   "characters, and optionally a licence and a confidenceMicro of"
+  ],
+  "derivation-model-empty": [
+   "names its model as an id and, optionally, a version",
+   "names its model as an id and, optionally, a version"
+  ],
+  "derivation-licence-empty": [
+   "characters, and optionally a licence and a confidenceMicro of",
+   "characters, and optionally a licence and a confidenceMicro of"
+  ],
+  "derivation-parameter-a-number": [
+   "parameters is an object of at most",
+   "parameters is an object of at most"
+  ],
+  "card-unknown-field": [
+   "card.json has an unknown field",
+   "card.json holds other fields than a pack card"
+  ],
+  "card-other-format": [
+   "card.json must name format",
+   "card.json must name format"
+  ],
+  "card-terminal-escape": [
+   "characters, without control characters but a line feed or a tab",
+   "card.json names its owner as"
+  ],
+  "card-boundary-repeated": [
+   "is a list of at most",
+   "is a list of at most"
+  ],
+  "card-owner-empty": [
+   "characters, without control characters but a line feed or a tab",
+   "card.json names its owner as"
+  ],
+  "card-owner-blank": [
+   "characters, without control characters but a line feed or a tab",
+   "card.json names its owner as"
+  ],
+  "folders-differ-only-by-case": [
+   "Folders differ only by",
+   "folders differ only by"
+  ],
+  "file-named-like-a-folder": [
+   "is both a file and a folder",
+   "is both a file and a folder"
+  ],
+  "set-inside-a-set": [
+   "a set carries packs, not sets",
+   "a set carries packs, not sets"
+  ],
+  "set-member-with-the-set-id": [
+   "The set io.example.bundle carries a member with its own id",
+   "the set carries a member with its own id"
+  ],
+  "composite-with-records": [
+   "A composite pack holds no records of its own under",
+   "a composite pack holds no records of its own"
+  ],
+  "composite-carries-a-policy": [
+   "A composite pack carries no usage policy",
+   "a composite pack carries no usage policy"
+  ],
+  "set-carries-a-policy": [
+   "A set pack carries no usage policy",
+   "a set pack carries no usage policy"
+  ],
+  "policy-with-a-private-key": [
+   "publicKey must be one PEM",
+   "publicKey is not one PEM"
+  ],
+  "policy-with-two-key-blocks": [
+   "publicKey must be one PEM",
+   "publicKey is not one PEM"
+  ],
+  "policy-key-compressed-point": [
+   "key in its one form (an uncompressed point, canonical",
+   "key in its one form (an uncompressed point, canonical"
+  ],
+  "policy-key-hybrid-point": [
+   "key in its one form (an uncompressed point, canonical",
+   "key in its one form (an uncompressed point, canonical"
+  ],
+  "policy-key-stray-base64-bits": [
+   "key in its one form (an uncompressed point, canonical",
+   "key in its one form (an uncompressed point, canonical"
+  ],
+  "revocations-65-lists": [
+   "documents; give the lists you still rely on",
+   "the revocation documents of this run are more than"
+  ],
+  "revocations-shape-envelope-extra-field": [
+   "The revocation document is not a DSSE envelope of a revocation document (its three fields; each entry a key id and a signature)",
+   "the revocation document is not a DSSE envelope of a revocation document"
+  ],
+  "revocations-shape-entry-extra-key": [
+   "The revocation document is not a DSSE envelope of a revocation document (its three fields; each entry a key id and a signature)",
+   "the revocation document is not a DSSE envelope of a revocation document"
+  ],
+  "revocations-shape-entry-without-sig": [
+   "The revocation document is not a DSSE envelope of a revocation document (its three fields; each entry a key id and a signature)",
+   "the revocation document is not a DSSE envelope of a revocation document"
+  ],
+  "revocations-shape-keyid-uppercase": [
+   "The revocation document is not a DSSE envelope of a revocation document (its three fields; each entry a key id and a signature)",
+   "the revocation document is not a DSSE envelope of a revocation document"
+  ],
+  "envelope-extra-field": [
+   "a pack is refused unless a key the host trusts for",
+   "holds a field a DSSE envelope does not have"
+  ],
+  "statement-extra-field": [
+   "a pack is refused unless a key the host trusts for",
+   "does not sign this pack"
+  ],
+  "predicate-extra-field": [
+   "a pack is refused unless a key the host trusts for",
+   "does not sign this pack"
+  ],
+  "prefix-bytes": [
+   "The archive has bytes between the central directory and the end record",
+   "the central directory is not where the end record says"
+  ],
+  "trailing-bytes": [
+   "The archive does not end with the end-of-central-directory record (a comment or trailing bytes)",
+   "the archive does not end with the end record"
+  ],
+  "archive-comment": [
+   "The archive does not end with the end-of-central-directory record (a comment or trailing bytes)",
+   "the archive does not end with the end record"
+  ],
+  "unsorted-entries": [
+   "is out of order or repeated",
+   "is out of order, repeated or not contiguous"
+  ],
+  "data-descriptor-flag": [
+   "(data descriptors, encryption and options are refused)",
+   "is not in the profile"
+  ],
+  "local-name-differs": [
+   "has a local header that differs from its central-directory entry",
+   "has a local header that differs from the central directory"
+  ],
+  "deflate-trailing-bytes": [
+   "has bytes after the end of its deflate stream",
+   "has bytes after the end of its deflate stream"
+  ],
+  "deflate-without-its-final-block": [
+   "has a deflate stream without its final block",
+   "does not inflate to its declared size"
+  ],
+  "attestation-stray-file": [
+   "holds <stem>.certificate.dsse.json, <stem>.erasure.dsse.json and",
+   "is not an attestation"
+  ],
+  "attestation-run-without-certificate": [
+   "travels without its certificate",
+   "travels without its certificate"
+  ],
+  "attestation-uppercase-stem": [
+   "holds <stem>.certificate.dsse.json, <stem>.erasure.dsse.json and",
+   "is not an attestation"
+  ],
+  "receipt-shape-envelope-extra-field": [
+   "The receipt is not a DSSE envelope of an in-toto statement with",
+   "the receipt is not a DSSE envelope of an in-toto statement with"
+  ],
+  "receipt-shape-entry-extra-key": [
+   "The receipt is not a DSSE envelope of an in-toto statement with",
+   "the receipt is not a DSSE envelope of an in-toto statement with"
+  ],
+  "receipt-shape-entry-without-sig": [
+   "The receipt is not a DSSE envelope of an in-toto statement with",
+   "the receipt is not a DSSE envelope of an in-toto statement with"
+  ],
+  "receipt-shape-keyid-uppercase": [
+   "The receipt is not a DSSE envelope of an in-toto statement with",
+   "the receipt is not a DSSE envelope of an in-toto statement with"
+  ],
+  "receipt-other-location": [
+   "The receipt places the pack at",
+   "the receipt places the pack elsewhere than where it was fetched"
+  ],
+  "receipt-other-bytes": [
+   "The archive fetched is not the archive the receipt names (its",
+   "the archive fetched is not the archive the receipt names"
+  ],
+  "receipt-wider-audience": [
+   "The receipt grants a wider audience than the pack",
+   "the receipt grants a wider audience than the pack allows"
+  ],
+  "receipt-public-placement-of-named-pack": [
+   "The receipt grants a wider audience than the pack",
+   "the receipt grants a wider audience than the pack allows"
+  ],
+  "receipt-host-outside-placement": [
+   "The placement is for",
+   "the placement is not for this host"
+  ],
+  "receipt-named-without-anonymous-refused": [
+   "A receipt for named readers records that anonymous was refused",
+   "a receipt for named readers records that anonymous was refused"
+  ],
+  "receipt-allowed-outside-audience": [
+   "A receipt records a reader outside its audience as allowed",
+   "a receipt records a reader outside its audience as allowed"
+  ],
+  "receipt-audience-member-refused": [
+   "A receipt records a reader in its audience as refused",
+   "a receipt records a reader in its audience as refused"
+  ],
+  "receipt-public-anonymous-refused": [
+   "A public receipt records nobody as refused",
+   "a public receipt records nobody as refused"
+  ],
+  "receipt-public-webid-refused": [
+   "A public receipt records nobody as refused",
+   "a public receipt records nobody as refused"
+  ],
+  "receipt-signer-curator-only": [
+   "may not sign as publisher",
+   "no valid receipt signature by a key bound to the"
+  ],
+  "receipt-signer-expired": [
+   "had expired at the signing time",
+   "no valid receipt signature by a key bound to the"
+  ],
+  "receipt-subject-other-digest": [
+   "The receipt is for",
+   "the receipt is for another pack"
+  ],
+  "receipt-set-member-untrusted": [
+   "is not in the trust policy",
+   "no valid signature in role publisher"
+  ],
+  "receipt-signer-bound-elsewhere": [
+   "that signed the receipt is not bound to the",
+   "no valid receipt signature by a key bound to the"
+  ],
+  "receipt-signer-untrusted": [
+   "that signed the receipt is not in the trust policy",
+   "no valid receipt signature by a key bound to the"
+  ],
+  "receipt-extra-field": [
+   "predicate holds other fields than this format defines",
+   "predicate holds other fields than this format defines"
+  ],
+  "receipt-access-public-with-names": [
+   "access is public exactly when its audience is public",
+   "access is public exactly when its audience is public"
+  ],
+  "receipt-access-unknown": [
+   "access is wac, acp or public",
+   "access is wac, acp or public"
+  ],
+  "receipt-in-the-future": [
+   "claims a time in the future",
+   "no valid receipt signature by a key bound to the"
+  ],
+  "receipt-time-not-utc": [
+   "The receipt has no publishing time in UTC",
+   "the receipt has no publishing time in UTC"
+  ],
+  "receipt-location-fragment": [
+   "location is not an https URL (http only for localhost) in the WebID grammar, without a fragment",
+   "location is not an https URL in the WebID grammar, without a fragment"
+  ],
+  "receipt-two-subjects": [
+   "The receipt must name exactly one",
+   "the receipt must name exactly one"
+  ],
+  "receipt-probe-not-webid": [
+   "each a list of at most",
+   "checked.allowed is a list of at most"
+  ],
+  "receipt-for-unfederated-pack": [
+   "A publication receipt is for a federated pack; this pack names no publisher or audience",
+   "a publication receipt is for a federated pack"
+  ],
+  "aggregate-under-another-id": [
+   "The aggregate is of io.example.other",
+   "the aggregate is of another pack"
+  ],
+  "aggregate-under-another-version": [
+   "The aggregate is of io.example.notes",
+   "the aggregate is of another pack"
+  ],
+  "aggregate-with-a-task-name": [
+   "no task, question, record or path has a place in it",
+   "no task, question, record or path has a place in it"
+  ],
+  "aggregate-check-with-a-path": [
+   "An aggregate check names a known target, its successes, trials and requiredMicro as integers, and met",
+   "an aggregate check names a known target, its successes, trials and requiredMicro as integers, and met"
+  ],
+  "aggregate-trials-above-tasks": [
+   "An aggregate check of a rate over tasks counts no more trials than its tasks",
+   "an aggregate check of a rate over tasks counts no more trials than its tasks"
+  ],
+  "aggregate-successes-above-trials": [
+   "successes are within its trials",
+   "successes are within its trials"
+  ],
+  "aggregate-bound-disagrees-with-met": [
+   "met disagrees with its bound and its requiredMicro",
+   "met disagrees with its bound and its requiredMicro"
+  ],
+  "aggregate-negative-count": [
+   "counts are never negative",
+   "counts are never negative"
+  ],
+  "aggregate-passed-disagrees": [
+   "passed is whether every check was met",
+   "passed is whether every check was met"
+  ],
+  "aggregate-of-another-pack": [
+   "file list, by the digest its predicate names",
+   "file list, by the digest its predicate names"
+  ],
+  "aggregate-by-a-publisher-key": [
+   "may not sign as evaluator",
+   "the aggregate carries no signature by a key this host trusts as evaluator for the pack"
+  ],
+  "certificate-shape-envelope-extra-field": [
+   "The certificate is not a DSSE envelope of an in-toto statement with",
+   "the certificate is not a DSSE envelope of an in-toto statement with"
+  ],
+  "certificate-shape-entry-extra-key": [
+   "The certificate is not a DSSE envelope of an in-toto statement with",
+   "the certificate is not a DSSE envelope of an in-toto statement with"
+  ],
+  "certificate-shape-entry-without-sig": [
+   "The certificate is not a DSSE envelope of an in-toto statement with",
+   "the certificate is not a DSSE envelope of an in-toto statement with"
+  ],
+  "certificate-shape-keyid-uppercase": [
+   "The certificate is not a DSSE envelope of an in-toto statement with",
+   "the certificate is not a DSSE envelope of an in-toto statement with"
+  ],
+  "certificate-aef-run-tampered": [
+   "The AEF run beside the certificate is not the run it names (its run hash differs)",
+   "the AEF run beside the certificate is not the run it names"
+  ],
+  "certificate-aef-run-not-named": [
+   "An AEF run travels with the certificate, but the certificate names none",
+   "an AEF run travels with the certificate, but the certificate names none"
+  ],
+  "certificate-aef-run-json-outside-profile": [
+   "The AEF run beside the certificate is the evidence of another",
+   "the AEF run beside the certificate is the evidence of another decision"
+  ],
+  "certificate-aef-run-of-another-pack": [
+   "The AEF run beside the certificate is the evidence of another",
+   "the AEF run beside the certificate is the evidence of another decision"
+  ],
+  "certificate-aef-run-other-id": [
+   "The AEF run beside the certificate is",
+   "the AEF run beside the certificate has another run id"
+  ],
+  "certificate-key-not-trusted": [
+   "that signed the certificate is not in the trust policy",
+   "no valid certificate signature by a key this host trusts as evaluator for the pack"
+  ],
+  "certificate-key-other-prefix": [
+   "may not sign for",
+   "no valid certificate signature by a key this host trusts as evaluator for the pack"
+  ],
+  "certificate-key-expired": [
+   "had expired at the signing time",
+   "no valid certificate signature by a key this host trusts as evaluator for the pack"
+  ],
+  "certificate-key-assurer-not-evaluator": [
+   "may not sign as evaluator",
+   "no valid certificate signature by a key this host trusts as evaluator for the pack"
+  ],
+  "certificate-set-member-untrusted": [
+   "is not in the trust policy",
+   "no valid signature in role publisher"
+  ],
+  "certificate-path-of-a-run-file": [
+   "The pack carries no",
+   "the pack carries no"
+  ],
+  "certificate-policy-evaluator-also-publisher": [
+   "is an evaluator and also signs packs; an evaluator key holds that role alone",
+   "an evaluator key holds that role alone"
+  ],
+  "certificate-by-the-publisher": [
+   "may not sign as evaluator",
+   "no valid certificate signature by a key this host trusts as evaluator for the pack"
+  ],
+  "certificate-in-the-future": [
+   "claims a time in the future",
+   "no valid certificate signature by a key this host trusts as evaluator for the pack"
+  ],
+  "certificate-for-another-pack": [
+   "The certificate is for",
+   "the certificate is for another pack"
+  ],
+  "certificate-other-version": [
+   "The certificate names io.example.notes",
+   "the certificate names another pack id or version"
+  ],
+  "certificate-two-subjects": [
+   "The certificate must name exactly one",
+   "the certificate must name exactly one"
+  ],
+  "certificate-passed-with-a-missed-check": [
+   "The certificate says the pack passed, but a check failed or fewer than",
+   "verdict disagrees with its checks"
+  ],
+  "certificate-passed-on-nine-tasks": [
+   "The certificate says the pack passed, but a check failed or fewer than",
+   "verdict disagrees with its checks"
+  ],
+  "certificate-host-baseline-without-arm": [
+   "A certificate measured against the",
+   "a certificate measured against the"
+  ],
+  "certificate-without-statistic": [
+   "The certificate names the statistic its checks were computed with (one line of",
+   "the certificate names the statistic its checks were computed with"
+  ],
+  "certificate-fraction-not-integer": [
+   "A certificate check names a known target, requiredMicro and observedMicro as integers, and met",
+   "a certificate check names a known target, requiredMicro and observedMicro as integers, and met"
+  ],
+  "certificate-extra-field": [
+   "predicate holds other fields than this format defines",
+   "predicate holds other fields than this format defines"
+  ],
+  "certificate-cost-met-below-its-target": [
+   "savingBytes check says met, but its bound is below its target",
+   "met disagrees with its bound and target"
+  ],
+  "certificate-cost-unmet-at-its-target": [
+   "savingRatio check says not met, but its bound is at or above its target",
+   "met disagrees with its bound and target"
+  ],
+  "certificate-cost-without-bytes": [
+   "A cost check needs both arms and each",
+   "a cost check needs both arms and each"
+  ],
+  "certificate-bytes-from-an-arm-offering-nothing": [
+   "An arm that offers nothing records no bytes",
+   "an arm that offers nothing records no bytes"
+  ],
+  "certificate-bytes-on-some-tasks": [
+   "The certificate records the bytes of some tasks and not",
+   "the certificate records the bytes of some tasks and not others"
+  ],
+  "certificate-unknown-target": [
+   "A certificate check names a known target, requiredMicro and observedMicro as integers, and met",
+   "a certificate check names a known target, requiredMicro and observedMicro as integers, and met"
+  ],
+  "certificate-checks-no-harm": [
+   "A certificate check names a known target, requiredMicro and observedMicro as integers, and met",
+   "a certificate check names a known target, requiredMicro and observedMicro as integers, and met"
+  ],
+  "certificate-evaluator-two-lines": [
+   "The certificate names its evaluator as one line of",
+   "the certificate names its evaluator as one line of"
+  ],
+  "erasure-by-an-evaluator": [
+   "may not sign as publisher",
+   "the erasure carries no signature by a key this host trusts as publisher or revoker for the pack"
+  ],
+  "erasure-by-a-stranger": [
+   "that signed the erasure is not in the trust policy",
+   "the erasure carries no signature by a key this host trusts as publisher or revoker for the pack"
+  ],
+  "erasure-for-another-pack": [
+   "The erasure is for io.example.other, not io.example.notes",
+   "the erasure is for another pack"
+  ],
+  "erasure-key-and-hash": [
+   "An erased record is its type and exactly one of key and keyHash",
+   "an erased record is its type and exactly one of key and keyHash"
+  ],
+  "erasure-reason-unknown": [
+   "reason is harmful, incorrect, legal, withdrawn",
+   "reason is one the registry names"
+  ],
+  "erasure-extra-field": [
+   "predicate holds exactly id, issuedAt, reason, salt and records",
+   "predicate holds exactly id, issuedAt, reason, salt and records"
+  ],
+  "erasure-record-twice": [
+   "The erasure names one record twice",
+   "the erasure names one record twice"
+  ],
+  "erasure-issued-with-an-offset": [
+   "issuedAt is an instant in UTC to the second",
+   "issuedAt is an instant in UTC to the second"
+  ],
+  "erasure-issued-in-other-digits": [
+   "issuedAt is an instant in UTC to the second",
+   "issuedAt is an instant in UTC to the second"
+  ],
+  "erasure-key-null-beside-a-hash": [
+   "An erased record is its type and exactly one of key and keyHash",
+   "an erased record is its type and exactly one of key and keyHash"
+  ],
+  "erasure-reason-a-list": [
+   "reason is harmful, incorrect, legal, withdrawn",
+   "reason is one the registry names"
+  ]
+ }
+}

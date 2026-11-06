@@ -1,4 +1,5 @@
-﻿using System.Diagnostics.CodeAnalysis;
+﻿// SPDX-License-Identifier: Apache-2.0
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using AgentMemory.AgentFramework;
 using AgentMemory.AgentFramework.Security;
@@ -35,9 +36,14 @@ namespace AgentMemory.Extensibility.AgentFramework;
 /// correlation the base does with itself is untouched, and no second key describes a participant that
 /// does not exist.
 /// </para>
+/// <para>
+/// <b>Not sealed, for hosts that observe the hooks</b> (Extensibility 0.13 §D): a desktop host, for example, derives from this class,
+/// as it derived from the shipped provider, and calls <c>base</c> for all behaviour. A subclass must thread every constructor
+/// dependency through, for the same reason this class does.
+/// </para>
 /// </remarks>
 [Experimental("AMEXT001")]
-public sealed partial class ExtensibleMemoryContextProvider : Neo4jMemoryContextProvider
+public partial class ExtensibleMemoryContextProvider : Neo4jMemoryContextProvider
 {
     private readonly IContextCompiler _compiler;
     private readonly ILogger<ExtensibleMemoryContextProvider> _logger;
@@ -169,7 +175,8 @@ public sealed partial class ExtensibleMemoryContextProvider : Neo4jMemoryContext
         // The CORE contributor is not a module. It exists for hosts that compile context instead of
         // inheriting it; if its presence flipped this provider into compile-and-append, core memory
         // would be rendered twice -- once by the base, once by the compiler.
-        _hasModuleContributors = moduleContributors.Any(c => !string.Equals(
+        // A switched-off module's slot is not a contributor either (review 2): with only those, core would render twice.
+        _hasModuleContributors = moduleContributors.Any(c => c is not Modules.SwitchedOffContributor && !string.Equals(
             c.Descriptor.Id, CoreMemoryContextContributor.ContributorId, StringComparison.Ordinal));
     }
 
@@ -245,7 +252,7 @@ public sealed partial class ExtensibleMemoryContextProvider : Neo4jMemoryContext
     }
 
     private async Task<ContextEnvelope?> CompileModulesAsync(
-        InvokingContext context, CancellationToken cancellationToken)
+        InvokingContext context, CancellationToken cancellationToken, Task<IReadOnlyList<string>>? coreCandidates = null)
     {
         try
         {
@@ -280,6 +287,9 @@ public sealed partial class ExtensibleMemoryContextProvider : Neo4jMemoryContext
                 Query = QuestionOf(turn),
                 SystemAsOf = times.SystemAsOf,
                 AsOf = times.AsOf,
+                CoreCandidates = coreCandidates,
+                // CMP-1: the files and symbols of the work in hand, when the host opened a ContextAnchors scope.
+                Anchors = ContextAnchors.Current,
             };
 
             // CORE IS EXCLUDED BECAUSE IT WAS ALREADY RENDERED, by `base` at the top of the turn.
@@ -319,7 +329,8 @@ public sealed partial class ExtensibleMemoryContextProvider : Neo4jMemoryContext
             if (string.Equals(section.TypeId, CoreMemoryContextContributor.SectionType, StringComparison.Ordinal))
                 continue;
 
-            var block = RenderAdmittedBlock(section.TypeId, section.Items.Select(item => item.Text));
+            // Every module item is framed with its source (feature 04, R-HOST-053): the model reads it as quoted data.
+            var block = RenderAdmittedRecords(section.TypeId, section.Items.Select(item => (item.Text, (IReadOnlyList<KeyValuePair<string, string>>?)ContextFrames.Of(section.Binding, item.Provenance))));
             if (block.Length == 0) continue;
             if (builder.Length > 0) builder.AppendLine().AppendLine();
             builder.Append(block);

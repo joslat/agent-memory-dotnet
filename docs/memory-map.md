@@ -1170,8 +1170,9 @@ with the rules for citing them.
 84.0–90.0%** across two accepted runs of the same configuration — bands, not points: structured moved
 14 points between accepted runs, so any single-number claim is unsupported
 ([`longmemeval-results.md`](performance/longmemeval-results.md)). The controls bound it: no-memory **0%**
-(0/19 over two runs), full history **80–100%** at **122,605 tokens/question** against structured's
-403 — the full-history band reached at 1/304th of the context. Raw scored 90.0%, but on one run, a
+(0/19 over two runs), full history **80–100%** at about **122,000 tokens/question** (another sample) against
+structured's 403 — the full-history band reached at about 1/300th of the answer prompt (both estimated as
+characters ÷ 4; corrected 6 November 2026 from "122,605" and "1/304th"). Raw scored 90.0%, but on one run, a
 different corpus, and a harness-rejected attribution check, so it carries an asterisk.
 
 **Per type, on the most recent accepted run:** semantic **25/25 (100%)** structured; temporal

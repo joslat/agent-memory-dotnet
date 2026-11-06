@@ -1,3 +1,5 @@
+using AgentMemory.Abstractions.Domain;
+
 namespace AgentMemory.McpServer;
 
 /// <summary>
@@ -71,4 +73,25 @@ public sealed class AgentMemoryMcpOptions
     /// </para>
     /// </remarks>
     public bool ReadOnly { get; set; }
+
+    /// <summary>
+    /// How the recall tools treat recalled text that reads like an instruction (#92, the MCP surface).
+    /// <see cref="McpRecallSecurityMode.Permissive"/> (the default, as in the Agent Framework and Semantic
+    /// Kernel adapters) returns it, flagged <c>instructionLike</c>; <see cref="McpRecallSecurityMode.Strict"/>
+    /// withholds its text unless the item meets <see cref="MinimumTrustForAdmissionBypass"/>.
+    /// </summary>
+    /// <remarks>
+    /// Either way every recalled item carries its <c>trustLevel</c>, its text has every angle bracket escaped so
+    /// it cannot forge or close a tag in the client's own prompt framing, and each result says that recalled
+    /// text is untrusted reference data. A withheld item keeps its id and flags and loses only its text, so a
+    /// result's item count still matches what it returns.
+    /// </remarks>
+    public McpRecallSecurityMode RecallSecurityMode { get; set; } = McpRecallSecurityMode.Permissive;
+
+    /// <summary>
+    /// The trust level (#92 Phase 3) at which recalled text skips the instruction-like check entirely.
+    /// Defaults to <see cref="MemoryTrustLevel.ApplicationTrusted"/>, the highest, so nothing bypasses unless
+    /// a host both stamps an item that trusted and keeps this threshold.
+    /// </summary>
+    public MemoryTrustLevel MinimumTrustForAdmissionBypass { get; set; } = MemoryTrustLevel.ApplicationTrusted;
 }

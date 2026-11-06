@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 using System.Text;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.AgentFramework;
@@ -7,7 +8,7 @@ using Microsoft.Extensions.Logging;
 
 namespace AgentMemory.Extensibility.AgentFramework;
 
-public sealed partial class ExtensibleMemoryContextProvider
+public partial class ExtensibleMemoryContextProvider
 {
     private sealed record PreparedSelection(ContextEnvelope Envelope, ModuleSelectionTurn Turn);
 
@@ -24,7 +25,7 @@ public sealed partial class ExtensibleMemoryContextProvider
         // ORDER MATTERS. The base call runs its synchronous start first (it gives the turn's user messages their
         // provider ids); only then do module views read the same messages.
         var core = base.ProvideAIContextAsync(context, companions, cancellationToken).AsTask();
-        var preparation = PrepareModulesAsync(context, renderer, cancellationToken);
+        var preparation = PrepareModulesAsync(context, renderer, companions.CoreCandidates, cancellationToken);
         _ = preparation.ContinueWith(t => pending.TrySetResult(
                 t.Status == TaskStatus.RanToCompletion && t.Result is { } prepared ? prepared.Turn.Companions : []),
             CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
@@ -67,9 +68,9 @@ public sealed partial class ExtensibleMemoryContextProvider
 
     /// <summary>Compiles the module views and prepares their candidates; null when there is nothing to add.</summary>
     private async Task<PreparedSelection?> PrepareModulesAsync(InvokingContext context, SelectionRenderer renderer,
-        CancellationToken cancellationToken)
+        Task<IReadOnlyList<string>> coreCandidates, CancellationToken cancellationToken)
     {
-        var envelope = await CompileModulesAsync(context, cancellationToken).ConfigureAwait(false);
+        var envelope = await CompileModulesAsync(context, cancellationToken, coreCandidates).ConfigureAwait(false);
         if (envelope is null) return null;
         try
         {
@@ -92,7 +93,8 @@ public sealed partial class ExtensibleMemoryContextProvider
 
         public bool Admit(ModuleContextCandidate candidate)
         {
-            var item = provider.AdmitMemoryItem(candidate.Binding.SectionType, candidate.Text);
+            // Framed as the sections path frames it (feature 04 review, H1): one function decides every module item's frame.
+            var item = provider.AdmitFramedMemoryItem(candidate.Binding.SectionType, candidate.Text, ContextFrames.Of(candidate.Binding, candidate.Provenance));
             if (item is null) return false;
             _admitted.Add(candidate, item);
             return true;

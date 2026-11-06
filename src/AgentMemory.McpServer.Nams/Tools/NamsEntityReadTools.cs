@@ -17,7 +17,7 @@ internal sealed class NamsEntityReadTools
     [McpServerTool(Name = "nams_entity_graph"),
      Description("Get the full workspace entity graph: every extracted entity and the relationships between " +
                   "them. Workspace-wide, not scoped to a single conversation -- matches how NAMS's own " +
-                  "entity search/list operations are already workspace-scoped.")]
+                  "entity search/list operations are already workspace-scoped." + NamsUntrustedContentGuard.DescriptionSuffix)]
     public static async Task<string> NamsEntityGraph(
         INamsClient client,
         CancellationToken cancellationToken = default)
@@ -25,7 +25,18 @@ internal sealed class NamsEntityReadTools
         var graph = await client.GetEntityGraphAsync(cancellationToken).ConfigureAwait(false);
         return NamsMcpToolJson.Serialize(new
         {
-            nodes = graph.Nodes.Select(n => new { n.Id, n.Name, n.Type, n.Description, n.Confidence }),
+            untrustedContent = NamsUntrustedContentGuard.Notice,
+            nodes = graph.Nodes.Select(n => new
+            {
+                n.Id,
+                Name = NamsUntrustedContentGuard.Escape(n.Name),
+                Type = NamsUntrustedContentGuard.Escape(n.Type),
+                Description = NamsUntrustedContentGuard.Escape(n.Description),
+                n.Confidence,
+                instructionLike = NamsUntrustedContentGuard.IsInstructionLike(n.Name)
+                    || NamsUntrustedContentGuard.IsInstructionLike(n.Type)
+                    || NamsUntrustedContentGuard.IsInstructionLike(n.Description),
+            }),
             edges = graph.Edges.Select(e => new { e.Id, e.SourceId, e.TargetId, e.Type, e.Confidence })
         });
     }
@@ -35,7 +46,7 @@ internal sealed class NamsEntityReadTools
                   "Message node), which is why nodes here carry generic labels rather than fixed entity " +
                   "fields; properties are omitted for any node labeled \"Message\", \"Observation\", or " +
                   "\"Reflection\" since those can carry raw, unvetted conversation content that must not flow " +
-                  "back to a model unescaped.")]
+                  "back to a model unescaped." + NamsUntrustedContentGuard.DescriptionSuffix)]
     public static async Task<string> NamsExpandGraph(
         INamsClient client,
         [Description("The node id to expand from.")] string nodeId,
@@ -68,11 +79,15 @@ internal sealed class NamsEntityReadTools
         var messageLikeLabels = new[] { "Message", "Observation", "Reflection" };
         return NamsMcpToolJson.Serialize(new
         {
+            untrustedContent = NamsUntrustedContentGuard.Notice,
             nodes = expansion.Nodes.Select(n => new
             {
                 n.Id,
                 n.Labels,
-                properties = n.Labels.Any(messageLikeLabels.Contains) ? null : n.Properties
+                // Every string value is recalled text, nested ones included: escaped like every other (#92). A node
+                // without properties stays without them (null), as before.
+                properties = n.Labels.Any(messageLikeLabels.Contains) ? null : NamsUntrustedContentGuard.EscapeProperties(n.Properties),
+                instructionLike = !n.Labels.Any(messageLikeLabels.Contains) && NamsUntrustedContentGuard.IsInstructionLike(n.Properties),
             }),
             edges = expansion.Edges.Select(e => new { e.Id, e.SourceId, e.TargetId, e.Type, e.Confidence }),
             truncated = expansion.Truncated is null

@@ -269,6 +269,11 @@ public partial class Neo4jMemoryContextProvider : AIContextProvider
             MemoryTelemetry.RecordException(hook, ex);
             throw;
         }
+        finally
+        {
+            // Recall skipped, failed or done: a companion search waiting for core's candidates never waits past this turn's core.
+            companions?.Request.OfferCoreCandidates([]);
+        }
     }
 
     /// <summary>

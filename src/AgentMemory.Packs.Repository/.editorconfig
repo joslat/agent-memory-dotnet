@@ -1,0 +1,7 @@
+# Apache-2.0 project (README, "Licensing"): every C# file starts with the SPDX header. IDE0073 reports a missing header; the
+# project file sets EnforceCodeStyleInBuild, so with TreatWarningsAsErrors the build fails on it. The repository-wide guard is
+# tests/AgentMemory.Tests.Unit.Extensibility/LicensingGuardTests.cs.
+
+[*.cs]
+file_header_template = SPDX-License-Identifier: Apache-2.0
+dotnet_diagnostic.IDE0073.severity = warning

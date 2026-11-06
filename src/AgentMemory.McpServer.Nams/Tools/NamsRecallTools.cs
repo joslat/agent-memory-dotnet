@@ -14,7 +14,7 @@ internal sealed class NamsRecallTools
 {
     [McpServerTool(Name = "nams_recall"),
      Description("Recall NAMS-hosted memory (reflections, observations, recent messages, and entities) for " +
-                  "a specific, already-resolved NAMS conversation.")]
+                  "a specific, already-resolved NAMS conversation." + NamsUntrustedContentGuard.DescriptionSuffix)]
     public static async Task<string> NamsRecall(
         INamsRecallService recallService,
         [Description("The resolved NAMS conversation ID (from INamsConversationResolver) -- an opaque " +
@@ -32,14 +32,17 @@ internal sealed class NamsRecallTools
             return NamsMcpToolJson.Serialize(new { error = "namsConversationId is required." });
 
         var result = await recallService.RecallAsync(namsConversationId, queryText, cancellationToken).ConfigureAwait(false);
+        // Recalled content is untrusted (NamsRecalledItem's own SECURITY note): escaped and flagged (#92).
         return NamsMcpToolJson.Serialize(new
         {
+            untrustedContent = NamsUntrustedContentGuard.Notice,
             isPartial = result.IsPartial,
             items = result.Items.Select(i => new
             {
                 i.SourceId,
                 category = i.Category.ToString(),
-                i.Content,
+                content = NamsUntrustedContentGuard.Escape(i.Content),
+                instructionLike = NamsUntrustedContentGuard.IsInstructionLike(i.Content),
                 provenance = i.Provenance.ToString(),
                 i.Role,
                 i.CreatedAt

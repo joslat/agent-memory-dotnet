@@ -7,8 +7,10 @@ internal static class CodingToolDefinitions
 {
     public static readonly Tool[] All =
     [
-        Define("recall", "Recall relevant memory for this project and session.",
-            ("session", Text(256), true), ("query", Text(8000), true)),
+        Define("recall", "Recall relevant memory for this project and session. Pass the files or symbols in hand as anchors to also get what governs them.",
+            ("session", Text(256), true), ("query", Text(8000), true), ("anchors", Anchors(), false)),
+        Define("governs", "Before changing code: the decisions, tests and lessons that govern these files or symbols, from the memory packs that declare traversal.",
+            ("session", Text(256), true), ("anchors", Anchors(), true)),
         Define("remember", "Queue one bounded user turn or deliberate digest with source provenance. Acceptance is not completion; check write_status.",
             ("session", Text(256), true), ("turnId", Text(256), true), ("userText", Text(8000), true),
             ("assistantText", Text(8000), false), ("commit", Text(64), true), ("source", Text(512), true)),
@@ -53,15 +55,40 @@ internal static class CodingToolDefinitions
                 },
             }, true)),
     ];
-    public static IReadOnlyList<Tool> For(bool durable, bool diagnostics = false, bool evidence = false)
+    // CMP-9: onboarding proposals, each with the lines it read, for a person to accept, edit or reject.
+    private static readonly Tool[] Review =
+    [
+        Define("review_list", "List onboarding proposals for the decisions, architecture or intent pack: each proposed record with the lines it cites, the proposer's confidence and its state. Proposals are not memory until accepted.",
+            ("pack", new { type = "string", @enum = new[] { "decisions", "architecture", "intent" } }, false),
+            ("state", new { type = "string", @enum = new[] { "pending", "accepted", "edited", "rejected" } }, false)),
+        Define("review_decide", "Accept or reject onboarding proposals by key (Type:key). Accepting with edit changes properties first (null removes one). Record only a person's decision here; the pack's next import adds what is accepted.",
+            ("pack", new { type = "string", @enum = new[] { "decisions", "architecture", "intent" } }, true),
+            ("keys", new { type = "array", minItems = 1, maxItems = 50, items = Text(260) }, true),
+            ("decision", new { type = "string", @enum = new[] { "accept", "reject" } }, true),
+            ("edit", new { type = "object", maxProperties = 16 }, false), ("note", Text(500), false)),
+    ];
+
+    public static IReadOnlyList<Tool> For(bool durable, bool diagnostics = false, bool evidence = false, bool review = false)
     {
         IReadOnlyList<Tool> result = durable ? Durable : All;
         if (diagnostics) result = [.. result, .. Diagnostics];
         if (evidence) result = [.. result, .. Evidence];
+        if (review) result = [.. result, .. Review];
         return result;
     }
 
     private static object Text(int maximum) => new { type = "string", minLength = 1, maxLength = maximum };
+
+    // CMP-1: what the work in hand is about; repository-relative paths with forward slashes, or symbol names / SCIP identities.
+    private static object Anchors() => new
+    {
+        type = "array", minItems = 1, maxItems = CodingAnchors.Maximum,
+        items = new
+        {
+            type = "object", additionalProperties = false, required = new[] { "kind", "value" },
+            properties = new { kind = new { type = "string", @enum = new[] { "path", "symbol" } }, value = Text(CodingAnchors.MaximumLength) },
+        },
+    };
 
     private static Tool Define(string name, string description, params (string Name, object Schema, bool Required)[] fields) => new()
     {

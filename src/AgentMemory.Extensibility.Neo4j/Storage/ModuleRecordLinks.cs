@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 using System.Diagnostics.CodeAnalysis;
 using AgentMemory.Extensibility.Ingestion;
 using AgentMemory.Extensibility.Modules;
@@ -12,21 +13,33 @@ internal sealed record ResolvedModuleLink(string Relation, string TargetId, stri
 [Experimental("AMEXT001")]
 internal sealed class ModuleRecordLinks(ModuleResolution resolution)
 {
-    internal async Task<(IReadOnlyList<ResolvedModuleLink> Links, bool Changed)> ResolveAsync(IAsyncQueryRunner runner,
-        ModuleManifest module, ModuleProposal proposal, string? previousId, string? owner, CancellationToken cancellationToken)
+    // exact: the proposal's links are all of the record's links (a knowledge pack or a snapshot holds every record whole), so a
+    // link the last version had and the proposal does not is dropped. Otherwise a proposal adds to the links its record already
+    // has, as a turn's writer does. In exact mode a link into a dependency's records whose target is not in the store is left
+    // out and counted (CODING-hierarchy: a work item names every file its commits changed; the code map holds the source files);
+    // a turn's write still refuses it.
+    internal async Task<(IReadOnlyList<ResolvedModuleLink> Links, bool Changed, int LeftOut)> ResolveAsync(IAsyncQueryRunner runner,
+        ModuleManifest module, ModuleProposal proposal, string? previousId, string? owner, CancellationToken cancellationToken, bool exact = false)
     {
         var relations = module.Ontology!.Relations.Where(r => r.From == proposal.Type).ToDictionary(r => r.Name, StringComparer.Ordinal);
         var original = previousId is null ? [] : await RowsAsync(runner, ModuleRecordQueries.Links(proposal.Type),
             new { id = previousId, relations = relations.Keys.ToArray() }, cancellationToken).ConfigureAwait(false);
-        var originalKeys = original.Select(r => (r["relation"].As<string>(), r["target"].As<string>())).ToHashSet();
+        // A link is the same link while it reaches the same live target: a target that only gained a version is not a change
+        // to this record (CMP-2a: a code map commit would otherwise re-version every test of a changed type). A target that
+        // closed, or a link added or dropped, still is.
+        var reached = new HashSet<(string, string)>();
+        var unreachable = 0;
+        var leftOut = 0;
         var final = new Dictionary<(string, string), ResolvedModuleLink>();
         foreach (var row in original)
         {
             var relation = relations[row["relation"].As<string>()];
-            if (relation.Max == 1 && proposal.Links.Any(l => l.Relation == relation.Name)) continue;
             var label = TargetLabel(module, relation);
             var id = await FollowAsync(runner, label, row["target"].As<string>(), owner, cancellationToken).ConfigureAwait(false);
-            if (id is not null) final[(relation.Name, id)] = new(relation.Name, id, label);
+            if (id is null) { unreachable++; continue; }
+            reached.Add((relation.Name, id));
+            if (exact || relation.Max == 1 && proposal.Links.Any(l => l.Relation == relation.Name)) continue;
+            final[(relation.Name, id)] = new(relation.Name, id, label);
         }
         foreach (var link in proposal.Links)
         {
@@ -41,6 +54,7 @@ internal sealed class ModuleRecordLinks(ModuleResolution resolution)
                 var id = await FollowAsync(runner, label, Text(candidate, "id")!, owner, cancellationToken).ConfigureAwait(false);
                 if (id is not null) targets.Add(id);
             }
+            if (targets.Count == 0 && exact && label != "Entity" && relation.To.Contains(':', StringComparison.Ordinal)) { leftOut++; continue; }
             if (targets.Count != 1) throw new ModuleRecordRefusal("Target is absent, outside scope, invalidated or ambiguous: " + relation.Name);
             var target = targets.Single(); final[(relation.Name, target)] = new(relation.Name, target, label);
         }
@@ -51,7 +65,7 @@ internal sealed class ModuleRecordLinks(ModuleResolution resolution)
             if (relation.Max is { } max && count > max) throw new ModuleRecordRefusal("Final link cardinality exceeds the declared maximum: " + relation.Name);
         }
         return (final.Values.OrderBy(l => l.Relation, StringComparer.Ordinal).ThenBy(l => l.TargetId, StringComparer.Ordinal).ToList().AsReadOnly(),
-            !originalKeys.SetEquals(final.Keys));
+            unreachable != 0 || !reached.SetEquals(final.Keys), leftOut);
     }
 
     internal string TargetLabel(ModuleManifest module, ModuleRelation relation)
@@ -62,6 +76,8 @@ internal sealed class ModuleRecordLinks(ModuleResolution resolution)
         var dependency = resolution.Modules.SingleOrDefault(m => m.Id == parts[0]);
         if (!module.Modules.ContainsKey(parts[0]) || dependency?.Ontology?.Types.All(t => t.Name != parts[1]) != false)
             throw new ModuleRecordRefusal("Link dependency is not bound to this store.");
+        // PACK-consent: a link into another module's records needs its consent (or the host's grant), as a walk does.
+        if (resolution.ConsentRefusal(module, relation) is { } refusal) throw new ModuleRecordRefusal(refusal);
         return parts[1];
     }
 

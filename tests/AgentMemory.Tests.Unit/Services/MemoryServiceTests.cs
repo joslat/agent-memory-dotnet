@@ -158,6 +158,32 @@ public sealed class MemoryServiceTests
 
     // ---- Helpers ----
 
+    [Fact]
+    public async Task RecallAsync_MarksTheResultWhenTheLatencyBudgetCutTheContext()
+    {
+        // RecallOptions.LatencyBudget documents RecallResult.Metadata["latencyBudgetExceeded"]; the flag reached the
+        // context and never the result's metadata (fixed in 2.0.0).
+        _assembler.AssembleContextAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
+            .Returns(CreateEmptyContext("s1") with { LatencyBudgetExceeded = true });
+        var sut = CreateSut();
+
+        var result = await sut.RecallAsync(new RecallRequest { SessionId = "s1", Query = "q" });
+
+        result.Metadata.Should().ContainKey("latencyBudgetExceeded").WhoseValue.Should().Be(true);
+    }
+
+    [Fact]
+    public async Task RecallAsync_LeavesTheMetadataEmptyWhenNoBudgetWasExceeded()
+    {
+        _assembler.AssembleContextAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
+            .Returns(CreateEmptyContext("s1"));
+        var sut = CreateSut();
+
+        var result = await sut.RecallAsync(new RecallRequest { SessionId = "s1", Query = "q" });
+
+        result.Metadata.Should().NotContainKey("latencyBudgetExceeded");
+    }
+
     private static MemoryContext CreateEmptyContext(string sessionId) => new()
     {
         SessionId = sessionId,

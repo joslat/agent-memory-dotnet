@@ -1,0 +1,16 @@
+[package]
+name = "ampack-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "A third, independent verifier of memory packs (ampack Core and its profiles), no_std with alloc."
+
+[dependencies]
+# Exact pins: the verdicts depend on these tables and checks (feature 18, 3.2).
+p256 = { version = "=0.13.2", default-features = false, features = ["ecdsa"] }
+sha2 = { version = "=0.10.9", default-features = false }
+unicode-normalization = { version = "=0.1.22", default-features = false }
+# zlib's own inflater (a port of zlib), so a stream is valid exactly when the .NET and Python verifiers' zlib says so
+# (review 18, H1: miniz_oxide accepted an incomplete distance code that zlib refuses).
+zlib-rs = { version = "=0.6.8", default-features = false, features = ["rust-allocator"] }

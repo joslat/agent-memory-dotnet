@@ -7,6 +7,13 @@ Semantic Kernel.
 For native coding-agent integration, see [Claude Code hooks and project MCP](CodingMemory/README.md).
 These are inactive templates for the opt-in local coding service, with bounded capture and recall.
 
+For memory packs shared between organisations over the Web, see [federated memory packs on Solid](FederatedPacks/README.md):
+a supplier publishes a signed pack for one buyer; the buyer's host finds it from the supplier's WebID, verifies and installs it.
+
+For a pack's card and an evaluator's certificate that travels with it, see [certified memory packs](CertifiedPacks/README.md):
+an independent evaluator runs the pack's declared trial and signs a certificate; a host relies on it only in the namespaces
+where it chooses to, and on its own trial everywhere else.
+
 > **Context:** Microsoft's official **Neo4j Memory Provider for Agent Framework**
 > ([`neo4j-agent-memory`](https://github.com/neo4j-labs/agent-memory),
 > [Learn docs](https://learn.microsoft.com/en-us/agent-framework/integrations/neo4j-memory)) is

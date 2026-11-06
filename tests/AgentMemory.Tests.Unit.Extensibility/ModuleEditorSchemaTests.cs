@@ -25,7 +25,7 @@ public sealed class ModuleEditorSchemaTests
         """;
     private static readonly ConcurrentDictionary<string, Lazy<JsonSchema>> Schemas = new(StringComparer.Ordinal);
 
-    private static bool EditorAccepts(string kind, string json)
+    internal static bool EditorAccepts(string kind, string json)
     {
         var file = Path.Combine(AppContext.BaseDirectory,"ModuleSchemas", $"agentmemory.{kind}.v1alpha1.schema.json");
         var schema = Schemas.GetOrAdd(kind, _ => new Lazy<JsonSchema>(() => JsonSchema.FromText(File.ReadAllText(file)))).Value;
@@ -56,6 +56,120 @@ public sealed class ModuleEditorSchemaTests
         var json = root.ToJsonString();
         EditorAccepts("module", json).Should().Be(accepted);
         RuntimeAccepts("module", json).Should().Be(accepted);
+    }
+
+    // Review 1, H5: the schema had drifted (32 traversal relations where the runtime takes 16; a trial's upgrade refused).
+    [Theory]
+    [InlineData(16, null, true)]
+    [InlineData(17, null, false)]
+    [InlineData(2, 50_000, true)]
+    [InlineData(2, 500_000, true)]
+    [InlineData(2, 500_001, false)]
+    public void TraversalAndTrialHaveTheSameEditorAndRuntimeContract(int relations, int? toleranceMicro, bool accepted)
+    {
+        var names = Enumerable.Range(0, (relations + 1) / 2).Select(i => $"REVIEW_R{i}").ToList();
+        var root = new JsonObject
+        {
+            ["format"] = "agentmemory.module/v1alpha1", ["id"] = "com.example.reviews", ["version"] = "1.0.0", ["sdk"] = "[0.1,0.2)",
+            ["ontology"] = new JsonObject
+            {
+                ["labelPrefix"] = "Review",
+                ["types"] = new JsonArray(new JsonObject { ["name"] = "ReviewItem", ["properties"] = new JsonObject { ["path"] = new JsonObject { ["type"] = "string" } }, ["render"] = "{path}" }),
+                ["relations"] = new JsonArray([.. names.Select(n => (JsonNode)new JsonObject { ["name"] = n, ["from"] = "ReviewItem", ["to"] = "ReviewItem" })]),
+            },
+            ["traversal"] = new JsonObject
+            {
+                ["anchors"] = new JsonArray(new JsonObject { ["type"] = "ReviewItem", ["property"] = "path" }),
+                ["relations"] = new JsonArray([.. names.SelectMany(n => new[] { "out", "in" }.Select(d => (JsonNode)new JsonObject { ["name"] = n, ["direction"] = d })).Take(relations)]),
+            },
+            ["trial"] = new JsonObject
+            {
+                ["measure"] = "test-impact", ["targets"] = new JsonObject { ["hitRateMicro"] = 500_000 },
+                ["upgrade"] = toleranceMicro is { } t ? new JsonObject { ["noRegression"] = true, ["toleranceMicro"] = t } : new JsonObject { ["noRegression"] = true },
+            },
+        };
+        var json = root.ToJsonString();
+        EditorAccepts("module", json).Should().Be(accepted);
+        RuntimeAccepts("module", json).Should().Be(accepted);
+    }
+
+    // Review 2: the edges the schema and the validator must agree on, beyond the counts above.
+    [Theory]
+    [InlineData("anchors-16", true)]
+    [InlineData("anchors-17", false)]
+    [InlineData("tasks-9", false)]
+    [InlineData("tasks-10", true)]
+    [InlineData("tasks-200", true)]
+    [InlineData("tasks-201", false)]
+    [InlineData("tolerance-0", true)]
+    [InlineData("tolerance-negative", false)]
+    [InlineData("tolerance-0-with-confidence", false)]
+    [InlineData("no-tolerance-with-confidence", false)]
+    [InlineData("tolerance-50000-with-confidence", true)]
+    [InlineData("target-a-decimal", false)]
+    [InlineData("target-millionths", true)]
+    [InlineData("target-above-one", false)]
+    [InlineData("weight-a-decimal", false)]
+    [InlineData("weight-zero", false)]
+    [InlineData("weight-one-millionth", true)]
+    [InlineData("traversal-without-anchors-or-relations", false)]
+    [InlineData("traversal-with-empty-anchors", false)]
+    [InlineData("hops-written-2.0", true)]
+    [InlineData("int-bound-written-2.0", true)]
+    [InlineData("containable-by-not-an-id", false)]
+    public void TraversalAndTrialEdgesHaveTheSameEditorAndRuntimeContract(string edge, bool accepted)
+    {
+        JsonNode Anchor(int i) => new JsonObject { ["type"] = "ReviewItem", ["property"] = "p" + i };
+        var properties = new JsonObject();
+        for (var i = 0; i < 17; i++) properties["p" + i] = new JsonObject { ["type"] = "string" };
+        var traversal = new JsonObject { ["anchors"] = new JsonArray(Anchor(0)) };
+        var trial = new JsonObject { ["measure"] = "test-impact", ["targets"] = new JsonObject { ["hitRateMicro"] = 500_000 } };
+        switch (edge)
+        {
+            case "anchors-16": traversal["anchors"] = new JsonArray([.. Enumerable.Range(0, 16).Select(Anchor)]); break;
+            case "anchors-17": traversal["anchors"] = new JsonArray([.. Enumerable.Range(0, 17).Select(Anchor)]); break;
+            case "tasks-9": trial["tasks"] = 9; break;
+            case "tasks-10": trial["tasks"] = 10; break;
+            case "tasks-200": trial["tasks"] = 200; break;
+            case "tasks-201": trial["tasks"] = 201; break;
+            case "tolerance-0": trial["upgrade"] = new JsonObject { ["noRegression"] = true, ["toleranceMicro"] = 0 }; break;
+            case "tolerance-negative": trial["upgrade"] = new JsonObject { ["noRegression"] = true, ["toleranceMicro"] = -10_000 }; break;
+            // Review 6: with a confidence, no regression needs a tolerance (H1). Feature 02: every unit field is an integer, which
+            // every validator holds exactly, so the editor and the runtime now agree on targets too (review 7, G10 is gone).
+            case "tolerance-0-with-confidence": trial["confidencePermille"] = 950; trial["upgrade"] = new JsonObject { ["noRegression"] = true, ["toleranceMicro"] = 0 }; break;
+            case "no-tolerance-with-confidence": trial["confidencePermille"] = 950; trial["upgrade"] = new JsonObject { ["noRegression"] = true }; break;
+            case "tolerance-50000-with-confidence": trial["confidencePermille"] = 950; trial["upgrade"] = new JsonObject { ["noRegression"] = true, ["toleranceMicro"] = 50_000 }; break;
+            case "target-a-decimal": trial["targets"] = new JsonObject { ["hitRateMicro"] = 250_000.5m }; break;
+            case "target-millionths": trial["targets"] = new JsonObject { ["hitRateMicro"] = 350_000, ["precisionMicro"] = 251_000, ["liftMicro"] = -50_000 }; break;
+            case "target-above-one": trial["targets"] = new JsonObject { ["hitRateMicro"] = 1_000_001 }; break;
+            case "weight-a-decimal": traversal["relations"] = new JsonArray(new JsonObject { ["name"] = "REVIEW_R0", ["weightMicro"] = 0.8m }); break;
+            case "weight-zero": traversal["relations"] = new JsonArray(new JsonObject { ["name"] = "REVIEW_R0", ["weightMicro"] = 0 }); break;
+            case "weight-one-millionth": traversal["relations"] = new JsonArray(new JsonObject { ["name"] = "REVIEW_R0", ["weightMicro"] = 1 }); break;
+            case "traversal-without-anchors-or-relations": traversal = new JsonObject { ["maxItems"] = 3 }; break;
+            case "traversal-with-empty-anchors": traversal = new JsonObject { ["anchors"] = new JsonArray() }; break;
+            case "hops-written-2.0": traversal["hops"] = JsonValue.Create(2.0m); break;
+        }
+        var count = new JsonObject { ["type"] = "int" };
+        if (edge == "int-bound-written-2.0") { count["min"] = JsonValue.Create(2.0m); count["max"] = JsonValue.Create(9.0m); }
+        properties["count"] = count;
+        var root = new JsonObject
+        {
+            ["format"] = "agentmemory.module/v1alpha1", ["id"] = "com.example.reviews", ["version"] = "1.0.0", ["sdk"] = "[0.1,0.2)",
+            ["ontology"] = new JsonObject
+            {
+                ["labelPrefix"] = "Review",
+                ["types"] = new JsonArray(new JsonObject { ["name"] = "ReviewItem", ["properties"] = properties, ["render"] = "{p0}" }),
+            },
+            ["traversal"] = traversal, ["trial"] = trial,
+        };
+        if (edge == "containable-by-not-an-id") root["containableBy"] = new JsonArray("Not An Id");
+        // A weight edge follows a relation the module owns, so only the weight decides.
+        if (edge.StartsWith("weight-", StringComparison.Ordinal))
+            ((JsonObject)root["ontology"]!)["relations"] = new JsonArray(new JsonObject { ["name"] = "REVIEW_R0", ["from"] = "ReviewItem", ["to"] = "ReviewItem" });
+        var json = root.ToJsonString();
+        if (edge == "hops-written-2.0") json.Should().Contain("\"hops\":2.0");
+        EditorAccepts("module", json).Should().Be(accepted, "the editor schema");
+        RuntimeAccepts("module", json).Should().Be(accepted, "the runtime");
     }
 
     [Theory]

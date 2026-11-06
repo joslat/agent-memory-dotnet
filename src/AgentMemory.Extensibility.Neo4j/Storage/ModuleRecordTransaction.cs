@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 using Neo4j.Driver;
 
 namespace AgentMemory.Extensibility.Neo4j.Storage;
@@ -8,9 +9,28 @@ internal static class ModuleRecordTransaction
     {
         cancellationToken.ThrowIfCancellationRequested();
         var cursor = await runner.RunAsync(query, parameters).ConfigureAwait(false);
-        var rows = await cursor.ToListAsync().ConfigureAwait(false);
+        // The token checked on every row (review 6, M2, and review 7, W3: every 1,024 rows); a statement still working before its
+        // first row is stopped by the deadline the server holds, and leaving the transaction stops it there too.
+        var rows = new List<IRecord>();
+        while (await cursor.FetchAsync().ConfigureAwait(false))
+        {
+            rows.Add(cursor.Current);
+            cancellationToken.ThrowIfCancellationRequested();
+        }
         cancellationToken.ThrowIfCancellationRequested();
         return rows;
+    }
+    // Each row as it arrives, the token checked on every one, none kept here (review 7, W6: a read held every candidate row,
+    // values and all, before it ranked them).
+    internal static async Task EachAsync(IAsyncQueryRunner runner, string query, object parameters, Action<IRecord> each, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var cursor = await runner.RunAsync(query, parameters).ConfigureAwait(false);
+        while (await cursor.FetchAsync().ConfigureAwait(false))
+        {
+            each(cursor.Current);
+            cancellationToken.ThrowIfCancellationRequested();
+        }
     }
     internal static async Task OneAsync(IAsyncQueryRunner runner, string query, object parameters, CancellationToken cancellationToken)
     {

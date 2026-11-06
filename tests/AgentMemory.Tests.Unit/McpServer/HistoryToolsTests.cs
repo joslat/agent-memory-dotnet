@@ -97,7 +97,7 @@ public sealed class HistoryToolsTests
     {
         Store(Fact("hamburg", 0, [], ["lyon"]), Fact("lyon", 10, ["hamburg"], ["copenhagen"]), Fact("copenhagen", 20, ["lyon"], []));
 
-        var json = await HistoryTools.MemoryLineage(_history, _policy, "fact", "lyon", userId: "alice");
+        var json = await HistoryTools.MemoryLineage(_history, _policy, Options.Create(new AgentMemoryMcpOptions()), "fact", "lyon", userId: "alice");
 
         using var doc = JsonDocument.Parse(json);
         doc.RootElement.GetProperty("found").GetBoolean().Should().BeTrue();
@@ -115,7 +115,7 @@ public sealed class HistoryToolsTests
     {
         Store(Fact("a", 0, [], ["b"]), Fact("b", 1, ["a"], ["c"]), Fact("c", 2, ["b"], []));
 
-        var json = await HistoryTools.MemoryLineage(_history, _policy, "fact", "a", maxDepth: 1);
+        var json = await HistoryTools.MemoryLineage(_history, _policy, Options.Create(new AgentMemoryMcpOptions()), "fact", "a", maxDepth: 1);
 
         using var doc = JsonDocument.Parse(json);
         doc.RootElement.GetProperty("chain").EnumerateArray().Select(e => e.GetProperty("id").GetString()).Should().Equal("a", "b");
@@ -126,7 +126,7 @@ public sealed class HistoryToolsTests
     {
         Store();
 
-        var json = await HistoryTools.MemoryLineage(_history, _policy, "fact", "nope");
+        var json = await HistoryTools.MemoryLineage(_history, _policy, Options.Create(new AgentMemoryMcpOptions()), "fact", "nope");
 
         using var doc = JsonDocument.Parse(json);
         doc.RootElement.GetProperty("found").GetBoolean().Should().BeFalse();
@@ -135,7 +135,7 @@ public sealed class HistoryToolsTests
     [Fact]
     public async Task Lineage_OfAnEntity_IsRefused_WithoutReading()
     {
-        var json = await HistoryTools.MemoryLineage(_history, _policy, "entity", "e1");
+        var json = await HistoryTools.MemoryLineage(_history, _policy, Options.Create(new AgentMemoryMcpOptions()), "entity", "e1");
 
         using var doc = JsonDocument.Parse(json);
         doc.RootElement.GetProperty("error").GetString().Should().Contain("fact or preference");
@@ -148,7 +148,7 @@ public sealed class HistoryToolsTests
         _policy.ResolveReadScope(Arg.Any<MemoryScope?>(), Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<MemoryOperationAccess>())
             .Throws(new MemoryOwnerScopeRequiredException("memory_lineage"));
 
-        var act = () => HistoryTools.MemoryLineage(_history, _policy, "fact", "a");
+        var act = () => HistoryTools.MemoryLineage(_history, _policy, Options.Create(new AgentMemoryMcpOptions()), "fact", "a");
 
         await act.Should().ThrowAsync<MemoryOwnerScopeRequiredException>();
         await _history.DidNotReceiveWithAnyArgs().GetHistoryAsync(default!, default);

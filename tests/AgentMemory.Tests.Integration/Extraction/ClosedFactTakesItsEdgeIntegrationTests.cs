@@ -1,4 +1,6 @@
-﻿using System.Text.Json;
+﻿using AgentMemory.McpServer;
+using Microsoft.Extensions.Options;
+using System.Text.Json;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -126,14 +128,14 @@ public sealed class ClosedFactTakesItsEdgeIntegrationTests : IAsyncLifetime
         var history = sp.GetRequiredService<IMemoryHistoryService>();
         var policy = sp.GetRequiredService<IMemoryIsolationPolicy>();
 
-        using var mine = JsonDocument.Parse(await HistoryTools.MemoryLineage(history, policy, "fact", lyon.FactId, userId: Owner));
+        using var mine = JsonDocument.Parse(await HistoryTools.MemoryLineage(history, policy, Options.Create(new AgentMemoryMcpOptions()), "fact", lyon.FactId, userId: Owner));
         var chain = mine.RootElement.GetProperty("chain").EnumerateArray().ToList();
         chain.Select(link => link.GetProperty("summary").GetString()).Should().Equal("Lena lives in Lyon", "Lena lives in Copenhagen");
         chain[0].GetProperty("status").GetString().Should().Be("invalidated");
         mine.RootElement.GetProperty("current").EnumerateArray().Single().GetString()
             .Should().Be(chain[1].GetProperty("id").GetString());
 
-        using var theirs = JsonDocument.Parse(await HistoryTools.MemoryLineage(history, policy, "fact", lyon.FactId, userId: "someone-else"));
+        using var theirs = JsonDocument.Parse(await HistoryTools.MemoryLineage(history, policy, Options.Create(new AgentMemoryMcpOptions()), "fact", lyon.FactId, userId: "someone-else"));
         theirs.RootElement.GetProperty("found").GetBoolean().Should().BeFalse("another owner's lineage is not readable");
     }
 

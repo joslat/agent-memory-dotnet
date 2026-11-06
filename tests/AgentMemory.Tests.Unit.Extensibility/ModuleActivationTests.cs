@@ -72,6 +72,54 @@ public sealed class ModuleActivationTests
             Task.FromResult<ContextSection?>(new(Descriptor.SectionTypes.First(), Descriptor.Id, 1, [new("one", Text ?? "item")]));
     }
 
+    private sealed class Recorder : IShadowRecorder
+    {
+        public List<ShadowTurn> Turns { get; } = [];
+        public ValueTask RecordAsync(ShadowTurn turn, CancellationToken cancellationToken = default) { Turns.Add(turn); return ValueTask.CompletedTask; }
+    }
+
+    // A contributor whose item names the record it came from, as a pack's contributors do.
+    private sealed class Offering(string id) : IContextContributor
+    {
+        public ContextContributorDescriptor Descriptor { get; } = new(id, new HashSet<string> { id });
+        public ValueTask<bool> AppliesAsync(ContextRequest request, CancellationToken cancellationToken) => ValueTask.FromResult(true);
+        public Task<ContextSection?> ContributeAsync(ContextRequest request, CancellationToken cancellationToken) =>
+            Task.FromResult<ContextSection?>(new(id, id, 1, [new("one", "the plan for Lyon")
+            {
+                Provenance = new ContextItemProvenance
+                {
+                    RecordModuleId = Topics, RecordType = "TopicsNote", RecordVersionId = "v1", RecordKey = "lyon", CreatedAtUtc = DateTimeOffset.UnixEpoch,
+                    SourceSessionId = "pack", ViaRelation = "TOPICS_ABOUT:out",
+                },
+            }]));
+    }
+
+    [Fact]
+    public async Task A_module_that_runs_dark_records_what_it_would_offer_and_never_contributes_it()
+    {
+        // Feature 11 (R2): a shadow trial's offers go to the host's recorder, never into the context, and never with their text.
+        var recorder = new Recorder();
+        var services = Services();
+        services.AddAgentMemoryModules(m => m
+            .Add(Manifest(Topics), b => b.AddContextContributor(_ => new Offering(Topics + ":open")))
+            .Add(Manifest(Reviews), b => b.AddContextContributor(_ => new Contributor(Reviews + ":open") { Text = "Review the Lyon plan" }))
+            .UseShadow(Topics, recorder, item => "notes/" + item.Provenance!.RecordKey + ".md"));
+        using var provider = Build(services);
+        using var scope = provider.CreateScope();
+        var envelope = await scope.ServiceProvider.GetRequiredService<IContextCompiler>()
+            .CompileAsync(new ContextRequest { SessionId = "s", Owner = "owner", Query = "what is next?", Anchors = [ContextAnchor.Path("plans/lyon.md")] });
+
+        envelope.Sections.Should().ContainSingle().Which.Items.Single().Text.Should().Be("Review the Lyon plan");
+        var turn = recorder.Turns.Should().ContainSingle().Subject;
+        turn.ModuleId.Should().Be(Topics);
+        turn.TurnId.Should().NotBeEmpty();
+        turn.Milliseconds.Should().BeGreaterThanOrEqualTo(0);
+        turn.Anchors.Should().Equal("path:plans/lyon.md");
+        turn.Offers.Should().ContainSingle().Which.Should().BeEquivalentTo(new ShadowOffer
+            { RecordId = "v1", Key = "lyon", Type = "TopicsNote", ViaRelation = "TOPICS_ABOUT:out", Locator = "notes/lyon.md" });
+        System.Text.Json.JsonSerializer.Serialize(turn).Should().NotContain("the plan for Lyon", "a shadow log never holds record text");
+    }
+
     private sealed class Provider(string id) : IIngestionProvider
     {
         public IngestionProviderDescriptor Descriptor { get; } = new() { Id = id };
@@ -103,6 +151,77 @@ public sealed class ModuleActivationTests
         envelope.Sections[0].Binding!.ModuleId.Should().Be(Reviews);
         scope.ServiceProvider.GetServices<IContextContributor>().Should().ContainSingle();
         created.Should().Be(1, "contributors are created once per scope");
+    }
+
+    [Fact]
+    public async Task APackTheGateSwitchesOffKeepsItsContributorSlotAndEveryOtherContributorStillReachesTheCompiler()
+    {
+        // Review 2: the slots indexed the gated-on contributors only, so a pack switched off ahead of another shifted every
+        // later slot and each compile threw. The off pack is added first, and declares a trial no decision passes.
+        var folder = Directory.CreateTempSubdirectory("gate-slots-").FullName;
+        try
+        {
+            using var host = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+            var services = Services();
+            services.AddAgentMemoryModules(m => m
+                .Add(Manifest(Topics, extra: ""","trial":{"measure":"test-impact","targets":{"hitRateMicro":500000}}"""),
+                    b => b.AddContextContributor(_ => new Contributor(Topics + ":open") { Text = "topic" }))
+                .Add(Manifest(Reviews), b => b.AddContextContributor(_ => new Contributor(Reviews + ":open") { Text = "Review the Lyon plan" }))
+                .RequireTrials(new PackActivationFolder(folder, host.ExportSubjectPublicKeyInfoPem())));
+            using var provider = Build(services);
+
+            provider.GetRequiredService<ModuleSet>().SwitchedOff.Should().ContainSingle().Which.ModuleId.Should().Be(Topics);
+            using var scope = provider.CreateScope();
+            var envelope = await scope.ServiceProvider.GetRequiredService<IContextCompiler>()
+                .CompileAsync(new ContextRequest { SessionId = "s", Owner = "owner", Query = "what is next?" });
+
+            envelope.Sections.Should().ContainSingle().Which.Items.Single().Text.Should().Be("Review the Lyon plan");
+            envelope.Sections[0].Binding!.ModuleId.Should().Be(Reviews);
+            scope.ServiceProvider.GetServices<IContextContributor>().Select(c => c.Descriptor.Id)
+                .Should().Equal(Topics + ".switched-off-1", Reviews + ":open");
+        }
+        finally { Directory.Delete(folder, recursive: true); }
+    }
+
+    [Fact]
+    public async Task AHostSetPriorityReordersAModulesContributorsAndJoinsTheFingerprint()
+    {
+        // Extensibility 0.13 §D: a desktop host's stack order becomes priority, whatever priority the module chose.
+        ServiceProvider Compose(bool prioritize)
+        {
+            var services = Services();
+            services.AddAgentMemoryModules(m =>
+            {
+                m.Add(Manifest(Reviews), b => b.AddContextContributor(_ => new Contributor(Reviews + ":open") { Text = "review" }))
+                 .Add(Manifest(Topics), b => b.AddContextContributor(_ => new Contributor(Topics + ":open") { Text = "topic" }));
+                if (prioritize) m.Prioritize(Topics, 10);
+            });
+            return Build(services);
+        }
+        using var plain = Compose(prioritize: false);
+        using var ordered = Compose(prioritize: true);
+        async Task<IReadOnlyList<string>> Order(ServiceProvider provider)
+        {
+            using var scope = provider.CreateScope();
+            var envelope = await scope.ServiceProvider.GetRequiredService<IContextCompiler>()
+                .CompileAsync(new ContextRequest { SessionId = "s", Owner = "owner", Query = "q" });
+            return [.. envelope.Sections.Select(s => s.Binding!.ModuleId)];
+        }
+        (await Order(plain)).Should().Equal(Reviews, Topics);
+        (await Order(ordered)).Should().Equal(Topics, Reviews);
+        using (var scope = ordered.CreateScope())
+            scope.ServiceProvider.GetServices<IContextContributor>().Single(c => c.Descriptor.Id == Topics + ":open").Descriptor.Priority.Should().Be(10);
+        ordered.GetRequiredService<ModuleSet>().Fingerprint.Should().NotBe(plain.GetRequiredService<ModuleSet>().Fingerprint);
+    }
+
+    [Fact]
+    public void APriorityForAModuleThatIsNotAddedIsRefused()
+    {
+        var services = Services();
+        services.AddAgentMemoryModules(m => m.Add(Manifest(Reviews), _ => { }).Prioritize(Topics, 5));
+        using var provider = Build(services);
+        FluentActions.Invoking(() => provider.GetRequiredService<ModuleSet>()).Should().Throw<ModuleActivationException>()
+            .Which.Errors.Should().Contain(e => e.Contains(Topics, StringComparison.Ordinal));
     }
 
     [Fact]
@@ -145,6 +264,33 @@ public sealed class ModuleActivationTests
         using var scope = provider.CreateScope();
         FluentActions.Invoking(() => scope.ServiceProvider.GetRequiredService<IContextCompiler>())
             .Should().Throw<ModuleActivationException>("everything built on the set fails closed");
+    }
+
+    [Fact]
+    public void AProfileWithTrialsLeavesAFailedPackOffInsteadOfStoppingTheHost()
+    {
+        // Review 1, M3, tested in review 2: the profile names both modules; the gate switches one off; the host still starts.
+        var profile = ModuleCompositionProfile.Parse($$$"""
+            {"format":"agentmemory.modules/v1alpha1","stores":{"memory":{"provider":"none"}},
+             "modules":[{"id":"{{{Topics}}}","version":"[1,2)","store":"memory","manifest":"topics.json"},
+                        {"id":"{{{Reviews}}}","version":"[1,2)","store":"memory","manifest":"reviews.json"}]}
+            """);
+        var folder = Directory.CreateTempSubdirectory("profile-trials-").FullName;
+        try
+        {
+            using var host = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+            var services = Services();
+            services.AddAgentMemoryModules(m => m.UseProfile(profile)
+                .Add(Manifest(Topics, extra: ""","trial":{"measure":"test-impact","targets":{"hitRateMicro":500000}}"""), _ => { })
+                .Add(Manifest(Reviews), _ => { })
+                .RequireTrials(new PackActivationFolder(folder, host.ExportSubjectPublicKeyInfoPem())));
+            using var provider = Build(services);
+
+            var set = provider.GetRequiredService<ModuleSet>();
+            set.Modules.Select(m => m.Manifest.Id).Should().Equal(Reviews);
+            set.SwitchedOff.Should().ContainSingle().Which.ModuleId.Should().Be(Topics);
+        }
+        finally { Directory.Delete(folder, recursive: true); }
     }
 
     [Fact]

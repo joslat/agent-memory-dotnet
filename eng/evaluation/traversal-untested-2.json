@@ -1,0 +1,158 @@
+{
+  "format": "agentmemory.traversal-fixture/v1",
+  "built": "mutant-fixture.py (CMP-2c)",
+  "testImpact": {
+    "rule": "untested types killed by at least one unit test under a runtime-guarded mutant",
+    "count": 6
+  },
+  "tasks": [
+    {
+      "id": "mut-03",
+      "kind": "test-impact",
+      "question": "Change Releaser",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Nams/Identity/Internal/KeyedAsyncLock.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Nams/KeyedAsyncLockTests.cs",
+          "tests/AgentMemory.Tests.Unit/Nams/NamsConversationResolverTests.cs"
+        ]
+      },
+      "source": "mutant scip-dotnet nuget AgentMemory.Nams . AgentMemory/Nams/Identity/Internal/KeyedAsyncLock#Releaser#"
+    },
+    {
+      "id": "mut-07",
+      "kind": "test-impact",
+      "question": "Change CountingResultCursor",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Neo4j/Infrastructure/Neo4jTransactionRunner.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/Infrastructure/Neo4jTransactionRunnerTests.cs",
+          "tests/AgentMemory.Tests.Unit/Observability/TraceModelContractTests.cs"
+        ]
+      },
+      "source": "mutant scip-dotnet nuget AgentMemory.Neo4j . AgentMemory/Neo4j/Infrastructure/Neo4jTransactionRunner#CountingResultCursor#"
+    },
+    {
+      "id": "mut-08",
+      "kind": "test-impact",
+      "question": "Change MemoryEmbeddingPreparation",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Core/Extraction/MemoryEmbeddingPreparation.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/AgentFramework/GoldenPathDocumentationTests.cs",
+          "tests/AgentMemory.Tests.Unit/AgentFramework/ReviewRound4Tests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/BitemporalChangesTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/CanonicalFactSubjectTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/ChangesOfMindTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/DeclinedFactClosingTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/FactEntityLinkingTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/MemoryWriterTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/PerItemProvenanceTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/PerMessageTrustTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/PersistenceStageBatchFailureTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/PersistenceStageBatchTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/PersistenceStageEmbeddingBatchTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/PersistenceStageFactBatchSemanticsTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/PersistenceStageFusedBatchTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/PersistenceStageProvenanceCapabilityTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/PersistenceStageTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/PersistenceStageTransactionCoalescingTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/PersistenceStageUpdateJudgeTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/PersistenceStageWorkingMemoryTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/SamePersistOrderTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/UserNameResolutionTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/WithinExtractionCurrentValueTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/WithinExtractionDedupTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/WriteEffectsTests.cs",
+          "tests/AgentMemory.Tests.Unit/Extraction/WriteTimeSupersessionTests.cs",
+          "tests/AgentMemory.Tests.Unit/Services/DeltaRecallReachabilityTests.cs",
+          "tests/AgentMemory.Tests.Unit/Services/RelationshipsInRecallTests.cs"
+        ]
+      },
+      "source": "mutant scip-dotnet nuget AgentMemory.Core . AgentMemory/Core/Extraction/MemoryEmbeddingPreparation#"
+    },
+    {
+      "id": "mut-09",
+      "kind": "test-impact",
+      "question": "Change ModuleScalarValues",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "src/AgentMemory.Extensibility/Modules/ModuleScalarValues.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit.Extensibility/CodeMapTests.cs",
+          "tests/AgentMemory.Tests.Unit.Extensibility/DecisionsPackTests.cs",
+          "tests/AgentMemory.Tests.Unit.Extensibility/KnowledgePackManifestTests.cs",
+          "tests/AgentMemory.Tests.Unit.Extensibility/KnowledgePackTests.cs",
+          "tests/AgentMemory.Tests.Unit.Extensibility/MartialArtsPackTests.cs",
+          "tests/AgentMemory.Tests.Unit.Extensibility/ModuleEditorSchemaTests.cs",
+          "tests/AgentMemory.Tests.Unit.Extensibility/ModuleIngestionTests.cs",
+          "tests/AgentMemory.Tests.Unit.Extensibility/ModuleProposalAdmissionTests.cs",
+          "tests/AgentMemory.Tests.Unit.Extensibility/ModuleQueryAdmissionTests.cs",
+          "tests/AgentMemory.Tests.Unit.Extensibility/ModuleResolverTests.cs",
+          "tests/AgentMemory.Tests.Unit.Extensibility/ModuleSearchTests.cs",
+          "tests/AgentMemory.Tests.Unit.Extensibility/ModuleStoreAwareWritingTests.cs",
+          "tests/AgentMemory.Tests.Unit.Extensibility/ModuleValidationTests.cs",
+          "tests/AgentMemory.Tests.Unit.Extensibility/ModuleViewsTests.cs",
+          "tests/AgentMemory.Tests.Unit.Extensibility/RepositoryPackTests.cs",
+          "tests/AgentMemory.Tests.Unit.Extensibility/ScipCodeMapTests.cs",
+          "tests/AgentMemory.Tests.Unit/McpServer/CodingModulesTests.cs"
+        ]
+      },
+      "source": "mutant scip-dotnet nuget AgentMemory.Extensibility . AgentMemory/Extensibility/Modules/ModuleScalarValues#"
+    },
+    {
+      "id": "mut-10",
+      "kind": "test-impact",
+      "question": "Change CodingModulesOptions",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "tools/AgentMemory.McpHost/Coding/CodingModules.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/McpServer/CodingModulesTests.cs"
+        ]
+      },
+      "source": "mutant scip-dotnet nuget AgentMemory.McpHost . AgentMemory/McpHost/Coding/CodingModulesOptions#"
+    },
+    {
+      "id": "mut-12",
+      "kind": "test-impact",
+      "question": "Change CodingMemoryPage",
+      "anchors": [
+        {
+          "kind": "path",
+          "value": "tools/AgentMemory.McpHost/Coding/CodingMemoryPage.cs"
+        }
+      ],
+      "expect": {
+        "testFiles": [
+          "tests/AgentMemory.Tests.Unit/McpServer/CodingHostTests.cs",
+          "tests/AgentMemory.Tests.Unit/McpServer/CodingTransportTests.cs"
+        ]
+      },
+      "source": "mutant scip-dotnet nuget AgentMemory.McpHost . AgentMemory/McpHost/Coding/CodingMemoryPage#"
+    }
+  ]
+}

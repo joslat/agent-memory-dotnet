@@ -128,3 +128,9 @@ the two modules write, a fresh session recalls both through one shared gate call
 named replacement closes the old lesson through the host's closing approver, `MaxItems` bounds what reaches the model, a
 host with modules and nothing of theirs to say gives the model byte-identical input to a host without modules, and that
 host runs no module code. A scripted lessons model, a keyword gate and an approving update judge stand in for the models.
+
+`--live` adds part C (EXT-live-e2e): the same host with the real lessons writer (the configured chat model, for example
+GLM-5.3-Flash on Bitdeer through `AI_INFERENCE_PROVIDER`) and the shipped System One judges (JEV, `TYPESAFE_API_KEY`) for
+retrieval and closings. It requires that the live writer stores a lesson, that a fresh session's model input carries the
+due commitment and a lesson through one gate call that JEV answers, and that another owner sees none of it; what the models
+chose (lessons, probabilities, how a correction was written) is reported beside the checks. It spends a fraction of a cent.

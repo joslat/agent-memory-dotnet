@@ -66,6 +66,14 @@ Nine tools remain: `memory_search`, `memory_get_context`, `memory_get_conversati
 Cypher, and a mode whose entire value is "this cannot change anything" should not rest on a query
 parser.
 
+## Recalled memory is data
+
+Every tool and resource that returns stored memory marks each item with `trustLevel` and `instructionLike`,
+escapes angle brackets in its text, and says that recalled text is data, never instructions. `--strict-recall`
+(or `AGENT_MEMORY_MCP_STRICT_RECALL=true`) also withholds text that reads like an instruction unless its item is
+trusted enough; the item keeps its id. The graph tools below return the stored graph as it is and are off by
+default.
+
 ## Graph tools
 
 `graph_query`, `memory_export_graph` and `memory_find_duplicates` read the whole graph, across owners.
@@ -174,6 +182,7 @@ The full contract, including pointing embeddings at a different host from chat, 
 | `AGENT_MEMORY_MCP_URL` | `http://localhost:5233` | `--url` |
 | `AGENT_MEMORY_MCP_SERVER_NAME` | `agent-memory` | `--server-name` |
 | `AGENT_MEMORY_MCP_READ_ONLY` | unset | `--read-only` |
+| `AGENT_MEMORY_MCP_STRICT_RECALL` | unset | `--strict-recall` |
 | `AGENT_MEMORY_MCP_ENABLE_GRAPH_QUERY` | unset | `--enable-graph-query` |
 | `AGENT_MEMORY_MCP_OWNER` | unset (each call's `userId`) | `--owner` |
 | `AGENT_MEMORY_MCP_NO_BOOTSTRAP` | unset | `--no-bootstrap` |

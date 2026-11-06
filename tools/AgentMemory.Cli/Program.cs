@@ -21,7 +21,7 @@ if (cli.Command is null || string.Equals(cli.Command, "help", StringComparison.O
     return cli.Command is null ? 1 : 0;
 }
 
-var known = new[] { "migrate", "bootstrap", "retrim", "consolidate", "decay", "conflicts", "schema-parity", "schema-check", "invalidate", "supersede", "history", "evaluate", "perf", "block", "routing-score", "integrity", "owner", "modules" };
+var known = new[] { "migrate", "bootstrap", "retrim", "consolidate", "decay", "conflicts", "schema-parity", "schema-check", "invalidate", "supersede", "history", "evaluate", "perf", "block", "routing-score", "integrity", "owner", "modules", "packs", "codemap", "decisions", "work", "architecture", "intent", "project", "onboard", "trial" };
 if (!known.Contains(cli.Command, StringComparer.OrdinalIgnoreCase))
 {
     Console.Error.WriteLine($"error: unknown command '{cli.Command}'.");
@@ -34,6 +34,94 @@ if (string.Equals(cli.Command, "routing-score", StringComparison.OrdinalIgnoreCa
 {
     return new AgentMemory.Cli.Commands.RoutingScoreCommand(Console.Out)
         .Execute(cli.Get("set"), cli.Get("split"), cli.Get("policy"), cli.HasFlag("misses"));
+}
+
+// codemap scan reads a repository with Roslyn offline; codemap import goes through the host below (CMP-2a).
+if (string.Equals(cli.Command, "codemap", StringComparison.OrdinalIgnoreCase) && !string.Equals(cli.Subcommand, "import", StringComparison.OrdinalIgnoreCase))
+{
+    if (string.Equals(cli.Subcommand, "pack", StringComparison.OrdinalIgnoreCase))
+        return new AgentMemory.Cli.Commands.CodeMapCommand(Console.Out)
+            .Pack(cli.Get("root"), cli.Get("scip"), cli.Get("id"), cli.Get("version"), cli.Get("key"), cli.Get("out"), cli.Get("repository"));
+    if (!string.Equals(cli.Subcommand, "scan", StringComparison.OrdinalIgnoreCase))
+    {
+        Console.Error.WriteLine("error: codemap needs scan, pack or import.");
+        return 2;
+    }
+    return new AgentMemory.Cli.Commands.CodeMapCommand(Console.Out).Scan(cli.Get("root"), cli.Get("output"), cli.Get("scip"));
+}
+
+// project writes a pack's records as Markdown projections (and an AGENTS.md section), offline (CMP-7).
+if (string.Equals(cli.Command, "project", StringComparison.OrdinalIgnoreCase))
+    return new AgentMemory.Cli.Commands.ProjectCommand(Console.Out)
+        .Run(cli.Get("pack"), cli.Get("root"), cli.Get("out"), cli.Get("agents"), cli.Get("ledger"), cli.HasFlag("check"), cli.HasFlag("force"));
+
+// onboard proposes records from a project's documents into a review set, and records a person's decisions, offline (CMP-9).
+if (string.Equals(cli.Command, "onboard", StringComparison.OrdinalIgnoreCase))
+{
+    var onboard = new AgentMemory.Cli.Commands.OnboardCommand(Console.Out);
+    switch (cli.Subcommand?.ToLowerInvariant())
+    {
+        case "propose":
+            return await onboard.ProposeAsync(cli.Get("pack"), cli.Get("root"), cli.Get("docs"), cli.Get("types"), cli.Get("review"), cli.HasFlag("dry-run"),
+                cli.Get("max-calls"), cli.Get("price-in"), cli.Get("price-out"), cli.Get("raw"));
+        case "list":
+            return onboard.List(cli.Get("pack"), cli.Get("root"), cli.Get("review"), cli.Get("state"));
+        case "decide":
+            return onboard.Decide(cli.Get("pack"), cli.Get("root"), cli.Get("review"), cli.Get("accept"), cli.Get("reject"), cli.Get("note"), cli.Get("by"), cli.Get("edit"));
+        default:
+            Console.Error.WriteLine("error: onboard needs propose, list or decide.");
+            return 2;
+    }
+}
+
+// intent scan reads requirements, features, objectives and ideas offline; intent import goes through the host (CMP-6).
+if (string.Equals(cli.Command, "intent", StringComparison.OrdinalIgnoreCase) && !string.Equals(cli.Subcommand, "import", StringComparison.OrdinalIgnoreCase))
+{
+    if (!string.Equals(cli.Subcommand, "scan", StringComparison.OrdinalIgnoreCase))
+    {
+        Console.Error.WriteLine("error: intent needs scan or import.");
+        return 2;
+    }
+    return new AgentMemory.Cli.Commands.IntentCommand(Console.Out).Scan(cli.Get("root"));
+}
+
+// architecture scan reads catalogs, API documents, SBOMs and workspaces offline; architecture import goes through the host (CMP-5).
+if (string.Equals(cli.Command, "architecture", StringComparison.OrdinalIgnoreCase) && !string.Equals(cli.Subcommand, "import", StringComparison.OrdinalIgnoreCase))
+{
+    if (!string.Equals(cli.Subcommand, "scan", StringComparison.OrdinalIgnoreCase))
+    {
+        Console.Error.WriteLine("error: architecture needs scan or import.");
+        return 2;
+    }
+    return new AgentMemory.Cli.Commands.ArchitectureCommand(Console.Out).Scan(cli.Get("root"));
+}
+
+// decisions scan reads ADR files and Squad's log offline; decisions import goes through the host below (CMP-3).
+if (string.Equals(cli.Command, "decisions", StringComparison.OrdinalIgnoreCase) && !string.Equals(cli.Subcommand, "import", StringComparison.OrdinalIgnoreCase))
+{
+    if (!string.Equals(cli.Subcommand, "scan", StringComparison.OrdinalIgnoreCase))
+    {
+        Console.Error.WriteLine("error: decisions needs scan or import.");
+        return 2;
+    }
+    return new AgentMemory.Cli.Commands.DecisionsCommand(Console.Out).Scan(cli.Get("root"));
+}
+
+// work scan reads a task ledger and the repository's commits offline; work import goes through the host below (CODING-hierarchy).
+if (string.Equals(cli.Command, "work", StringComparison.OrdinalIgnoreCase) && !string.Equals(cli.Subcommand, "import", StringComparison.OrdinalIgnoreCase))
+{
+    if (!string.Equals(cli.Subcommand, "scan", StringComparison.OrdinalIgnoreCase))
+    {
+        Console.Error.WriteLine("error: work needs scan or import.");
+        return 2;
+    }
+    return new AgentMemory.Cli.Commands.WorkCommand(Console.Out).Scan(cli.Get("ledger"), cli.Get("root"), cli.Get("github-issues"), cli.Get("github-milestones"));
+}
+
+// packs signs and verifies bundles offline: no store, no model, no network (Extensibility 0.13 §K6).
+if (string.Equals(cli.Command, "packs", StringComparison.OrdinalIgnoreCase))
+{
+    return new AgentMemory.Cli.Commands.PacksCommand(Console.Out).Execute(cli);
 }
 
 // schema-parity is pure static analysis of embedded snapshots — no Neo4j connection or host needed.
@@ -226,6 +314,17 @@ try
 
     return cli.Command.ToLowerInvariant() switch
     {
+        "intent" => await new AgentMemory.Cli.Commands.IntentCommand(output)
+            .ImportAsync(sp.GetRequiredService<INeo4jTransactionRunner>(), cli.Get("root"), cli.Get("source")),
+        "architecture" => await new AgentMemory.Cli.Commands.ArchitectureCommand(output)
+            .ImportAsync(sp.GetRequiredService<INeo4jTransactionRunner>(), cli.Get("root"), cli.Get("source")),
+        "decisions" => await new AgentMemory.Cli.Commands.DecisionsCommand(output)
+            .ImportAsync(sp.GetRequiredService<INeo4jTransactionRunner>(), cli.Get("root"), cli.Get("source")),
+        "work" => await new AgentMemory.Cli.Commands.WorkCommand(output)
+            .ImportAsync(sp.GetRequiredService<INeo4jTransactionRunner>(), cli.Get("ledger"), cli.Get("root"), cli.Get("source"), cli.Get("github-issues"), cli.Get("github-milestones")),
+        "codemap" => await new AgentMemory.Cli.Commands.CodeMapCommand(output)
+            .ImportAsync(sp.GetRequiredService<INeo4jTransactionRunner>(), cli.Get("root"), cli.Get("source"), cli.Get("scip"), cli.Get("pack"), cli.Get("trust"),
+                cli.HasFlag("rebuild-if-stale")),
         "modules" => await new ModulesCommand(
             sp.GetRequiredService<INeo4jTransactionRunner>(), output).ExecuteAsync(moduleInput!),
         "migrate" => await new MigrateCommand(
@@ -283,6 +382,31 @@ try
             .ExecuteAsync(cli.Get("owner"), cli.Get("limit")),
         // 40.57: validation packs build their own stack per pack (its options, its extraction, a replayed clock),
         // against the same store this host is configured for.
+        // CMP-4: the traversal-context trial composes the Coding packs over the same store and compiles each fixture task.
+        // Pack format v1.1 §4: trial-gated activation, on this host's own history; the decision is signed with the host key.
+        "trial" => await new PackGateCommand(_ => { }, output).TrialInMemoryAsync(cli.Get("repo"), cli.Get("host-key"), cli.Get("activations")),
+        "evaluate" when cli.Get("gate") is not null => await new PackGateCommand(o =>
+            {
+                o.Uri = uri;
+                o.Username = user;
+                o.Password = password;
+                o.Database = database;
+                o.EmbeddingDimensions = dims;
+            }, output)
+            .ExecuteAsync(cli.Get("gate"), cli.Get("repo"), cli.Get("host-key"), cli.Get("activations"), cli.Get("variant"), cli.Get("output"),
+                cli.Get("pack"), cli.Get("trust"), cli.Get("previous"), cli.Get("history") ?? "parent", cli.HasFlag("partial"), cli.Get("shadow"), cli.Get("tasks"),
+                cli.Get("embedder"), cli.HasFlag("meaning"),
+                cli.Get("meaning-floor") is { } mf ? double.Parse(mf, System.Globalization.CultureInfo.InvariantCulture) : null, cli.HasFlag("meaning-only"),
+                cli.Get("memories-floor") is { } rf ? double.Parse(rf, System.Globalization.CultureInfo.InvariantCulture) : null, cli.Get("rerank"), cli.HasFlag("words-first")),
+        "evaluate" when cli.Get("traversal") is not null => await new TraversalTrialCommand(o =>
+            {
+                o.Uri = uri;
+                o.Username = user;
+                o.Password = password;
+                o.Database = database;
+                o.EmbeddingDimensions = dims;
+            }, output)
+            .ExecuteAsync(cli.Get("traversal"), cli.Get("output"), cli.Get("rounds"), cli.Get("warmup")),
         "evaluate" when cli.HasFlag("pack") => await new PackEvaluationCommand(o =>
             {
                 o.Uri = uri;

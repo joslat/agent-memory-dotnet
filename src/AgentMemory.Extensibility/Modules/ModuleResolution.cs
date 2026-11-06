@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 using System.Diagnostics.CodeAnalysis;
 
 namespace AgentMemory.Extensibility.Modules;
@@ -19,4 +20,22 @@ public sealed record ModuleResolution
     /// This is not the eventual active-set fingerprint: configuration, migration
     /// and trust identities must be added by composition before activation.</remarks>
     public string? ManifestFingerprint { get; }
+
+    /// <summary>
+    /// The host's consent grants for this resolution (PACK-consent): links and walks into a module that does not list the
+    /// linking module in its containableBy are allowed only for these pairs. Empty by default.
+    /// </summary>
+    public IReadOnlyList<ModuleConsentGrant> ConsentGrants { get; init; } = [];
+
+    /// <summary>
+    /// Why <paramref name="module"/> may not reach another module's records through <paramref name="relation"/>, or null when
+    /// it may: the other module's consent (its containableBy covers this one) or a <see cref="ConsentGrants"/> entry. Walks
+    /// and imports apply the same rule.
+    /// </summary>
+    public string? ConsentRefusal(ModuleManifest module, ModuleRelation relation)
+    {
+        ArgumentNullException.ThrowIfNull(module);
+        ArgumentNullException.ThrowIfNull(relation);
+        return ModuleConsent.Refusal(module, relation, id => Modules.FirstOrDefault(m => m.Id == id), ConsentGrants);
+    }
 }

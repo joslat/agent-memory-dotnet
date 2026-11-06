@@ -1,0 +1,123 @@
+{
+  "format": "agentmemory.module/v1alpha1",
+  "id": "io.agentmemory.packs.decisions",
+  "version": "0.1.0-preview.1",
+  "sdk": "[0.1,0.2)",
+  "display": {
+    "title": "Decisions",
+    "description": "What was decided in this project, why, and what it applies to, from ADRs, Squad's decision log and design documents.",
+    "color": "#A35F00"
+  },
+  "ontology": {
+    "labelPrefix": "Decisions",
+    "types": [
+      {
+        "name": "DecisionsDecision",
+        "scope": "shared",
+        "description": "One decision: what, why, its status, and the code it applies to.",
+        "render": "Decision ({status}, {date}): {title}. {decision}",
+        "properties": {
+          "title": {
+            "type": "string",
+            "required": true,
+            "maxLength": 300
+          },
+          "status": {
+            "type": "string",
+            "required": true,
+            "values": [
+              "proposed",
+              "accepted",
+              "deprecated",
+              "superseded"
+            ]
+          },
+          "date": {
+            "type": "string",
+            "maxLength": 40,
+            "description": "As written: a day, or a day and time"
+          },
+          "context": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "decision": {
+            "type": "string",
+            "required": true,
+            "maxLength": 2000
+          },
+          "consequences": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "appliesTo": {
+            "type": "string",
+            "maxLength": 4000,
+            "description": "Paths and globs, space-separated"
+          },
+          "mentions": {
+            "type": "string",
+            "maxLength": 2000,
+            "description": "Type names, comma-separated"
+          },
+          "source": {
+            "type": "string",
+            "required": true,
+            "maxLength": 512,
+            "description": "The file and heading it came from"
+          },
+          "by": {
+            "type": "string",
+            "maxLength": 200
+          }
+        }
+      }
+    ],
+    "relations": [
+      {
+        "name": "DECISIONS_SUPERSEDES",
+        "from": "DecisionsDecision",
+        "to": "DecisionsDecision",
+        "max": 1,
+        "description": "This decision replaces that one"
+      }
+    ]
+  },
+  "views": [
+    {
+      "id": "relevant",
+      "type": "DecisionsDecision",
+      "search": {
+        "properties": [
+          "title",
+          "decision",
+          "context"
+        ]
+      },
+      "where": [
+        [
+          "status",
+          "!=",
+          "superseded"
+        ]
+      ],
+      "limit": 4
+    }
+  ],
+  "traversal": {
+    "anchors": [
+      {
+        "type": "DecisionsDecision",
+        "property": "appliesTo",
+        "match": "glob"
+      },
+      {
+        "type": "DecisionsDecision",
+        "property": "mentions",
+        "match": "name",
+        "kind": "symbol"
+      }
+    ],
+    "maxItems": 3
+  }
+}

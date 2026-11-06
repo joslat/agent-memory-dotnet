@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 using System.Diagnostics.CodeAnalysis;
 
 namespace AgentMemory.Extensibility.Ingestion;
@@ -26,6 +27,14 @@ public sealed record IngestionRequest
     public DateTimeOffset AtUtc { get; init; }
     /// <summary>Defaults to an automatic turn; shared types require explicit OnRequest selection.</summary>
     public IngestionTrigger Trigger { get; init; }
+    /// <summary>
+    /// What the host knows about the turn, set by the host only (Extensibility 0.13 §C): coding mode sets <c>commit</c> and
+    /// <c>source</c>, so a lesson is bound to the code version it was observed at without asking a model. At most 8 entries,
+    /// keys of 1 to 32 lowercase letters, digits, <c>_</c> or <c>-</c>, values of at most 200 characters; part of the
+    /// request's fingerprint when present.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyDictionary<string, string>? HostAttributes { get; init; }
     /// <summary>Exact moduleId:local provider identities explicitly selected by an OnRequest host.</summary>
     public IReadOnlyList<string> ProviderIds { get; init; } = [];
     /// <summary>

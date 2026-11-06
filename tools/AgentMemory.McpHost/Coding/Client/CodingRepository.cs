@@ -21,6 +21,32 @@ internal sealed class CodingRepository(string root, Func<string, string, Cancell
         return hash;
     }
 
+    /// <summary>
+    /// CMP-1: <c>git status --porcelain=v1</c> of the working tree, for the files the turn is about. Best effort and bounded: the
+    /// first 16 KiB, two seconds; inside the configured repository only.
+    /// </summary>
+    public async Task<string> ReadStatusAsync(string cwd, CancellationToken cancellationToken = default)
+    {
+        if (!Path.IsPathFullyQualified(cwd) || !CodingHookOptions.IsWithin(root, cwd)) throw new ArgumentException("Hook is outside its configured repository.");
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(TimeSpan.FromSeconds(2));
+        var start = new ProcessStartInfo("git") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+        foreach (var argument in new[] { "-C", cwd, "status", "--porcelain=v1", "--untracked-files=normal" }) start.ArgumentList.Add(argument);
+        using var process = Process.Start(start) ?? throw new IOException("Cannot start Git.");
+        try
+        {
+            var buffer = new char[16 * 1024];
+            var read = await process.StandardOutput.ReadBlockAsync(buffer, deadline.Token).ConfigureAwait(false);
+            if (!process.HasExited) process.Kill(entireProcessTree: true);
+            return new string(buffer, 0, read);
+        }
+        catch
+        {
+            if (!process.HasExited) process.Kill(entireProcessTree: true);
+            throw;
+        }
+    }
+
     private static async Task<string> RunGitAsync(string cwd, string value, CancellationToken ct)
     {
         var start = new ProcessStartInfo("git") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };

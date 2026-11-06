@@ -1,0 +1,329 @@
+{
+  "format": "agentmemory.module/v1alpha1",
+  "id": "io.agentmemory.packs.intent",
+  "version": "0.1.0-preview.1",
+  "sdk": "[0.1,0.2)",
+  "display": {
+    "title": "Product intent",
+    "description": "What the product is meant to do: requirements in EARS form, the Gherkin scenarios that pin them down, service level objectives and ideas, from the repository's own files.",
+    "color": "#B5487A"
+  },
+  "ontology": {
+    "labelPrefix": "Intent",
+    "types": [
+      {
+        "name": "IntentRequirement",
+        "scope": "shared",
+        "description": "One requirement, in EARS form where it is written so: what the system shall do, and when.",
+        "render": "Requirement {reference} ({status}, {pattern}): {text}",
+        "properties": {
+          "reference": {
+            "type": "string",
+            "maxLength": 64,
+            "required": true,
+            "description": "REQ-12, or the file and line when it has none"
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 2000,
+            "required": true
+          },
+          "pattern": {
+            "type": "string",
+            "maxLength": 16,
+            "required": true,
+            "description": "ubiquitous, event, state, optional, unwanted, complex, or free"
+          },
+          "status": {
+            "type": "string",
+            "required": true,
+            "values": [
+              "proposed",
+              "accepted",
+              "implemented",
+              "verified",
+              "rejected"
+            ]
+          },
+          "scenarios": {
+            "type": "int",
+            "description": "How many scenarios are tagged with its id"
+          },
+          "file": {
+            "type": "string",
+            "maxLength": 512,
+            "required": true
+          },
+          "source": {
+            "type": "string",
+            "maxLength": 512,
+            "required": true,
+            "description": "The file and line it came from"
+          }
+        }
+      },
+      {
+        "name": "IntentFeature",
+        "scope": "shared",
+        "description": "A Gherkin feature: a capability described by its scenarios.",
+        "render": "Feature {name}: {description}",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 300,
+            "required": true
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "tags": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "file": {
+            "type": "string",
+            "maxLength": 512,
+            "required": true
+          },
+          "source": {
+            "type": "string",
+            "maxLength": 512,
+            "required": true,
+            "description": "The file and line it came from"
+          }
+        }
+      },
+      {
+        "name": "IntentScenario",
+        "scope": "shared",
+        "description": "A Gherkin scenario: an example of the behaviour, step by step.",
+        "render": "Scenario {name}: {steps}",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 300,
+            "required": true
+          },
+          "steps": {
+            "type": "string",
+            "maxLength": 4000,
+            "required": true
+          },
+          "tags": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "outline": {
+            "type": "string",
+            "maxLength": 8,
+            "description": "yes for a scenario outline"
+          },
+          "rule": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "file": {
+            "type": "string",
+            "maxLength": 512,
+            "required": true
+          },
+          "line": {
+            "type": "int",
+            "required": true
+          },
+          "source": {
+            "type": "string",
+            "maxLength": 512,
+            "required": true,
+            "description": "The file and line it came from"
+          }
+        }
+      },
+      {
+        "name": "IntentObjective",
+        "scope": "shared",
+        "description": "A service level objective, from OpenSLO.",
+        "render": "Objective {name} for {service}: {target} over {window}. {description}",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "required": true
+          },
+          "service": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "target": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "window": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "indicator": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "file": {
+            "type": "string",
+            "maxLength": 512,
+            "required": true
+          },
+          "source": {
+            "type": "string",
+            "maxLength": 512,
+            "required": true,
+            "description": "The file and line it came from"
+          }
+        }
+      },
+      {
+        "name": "IntentIdea",
+        "scope": "shared",
+        "description": "An idea for the product, not yet a requirement.",
+        "render": "Idea ({status}): {title}. {body}",
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 300,
+            "required": true
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "status": {
+            "type": "string",
+            "maxLength": 32,
+            "required": true,
+            "description": "open unless the idea says otherwise"
+          },
+          "file": {
+            "type": "string",
+            "maxLength": 512,
+            "required": true
+          },
+          "line": {
+            "type": "int",
+            "required": true
+          },
+          "source": {
+            "type": "string",
+            "maxLength": 512,
+            "required": true,
+            "description": "The file and line it came from"
+          }
+        }
+      }
+    ],
+    "relations": [
+      {
+        "name": "INTENT_SCENARIO_OF",
+        "from": "IntentScenario",
+        "to": "IntentFeature",
+        "max": 1,
+        "description": "The scenario belongs to the feature"
+      },
+      {
+        "name": "INTENT_VERIFIES",
+        "from": "IntentScenario",
+        "to": "IntentRequirement",
+        "description": "The scenario is tagged with the requirement's id"
+      }
+    ]
+  },
+  "views": [
+    {
+      "id": "requirements",
+      "type": "IntentRequirement",
+      "search": {
+        "properties": [
+          "reference",
+          "text"
+        ]
+      },
+      "where": [
+        [
+          "status",
+          "!=",
+          "rejected"
+        ]
+      ],
+      "limit": 4
+    },
+    {
+      "id": "scenarios",
+      "type": "IntentScenario",
+      "search": {
+        "properties": [
+          "name",
+          "steps",
+          "tags"
+        ]
+      },
+      "limit": 3
+    },
+    {
+      "id": "objectives",
+      "type": "IntentObjective",
+      "search": {
+        "properties": [
+          "name",
+          "service",
+          "description"
+        ]
+      },
+      "limit": 2
+    },
+    {
+      "id": "ideas",
+      "type": "IntentIdea",
+      "search": {
+        "properties": [
+          "title",
+          "body"
+        ]
+      },
+      "limit": 2
+    }
+  ],
+  "traversal": {
+    "anchors": [
+      {
+        "type": "IntentFeature",
+        "property": "file",
+        "match": "exact"
+      },
+      {
+        "type": "IntentRequirement",
+        "property": "file",
+        "match": "exact"
+      }
+    ],
+    "relations": [
+      {
+        "name": "INTENT_SCENARIO_OF",
+        "direction": "in",
+        "weightMicro": 800000,
+        "fanOut": 8
+      },
+      {
+        "name": "INTENT_VERIFIES",
+        "direction": "out",
+        "weightMicro": 850000,
+        "fanOut": 4
+      }
+    ],
+    "hubs": [
+      "IntentFeature"
+    ],
+    "maxItems": 3
+  }
+}

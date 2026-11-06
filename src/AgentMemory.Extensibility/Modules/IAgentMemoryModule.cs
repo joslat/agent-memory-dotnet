@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 using System.Diagnostics.CodeAnalysis;
 using AgentMemory.Extensibility.Capabilities;
 using AgentMemory.Extensibility.Ingestion;
@@ -58,6 +59,9 @@ public interface IModuleStoreAdapter : IModuleSchemaCapabilityProbe
 
     /// <summary>Creates a reader bound to one module of the active resolution.</summary>
     Reading.IModuleReader CreateReader(IServiceProvider services, ModuleResolution resolution, string moduleId);
+
+    /// <summary>Creates the host-level reader traversal context walks with (CMP-1), or null when the store has none.</summary>
+    Reading.IModuleTraversalReader? CreateTraversalReader(IServiceProvider services, ModuleResolution resolution) => null;
 }
 
 /// <summary>Activation failed: the module set did not compose, bind or validate. Nothing is half-active.</summary>

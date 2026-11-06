@@ -16,9 +16,19 @@
     <ProjectReference Include="..\AgentMemory.Abstractions\AgentMemory.Abstractions.csproj" />
   </ItemGroup>
 
+  <PropertyGroup>
+    <DefineConstants>$(DefineConstants);AGENTMEMORY_MCPSERVER</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Shared with Core: one instruction-like detector, one admission decision, one escape rule (#92). -->
+    <Compile Include="../../shared/RecordFrame.cs" Link="Shared/RecordFrame.cs" />
+    <Compile Include="../../shared/InstructionLikeContentDetector.cs" Link="Shared/InstructionLikeContentDetector.cs" />
+    <Compile Include="../../shared/RecalledMemoryAdmission.cs" Link="Shared/RecalledMemoryAdmission.cs" />
+  </ItemGroup>
   <ItemGroup>
     <!-- The companion host reuses the embedding-free wire projection. -->
     <InternalsVisibleTo Include="AgentMemory.McpHost" />
+    <InternalsVisibleTo Include="AgentMemory.Tests.Unit" />
   </ItemGroup>
 
 </Project>

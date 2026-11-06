@@ -5,6 +5,7 @@ using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.McpServer.Tools;
+using AgentMemory.McpServer.Security;
 
 namespace AgentMemory.McpServer.Resources;
 
@@ -38,8 +39,12 @@ internal sealed class ContextResource
 
         var context = await contextAssembler.AssembleContextAsync(request, cancellationToken).ConfigureAwait(false);
 
+        // Recalled text, guarded as the recall tools guard it (#92, the MCP surface).
+        var guard = McpRecallGuard.From(options.Value);
+        McpRecallGuard.Verdict? graphRag = context.GraphRagContext is null ? null : guard.Check(context.GraphRagContext, MemoryTrustLevel.Untrusted);
         return ToolJsonContext.Serialize(new
         {
+            untrustedContent = McpRecallGuard.Notice,
             sessionId = session_id,
             recentMessageCount = context.RecentMessages.Items.Count,
             relevantMessageCount = context.RelevantMessages.Items.Count,
@@ -47,46 +52,52 @@ internal sealed class ContextResource
             factCount = context.RelevantFacts.Items.Count,
             preferenceCount = context.RelevantPreferences.Items.Count,
             traceCount = context.SimilarTraces.Items.Count,
-            recentMessages = context.RecentMessages.Items.Select(m => new
+            recentMessages = context.RecentMessages.Items.Select(m => (m, v: guard.Check(m.Content, m.Metadata))).Select(x => new
             {
-                id = m.MessageId,
-                role = m.Role,
-                content = m.Content?.Length > 500 ? m.Content[..500] + "..." : m.Content,
-                timestamp = m.TimestampUtc
+                id = x.m.MessageId,
+                role = x.v.Guard.Escape(x.m.Role),
+                content = x.v.Text(x.m.Content?.Length > 500 ? x.m.Content[..500] + "..." : x.m.Content),
+                timestamp = x.m.TimestampUtc,
+                trustLevel = x.v.Trust, instructionLike = x.v.InstructionLike, withheld = x.v.Withheld,
             }),
-            entities = context.RelevantEntities.Items.Select(e => new
+            entities = context.RelevantEntities.Items.Select(e => (e, v: guard.Check(McpRecallGuard.TrustOf(e.Metadata), e.Name, e.Type, e.Description))).Select(x => new
             {
-                id = e.EntityId,
-                name = e.Name,
-                type = e.Type
+                id = x.e.EntityId,
+                name = x.v.Text(x.e.Name),
+                type = x.v.Text(x.e.Type),
+                trustLevel = x.v.Trust, instructionLike = x.v.InstructionLike, withheld = x.v.Withheld,
             }),
-            facts = context.RelevantFacts.Items.Select(f => new
+            facts = context.RelevantFacts.Items.Select(f => (f, v: guard.Check(McpRecallGuard.TrustOf(f.Metadata), f.Subject, f.Predicate, f.Object))).Select(x => new
             {
-                id = f.FactId,
-                subject = f.Subject,
-                predicate = f.Predicate,
-                @object = f.Object
+                id = x.f.FactId,
+                subject = x.v.Text(x.f.Subject),
+                predicate = x.v.Text(x.f.Predicate),
+                @object = x.v.Text(x.f.Object),
+                trustLevel = x.v.Trust, instructionLike = x.v.InstructionLike, withheld = x.v.Withheld,
             }),
-            preferences = context.RelevantPreferences.Items.Select(p => new
+            preferences = context.RelevantPreferences.Items.Select(p => (p, v: guard.Check(McpRecallGuard.TrustOf(p.Metadata), p.PreferenceText, p.Category))).Select(x => new
             {
-                id = p.PreferenceId,
-                preference = p.PreferenceText,
-                category = p.Category
+                id = x.p.PreferenceId,
+                preference = x.v.Text(x.p.PreferenceText),
+                category = x.v.Text(x.p.Category),
+                trustLevel = x.v.Trust, instructionLike = x.v.InstructionLike, withheld = x.v.Withheld,
             }),
             // 0.7. Every sibling category projected its content and this one projected only a count,
             // so procedural memory was invisible through the resource while still costing a vector
             // search on every recall. Outcome travels with task deliberately: a trace that renders
             // what was attempted and drops how it went says "you have done this before" and nothing
             // useful -- the product gap 7.6 spent five runs finding.
-            traces = context.SimilarTraces.Items.Select(t => new
+            traces = context.SimilarTraces.Items.Select(t => (t, v: guard.Check($"{t.Task} {t.Outcome}", t.Metadata))).Select(x => new
             {
-                id = t.TraceId,
-                task = t.Task,
-                outcome = t.Outcome,
-                success = t.Success,
-                kind = t.Kind
+                id = x.t.TraceId,
+                task = x.v.Text(x.t.Task),
+                outcome = x.v.Text(x.t.Outcome),
+                success = x.t.Success,
+                kind = x.t.Kind,
+                trustLevel = x.v.Trust, instructionLike = x.v.InstructionLike, withheld = x.v.Withheld,
             }),
-            graphRagContext = context.GraphRagContext,
+            graphRagContext = graphRag?.Text(context.GraphRagContext),
+            graphRagInstructionLike = graphRag?.InstructionLike ?? false,
             assembledAtUtc = context.AssembledAtUtc
         });
     }

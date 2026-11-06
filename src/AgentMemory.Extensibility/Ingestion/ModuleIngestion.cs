@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 using System.Diagnostics;
 using AgentMemory.Abstractions.Diagnostics;
 using AgentMemory.Extensibility.Diagnostics;
@@ -97,7 +98,8 @@ public sealed class ModuleIngestion : IModuleIngestion
                     var shown = resolved with { Existing = await ExistingAsync(entry, resolved, cancellationToken).ConfigureAwait(false) };
                     var proposed = await entry.Provider.ProposeAsync(shown, cancellationToken).ConfigureAwait(false);
                     cancellationToken.ThrowIfCancellationRequested();
-                    var proposals = ModuleIngestionSnapshot.Proposals(proposed);
+                    // A provider's text in the stored normal form, as it is received (review 5): admission refuses any other.
+                    var proposals = ModuleText.InNfc(ModuleIngestionSnapshot.Proposals(proposed));
                     var atUtc = _clock.GetUtcNow().ToUniversalTime();
                     batch = new() { Provider = entry.Descriptor, ManifestFingerprint = _resolution.ManifestFingerprint!,
                         RequestFingerprint = fingerprint, AtUtc = atUtc, Proposals = proposals,

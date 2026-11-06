@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 using System.Diagnostics.CodeAnalysis;
 using AgentMemory.Extensibility.Modules;
 
@@ -38,11 +39,23 @@ public sealed class ModuleViews : IModuleViews
             return new() { Status = ModuleReadStatus.Refused, Errors = ["View arguments require a nonempty optional key and a positive limit no greater than the declared limit."] };
         if (view.Selection == ModuleRecordSelection.History && arguments.Key is null)
             return new() { Status = ModuleReadStatus.Refused, Errors = ["History views require one exact logical key."] };
+        ModuleSearch? search = null;
+        if (view.Search is null && arguments.Search is not null)
+            return new() { Status = ModuleReadStatus.Refused, Errors = ["Search text applies to search views only."] };
+        if (view.Search is not null)
+        {
+            if (string.IsNullOrWhiteSpace(arguments.Search))
+                return new() { Status = ModuleReadStatus.NotApplicable, Errors = ["A search view needs search text."] };
+            var terms = ModuleSearch.TermsOf(arguments.Search);
+            // Nothing left to match after stop words: searched, and empty.
+            if (terms.Count == 0) return new() { Status = ModuleReadStatus.Succeeded, Items = [] };
+            search = new() { ViewId = view.Id, Terms = terms, Meaning = arguments.Meaning ?? arguments.Search };
+        }
         IReadOnlyList<ModuleLinkFilter> links;
         try { links = ModuleQueryAdmission.CaptureLinks(_module, view.Type, arguments.Links); }
         catch (ArgumentException exception) { return new() { Status = ModuleReadStatus.Refused, Errors = [exception.Message] }; }
         var read = await _reader.FindAsync(new() { ModuleId = _module.Id, Type = view.Type, Selection = view.Selection, Key = arguments.Key, Links = links,
-            Where = view.Where, OrderBy = view.OrderBy, Limit = arguments.Limit ?? view.Limit }, context, cancellationToken).ConfigureAwait(false);
+            Where = view.Where, OrderBy = view.OrderBy, Limit = arguments.Limit ?? view.Limit, Search = search }, context, cancellationToken).ConfigureAwait(false);
         if (read.Status != ModuleReadStatus.Succeeded) return new() { Status = read.Status, Errors = read.Errors };
         var type = _module.Ontology!.Types.Single(t => t.Name == view.Type);
         var items = new List<ModuleViewItem>();

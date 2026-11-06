@@ -1,0 +1,41 @@
+{
+  "about": "Hand-written traversal-trial tasks (CMP-4): each names the file an engineer would edit and, by title, the decision in .squad/decisions.md that governs it, written from the decision's text, not from what the importer derived. 'indirect' marks a task whose anchor only uses what the decision names: under the phase A design (no type-to-type links) it is expected to miss, and says whether such links are needed.",
+  "tasks": [
+    {
+      "id": "dec-embedding-orchestrator", "kind": "decision",
+      "question": "Move IEmbeddingOrchestrator into Core next to its implementation",
+      "anchors": [{ "kind": "path", "value": "src/AgentMemory.Abstractions/Services/IEmbeddingOrchestrator.cs" }],
+      "expect": { "decisionTitles": ["IEmbeddingOrchestrator + ExtractorBase<T>"] }
+    },
+    {
+      "id": "dec-pipeline-split", "kind": "decision",
+      "question": "Add an embedding step inside ExtractionStage so it persists too",
+      "anchors": [{ "kind": "path", "value": "src/AgentMemory.Core/Extraction/ExtractionStage.cs" }],
+      "expect": { "decisionTitles": ["Pipeline SRP Split and Dual Pipeline Merge"] }
+    },
+    {
+      "id": "dec-thresholds", "kind": "decision",
+      "question": "Hard-code the regex match confidence instead of reading ExtractionOptions",
+      "anchors": [{ "kind": "path", "value": "src/AgentMemory.Abstractions/Options/ExtractionOptions.cs" }, { "kind": "symbol", "value": "ExtractionOptions" }],
+      "expect": { "decisionTitles": ["Thresholds Parameterization + Azure API Cache"] }
+    },
+    {
+      "id": "dec-cypher-direct", "kind": "decision",
+      "question": "Add a new entity lookup query",
+      "anchors": [{ "kind": "path", "value": "src/AgentMemory.Neo4j/Queries/EntityQueries.cs" }],
+      "expect": { "decisionTitles": ["Cypher Query Centralization"] }
+    },
+    {
+      "id": "dec-cypher-indirect", "kind": "decision", "indirect": true,
+      "question": "Write the entity merge Cypher inline in the repository method",
+      "anchors": [{ "kind": "path", "value": "src/AgentMemory.Neo4j/Repositories/Neo4jEntityRepository.cs" }],
+      "expect": { "decisionTitles": ["Cypher Query Centralization"] }
+    },
+    {
+      "id": "dec-domain-types", "kind": "decision",
+      "question": "Move SessionSummary out of Abstractions into Core",
+      "anchors": [{ "kind": "path", "value": "src/AgentMemory.Abstractions/Domain/ShortTerm/SessionSummary.cs" }, { "kind": "symbol", "value": "SessionSummary" }],
+      "expect": { "decisionTitles": ["Functional Parity Domain Types"] }
+    }
+  ]
+}

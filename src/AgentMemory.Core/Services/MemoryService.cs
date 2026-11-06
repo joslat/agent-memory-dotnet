@@ -242,7 +242,11 @@ internal sealed class MemoryService : IMemoryService
             Context = context,
             TotalItemsRetrieved = totalItems,
             EstimatedTokenCount = estimatedTokens,
-            Truncated = context.Truncated
+            Truncated = context.Truncated,
+            // RecallOptions.LatencyBudget documents this key; it was set on the context and never here (fixed in 2.0.0).
+            Metadata = context.LatencyBudgetExceeded
+                ? new Dictionary<string, object> { ["latencyBudgetExceeded"] = true }
+                : new Dictionary<string, object>(),
         };
     }
 

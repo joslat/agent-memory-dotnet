@@ -6,6 +6,7 @@ using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.McpServer.Tools;
+using AgentMemory.McpServer.Security;
 
 namespace AgentMemory.McpServer.Tools;
 
@@ -15,7 +16,7 @@ namespace AgentMemory.McpServer.Tools;
 [McpServerToolType]
 internal sealed class ObservationTools
 {
-    [McpServerTool(Name = "memory_get_observations"), Description("Get compressed observations from memory within a token budget. Retrieves recent context and compresses it to fit the specified token limit.")]
+    [McpServerTool(Name = "memory_get_observations"), Description("Get compressed observations from memory within a token budget. Retrieves recent context and compresses it to fit the specified token limit." + McpRecallGuard.DescriptionSuffix)]
     public static async Task<string> MemoryGetObservations(
         IShortTermMemoryService shortTermMemory,
         IContextCompressor compressor,
@@ -36,10 +37,12 @@ internal sealed class ObservationTools
         {
             return ToolJsonContext.Serialize(new
             {
+                untrustedContent = McpRecallGuard.Notice,
                 sessionId = sid,
                 wasCompressed = false,
                 observations = Array.Empty<string>(),
                 reflections = Array.Empty<string>(),
+                instructionLike = false,
                 recentMessageCount = 0,
                 originalTokenCount = 0,
                 compressedTokenCount = 0,
@@ -57,20 +60,23 @@ internal sealed class ObservationTools
 
         var compressed = await compressor.CompressAsync(messages, compressionOptions, cancellationToken).ConfigureAwait(false);
 
-        var observations = new List<string>();
-        if (compressed.WasCompressed)
-        {
-            observations.AddRange(compressed.Observations);
-        }
+        // Observations and reflections are compressed from recalled messages, so they are guarded like every
+        // other recalled text (#92, the MCP surface); a withheld line keeps its place as "[withheld]".
+        var guard = McpRecallGuard.From(options.Value);
+        var observationVerdicts = (compressed.WasCompressed ? compressed.Observations : (IEnumerable<string>)Array.Empty<string>())
+            .Select(o => (Text: o, Verdict: guard.Check(o, MemoryTrustLevel.Untrusted))).ToList();
+        var reflectionVerdicts = compressed.Reflections.Select(r => (Text: r, Verdict: guard.Check(r, MemoryTrustLevel.Untrusted))).ToList();
+        var observations = observationVerdicts.Select(x => x.Verdict.Text(x.Text) ?? "[withheld]").ToList();
+        var reflections = reflectionVerdicts.Select(x => x.Verdict.Text(x.Text) ?? "[withheld]").ToList();
 
         var result = new StringBuilder();
         result.AppendLine($"## Memory Observations for session '{sid}'");
         result.AppendLine();
 
-        if (compressed.Reflections.Count > 0)
+        if (reflections.Count > 0)
         {
             result.AppendLine("### Reflections");
-            foreach (var reflection in compressed.Reflections)
+            foreach (var reflection in reflections)
                 result.AppendLine($"- {reflection}");
             result.AppendLine();
         }
@@ -93,8 +99,10 @@ internal sealed class ObservationTools
         {
             sessionId = sid,
             wasCompressed = compressed.WasCompressed,
+            untrustedContent = McpRecallGuard.Notice,
             observations,
-            reflections = compressed.Reflections,
+            reflections,
+            instructionLike = observationVerdicts.Any(x => x.Verdict.InstructionLike) || reflectionVerdicts.Any(x => x.Verdict.InstructionLike),
             recentMessageCount = compressed.RecentMessages.Count,
             originalTokenCount = compressed.OriginalTokenCount,
             compressedTokenCount = compressed.CompressedTokenCount,

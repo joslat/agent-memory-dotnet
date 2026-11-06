@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>AgentMemory.Packs.MartialArts</PackageId>
+    <!-- Equals the manifest's version; the signed files list names both, and KnowledgePack refuses a mismatch. -->
+    <Version>1.0.0</Version>
+    <Description>Experimental AgentMemory knowledge pack: martial arts, their grades, techniques and kata (Shotokan karate, ITF Taekwon-Do, Judo's Gokyo), as shared memory an agent can import. Each record names its source; your dojo's own syllabus wins.</Description>
+    <PackageTags>agent-memory;knowledge-pack;martial-arts;karate;taekwondo;judo</PackageTags>
+  </PropertyGroup>
+
+</Project>

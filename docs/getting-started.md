@@ -540,7 +540,7 @@ the JEV entry and set `UpdateJudge = false` when only LAYA is permitted for retr
 training does not qualify it as a storage-closing judge. With no gate registration, existing recall
 remains available. With `Mode = MemoryGateMode.Floor`, retrieval makes no judge calls; the separately
 enabled storage judge is unaffected. Agent Framework and Semantic Kernel use these shared host
-registrations rather than installing their own providers. DemoBrain has separate application settings.
+registrations rather than installing their own providers. A desktop host may keep separate application settings.
 
 The general `agent-memory-mcp` host accepts the standard `AgentMemory:RetrievalRouter` configuration
 section. For example, environment variables below enable the explicitly named local judge:

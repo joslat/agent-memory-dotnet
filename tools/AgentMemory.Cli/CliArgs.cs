@@ -92,6 +92,12 @@ public static class CliHelp
                                      --host-features History,Reminders declares target requirements,
                                      not a probe of host availability. JSON report; exit 2 on refusal.
                                      Connection options below select this one store's database.
+              packs keygen --private <file> --public <file>
+              packs public-key --key <private key file> --out <file>
+              packs sign <folder> --key <private key file> [--id <id> --version <v>]
+              packs verify <folder> [--developer-key <file>[,<file>]] [--pin <digest>]
+                                     Experimental. Sign a bundle (a files list with every file's sha256 and an
+                                     ECDSA P-256 signature) and verify it as a host does. Offline; exit 2 on refusal.
               bootstrap              Create schema constraints and indexes.
               schema-check           Verify the LIVE database has every constraint/index the bootstrap
                                      creates (runtime conformance). Exit 1 listing any missing objects.
@@ -118,6 +124,52 @@ public static class CliHelp
               evaluate --pack <core|file|directory> [--output <path>]
                                      Run validation packs (a schema, conversations with what extraction
                                      yields, expected storage, questions): deterministic, no model.
+              evaluate --traversal <fixture> [--rounds <n>] [--warmup <pass|one>] [--output <path>]
+                                     The traversal trial: compile each fixture task with its anchors and
+                                     with its question alone; report tests and decisions offered, latency.
+              codemap scan [--root <repo>] [--scip <index.scip>[,...]] [--output <map.jsonl>]
+                                     Read a code map: C# with Roslyn, other languages from SCIP indexes
+                                     (offline); report counts.
+              codemap import [--root <repo>] [--scip <index.scip>[,...]] [--source git:<sha>]
+                                     Write the code map into the store: only what changed since the last.
+              codemap pack --root <repo> --id <id> --version <v> --key <private.pem> --out <file.ampack>
+                                     Share the code map as a signed snapshot pack (offline).
+              codemap import --pack <file.ampack> --trust <trust.json> [--root <repo> [--rebuild-if-stale]]
+                                     Import a shared snapshot pack, verified, instead of reading the repo;
+                                     with --root, say whether it was built at the repo's commit, and with
+                                     --rebuild-if-stale read the repo instead when it was not.
+              evaluate --gate <pack id> --repo <repo> --host-key <private.pem> --activations <folder>
+                       [--pack <definition.ampack> --trust <trust.json>] [--previous <active.ampack>]
+                       [--variant mediocre|weak] [--output <path>]
+                                     Trial a pack on this repository's history and sign the decision; with
+                                     --pack, the pack as loaded from its verified .ampack; with --previous, an
+                                     upgrade compared against the version that passed here, on the same tasks.
+              project --pack decisions|architecture|intent|work --root <repo> [--out docs/memory]
+                      [--agents AGENTS.md] [--ledger <tasks.json>] [--check] [--force]
+                                     Write the pack's records as one Markdown file and an AGENTS.md section,
+                                     deterministically; a hand edit is never overwritten without --force;
+                                     --check writes nothing and fails when anything is not up to date.
+              onboard propose --pack decisions|architecture|intent --root <repo> [--dry-run] [--docs <globs>]
+                      [--types T1,T2] [--max-calls 40] [--review <file>] [--raw <folder>]
+                                     A model reads the project's documents and proposes records, each with the
+                                     lines it quotes (checked) and a confidence, into docs/memory/review as
+                                     pending; --dry-run spends nothing and prints what would be sent and its cost.
+              onboard list|decide --pack <pack> --root <repo> [--state pending] | --accept k1,k2 | --reject k1
+                      [--edit '{"status":"accepted"}'] [--note <text>] [--by <name>]
+                                     Read the review set; record a person's decision. Scan, import and project
+                                     merge what is accepted; the project's own files win a clash.
+              intent scan|import --root <repo> [--source git:<sha>]
+                                     Read requirements (EARS), Gherkin features, OpenSLO objectives and
+                                     ideas; import writes what changed.
+              architecture scan|import --root <repo> [--source git:<sha>]
+                                     Read Backstage catalogs, OpenAPI and AsyncAPI documents, SBOMs and
+                                     Structurizr workspaces; import writes what changed.
+              decisions scan|import --root <repo> [--source git:<sha>]
+                                     Read ADRs and Squad's decision log; import writes what changed.
+              work scan|import --ledger <tasks.json> | --github-issues <issues.json> [--github-milestones <m.json>]
+                    --root <repo> [--source <text>]
+                                     Read a task ledger and the repository's commits: work items linked to
+                                     the code map files their commits changed (import the code map first).
               owner <export|import|erase> --owner <id> [--file <path>] [--confirm]
                                      An owner's data as a whole: export to a JSON file, import a file under
                                      an owner (fresh ids), or erase everything of theirs (needs --confirm).

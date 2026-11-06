@@ -4,6 +4,7 @@ using ModelContextProtocol.Server;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.McpServer.Tools;
+using AgentMemory.McpServer.Security;
 
 namespace AgentMemory.McpServer.Resources;
 
@@ -57,16 +58,23 @@ internal sealed class PreferenceListResource
 
         var results = await graphQueryService.QueryAsync(query, parameters, cancellationToken).ConfigureAwait(false);
 
+        // Stored preferences are recalled text, guarded as the recall tools guard it (#92, the MCP surface).
+        var guard = McpRecallGuard.From(options.Value);
         return ToolJsonContext.Serialize(new
         {
-            preferences = results.Select(r => new
+            untrustedContent = McpRecallGuard.Notice,
+            preferences = results.Select(r => (r, text: r.TryGetValue("preference", out var pref) ? pref?.ToString() : null))
+                .Select(x => (x.r, x.text, v: guard.Check(MemoryTrustLevel.Untrusted, x.text,
+                    x.r.TryGetValue("category", out var cy) ? cy?.ToString() : null,
+                    x.r.TryGetValue("context", out var cx) ? cx?.ToString() : null))).Select(x => new
             {
-                id = r.TryGetValue("id", out var id) ? id?.ToString() : null,
-                preference = r.TryGetValue("preference", out var pref) ? pref?.ToString() : null,
-                category = r.TryGetValue("category", out var cat) ? cat?.ToString() : null,
-                context = r.TryGetValue("context", out var ctx) ? ctx?.ToString() : null,
-                confidence = r.TryGetValue("confidence", out var conf) ? Convert.ToDouble(conf) : 0.0,
-                createdAt = r.TryGetValue("createdAt", out var ca) ? ca?.ToString() : null
+                id = x.r.TryGetValue("id", out var id) ? id?.ToString() : null,
+                preference = x.v.Text(x.text),
+                category = x.v.Text(x.r.TryGetValue("category", out var cat) ? cat?.ToString() : null),
+                context = x.v.Text(x.r.TryGetValue("context", out var ctx) ? ctx?.ToString() : null),
+                confidence = x.r.TryGetValue("confidence", out var conf) ? Convert.ToDouble(conf) : 0.0,
+                createdAt = x.r.TryGetValue("createdAt", out var ca) ? ca?.ToString() : null,
+                trustLevel = x.v.Trust, instructionLike = x.v.InstructionLike, withheld = x.v.Withheld,
             }),
             limit,
             categoryFilter = category

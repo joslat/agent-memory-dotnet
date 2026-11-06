@@ -17,7 +17,17 @@
     <!-- The tools shipped with no way to run them without writing a .NET host first. This is that
          host, so it is the one tools/ project that is packable. -->
     <IsPackable>true</IsPackable>
+
+    <!-- A tool package bundles every assembly it runs, the Apache-2.0 module SDK and packs among them, so the package is
+         under both licences and carries both texts and the Apache NOTICE (LICENSING.md, "Packages that bundle"). -->
+    <PackageLicenseExpression>MIT AND Apache-2.0</PackageLicenseExpression>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="licenses/MIT/" Visible="false" />
+    <None Include="..\..\src\AgentMemory.Extensibility\LICENSE" Pack="true" PackagePath="licenses/Apache-2.0/" Visible="false" />
+    <None Include="..\..\src\AgentMemory.Extensibility\NOTICE" Pack="true" PackagePath="licenses/Apache-2.0/" Visible="false" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.12" />
@@ -43,6 +53,18 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\AgentMemory.Inference\AgentMemory.Inference.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Opt-in memory packs for coding mode (Extensibility 0.13 §M). Bundled in the tool package, so no NuGet dependency on the
+         preview line; those projects keep their own version even when the release passes -p:Version (TreatAsLocalProperty). -->
+    <ProjectReference Include="..\..\src\AgentMemory.Extensibility\AgentMemory.Extensibility.csproj" />
+    <ProjectReference Include="..\..\src\AgentMemory.Extensibility.Neo4j\AgentMemory.Extensibility.Neo4j.csproj" />
+    <ProjectReference Include="..\..\src\AgentMemory.Packs.Repository\AgentMemory.Packs.Repository.csproj" />
+    <!-- KP-composite: the Coding composite (decisions, repository, code map); held packages that ship inside this tool. -->
+    <ProjectReference Include="..\..\src\AgentMemory.Packs.Coding\AgentMemory.Packs.Coding.csproj" />
+    <ProjectReference Include="..\..\src\AgentMemory.Packs.Architecture\AgentMemory.Packs.Architecture.csproj" />
+    <ProjectReference Include="..\..\src\AgentMemory.Packs.Intent\AgentMemory.Packs.Intent.csproj" />
   </ItemGroup>
 
 </Project>

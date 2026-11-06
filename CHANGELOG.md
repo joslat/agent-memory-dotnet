@@ -6,6 +6,149 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-11-06
+
+Memory a host can trust before it switches it on. 2.0.0 adds the ampack memory-pack format (signed,
+declaratively traversable packs with trial-gated activation; preprint: [doi:10.5281/zenodo.24012989](https://doi.org/10.5281/zenodo.24012989)), the
+Extensibility module SDK (0.1.1, Apache-2.0), the store-aware writer and the judged retrieval gate behind the
+Recommended preset, and a trust boundary on every MCP surface. Low-level and Conversational defaults stay
+compatible; Recommended is opt-in.
+
+### Licensing
+
+- The `AgentMemory.McpHost` tool package bundles the Apache-2.0 module SDK and packs, so it is licensed
+  `MIT AND Apache-2.0` and carries both licence texts and the Apache NOTICE (LICENSING.md, "Packages that bundle").
+- From 2.0.0 the projects that implement the ampack format or its host procedure are licensed Apache-2.0: `AgentMemory.Extensibility`
+  (its 0.x releases were MIT), `AgentMemory.Extensibility.Ampack`, `AgentMemory.Extensibility.Neo4j`, `AgentMemory.Extensibility.AgentFramework`,
+  every `src/AgentMemory.Packs.*` library (the sample knowledge pack under `packs/` stays MIT), the `ampack` tool, the Rust reader and the
+  conformance kit. Each carries its own LICENSE and NOTICE and SPDX headers, and packs with `PackageLicenseExpression` Apache-2.0. The core
+  library, the store, the other adapters, the samples and the benchmarks stay MIT. The specification in `spec/` is CC BY 4.0. A proposed patent
+  non-assertion pledge (`PATENTS.md`, a draft until the author issues it) is intended to cover conforming implementations of the listed
+  specification versions royalty-free, with the conditions stated there. `AgentMemory.Extensibility` and its three adapter packages are
+  0.1.1 from this release (their NuGet packages are published on the preview line, `preview-v0.1.1-*`), so the licence change sits on a package version boundary (0.1.0 and earlier stay MIT as released; the SDK line stays 0.1 because every pack declares the range `[0.1,0.2)` and a 0.2.0 SDK would refuse them all); "2.0.0" is
+  the repository release, not every package's version. See the README, "Licensing".
+
+- Pack families as hierarchies (CODING-hierarchy): a composite member may name the members it `contains`
+  (`CompositeMember.Contains`; `CompositeManifest.Roots`, `Children`, `Parents`, `Depth`). Containment is many-to-many and
+  never a cycle; a member may depend on, and so link to the types of, only the members it contains, and a host cannot switch
+  off a member another one needs. The Coding composite is now decisions over work over the code map, with repository
+  experience beside them. A snapshot may depend on other modules (`ModuleSnapshot.Dependencies`, `ModuleSnapshot.Resolve()`)
+  and link into their records; the store resolves those links and leaves out, and counts, one whose target it does not hold
+  (`ModuleSnapshotResult.LinksLeftOut`), while a turn's write still refuses it. A walk follows such a link like any other,
+  so from the file in hand it climbs to the work that changed it.
+- Add the experimental work memory pack (`src/AgentMemory.Packs.Work`, held): a project's work items from its task ledger
+  (`tasks` with `id`, `task`, `status` and optional `phase`, `notes`, `remaining`, `actual`, `checkpoint`), each linked to
+  the code map files its commits changed (`WORK_CHANGED`; a commit belongs to the ids its subject names before the first
+  colon). CLI: `work scan|import --ledger <tasks.json> --root <repo>`; import the code map first.
+- Snapshot and pack imports replace a record's links exactly: a link the last version had and the new one does not is
+  dropped (before, it was kept, and the next import of the same snapshot never settled). A snapshot's records may link in
+  cycles within a type (types that use each other): targets are written first where they can be, and the remaining links
+  are added once their targets exist.
+- Traversal hops per module (`traversal.hops`, 1 to 3, two by default).
+- Code map: `CODEMAP_USES` (a type to the in-repo types its members use, most used first, at most 16) is recorded in the
+  map, from Roslyn and from SCIP enclosing ranges, but not walked: on a mutation sample it reached the right tests for
+  2 of 6 untested types against a target of 3.
+- The Roslyn code map reader compiles each project with its NuGet compile assemblies, read from the restore's
+  `obj/project.assets.json`, so calls through package types (`IServiceCollection` extensions, builders) bind and their
+  tests link to the code they call.
+- `evaluate --traversal` applies every composed member's schema before it reads.
+
+- Add experimental composite packs: a pack made of packs (`composite.json`, format `agentmemory.composite/v1alpha1`,
+  `IAgentMemoryComposite`, `ModuleSetBuilder.AddComposite<T>()`). A composite names its members with version ranges, the
+  priority each takes and whether it starts on; it holds nothing of its own, and one level only. The SDK refuses a member the
+  manifest does not name, a version outside its range, or a named member left out; a host can switch members and move them.
+  First composite: `AgentMemory.Packs.Coding` (held): decisions, repository experience and the code map. Coding mode:
+  `"modules": { "coding": true }`.
+- Add the experimental decisions memory pack (`src/AgentMemory.Packs.Decisions`, held): decisions read deterministically
+  from ADR and MADR files and Squad's `.squad/decisions.md` (dated, D-numbered or directive entries; reviews skipped). Each
+  decision applies to the files and types its text mentions (`appliesTo`, `mentions`), found with a code index, so traversal
+  brings it up with that code; a superseded decision applies to nothing. A search view finds decisions by the question.
+  CLI: `decisions scan` and `decisions import`.
+
+- Add the experimental code map memory pack (`src/AgentMemory.Packs.CodeMap`, held) and its C# reader
+  (`src/AgentMemory.Packs.CodeMap.Roslyn`, held): a repository's projects, files, types and test methods at a commit,
+  keyed by SCIP symbols (`scip-dotnet nuget Assembly . Ns/Type#`, version slot empty so keys survive releases). The reader
+  uses the Roslyn compiler without MSBuild or a build: one compilation per project against the runtime's reference
+  assemblies, so in-repo types resolve exactly; each test links to the in-repo types its method touches outside its own
+  project, including what the helpers of its own class touch (a test that builds its subject in `CreateSut()` still tests
+  it). Without MSBuild, the reader adds what MSBuild would generate: the SDK's implicit usings when the project or its
+  `Directory.Build.props` enables them, `<Using>` items, and `InternalsVisibleTo`; without them, calls whose signatures
+  name `IEnumerable<T>` or `Task`, or internal members, did not bind. The pack declares traversal, so the file or symbol in hand leads to the tests that exercise it. CLI:
+  `codemap scan --root <repo> [--output map.jsonl]` (offline) and `codemap import --root <repo> [--source git:<sha>]`.
+- Code map from SCIP indexes (CMP-2b): `ScipCodeMapReader` reads an `index.scip` (scip-typescript, scip-python, scip-java,
+  scip-go, rust-analyzer, scip-clang and others) into the same records the Roslyn reader writes, so one map can hold C# and
+  other languages. It records types and top-level functions (new kinds `function` and `type`), files in a project per
+  package, and tests: functions named `test...` and methods of `...Test`/`...Tests`/`...Spec` classes in test files, each
+  linked to what its body refers to; a test file with no such functions (JavaScript's `it(...)`) is one test. Keys are SCIP
+  symbols with the version emptied, so they survive releases. No protobuf dependency: the reader parses only the fields it
+  uses, both range encodings included. CLI: `codemap scan|import [--root <repo>] [--scip <index.scip>[,...]]`.
+- Traversal ranks by the question (CMP-4): when a type leads to more records than the fan-out, the reader keeps first those
+  whose text (`ModuleType.TextProperties()`, the render template's string properties) holds the question's words
+  (`ModuleExpandQuery.Words`), then the most specific (`ModuleTraversalEdge.Degree`: fewest records sharing the link); the
+  walk offers by path score raised per matched word, then specificity. Before, the fan-out kept records in id order. On this
+  repository's own history the share of changes whose own tests reach the gate rose from 0.375 to 0.775 (0.80 on 40 older
+  changes held out while tuning), precision from 0.18 to 0.51 (0.60 held out), for about 30 ms at p95. The Neo4j traversal reader checks module migrations once
+  per request instead of before every read. Trial: `evaluate --traversal eng/evaluation/traversal-fixture.json`.
+- Add experimental module snapshots (`ModuleSnapshot`, `IModuleSnapshotStore`, Neo4j `Neo4jModuleSnapshotStore`): a
+  host-generated, complete set of a data module's records at one source version. Import writes only what changed, closes
+  what disappeared (history kept), in batches; records carry the source and the snapshot digest as provenance. One read
+  per type first finds the records already stored as they are: on this repository (12,328 records) a first import takes
+  about 3.5 minutes and an unchanged commit about 2 seconds.
+- Change: a module record whose link target only gained a new version is no longer re-versioned itself. A link counts as
+  changed when its live target changes, the target closes, or the link is added or dropped. Readers already followed a
+  link to its target's live version. (A knowledge pack upgrade no longer churns every record linked to a changed one.)
+
+- Add experimental traversal context: from the files and symbols of the work in hand to the records that govern them.
+  A request carries `Anchors` (repository paths or symbols); a module manifest may declare `traversal`: anchor properties
+  (matched exactly, by folder prefix, by glob, or by symbol name), owned links a walk may follow in or out with a weight
+  and fan-out, hub types it never offers, and how many records it offers. One walk per request (at most two hops)
+  scores each record by anchor quality times the link weights and keeps the path as its reason
+  (`ContextItemProvenance.Via`); every module with `traversal` gets a contributor for its share, judged in the same gate
+  call as everything else. Without anchors nothing is read. The Neo4j adapter adds `Neo4jModuleTraversalReader`
+  (live records only, the host's isolation scope, links to an older version of a target still count); MAF hosts pass
+  anchors with `ContextAnchors.Begin(...)`. Coding mode: `recall` takes optional `anchors`, a new `governs` tool asks
+  what governs given files or symbols, kept module items say how they were reached, and the prompt hooks send the code
+  names and paths a prompt mentions plus the working tree's changed files.
+
+- Add opt-in memory packs to coding mode (`modules` in the coding configuration):
+  - the repository-experience pack writes lessons bound to each turn's commit after the core write;
+  - signed knowledge packs are verified at startup and imported into every project's database;
+  - recall responses gain a `modules` section, judged in the same gate call as core memories.
+  Without `modules`, nothing changes. The preview projects and memory packs keep their own version when a bundling host
+  is packed with `-p:Version` (`TreatAsLocalProperty`); the release manifest check enforces it.
+
+- Add the experimental repository-experience memory pack (`src/AgentMemory.Packs.Repository`, held: it ships inside the
+  coding host). A model writes lessons a coding agent would otherwise rediscover, each with a kind: failure-fix, command,
+  convention, pitfall or environment. The host stamps the commit a lesson was seen at through the new
+  `IngestionRequest.HostAttributes`; the model never sets it. Recall uses a search view, so the gate judges the few lessons
+  that match a turn.
+
+- Let a module search use what core memory found. `RecallCompanions.CoreCandidates` gives the texts of the core memories a
+  judging gate found for the turn: the gate offers them right after its search, before it waits for companions, and offers an
+  empty list on every other path. A search view adds them after the question, so "what do I need for my next belt?" can find
+  the grade that the person's own memory names. Experimental `ContextRequest.CoreCandidates` carries them to contributors.
+- Add experimental display metadata to module manifests (`display`: title, description, a `#RRGGBB` colour and, for a
+  knowledge pack, a PNG icon in its signed bundle), for hosts that show modules to people, such as a desktop memory viewer. It never reaches
+  a model.
+
+- Add experimental knowledge packs (`AgentMemory.Extensibility.Packs`): data-only memory packages that ship seed records.
+  A pack is a module manifest with `seed` files and only shared types, signed as a bundle. `KnowledgePack` verifies the
+  bundle first, then checks every record against the manifest, and opens from a folder or from the `agentmemory/` folder
+  of a NuGet package. `KnowledgePackImporter` imports a pack in one transaction: new keys are created, changed records
+  get a new version, equal ones are no-ops, records a newer version drops are closed, and a downgrade is refused unless
+  asked for. Removal closes every record and keeps history. Records carry pack provenance (`ProposalSource.Pack`: pack,
+  version, digest, seed line), which only the importer can write. `ModuleSetBuilder.AddKnowledgePack` composes a pack;
+  the Neo4j adapter adds `AddNeo4jKnowledgePacks`.
+- Add experimental search views: a view may declare `search` over its declared string properties. The migrator derives
+  a full-text index, and the view returns the best matches for a request's text, ordered by score. A view contributor
+  searches with the turn's question.
+
+- Add experimental signed bundles (`AgentMemory.Extensibility.Bundles`): a files list naming every file with its
+  length and sha256, signed with ECDSA P-256. `BundleVerifier` refuses a bundle before anything in it is used when the
+  key is not trusted or is revoked, the signature fails, the digest is revoked or differs from a pin, or any file is
+  missing, extra or changed. Hosts trust the official key (compiled in) and developer keys from their own
+  configuration only; there is no "allow unsigned" switch. The CLI adds `packs keygen`, `packs sign` and `packs verify`.
+
 - Give the experimental 0.x packages (Extensibility, Extensibility.AgentFramework, Extensibility.Neo4j, Validation)
   their own release line: `preview-v0.x.y-<prerelease>` tags pack only them, at the tag's version through
   `-p:PreviewVersion`, so their core dependencies keep the core version; the core release must be on NuGet first.
@@ -152,6 +295,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scoped backfills, namespace ownership and script ordering using shared SDK naming rules and additive
   lint. Explicit handwritten execution is available; explicit operator CLI wiring is available.
 
+
+### Security
+
+- **MCP recall tools no longer return recalled memory raw** (#92, the MCP surface). `memory_search`,
+  `memory_get_context`, `memory_recall_as_of`, `memory_get_conversation`, `memory_get_entity`,
+  `memory_get_observations` and `memory_lineage`, and the `memory_context`, `memory_entities` and
+  `memory_preferences` resources, now apply the same instruction-like detector and admission
+  decision as the Agent Framework and Semantic Kernel adapters (one shared source, compiled into Core and the MCP
+  server). Every recalled item carries `trustLevel`, `instructionLike` and `withheld`; its text has every angle
+  bracket escaped, so it cannot forge or close a tag in the client's prompt framing; each result carries an
+  `untrustedContent` notice and each tool description says recalled text is data, never instructions.
+  `AgentMemoryMcpOptions.RecallSecurityMode` (`Permissive` by default, as in the other adapters; `Strict`
+  withholds instruction-like text below `MinimumTrustForAdmissionBypass`, keeping the item and its id). **Output
+  change for MCP clients:** new fields on every item, escaped text, and `null` text on withheld items. The coding
+  host's API keeps raw text (escaping would corrupt code), gains the trust and instruction-like flags, and says so in
+  its notice. Metadata is guarded too: a withheld item keeps only its trust stamp, and every string in a returned
+  item's metadata is escaped, nested values included; roles are escaped. `agent-memory-mcp --strict-recall` (or
+  `AGENT_MEMORY_MCP_STRICT_RECALL=true`) turns strict mode on in the shipped host. The NAMS MCP
+  server's `nams_recall`, `nams_entity_graph` and `nams_expand_graph` escape and flag recalled text the same way, from
+  the same shared detector (its private copy of the rule is gone); NAMS items carry no trust stamp, so it does not
+  withhold.
 
 ### Added
 
@@ -465,6 +629,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Reconcile graduated API labels and composition links across the configuration and adapter guides.
   Describe the release workflow's actual NuGet API-key authentication separately from OIDC attestation signing.
+- Also from me: GraphBridge 0.2.0-preview.1 adds an experimental GraphRAG toolkit for .NET on EF Core and Neo4j. If you're building on Neo4j for AI, its answers show the stored text each quote came from, or say why they can't answer: https://joslat.github.io/GraphBridge.EFCore/graphrag/index.html
 
 ## [1.9.0] - 2026-10-05
 
@@ -2852,7 +3017,8 @@ NuGet package IDs are permanent once published.
 
 ---
 
-[Unreleased]: https://github.com/joslat/agent-memory-dotnet/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/joslat/agent-memory-dotnet/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/joslat/agent-memory-dotnet/compare/v1.9.0...v2.0.0
 [1.0.1]: https://github.com/joslat/agent-memory-dotnet/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/joslat/agent-memory-dotnet/compare/v0.1.0-preview.4...v1.0.0
 [0.1.0-preview.4]: https://github.com/joslat/agent-memory-dotnet/compare/v0.1.0-preview.3...v0.1.0-preview.4

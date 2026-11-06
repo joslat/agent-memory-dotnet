@@ -65,7 +65,7 @@ public sealed partial class ModuleRecordWriteIntegrationTests
         (await reader.FindAsync(Query("filter-merge-new"), before with { SystemAsOfUtc = batch.AtUtc.AddSeconds(2) })).Records.Should().ContainSingle();
         foreach (var id in new[] { "filter-merge-foreign", "filter-merge-missing" })
             (await reader.FindAsync(Query(id), ReadContext())).Records.Should().BeEmpty();
-        (await reader.FindAsync(Query("filter-merge-old"), ReadContext() with { ValidAsOfUtc = batch.AtUtc })).Status.Should().Be(ModuleReadStatus.NotApplicable);
+        (await reader.FindAsync(Query("filter-merge-old"), ReadContext() with { ValidAsOfUtc = batch.AtUtc })).Status.Should().Be(ModuleReadStatus.Succeeded, "a valid-time pin is read (feature 07)");
         await Execute("MATCH (a:Entity {id:'filter-merge-new'}) SET a.owner_id='foreign'");
         (await reader.FindAsync(Query("filter-merge-old"), ReadContext())).Records.Should().BeEmpty();
     }

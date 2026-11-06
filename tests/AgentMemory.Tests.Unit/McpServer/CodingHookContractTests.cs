@@ -138,11 +138,12 @@ public sealed class CodingHookContractTests
     {
         var type = typeof(AgentMemory.McpServer.ServiceCollectionExtensions).Assembly
             .GetType("AgentMemory.McpServer.Tools.McpMemoryProjection")!;
+        // The coding host passes no recall guard, so the projection annotates and never escapes (#92).
         var projection = type.GetMethod("Context", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
-            .Invoke(null, [new AgentMemory.Abstractions.Domain.MemoryContext
+            .Invoke(null, System.Reflection.BindingFlags.OptionalParamBinding, null, [new AgentMemory.Abstractions.Domain.MemoryContext
             {
                 SessionId = "new-session", AssembledAtUtc = DateTimeOffset.UnixEpoch, WorkingMemoryBlock = block,
-            }])!;
+            }, Type.Missing], null)!;
         return JsonSerializer.SerializeToElement(new { context = projection }, CodingApi.Json);
     }
 

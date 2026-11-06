@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 
@@ -28,6 +29,40 @@ public sealed record ModuleManifest
     public ModuleOntology? Ontology { get; init; }
     /// <summary>Declarative reads, whose local IDs belong to this module.</summary>
     public IReadOnlyList<ModuleView> Views { get; init; } = [];
+    /// <summary>
+    /// The seed record files of a knowledge pack, relative to its bundle root (Extensibility 0.13 §K1); null for a module.
+    /// A manifest with seed files is data only: shared types, no host features, no dependencies.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? Seed { get; init; }
+    /// <summary>How a host shows the module or pack: title, description, icon and colour (Extensibility 0.13 §D). Optional.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public ModuleDisplay? Display { get; init; }
+    /// <summary>
+    /// What the module shows the model on every turn (feature 06): what it knows and when to ask it, from a pack's card. Display
+    /// text of at most 400 characters; its framed bytes are the pack's fixed cost in a trial. Optional.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? WhenToUse { get; init; }
+    /// <summary>How the module joins traversal context: anchor properties, traversable links, offered records (CMP-1). Optional.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public ModuleTraversal? Traversal { get; init; }
+    /// <summary>
+    /// The trial a host runs on its own history before switching this pack on (pack format v1.1 §4). Optional; enforced only
+    /// by a host that requires trials.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public ModuleTrial? Trial { get; init; }
+    /// <summary>
+    /// The modules allowed to walk into this one's records through their own links, by module id or parent namespace (pack
+    /// format v1.1, red-team M4). Null or empty: none may. A pack consents to its containers; another pack cannot attach
+    /// itself to this one's anchors by declaring a link.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? ContainableBy { get; init; }
+    /// <summary>Whether this manifest declares a knowledge pack (it has seed files).</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsKnowledgePack => Seed is not null;
 
     /// <summary>Reads strict bounded JSON without executing code or accessing a database.</summary>
     /// <remarks>Validates wire shape and scalar syntax. Whole-ontology/set validation is a separate

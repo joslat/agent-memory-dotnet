@@ -1,0 +1,1263 @@
+{
+  "format": "ampack.registry/1",
+  "about": "The one definition of every name the format defines: both verifiers load it, the spec's tables are rendered from it, the conformance kit checks against it. Feature 01, step 1: today's lists, unchanged.",
+  "manifest": {
+    "fields": [
+      "format",
+      "id",
+      "version",
+      "kind",
+      "sdk",
+      "requires",
+      "display",
+      "containableBy",
+      "contains",
+      "tier",
+      "licence",
+      "validUntil",
+      "protection",
+      "code",
+      "source",
+      "extensions",
+      "critical"
+    ],
+    "values": {
+      "kind": [
+        "knowledge",
+        "definition",
+        "snapshot",
+        "composite",
+        "set"
+      ],
+      "tier": [
+        "open",
+        "curated",
+        "premium",
+        "private",
+        "hosted"
+      ],
+      "protection": [
+        "open",
+        "audience",
+        "licensed",
+        "attested",
+        "hosted"
+      ],
+      "code": [
+        "E0",
+        "E1",
+        "E2"
+      ]
+    },
+    "extensions": [
+      "federation"
+    ],
+    "stringFields": [
+      "format",
+      "id",
+      "version",
+      "kind",
+      "sdk",
+      "tier",
+      "licence",
+      "validUntil",
+      "protection",
+      "code"
+    ],
+    "defaults": {
+      "tier": "open",
+      "protection": "open",
+      "code": "E0"
+    }
+  },
+  "documents": {
+    "files": {
+      "fields": [
+        "format",
+        "id",
+        "version",
+        "files"
+      ]
+    },
+    "composite": {
+      "fields": [
+        "format",
+        "id",
+        "version",
+        "display",
+        "members"
+      ]
+    },
+    "envelope": {
+      "fields": [
+        "payloadType",
+        "payload",
+        "signatures"
+      ]
+    },
+    "signatureEntry": {
+      "fields": [
+        "keyid",
+        "sig"
+      ]
+    },
+    "statement": {
+      "fields": [
+        "_type",
+        "subject",
+        "predicateType",
+        "predicate"
+      ]
+    },
+    "subject": {
+      "fields": [
+        "name",
+        "digest"
+      ]
+    },
+    "signaturePredicate": {
+      "fields": [
+        "role",
+        "id",
+        "version",
+        "signedAt"
+      ]
+    },
+    "filesEntry": {
+      "fields": [
+        "path",
+        "length",
+        "sha256"
+      ]
+    },
+    "ledger": {
+      "fields": [
+        "format",
+        "packs",
+        "revoked",
+        "freshness",
+        "retired"
+      ]
+    },
+    "card": {
+      "fields": [
+        "format",
+        "owner",
+        "intendedUse",
+        "limitations",
+        "boundaries",
+        "risks",
+        "provenance",
+        "audience",
+        "domain",
+        "references",
+        "whenToUse"
+      ]
+    },
+    "cardOwner": {
+      "fields": [
+        "name",
+        "contact"
+      ]
+    },
+    "manifestSource": {
+      "fields": [
+        "repository",
+        "commit",
+        "builtAt"
+      ]
+    },
+    "familyFile": {
+      "fields": [
+        "format",
+        "members"
+      ]
+    },
+    "familyMember": {
+      "fields": [
+        "id",
+        "version",
+        "digest"
+      ]
+    },
+    "federation": {
+      "fields": [
+        "format",
+        "publisher",
+        "audience",
+        "purpose"
+      ]
+    },
+    "receiptPredicate": {
+      "fields": [
+        "id",
+        "version",
+        "location",
+        "archiveSha256",
+        "audience",
+        "access",
+        "checked",
+        "publishedAt"
+      ]
+    },
+    "receiptCheck": {
+      "fields": [
+        "denied",
+        "allowed"
+      ]
+    },
+    "certificatePredicate": {
+      "fields": [
+        "id",
+        "version",
+        "evaluator",
+        "tool",
+        "evaluatedAt",
+        "trial",
+        "statistic",
+        "checks",
+        "with",
+        "without",
+        "passed",
+        "aef"
+      ]
+    },
+    "certificateTool": {
+      "fields": [
+        "name",
+        "version"
+      ]
+    },
+    "certificateTrial": {
+      "fields": [
+        "measure",
+        "baseline",
+        "confidencePermille",
+        "taskSource"
+      ]
+    },
+    "certificateCheck": {
+      "fields": [
+        "target",
+        "requiredMicro",
+        "observedMicro",
+        "met",
+        "estimateMicro"
+      ]
+    },
+    "certificateAef": {
+      "fields": [
+        "runId",
+        "runHash"
+      ]
+    },
+    "certificateArm": {
+      "fields": [
+        "tasks",
+        "hits",
+        "offered",
+        "correct",
+        "p95Micros",
+        "maximumOffered",
+        "spacing",
+        "perTask"
+      ]
+    },
+    "aefRunUnhashed": {
+      "fields": [
+        "seal.json",
+        "attestation.dsse.json"
+      ]
+    },
+    "revocations": {
+      "fields": [
+        "format",
+        "issuedAt",
+        "expires",
+        "digests",
+        "keys"
+      ]
+    },
+    "revokedKey": {
+      "fields": [
+        "keyId",
+        "compromisedAt"
+      ]
+    },
+    "trustPolicy": {
+      "fields": [
+        "format",
+        "keys",
+        "revoked",
+        "requireRoles",
+        "host"
+      ]
+    },
+    "trustKey": {
+      "fields": [
+        "keyId",
+        "publicKey",
+        "idPrefixes",
+        "roles",
+        "notBefore",
+        "notAfter",
+        "webId",
+        "confidenceMicro"
+      ]
+    },
+    "trustRevoked": {
+      "fields": [
+        "digests",
+        "keys",
+        "expires"
+      ]
+    },
+    "embeddingsIndex": {
+      "fields": [
+        "format",
+        "model",
+        "modelDigest",
+        "dtype",
+        "dimension",
+        "normalized",
+        "distance",
+        "rows"
+      ]
+    },
+    "erasurePredicate": {
+      "fields": [
+        "id",
+        "issuedAt",
+        "reason",
+        "salt",
+        "records"
+      ]
+    },
+    "erasureRecord": {
+      "fields": [
+        "type",
+        "key",
+        "keyHash"
+      ]
+    },
+    "derivation": {
+      "fields": [
+        "format",
+        "inputs",
+        "tool",
+        "model",
+        "promptDigest",
+        "parameters",
+        "parent",
+        "actions"
+      ]
+    },
+    "derivationInput": {
+      "fields": [
+        "digest",
+        "name",
+        "licence",
+        "confidenceMicro"
+      ]
+    },
+    "derivationTool": {
+      "fields": [
+        "name",
+        "version"
+      ]
+    },
+    "derivationModel": {
+      "fields": [
+        "id",
+        "version"
+      ]
+    },
+    "derivationParent": {
+      "fields": [
+        "id",
+        "digest"
+      ]
+    },
+    "policy": {
+      "fields": [
+        "format",
+        "rules"
+      ]
+    },
+    "policyRule": {
+      "fields": [
+        "audience",
+        "allow",
+        "deny",
+        "notAfter"
+      ]
+    },
+    "aggregatePredicate": {
+      "fields": [
+        "id",
+        "version",
+        "digest",
+        "measure",
+        "tasks",
+        "window",
+        "mechanism",
+        "epsilonMilli",
+        "decision",
+        "checks",
+        "passed"
+      ]
+    },
+    "aggregateWindow": {
+      "fields": [
+        "from",
+        "to"
+      ]
+    },
+    "aggregateCheck": {
+      "fields": [
+        "target",
+        "successes",
+        "trials",
+        "requiredMicro",
+        "boundMicro",
+        "met"
+      ]
+    }
+  },
+  "members": {
+    "fields": [
+      "id",
+      "version",
+      "priority",
+      "enabled",
+      "contains"
+    ]
+  },
+  "roles": {
+    "signing": [
+      "publisher",
+      "curator",
+      "assurer"
+    ],
+    "keys": [
+      "publisher",
+      "curator",
+      "assurer",
+      "revoker",
+      "evaluator"
+    ]
+  },
+  "federation": {
+    "accessKinds": [
+      "wac",
+      "acp",
+      "public"
+    ]
+  },
+  "trial": {
+    "fields": [
+      "measure",
+      "tasks",
+      "baseline",
+      "confidencePermille",
+      "targets",
+      "upgrade",
+      "safety",
+      "cost"
+    ],
+    "targets": {
+      "hitRate": {
+        "field": "hitRateMicro"
+      },
+      "precision": {
+        "field": "precisionMicro"
+      },
+      "lift": {
+        "field": "liftMicro"
+      },
+      "precisionLift": {
+        "field": "precisionLiftMicro"
+      },
+      "addedP95Ms": {
+        "field": "addedP95Ms"
+      },
+      "noHarm": {
+        "field": "noHarmMicro"
+      }
+    },
+    "upgradeFields": [
+      "noRegression",
+      "toleranceMicro"
+    ],
+    "statistic": {
+      "name": "agentmemory.trial.hedged/4",
+      "about": "Per confidence (thousandths): the one-sided normal quantile z, the weight of the unseen task in quarters, and Student's t quantiles for 1 to 60 degrees of freedom, each a decimal read as written. Beyond 60: Cornish-Fisher in z.",
+      "quantiles": {
+        "900": {
+          "z": "1.2815516",
+          "hedgeQuarters": 5,
+          "t": [
+            "3.077684",
+            "1.885618",
+            "1.637744",
+            "1.533206",
+            "1.475884",
+            "1.439756",
+            "1.414924",
+            "1.396815",
+            "1.383029",
+            "1.372184",
+            "1.36343",
+            "1.356217",
+            "1.350171",
+            "1.34503",
+            "1.340606",
+            "1.336757",
+            "1.333379",
+            "1.330391",
+            "1.327728",
+            "1.325341",
+            "1.323188",
+            "1.321237",
+            "1.31946",
+            "1.317836",
+            "1.316345",
+            "1.314972",
+            "1.313703",
+            "1.312527",
+            "1.311434",
+            "1.310415",
+            "1.309464",
+            "1.308573",
+            "1.307737",
+            "1.306952",
+            "1.306212",
+            "1.305514",
+            "1.304854",
+            "1.30423",
+            "1.303639",
+            "1.303077",
+            "1.302543",
+            "1.302035",
+            "1.301552",
+            "1.30109",
+            "1.300649",
+            "1.300228",
+            "1.299825",
+            "1.299439",
+            "1.299069",
+            "1.298714",
+            "1.298373",
+            "1.298045",
+            "1.29773",
+            "1.297426",
+            "1.297134",
+            "1.296853",
+            "1.296581",
+            "1.296319",
+            "1.296066",
+            "1.295821"
+          ]
+        },
+        "950": {
+          "z": "1.6448536",
+          "hedgeQuarters": 6,
+          "t": [
+            "6.313752",
+            "2.919986",
+            "2.353363",
+            "2.131847",
+            "2.015048",
+            "1.94318",
+            "1.894579",
+            "1.859548",
+            "1.833113",
+            "1.812461",
+            "1.795885",
+            "1.782288",
+            "1.770933",
+            "1.76131",
+            "1.75305",
+            "1.745884",
+            "1.739607",
+            "1.734064",
+            "1.729133",
+            "1.724718",
+            "1.720743",
+            "1.717144",
+            "1.713872",
+            "1.710882",
+            "1.708141",
+            "1.705618",
+            "1.703288",
+            "1.701131",
+            "1.699127",
+            "1.697261",
+            "1.695519",
+            "1.693889",
+            "1.69236",
+            "1.690924",
+            "1.689572",
+            "1.688298",
+            "1.687094",
+            "1.685954",
+            "1.684875",
+            "1.683851",
+            "1.682878",
+            "1.681952",
+            "1.681071",
+            "1.68023",
+            "1.679427",
+            "1.67866",
+            "1.677927",
+            "1.677224",
+            "1.676551",
+            "1.675905",
+            "1.675285",
+            "1.674689",
+            "1.674116",
+            "1.673565",
+            "1.673034",
+            "1.672522",
+            "1.672029",
+            "1.671553",
+            "1.671093",
+            "1.670649"
+          ]
+        },
+        "975": {
+          "z": "1.959964",
+          "hedgeQuarters": 7,
+          "t": [
+            "12.706205",
+            "4.302653",
+            "3.182446",
+            "2.776445",
+            "2.570582",
+            "2.446912",
+            "2.364624",
+            "2.306004",
+            "2.262157",
+            "2.228139",
+            "2.200985",
+            "2.178813",
+            "2.160369",
+            "2.144787",
+            "2.13145",
+            "2.119905",
+            "2.109816",
+            "2.100922",
+            "2.093024",
+            "2.085963",
+            "2.079614",
+            "2.073873",
+            "2.068658",
+            "2.063899",
+            "2.059539",
+            "2.055529",
+            "2.051831",
+            "2.048407",
+            "2.04523",
+            "2.042272",
+            "2.039513",
+            "2.036933",
+            "2.034515",
+            "2.032245",
+            "2.030108",
+            "2.028094",
+            "2.026192",
+            "2.024394",
+            "2.022691",
+            "2.021075",
+            "2.019541",
+            "2.018082",
+            "2.016692",
+            "2.015368",
+            "2.014103",
+            "2.012896",
+            "2.011741",
+            "2.010635",
+            "2.009575",
+            "2.008559",
+            "2.007584",
+            "2.006647",
+            "2.005746",
+            "2.004879",
+            "2.004045",
+            "2.003241",
+            "2.002465",
+            "2.001717",
+            "2.000995",
+            "2.000298"
+          ]
+        },
+        "990": {
+          "z": "2.3263479",
+          "hedgeQuarters": 8,
+          "t": [
+            "31.820516",
+            "6.964557",
+            "4.540703",
+            "3.746947",
+            "3.36493",
+            "3.142668",
+            "2.997952",
+            "2.896459",
+            "2.821438",
+            "2.763769",
+            "2.718079",
+            "2.680998",
+            "2.650309",
+            "2.624494",
+            "2.60248",
+            "2.583487",
+            "2.566934",
+            "2.55238",
+            "2.539483",
+            "2.527977",
+            "2.517648",
+            "2.508325",
+            "2.499867",
+            "2.492159",
+            "2.485107",
+            "2.47863",
+            "2.47266",
+            "2.46714",
+            "2.462021",
+            "2.457262",
+            "2.452824",
+            "2.448678",
+            "2.444794",
+            "2.44115",
+            "2.437723",
+            "2.434494",
+            "2.431447",
+            "2.428568",
+            "2.425841",
+            "2.423257",
+            "2.420803",
+            "2.41847",
+            "2.41625",
+            "2.414134",
+            "2.412116",
+            "2.410188",
+            "2.408345",
+            "2.406581",
+            "2.404892",
+            "2.403272",
+            "2.401718",
+            "2.400225",
+            "2.39879",
+            "2.39741",
+            "2.396081",
+            "2.394801",
+            "2.393568",
+            "2.392377",
+            "2.391229",
+            "2.390119"
+          ]
+        }
+      },
+      "cornishFisher": "z + (z^3 + z) / (4 v) + (5 z^5 + 16 z^3 + 3 z) / (96 v^2) + (3 z^7 + 19 z^5 + 17 z^3 - 15 z) / (384 v^3), for v > 60 degrees of freedom"
+    },
+    "safetyFields": [
+      "probes",
+      "maxFollowMicro"
+    ],
+    "costTargets": {
+      "savingBytes": {
+        "field": "savingBytesMedian"
+      },
+      "savingRatio": {
+        "field": "savingRatioMicro"
+      }
+    },
+    "atMost": [
+      "addedP95Ms",
+      "safety"
+    ],
+    "hostOnly": [
+      "noHarm"
+    ]
+  },
+  "certificate": {
+    "measures": [
+      "test-impact",
+      "retrieval"
+    ],
+    "baselines": [
+      "host",
+      "none"
+    ]
+  },
+  "paths": {
+    "deviceNames": [
+      "CON",
+      "PRN",
+      "AUX",
+      "NUL",
+      "CONIN$",
+      "CONOUT$",
+      "COM1",
+      "COM2",
+      "COM3",
+      "COM4",
+      "COM5",
+      "COM6",
+      "COM7",
+      "COM8",
+      "COM9",
+      "LPT1",
+      "LPT2",
+      "LPT3",
+      "LPT4",
+      "LPT5",
+      "LPT6",
+      "LPT7",
+      "LPT8",
+      "LPT9"
+    ]
+  },
+  "profiles": {
+    "walk": {
+      "implemented": true,
+      "files": [
+        "traversal.json"
+      ]
+    },
+    "trial": {
+      "implemented": true,
+      "files": [
+        "evals/trial.json",
+        "evals/tests.json"
+      ]
+    },
+    "compose": {
+      "implemented": true,
+      "files": [
+        "members.json",
+        "META/lock.json"
+      ],
+      "kinds": [
+        "composite"
+      ]
+    },
+    "federation": {
+      "implemented": true,
+      "extensions": [
+        "federation"
+      ]
+    },
+    "protection": {
+      "implemented": false,
+      "files": [],
+      "values": {
+        "protection": [
+          "audience",
+          "licensed",
+          "attested",
+          "hosted"
+        ]
+      },
+      "refusal": "{id} is protected as '{protection}'; this host opens 'open' packs only."
+    },
+    "code": {
+      "implemented": false,
+      "files": [
+        "queries.json",
+        "queries/",
+        "components.json",
+        "components/"
+      ],
+      "values": {
+        "code": [
+          "E1",
+          "E2"
+        ]
+      },
+      "refusal": "{id} carries code (tier {code}); this host runs declarative (E0) packs only."
+    },
+    "permissions": {
+      "implemented": true,
+      "files": [
+        "policy.json"
+      ]
+    },
+    "embeddings": {
+      "implemented": true,
+      "files": [
+        "embeddings/"
+      ]
+    }
+  },
+  "traversal": {
+    "relationFields": [
+      "name",
+      "direction",
+      "weightMicro",
+      "fanOut"
+    ],
+    "defaultWeightMicro": 800000
+  },
+  "units": {
+    "about": "Every number in a pack document is an integer within ±(2^53−1). A unit-bearing field is in the unit and range given here; its name ends in its unit.",
+    "kinds": {
+      "micro": {
+        "means": "millionths of one"
+      },
+      "permille": {
+        "means": "thousandths, from a closed set"
+      },
+      "ms": {
+        "means": "whole milliseconds"
+      },
+      "bytes": {
+        "means": "whole bytes"
+      }
+    },
+    "fields": {
+      "weightMicro": {
+        "unit": "micro",
+        "min": 1,
+        "max": 1000000
+      },
+      "hitRateMicro": {
+        "unit": "micro",
+        "min": 0,
+        "max": 1000000
+      },
+      "noHarmMicro": {
+        "unit": "micro",
+        "min": 0,
+        "max": 1000000
+      },
+      "precisionMicro": {
+        "unit": "micro",
+        "min": 0,
+        "max": 1000000
+      },
+      "liftMicro": {
+        "unit": "micro",
+        "min": -1000000,
+        "max": 1000000
+      },
+      "precisionLiftMicro": {
+        "unit": "micro",
+        "min": -1000000,
+        "max": 1000000
+      },
+      "addedP95Ms": {
+        "unit": "ms",
+        "min": 1,
+        "max": 60000
+      },
+      "toleranceMicro": {
+        "unit": "micro",
+        "min": 0,
+        "max": 500000
+      },
+      "confidencePermille": {
+        "unit": "permille",
+        "values": [
+          900,
+          950,
+          975,
+          990
+        ]
+      },
+      "maxFollowMicro": {
+        "unit": "micro",
+        "min": 0,
+        "max": 1000000
+      },
+      "savingBytesMedian": {
+        "unit": "bytes",
+        "min": 0,
+        "max": 1000000000
+      },
+      "savingRatioMicro": {
+        "unit": "micro",
+        "min": 0,
+        "max": 1000000
+      }
+    }
+  },
+  "records": {
+    "about": "The neutral record model (Core 15): property types, memory kinds, and the built-in types and relations a pack may use without declaring an ontology.",
+    "propertyTypes": [
+      "string",
+      "int",
+      "float",
+      "bool",
+      "date",
+      "datetime"
+    ],
+    "memoryKinds": [
+      "semantic",
+      "episodic",
+      "procedural",
+      "preference",
+      "identity",
+      "working"
+    ],
+    "builtInTypes": {
+      "note": {
+        "text": "text",
+        "properties": {
+          "text": {
+            "type": "string",
+            "required": true
+          }
+        }
+      },
+      "chunk": {
+        "text": "text",
+        "properties": {
+          "text": {
+            "type": "string",
+            "required": true
+          },
+          "index": {
+            "type": "int",
+            "required": true
+          }
+        }
+      },
+      "document": {
+        "text": "title",
+        "properties": {
+          "title": {
+            "type": "string",
+            "required": true
+          },
+          "uri": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "builtInRelations": {
+      "part_of": {
+        "from": "chunk",
+        "to": "document"
+      },
+      "links_to": {
+        "from": "note",
+        "to": "note"
+      }
+    },
+    "lifeFields": [
+      "validFrom",
+      "validTo",
+      "expiresAt",
+      "reviewBy",
+      "supersedes"
+    ],
+    "lifecycles": [
+      "pinned",
+      "refreshes"
+    ],
+    "trustFields": [
+      "confidenceMicro",
+      "sourceKey"
+    ]
+  },
+  "embeddings": {
+    "dataTypes": [
+      "F32",
+      "F16"
+    ],
+    "distances": [
+      "cosine",
+      "dot",
+      "l2"
+    ]
+  },
+  "text": {
+    "about": "Display-safe text (feature 04): the code points no text a pack shows to a person may hold, as inclusive hexadecimal ranges, generated once from Unicode 15.0: C0 and C1 controls but line feed and tab, every format character (Cf, every bidi control among them) but ZWNJ and ZWJ, private use (Co) and surrogates (Cs).",
+    "displayRefused": [
+      [
+        "0000",
+        "0008"
+      ],
+      [
+        "000B",
+        "001F"
+      ],
+      [
+        "007F",
+        "009F"
+      ],
+      [
+        "00AD",
+        "00AD"
+      ],
+      [
+        "0600",
+        "0605"
+      ],
+      [
+        "061C",
+        "061C"
+      ],
+      [
+        "06DD",
+        "06DD"
+      ],
+      [
+        "070F",
+        "070F"
+      ],
+      [
+        "0890",
+        "0891"
+      ],
+      [
+        "08E2",
+        "08E2"
+      ],
+      [
+        "180E",
+        "180E"
+      ],
+      [
+        "200B",
+        "200B"
+      ],
+      [
+        "200E",
+        "200F"
+      ],
+      [
+        "202A",
+        "202E"
+      ],
+      [
+        "2060",
+        "2064"
+      ],
+      [
+        "2066",
+        "206F"
+      ],
+      [
+        "D800",
+        "F8FF"
+      ],
+      [
+        "FEFF",
+        "FEFF"
+      ],
+      [
+        "FFF9",
+        "FFFB"
+      ],
+      [
+        "110BD",
+        "110BD"
+      ],
+      [
+        "110CD",
+        "110CD"
+      ],
+      [
+        "13430",
+        "1343F"
+      ],
+      [
+        "1BCA0",
+        "1BCA3"
+      ],
+      [
+        "1D173",
+        "1D17A"
+      ],
+      [
+        "E0001",
+        "E0001"
+      ],
+      [
+        "E0020",
+        "E007F"
+      ],
+      [
+        "F0000",
+        "FFFFD"
+      ],
+      [
+        "100000",
+        "10FFFD"
+      ]
+    ]
+  },
+  "erasure": {
+    "about": "Feature 08: a signed erasure of records, by key or salted key hash.",
+    "reasons": [
+      "withdrawn",
+      "incorrect",
+      "harmful",
+      "legal"
+    ],
+    "roles": [
+      "publisher",
+      "revoker"
+    ]
+  },
+  "derivation": {
+    "about": "Feature 09: what a pack was made from, inside its signed content, and how far each source is trusted.",
+    "path": "META/derivation.json",
+    "format": "agentmemory.pack.derivation/1",
+    "actions": [
+      "extract",
+      "consolidate",
+      "redact",
+      "translate",
+      "import"
+    ]
+  },
+  "policy": {
+    "about": "Feature 10: what a receiver may do with a pack, per audience, inside its signed content; deny wins.",
+    "path": "policy.json",
+    "format": "agentmemory.pack.policy/1",
+    "verbs": [
+      "read",
+      "derive",
+      "export",
+      "redact",
+      "rehydrate:local",
+      "rehydrate:private",
+      "rehydrate:external",
+      "train"
+    ],
+    "doors": {
+      "read": "verify, and every other door",
+      "export": "serve",
+      "rehydrate:local": "module set, and serve by --client-endpoint",
+      "rehydrate:private": "module set, and serve by --client-endpoint",
+      "rehydrate:external": "module set, and serve by --client-endpoint",
+      "derive": "none yet",
+      "redact": "none yet",
+      "train": "none yet"
+    },
+    "odrl": {
+      "read": "odrl:read",
+      "derive": "odrl:derive",
+      "export": "odrl:distribute",
+      "redact": "odrl:anonymize",
+      "rehydrate:local": "odrl:use",
+      "rehydrate:private": "odrl:use",
+      "rehydrate:external": "odrl:use",
+      "train": "odrl:use"
+    }
+  },
+  "aggregate": {
+    "about": "Feature 13: a host's signed aggregate of a trial: exact counts, bounds and verdicts; no task, record or path. Noise is not offered: see feature 13 section 11.",
+    "predicateType": "urn:agentmemory:pack:trial-aggregate:v1",
+    "mechanisms": [
+      "none"
+    ],
+    "roles": [
+      "evaluator"
+    ]
+  }
+}

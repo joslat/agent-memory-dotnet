@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 using System.Diagnostics.CodeAnalysis;
 using System.Text.RegularExpressions;
 
@@ -26,6 +27,15 @@ public sealed record ModuleVersion : IComparable<ModuleVersion>
                 .Any(part => IsNumeric(part) && part.Length > 1 && part[0] == '0')))
             throw new FormatException($"Invalid SemVer 2 module version '{value}'.");
         return new ModuleVersion(value);
+    }
+
+    /// <summary>Parses like <see cref="Parse"/>, returning false instead of throwing.</summary>
+    public static bool TryParse(string? value, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out ModuleVersion? version)
+    {
+        version = null;
+        if (value is null) return false;
+        try { version = Parse(value); return true; }
+        catch (FormatException) { return false; }
     }
 
     /// <inheritdoc/>

@@ -55,5 +55,6 @@
   <ItemGroup>
     <Compile Include="../../shared/AdditiveMigrationLint.cs" Link="Shared/AdditiveMigrationLint.cs" />
     <Compile Include="../../shared/ModuleBookkeepingSchema.cs" Link="Shared/ModuleBookkeepingSchema.cs" />
+    <Compile Include="../../shared/StopWordFilter.cs" Link="Shared/StopWordFilter.cs" />
   </ItemGroup>
 </Project>

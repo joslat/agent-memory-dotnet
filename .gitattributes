@@ -10,3 +10,8 @@ loop.md text eol=lf
 # Release scripts and the shell-read package inventory must survive Windows checkouts.
 eng/*.sh text eol=lf
 eng/release-packages.txt text eol=lf
+
+# Knowledge pack bundles are signed byte for byte: the same bytes on every checkout, so a digest is reproducible.
+packs/**/agentmemory/**/*.json text eol=lf
+packs/**/agentmemory/**/*.jsonl text eol=lf
+packs/**/*.png binary

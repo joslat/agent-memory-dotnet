@@ -1,0 +1,44 @@
+// SPDX-License-Identifier: Apache-2.0
+package ampack:reader@0.1.0;
+
+/// The third verifier of memory packs, as a component: no file system, no network, no clock. The host hands it the
+/// archive's bytes, the trust policy's bytes and the time.
+interface verifier {
+    /// A verified pack: what it is and the profiles it uses (in the registry's order; "core" alone when none).
+    record pack-info {
+        id: string,
+        version: string,
+        /// sha256: and the hex of META/files.json, the pack's digest.
+        digest: string,
+        kind: string,
+        profiles: list<string>,
+    }
+
+    variant verdict {
+        verified(pack-info),
+        /// Why the pack is refused.
+        refused(string),
+    }
+
+    /// What an archive says about itself, read in the strict archive profile; no signature is judged.
+    record summary {
+        files: u32,
+        bytes: u64,
+        id: option<string>,
+        version: option<string>,
+        kind: option<string>,
+        digest: option<string>,
+        envelopes: u32,
+        title: option<string>,
+    }
+
+    /// Verify an archive against a trust policy (agentmemory.pack.trust/1.1) at `now`, an RFC 3339 date-time.
+    verify: func(archive: list<u8>, policy: list<u8>, now: string) -> verdict;
+
+    /// Inspect an archive, or say why it is not in the archive profile.
+    inspect: func(archive: list<u8>) -> result<summary, string>;
+}
+
+world reader {
+    export verifier;
+}

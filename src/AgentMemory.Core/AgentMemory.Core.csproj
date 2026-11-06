@@ -40,4 +40,13 @@
     <InternalsVisibleTo Include="AgentMemory.AgentFramework.Nams" />
   </ItemGroup>
 
+  <!-- Feature 05: the record frame, one source with Extensibility's trial renderer. -->
+  <PropertyGroup>
+    <DefineConstants>$(DefineConstants);AGENTMEMORY_CORE</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../shared/RecordFrame.cs" Link="Shared/RecordFrame.cs" />
+    <Compile Include="../../shared/InstructionLikeContentDetector.cs" Link="Shared/InstructionLikeContentDetector.cs" />
+    <Compile Include="../../shared/RecalledMemoryAdmission.cs" Link="Shared/RecalledMemoryAdmission.cs" />
+  </ItemGroup>
 </Project>

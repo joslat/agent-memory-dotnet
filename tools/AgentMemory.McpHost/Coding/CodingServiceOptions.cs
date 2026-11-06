@@ -27,10 +27,13 @@ internal sealed record CodingServiceOptions
     /// <summary>Opt-in preview/expansion. Null adds no evidence services, tools, cache or additional reads.</summary>
     public CodingEvidenceOptions? Evidence { get; init; }
     public IReadOnlyList<CodingJudgeOptions> Judges { get; init; } = [];
+    /// <summary>Opt-in memory packs. Null composes no modules and preserves baseline tool and receipt bytes.</summary>
+    public CodingModulesOptions? Modules { get; init; }
 
     public void Validate()
     {
         WriteJournal?.Validate();
+        Modules?.Validate();
         RecallDiagnostics?.Validate();
         Evidence?.Validate();
         if (string.IsNullOrWhiteSpace(OwnerId) || OwnerId.Length > 256 ||

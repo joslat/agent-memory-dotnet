@@ -40,7 +40,8 @@ public sealed partial class ModuleRecordWriteIntegrationTests
         retained.Records.Select(x => x.Id).Should().Equal(ids.AsEnumerable().Reverse());
         retained.Records.Should().OnlyContain(x => x.Source.MessageIds.Single() == "ReadVersions-m1" && x.Source.Excerpt == "lesson");
         (await reader.FindAsync(query, ReadContext() with { Scope = MemoryScope.For("foreign") })).Records.Should().BeEmpty();
-        (await reader.FindAsync(query, ReadContext() with { ValidAsOfUtc = batch.AtUtc })).Status.Should().Be(ModuleReadStatus.NotApplicable);
+        // A valid-time pin is read (feature 07); a history view lists versions whatever their life.
+        (await reader.FindAsync(query, ReadContext() with { ValidAsOfUtc = batch.AtUtc })).Status.Should().Be(ModuleReadStatus.Succeeded);
     }
 
     [Fact]
