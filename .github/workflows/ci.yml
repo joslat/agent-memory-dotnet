@@ -40,6 +40,16 @@ jobs:
           cache: true
           cache-dependency-path: '**/*.csproj'
 
+      # The conformance kit's Python reader (cryptography; Python 3.12 exactly, because it decides with Unicode 15.0
+      # data) and the trial statistics' reference scripts (numpy) run inside the unit tests.
+      - name: Setup Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+
+      - name: Python packages for the kit and the statistics
+        run: python -m pip install --disable-pip-version-check "cryptography==43.0.0" "numpy==2.3.4"
+
       - name: Restore
         run: dotnet restore AgentMemory.slnx
 
