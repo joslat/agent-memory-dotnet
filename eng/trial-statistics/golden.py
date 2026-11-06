@@ -85,9 +85,33 @@ text = json.dumps(cases, indent=0)
 target = Path(__file__).with_name("golden.json")
 # --check: golden.json is this reference's output, the link between the bounds coverage checks and the C# the tests pin
 # (review 9, D9: nothing held it, so a fix to reference.py alone left the C# matching the old cases).
+#
+# Compared as data, not as text: verdicts, counts and strings must be identical; a floating-point value may differ only
+# in its last digits, which is how two platforms' maths libraries round (a Linux runner gave 0.6141168731743297 where
+# Windows gave ...298, 6 Nov 2026). The tolerance is relative 1e-12, far inside any verdict's margin, and every such
+# difference is counted and printed, never hidden.
+def same_data(a, b, diffs):
+    if isinstance(a, bool) or isinstance(b, bool) or not (isinstance(a, (int, float)) and isinstance(b, (int, float))):
+        if isinstance(a, dict) and isinstance(b, dict):
+            return a.keys() == b.keys() and all(same_data(a[k], b[k], diffs) for k in a)
+        if isinstance(a, list) and isinstance(b, list):
+            return len(a) == len(b) and all(same_data(x, y, diffs) for x, y in zip(a, b))
+        return type(a) is type(b) and a == b
+    if isinstance(a, int) and isinstance(b, int):
+        return a == b
+    if a != b:
+        if abs(a - b) > 1e-12 * max(abs(a), abs(b), 1e-300):
+            return False
+        diffs.append((a, b))
+    return True
+
+
 if "--check" in sys.argv:
-    same = target.read_text(encoding="utf-8") == text
-    print(f"golden.json {'is' if same else 'is NOT'} reference.py's output ({len(cases)} cases)")
+    committed = target.read_text(encoding="utf-8")
+    last_digits = []
+    same = committed == text or same_data(json.loads(committed), json.loads(text), last_digits)
+    note = f"; {len(last_digits)} floating-point value(s) differ in their last digits, within 1e-12" if last_digits else ""
+    print(f"golden.json {'is' if same else 'is NOT'} reference.py's output ({len(cases)} cases{note})")
     sys.exit(0 if same else 1)
 target.write_text(text, encoding="utf-8")
 print(len(cases), "cases")

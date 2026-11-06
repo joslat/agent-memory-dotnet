@@ -33,7 +33,7 @@ public sealed class ConformanceKitTests : IDisposable
         var (fuzzer, fuzzerOutput) = Python(Path.Combine(kit, "differential.py"), tool, _out, "--count", $"{FuzzerMutants}", "--seed", $"{FuzzerSeed}");
         fuzzer.Should().Be(0, fuzzerOutput);
         // Two readers, or three when the Rust reader is built (feature 18): every mutant reaches one verdict either way.
-        fuzzerOutput.Should().MatchRegex($@"{FuzzerMutants}/{FuzzerMutants} mutants: (both verifiers|all three readers) reach the same verdict");
+        fuzzerOutput.Should().MatchRegex($@"{FuzzerMutants}/{FuzzerMutants} mutants: (both verifiers( \(Rust reader not built\))?|all three readers) reach the same verdict");
     }
 
     private static (int Exit, string Output) Python(string script, params string[] args)

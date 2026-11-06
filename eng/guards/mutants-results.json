@@ -1,6 +1,6 @@
 {
  "format": "agentmemory.guards.mutants-results/2",
- "commit": "1aeeaab0",
+ "commit": "d4e5b0c7",
  "results": [
   {
    "id": "archive-ratio",
@@ -116,11 +116,11 @@
    "door": "definition",
    "mutant_sha256": "13d7bccaadab8d7bc9d6872fdfd81bfe4dbeb7219b23cbc173d60216ec74c8d7",
    "killed": true,
-   "file_sha256": "c70c75d8c06daecb617fb8e221df2de8886fa3f6c1d3293a9b1e219ea0527f24",
+   "file_sha256": "dd3c54b1a7a1515610855a4d38bc1a031cf1ddef68632732db804460dbb77025",
    "failed": [
     "StatisticsCoverageTests.Golden_json_is_the_reference_s_own_output"
    ],
-   "seconds": 7
+   "seconds": 8
   },
   {
    "id": "library-composite-unverified",
