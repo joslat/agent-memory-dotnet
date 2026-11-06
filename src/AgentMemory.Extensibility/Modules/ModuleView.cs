@@ -33,7 +33,7 @@ public sealed record ModuleView
 }
 
 /// <summary>
-/// How a host shows a module or pack (Extensibility 0.13 §D): DemoBrain's memory chips use it. Shown to people only; it never
+/// How a host shows a module or pack (Extensibility 0.13 §D): a desktop host's memory chips use it. Shown to people only; it never
 /// reaches a model's context.
 /// </summary>
 [Experimental("AMEXT001")]

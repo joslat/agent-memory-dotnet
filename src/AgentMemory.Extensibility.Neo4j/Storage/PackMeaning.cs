@@ -50,7 +50,7 @@ public interface IPackMeaningJudge
     /// <summary>
     /// The question a model judge is asked, one for every judge. Strict on purpose: a wording that also accepted a note answering
     /// part of a question found more but stayed quiet less (tuning set, 2 Nov: 0.65 against 0.82), though a strict model then
-    /// refuses each half of a two-part question (DemoBrain, GLM-5.3-Flash).
+    /// refuses each half of a two-part question (a desktop host with GLM-5.3-Flash).
     /// </summary>
     public static string Prompt(string question, string text) =>
         "You decide whether a note answers a question.\nQuestion: " + question + "\nNote: " + text

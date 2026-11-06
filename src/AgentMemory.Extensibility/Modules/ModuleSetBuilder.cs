@@ -174,7 +174,7 @@ public sealed class ModuleSetBuilder
 
     /// <summary>
     /// Sets the priority of every contributor a module adds, whatever the module chose (Extensibility 0.13 §D): a host such as
-    /// DemoBrain orders its memory packs, and the order becomes priority. Lower comes first in the candidate budget and wins
+    /// A desktop host orders its memory packs, and the order becomes priority. Lower comes first in the candidate budget and wins
     /// ties between equal scores; every contributor still runs. 0 to 10,000; the module must be added by activation.
     /// </summary>
     public ModuleSetBuilder Prioritize(string moduleId, int priority)

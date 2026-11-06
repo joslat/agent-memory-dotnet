@@ -37,7 +37,7 @@ namespace AgentMemory.Extensibility.AgentFramework;
 /// does not exist.
 /// </para>
 /// <para>
-/// <b>Not sealed, for hosts that observe the hooks</b> (Extensibility 0.13 §D): a host such as DemoBrain derives from this class,
+/// <b>Not sealed, for hosts that observe the hooks</b> (Extensibility 0.13 §D): a desktop host, for example, derives from this class,
 /// as it derived from the shipped provider, and calls <c>base</c> for all behaviour. A subclass must thread every constructor
 /// dependency through, for the same reason this class does.
 /// </para>

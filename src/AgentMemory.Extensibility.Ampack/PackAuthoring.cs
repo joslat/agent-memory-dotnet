@@ -14,7 +14,7 @@ namespace AgentMemory.Extensibility.Ampack;
 public sealed record PackSigningKey(string KeyId, string PrivateKeyPem, string PublicKeyPem);
 
 /// <summary>
-/// Authoring memory packs from a host or a tool such as DemoBrain's composer (pack format v1.2): migrate a module bundle to
+/// Authoring memory packs from a host or a tool such as a desktop pack composer (pack format v1.2): migrate a module bundle to
 /// the v1.2 layout, create keys, write a trust policy, and build, sign and pack a folder's files into an <c>.ampack</c>.
 /// The same operations as the <c>ampack</c> command line.
 /// </summary>

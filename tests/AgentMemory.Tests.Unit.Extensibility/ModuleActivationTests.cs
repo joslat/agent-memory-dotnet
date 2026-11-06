@@ -186,7 +186,7 @@ public sealed class ModuleActivationTests
     [Fact]
     public async Task AHostSetPriorityReordersAModulesContributorsAndJoinsTheFingerprint()
     {
-        // Extensibility 0.13 §D: DemoBrain's stack order becomes priority, whatever priority the module chose.
+        // Extensibility 0.13 §D: a desktop host's stack order becomes priority, whatever priority the module chose.
         ServiceProvider Compose(bool prioritize)
         {
             var services = Services();

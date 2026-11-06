@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-11-06
+
+Memory a host can trust before it switches it on. 2.0.0 adds the ampack memory-pack format (signed,
+declaratively traversable packs with trial-gated activation; preprint: [doi:10.5281/zenodo.24012989](https://doi.org/10.5281/zenodo.24012989)), the
+Extensibility module SDK (0.1.1, Apache-2.0), the store-aware writer and the judged retrieval gate behind the
+Recommended preset, and a trust boundary on every MCP surface. Low-level and Conversational defaults stay
+compatible; Recommended is opt-in.
+
 ### Licensing
 
 - From 2.0.0 the projects that implement the ampack format or its host procedure are licensed Apache-2.0: `AgentMemory.Extensibility`
@@ -118,7 +126,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   empty list on every other path. A search view adds them after the question, so "what do I need for my next belt?" can find
   the grade that the person's own memory names. Experimental `ContextRequest.CoreCandidates` carries them to contributors.
 - Add experimental display metadata to module manifests (`display`: title, description, a `#RRGGBB` colour and, for a
-  knowledge pack, a PNG icon in its signed bundle), for hosts that show modules to people, such as DemoBrain. It never reaches
+  knowledge pack, a PNG icon in its signed bundle), for hosts that show modules to people, such as a desktop memory viewer. It never reaches
   a model.
 
 - Add experimental knowledge packs (`AgentMemory.Extensibility.Packs`): data-only memory packages that ship seed records.
@@ -3004,7 +3012,8 @@ NuGet package IDs are permanent once published.
 
 ---
 
-[Unreleased]: https://github.com/joslat/agent-memory-dotnet/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/joslat/agent-memory-dotnet/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/joslat/agent-memory-dotnet/compare/v1.9.0...v2.0.0
 [1.0.1]: https://github.com/joslat/agent-memory-dotnet/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/joslat/agent-memory-dotnet/compare/v0.1.0-preview.4...v1.0.0
 [0.1.0-preview.4]: https://github.com/joslat/agent-memory-dotnet/compare/v0.1.0-preview.3...v0.1.0-preview.4
