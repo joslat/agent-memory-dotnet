@@ -15,6 +15,7 @@ This repository holds work under three licences and one proposed patent pledge (
 | `tools/Ampack` (the `ampack` command-line tool) | Apache-2.0 | as above | in the folder |
 | `reader-rs` (the ampack reader in Rust and WebAssembly) | Apache-2.0 | as above | in the folder; `Cargo.toml` |
 | `conformance/pack-v1.1` (the conformance kit and the Python verifier) | Apache-2.0 | as above | in the folder |
+| `shared/` (source files compiled into several packages: the format's text, number and namespace rules, the record frame, the instruction-like detector and others) | MIT (no SPDX header; rule 2 below), including where an Apache-2.0 package compiles them in, which the MIT licence permits | Not covered by the Apache-2.0 patent grant | the root `LICENSE` |
 | `spec/` (the specification texts and its data files) | CC BY 4.0 | CC BY 4.0 licenses no patent rights; the proposed pledge below would apply once issued | [`spec/LICENSE.md`](spec/LICENSE.md) |
 | Everything else: `AgentMemory.Core`, `AgentMemory.Abstractions`, `AgentMemory.Neo4j`, the Agent Framework, Semantic Kernel and MCP adapters, the samples, the benchmarks, the remaining tools, the tests, the sample knowledge pack under `packs/` | MIT | Not covered by the proposed pledge; MIT has no express patent-grant clause, and whether any claim reads on a component is a question of the claims, not of the copyright licence | root [`LICENSE`](LICENSE) |
 
@@ -23,6 +24,14 @@ The proposed patent non-assertion pledge is [PATENTS.md](PATENTS.md): the canoni
 ## Why two code licences
 
 The Apache-2.0 projects implement the ampack format and its host procedure, on which the author filed a Swiss patent application on 3 November 2026 (pending; whether and how its claims are granted is not decided). Apache-2.0 section 3 gives every user of that code an express patent licence; MIT has no express patent-grant clause. The core library stays MIT as it has been since its first release, so nothing changes for existing users of the core. The same code is never offered under both licences: that would let a user pick MIT and lose the patent terms.
+
+## Packages that bundle
+
+A NuGet library package carries only its own project's code and names its dependencies, each under its own licence.
+A .NET tool package is different: it bundles every assembly it runs. The `AgentMemory.McpHost` tool package
+(`agent-memory-mcp`, from `tools/AgentMemory.McpHost`, whose own code is MIT) bundles the Apache-2.0 module SDK and
+packs, so the package is licensed `MIT AND Apache-2.0` and carries both licence texts and the Apache NOTICE under
+`licenses/`. Each file inside is still under exactly one licence, as the table says.
 
 ## How to tell which licence a file is under
 

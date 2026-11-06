@@ -9,7 +9,10 @@ authors:
 version: "2.0.0"
 date-released: "2026-11-06"
 repository-code: "https://github.com/joslat/agent-memory-dotnet"
-license: MIT
+license:
+  - MIT
+  - Apache-2.0
+  - CC-BY-4.0
 preferred-citation:
   type: article
   title: "ampack: signed, declaratively traversable memory packs for AI agents, with trial-gated activation"

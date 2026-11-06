@@ -115,6 +115,34 @@ public sealed class LicensingGuardTests
         string.Join(Environment.NewLine, problems).Should().BeEmpty();
     }
 
+    [Fact]
+    public void A_tool_package_that_bundles_Apache_code_declares_both_licences_and_packs_the_Apache_texts()
+    {
+        // A .NET tool bundles every assembly it runs: an MIT tool that references an Apache-2.0 project ships Apache-2.0
+        // code, so its package must say MIT AND Apache-2.0 and carry the Apache LICENSE and NOTICE (review, 6 Nov 2026).
+        var root = RepositoryRoot();
+        var problems = new List<string>();
+        var apache = ApacheDirectories.Select(d => Path.GetFullPath(Path.Combine(root, d))).ToArray();
+        foreach (var top in new[] { "src", "tools" })
+        {
+            foreach (var project in Directory.EnumerateFiles(Path.Combine(root, top), "*.csproj", SearchOption.AllDirectories))
+            {
+                var text = File.ReadAllText(project);
+                if (!text.Contains("<PackAsTool>true</PackAsTool>", StringComparison.Ordinal)) continue;
+                var directory = Path.GetDirectoryName(project)!;
+                var bundlesApache = System.Text.RegularExpressions.Regex.Matches(text, "ProjectReference Include=\"([^\"]+)\"")
+                    .Select(m => Path.GetDirectoryName(Path.GetFullPath(Path.Combine(directory, m.Groups[1].Value.Replace('\\', Path.DirectorySeparatorChar))))!)
+                    .Any(d => apache.Any(a => string.Equals(a, d, StringComparison.OrdinalIgnoreCase)));
+                if (!bundlesApache) continue;
+                if (!text.Contains("<PackageLicenseExpression>MIT AND Apache-2.0</PackageLicenseExpression>", StringComparison.Ordinal))
+                    problems.Add($"{Relative(root, project)}: bundles Apache-2.0 projects but its package does not say MIT AND Apache-2.0");
+                if (!text.Contains("licenses/Apache-2.0/", StringComparison.Ordinal) || !text.Contains("NOTICE", StringComparison.Ordinal))
+                    problems.Add($"{Relative(root, project)}: bundles Apache-2.0 projects but does not pack the Apache LICENSE and NOTICE");
+            }
+        }
+        string.Join(Environment.NewLine, problems).Should().BeEmpty();
+    }
+
     private static IEnumerable<string> SourceFiles(string directory)
     {
         foreach (var file in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
