@@ -12,6 +12,14 @@
     <PackageReference Include="ModelContextProtocol" Version="1.2.0" />
   </ItemGroup>
 
+  <PropertyGroup>
+    <DefineConstants>$(DefineConstants);AGENTMEMORY_MCPSERVER_NAMS</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Shared with Core and the main MCP server: one instruction-like detector, one escape rule (#92). -->
+    <Compile Include="../../shared/RecordFrame.cs" Link="Shared/RecordFrame.cs" />
+    <Compile Include="../../shared/InstructionLikeContentDetector.cs" Link="Shared/InstructionLikeContentDetector.cs" />
+  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\AgentMemory.Nams\AgentMemory.Nams.csproj" />
   </ItemGroup>

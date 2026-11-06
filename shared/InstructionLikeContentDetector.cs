@@ -1,6 +1,14 @@
 using System.Text.RegularExpressions;
 
+// One source compiled into Core (the in-process adapters' admission) and the MCP server (its recall tools), as
+// RecordFrame.cs is shared: one detection rule, one decision, on every surface that hands recalled memory to a model.
+#if AGENTMEMORY_CORE
 namespace AgentMemory.Core.Security;
+#elif AGENTMEMORY_MCPSERVER_NAMS
+namespace AgentMemory.McpServer.Nams.Security;
+#else
+namespace AgentMemory.McpServer.Security;
+#endif
 
 /// <summary>
 /// Lightweight, deterministic detector for content that resembles an instruction directed at the model,
@@ -12,11 +20,10 @@ namespace AgentMemory.Core.Security;
 /// <remarks>
 /// Every alternative here is a fixed phrase (with small, non-repeating optional single-word groups) --
 /// deliberately NOT a repeating group with nested quantifiers, which is vulnerable to catastrophic
-/// backtracking on adversarial input (a lesson learned building a similar detector for #88). Lives in Core
-/// (not the Agent Framework adapter, where it originated in #92 Phase 2) so both the Agent Framework and
-/// Semantic Kernel adapters can share one implementation (#92 Phase 6) rather than each carrying its own
-/// copy of security-sensitive matching logic -- <c>InternalsVisibleTo</c> already grants both adapters
-/// visibility into Core's internals.
+/// backtracking on adversarial input (a lesson learned building a similar detector for #88). One shared
+/// source (not the Agent Framework adapter, where it originated in #92 Phase 2), compiled into Core, which the
+/// Agent Framework and Semantic Kernel adapters reach through <c>InternalsVisibleTo</c> (#92 Phase 6), and into
+/// the MCP server, which references only the abstractions: one copy of security-sensitive matching logic.
 /// </remarks>
 internal static class InstructionLikeContentDetector
 {

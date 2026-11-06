@@ -46,5 +46,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../shared/RecordFrame.cs" Link="Shared/RecordFrame.cs" />
+    <Compile Include="../../shared/InstructionLikeContentDetector.cs" Link="Shared/InstructionLikeContentDetector.cs" />
+    <Compile Include="../../shared/RecalledMemoryAdmission.cs" Link="Shared/RecalledMemoryAdmission.cs" />
   </ItemGroup>
 </Project>

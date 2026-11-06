@@ -5,6 +5,7 @@ using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
+using AgentMemory.McpServer.Security;
 
 namespace AgentMemory.McpServer.Tools;
 
@@ -39,10 +40,11 @@ internal sealed class EntityTools
         });
     }
 
-    [McpServerTool(Name = "memory_get_entity"), Description("Get entities by name (exact or alias match). Returns matching entities; use memory_create_relationship / graph queries for edges.")]
+    [McpServerTool(Name = "memory_get_entity"), Description("Get entities by name (exact or alias match). Returns matching entities; use memory_create_relationship / graph queries for edges." + McpRecallGuard.DescriptionSuffix)]
     public static async Task<string> MemoryGetEntity(
         ILongTermMemoryService longTermMemory,
         IMemoryIsolationPolicy isolationPolicy,
+        IOptions<AgentMemoryMcpOptions> options,
         [Description("Name to search for (searches exact and alias matches)")] string name,
         [Description("Owner/user identifier (optional). Null = all owners (unscoped/admin); set it to return only that owner's plus shared (un-owned) entities. Set it in multi-tenant deployments to prevent cross-owner reads (R1).")] string? userId = null,
         CancellationToken cancellationToken = default)
@@ -53,18 +55,23 @@ internal sealed class EntityTools
         var scope = isolationPolicy.ResolveReadScope(
             explicitScope: null, userId, nameof(MemoryGetEntity), MemoryOperationAccess.Tenant);
         var entities = await longTermMemory.GetEntitiesByNameAsync(name, includeAliases: true, scope, cancellationToken).ConfigureAwait(false);
-        return ToolJsonContext.Serialize(entities.Select(e => new
+        // An entity's name and description are recalled text: guarded like every other (#92, the MCP surface).
+        var guard = McpRecallGuard.From(options.Value);
+        return ToolJsonContext.Serialize(entities.Select(e => (e, v: guard.Check(e.Description ?? e.Name, e.Metadata))).Select(x => new
         {
-            e.EntityId,
-            e.Name,
-            e.CanonicalName,
-            e.Type,
-            e.Subtype,
-            e.Description,
-            e.Confidence,
-            e.Aliases,
-            e.CreatedAtUtc,
-            e.UpdatedAtUtc
+            x.e.EntityId,
+            Name = x.v.Text(x.e.Name),
+            CanonicalName = x.v.Text(x.e.CanonicalName),
+            Type = x.v.Text(x.e.Type),
+            Subtype = x.v.Text(x.e.Subtype),
+            Description = x.v.Text(x.e.Description),
+            x.e.Confidence,
+            Aliases = x.v.Texts(x.e.Aliases),
+            x.e.CreatedAtUtc,
+            x.e.UpdatedAtUtc,
+            trustLevel = x.v.Trust,
+            instructionLike = x.v.InstructionLike,
+            withheld = x.v.Withheld,
         }));
     }
 

@@ -5,6 +5,7 @@ using ModelContextProtocol.Server;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
+using AgentMemory.McpServer.Security;
 
 namespace AgentMemory.McpServer.Tools;
 
@@ -16,7 +17,7 @@ namespace AgentMemory.McpServer.Tools;
 [McpServerToolType]
 internal sealed class HistoryTools
 {
-    [McpServerTool(Name = "memory_recall_as_of"), Description("Recall memory as it stood at a past moment: what was true then (asOf, the valid-time clock), optionally as the system knew it at another moment (systemAsOf, the transaction-time clock). Use it for 'where did I live in March?' or to reproduce what was believed before a correction. Returns the same sections as memory_search.")]
+    [McpServerTool(Name = "memory_recall_as_of"), Description("Recall memory as it stood at a past moment: what was true then (asOf, the valid-time clock), optionally as the system knew it at another moment (systemAsOf, the transaction-time clock). Use it for 'where did I live in March?' or to reproduce what was believed before a correction. Returns the same sections as memory_search." + McpRecallGuard.DescriptionSuffix)]
     public static async Task<string> MemoryRecallAsOf(
         IMemoryService memoryService,
         IOptions<AgentMemoryMcpOptions> options,
@@ -63,14 +64,15 @@ internal sealed class HistoryTools
             result.TotalItemsRetrieved,
             result.Truncated,
             result.EstimatedTokenCount,
-            context = McpMemoryProjection.Context(result.Context),
+            context = McpMemoryProjection.Context(result.Context, McpRecallGuard.From(options.Value)),
         });
     }
 
-    [McpServerTool(Name = "memory_lineage"), Description("The lineage of a fact or preference: what it replaced and what replaced it, oldest first, each with when it was stated, when it held, when it was closed, and the messages it came from. Use it to answer 'what did this replace?' and 'why do you think so?'. Owner-scoped when userId is set.")]
+    [McpServerTool(Name = "memory_lineage"), Description("The lineage of a fact or preference: what it replaced and what replaced it, oldest first, each with when it was stated, when it held, when it was closed, and the messages it came from. Use it to answer 'what did this replace?' and 'why do you think so?'. Owner-scoped when userId is set." + McpRecallGuard.DescriptionSuffix)]
     public static async Task<string> MemoryLineage(
         IMemoryHistoryService history,
         IMemoryIsolationPolicy isolationPolicy,
+        IOptions<AgentMemoryMcpOptions> options,
         [Description("Node kind: fact or preference")] string type,
         [Description("The id of any memory in the chain")] string id,
         [Description("User identifier for owner scoping (optional; required under strict owner isolation)")] string? userId = null,
@@ -111,26 +113,32 @@ internal sealed class HistoryTools
             return ToolJsonContext.Serialize(new { type = kind.Value.ToString().ToLowerInvariant(), id, found = false });
 
         var chain = seen.Values.OrderBy(record => record.CreatedAtUtc).ThenBy(record => record.Id, StringComparer.Ordinal).ToList();
+        // Each summary is recalled text, guarded like every other (#92, the MCP surface).
+        var guard = McpRecallGuard.From(options.Value);
         return ToolJsonContext.Serialize(new
         {
+            untrustedContent = McpRecallGuard.Notice,
             type = kind.Value.ToString().ToLowerInvariant(),
             id,
             found = true,
             current = chain.Where(record => record.Status == MemoryHistoryStatus.Live && record.SupersededByIds.Count == 0)
                 .Select(record => record.Id).ToArray(),
-            chain = chain.Select(record => new
+            chain = chain.Select(record => (record, v: guard.Check(record.Summary, MemoryTrustLevel.Untrusted))).Select(x => new
             {
-                record.Id,
-                record.Summary,
-                status = record.Status.ToString().ToLowerInvariant(),
-                statedAt = record.CreatedAtUtc,
-                validFrom = record.ValidFromUtc,
-                validUntil = record.ValidUntilUtc,
-                closedAt = record.InvalidatedAtUtc,
-                closedAs = record.ClosedAs,
-                supersedes = record.SupersedesIds,
-                supersededBy = record.SupersededByIds,
-                sourceMessageIds = record.SourceMessageIds,
+                x.record.Id,
+                Summary = x.v.Text(x.record.Summary),
+                trustLevel = x.v.Trust,
+                instructionLike = x.v.InstructionLike,
+                withheld = x.v.Withheld,
+                status = x.record.Status.ToString().ToLowerInvariant(),
+                statedAt = x.record.CreatedAtUtc,
+                validFrom = x.record.ValidFromUtc,
+                validUntil = x.record.ValidUntilUtc,
+                closedAt = x.record.InvalidatedAtUtc,
+                closedAs = x.record.ClosedAs,
+                supersedes = x.record.SupersedesIds,
+                supersededBy = x.record.SupersededByIds,
+                sourceMessageIds = x.record.SourceMessageIds,
             }).ToArray(),
         });
 

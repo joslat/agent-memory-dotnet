@@ -25,7 +25,16 @@ internal sealed class NamsEntityReadTools
         var graph = await client.GetEntityGraphAsync(cancellationToken).ConfigureAwait(false);
         return NamsMcpToolJson.Serialize(new
         {
-            nodes = graph.Nodes.Select(n => new { n.Id, n.Name, n.Type, n.Description, n.Confidence }),
+            untrustedContent = NamsUntrustedContentGuard.Notice,
+            nodes = graph.Nodes.Select(n => new
+            {
+                n.Id,
+                Name = NamsUntrustedContentGuard.Escape(n.Name),
+                Type = NamsUntrustedContentGuard.Escape(n.Type),
+                Description = NamsUntrustedContentGuard.Escape(n.Description),
+                n.Confidence,
+                instructionLike = NamsUntrustedContentGuard.IsInstructionLike(n.Description ?? n.Name),
+            }),
             edges = graph.Edges.Select(e => new { e.Id, e.SourceId, e.TargetId, e.Type, e.Confidence })
         });
     }
@@ -68,11 +77,17 @@ internal sealed class NamsEntityReadTools
         var messageLikeLabels = new[] { "Message", "Observation", "Reflection" };
         return NamsMcpToolJson.Serialize(new
         {
+            untrustedContent = NamsUntrustedContentGuard.Notice,
             nodes = expansion.Nodes.Select(n => new
             {
                 n.Id,
                 n.Labels,
-                properties = n.Labels.Any(messageLikeLabels.Contains) ? null : n.Properties
+                // String values are recalled text: escaped like every other (#92).
+                properties = n.Labels.Any(messageLikeLabels.Contains) ? null : n.Properties.ToDictionary(
+                    p => p.Key,
+                    p => p.Value.ValueKind == System.Text.Json.JsonValueKind.String
+                        ? (object?)NamsUntrustedContentGuard.Escape(p.Value.GetString())
+                        : p.Value),
             }),
             edges = expansion.Edges.Select(e => new { e.Id, e.SourceId, e.TargetId, e.Type, e.Confidence }),
             truncated = expansion.Truncated is null

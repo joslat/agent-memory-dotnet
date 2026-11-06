@@ -1,6 +1,12 @@
 using AgentMemory.Abstractions.Domain;
 
+// One source compiled into Core (the in-process adapters' admission) and the MCP server (its recall tools), as
+// RecordFrame.cs is shared: one detection rule, one decision, on every surface that hands recalled memory to a model.
+#if AGENTMEMORY_CORE
 namespace AgentMemory.Core.Security;
+#else
+namespace AgentMemory.McpServer.Security;
+#endif
 
 /// <summary>
 /// The shared admission decision (#92 Phases 2/3/6): should this recalled item be included given its trust

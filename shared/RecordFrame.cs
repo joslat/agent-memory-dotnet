@@ -1,7 +1,11 @@
-// One source compiled into Core (the provider's delimiter) and Extensibility (the trial's renderer), as PackRegistry.cs is
-// shared: the bytes a trial measures are the bytes the model reads (feature 05), with no copy of the frame.
+// One source compiled into Core (the provider's delimiter), Extensibility (the trial's renderer) and the MCP server (its
+// recall tools' escaping), as PackRegistry.cs is shared: the bytes a trial measures are the bytes the model reads (feature 05), with no copy of the frame.
 #if AGENTMEMORY_CORE
 namespace AgentMemory.Core.Security;
+#elif AGENTMEMORY_MCPSERVER
+namespace AgentMemory.McpServer.Security;
+#elif AGENTMEMORY_MCPSERVER_NAMS
+namespace AgentMemory.McpServer.Nams.Security;
 #else
 namespace AgentMemory.Extensibility;
 #endif

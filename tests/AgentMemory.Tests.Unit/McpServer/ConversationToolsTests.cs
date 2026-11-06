@@ -32,7 +32,7 @@ public sealed class ConversationToolsTests
         _shortTermMemory.GetConversationMessagesAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new List<Message>());
 
-        await ConversationTools.MemoryGetConversation(_shortTermMemory, _conversationRepo, _isolationPolicy, "conv-1");
+        await ConversationTools.MemoryGetConversation(_shortTermMemory, _conversationRepo, _isolationPolicy, Options.Create(new AgentMemoryMcpOptions()), "conv-1");
 
         await _shortTermMemory.Received(1).GetConversationMessagesAsync("conv-1", Arg.Any<CancellationToken>());
     }
@@ -64,7 +64,7 @@ public sealed class ConversationToolsTests
         _shortTermMemory.GetConversationMessagesAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(messages);
 
-        var result = await ConversationTools.MemoryGetConversation(_shortTermMemory, _conversationRepo, _isolationPolicy, "conv-1");
+        var result = await ConversationTools.MemoryGetConversation(_shortTermMemory, _conversationRepo, _isolationPolicy, Options.Create(new AgentMemoryMcpOptions()), "conv-1");
 
         var doc = JsonDocument.Parse(result);
         doc.RootElement.ValueKind.Should().Be(JsonValueKind.Array);
@@ -79,7 +79,7 @@ public sealed class ConversationToolsTests
         _shortTermMemory.GetConversationMessagesAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new List<Message>());
 
-        var result = await ConversationTools.MemoryGetConversation(_shortTermMemory, _conversationRepo, _isolationPolicy, "conv-1");
+        var result = await ConversationTools.MemoryGetConversation(_shortTermMemory, _conversationRepo, _isolationPolicy, Options.Create(new AgentMemoryMcpOptions()), "conv-1");
 
         var doc = JsonDocument.Parse(result);
         doc.RootElement.ValueKind.Should().Be(JsonValueKind.Array);
@@ -98,7 +98,7 @@ public sealed class ConversationToolsTests
             });
 
         var result = await ConversationTools.MemoryGetConversation(
-            _shortTermMemory, _conversationRepo, _isolationPolicy, "conv-1", userId: "bob");
+            _shortTermMemory, _conversationRepo, _isolationPolicy, Options.Create(new AgentMemoryMcpOptions()), "conv-1", userId: "bob");
 
         JsonDocument.Parse(result).RootElement.GetArrayLength().Should().Be(0);
         await _shortTermMemory.DidNotReceive().GetConversationMessagesAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
@@ -120,7 +120,7 @@ public sealed class ConversationToolsTests
             });
 
         var result = await ConversationTools.MemoryGetConversation(
-            _shortTermMemory, _conversationRepo, _isolationPolicy, "conv-1", userId: "alice");
+            _shortTermMemory, _conversationRepo, _isolationPolicy, Options.Create(new AgentMemoryMcpOptions()), "conv-1", userId: "alice");
 
         JsonDocument.Parse(result).RootElement.GetArrayLength().Should().Be(1);
     }
@@ -142,7 +142,7 @@ public sealed class ConversationToolsTests
             });
 
         var result = await ConversationTools.MemoryGetConversation(
-            _shortTermMemory, _conversationRepo, _isolationPolicy, "conv-1", userId: "bob");
+            _shortTermMemory, _conversationRepo, _isolationPolicy, Options.Create(new AgentMemoryMcpOptions()), "conv-1", userId: "bob");
 
         JsonDocument.Parse(result).RootElement.GetArrayLength().Should().Be(1);
     }
@@ -228,7 +228,7 @@ public sealed class ConversationToolsTests
     public async Task MemoryGetConversation_Unscoped_StrictMode_ThrowsBeforeRepositoryCall()
     {
         var act = () => ConversationTools.MemoryGetConversation(
-            _shortTermMemory, _conversationRepo, CreateStrictPolicy(), "conv-1");
+            _shortTermMemory, _conversationRepo, CreateStrictPolicy(), Options.Create(new AgentMemoryMcpOptions()), "conv-1");
 
         await act.Should().ThrowAsync<MemoryOwnerScopeRequiredException>();
         await _conversationRepo.DidNotReceive().GetByIdAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
@@ -248,7 +248,7 @@ public sealed class ConversationToolsTests
             .Returns(new List<Message>());
 
         var result = await ConversationTools.MemoryGetConversation(
-            _shortTermMemory, _conversationRepo, CreateStrictPolicy(), "conv-1", userId: "alice");
+            _shortTermMemory, _conversationRepo, CreateStrictPolicy(), Options.Create(new AgentMemoryMcpOptions()), "conv-1", userId: "alice");
 
         JsonDocument.Parse(result).RootElement.ValueKind.Should().Be(JsonValueKind.Array);
     }

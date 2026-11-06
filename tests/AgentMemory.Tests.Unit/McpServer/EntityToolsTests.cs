@@ -40,7 +40,7 @@ public sealed class EntityToolsTests
         _longTermMemory.GetEntitiesByNameAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(new List<Entity>());
 
-        await EntityTools.MemoryGetEntity(_longTermMemory, _isolationPolicy,"Alice");
+        await EntityTools.MemoryGetEntity(_longTermMemory, _isolationPolicy, Options.Create(new AgentMemoryMcpOptions()), "Alice");
 
         await _longTermMemory.Received(1).GetEntitiesByNameAsync("Alice", true, Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
@@ -63,7 +63,7 @@ public sealed class EntityToolsTests
         _longTermMemory.GetEntitiesByNameAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(entities);
 
-        var result = await EntityTools.MemoryGetEntity(_longTermMemory, _isolationPolicy,"Alice");
+        var result = await EntityTools.MemoryGetEntity(_longTermMemory, _isolationPolicy, Options.Create(new AgentMemoryMcpOptions()), "Alice");
 
         var doc = JsonDocument.Parse(result);
         doc.RootElement.ValueKind.Should().Be(JsonValueKind.Array);
@@ -79,7 +79,7 @@ public sealed class EntityToolsTests
         _longTermMemory.GetEntitiesByNameAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(new List<Entity>());
 
-        var result = await EntityTools.MemoryGetEntity(_longTermMemory, _isolationPolicy,"Nobody");
+        var result = await EntityTools.MemoryGetEntity(_longTermMemory, _isolationPolicy, Options.Create(new AgentMemoryMcpOptions()), "Nobody");
 
         var doc = JsonDocument.Parse(result);
         doc.RootElement.ValueKind.Should().Be(JsonValueKind.Array);
@@ -92,7 +92,7 @@ public sealed class EntityToolsTests
         _longTermMemory.GetEntitiesByNameAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(new List<Entity>());
 
-        await EntityTools.MemoryGetEntity(_longTermMemory, _isolationPolicy,"Alice", userId: "alice");
+        await EntityTools.MemoryGetEntity(_longTermMemory, _isolationPolicy, Options.Create(new AgentMemoryMcpOptions()), "Alice", userId: "alice");
 
         await _longTermMemory.Received(1).GetEntitiesByNameAsync(
             "Alice", true,
@@ -108,7 +108,7 @@ public sealed class EntityToolsTests
         _longTermMemory.GetEntitiesByNameAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(new List<Entity>());
 
-        await EntityTools.MemoryGetEntity(_longTermMemory, _isolationPolicy,"Alice", userId: userId);
+        await EntityTools.MemoryGetEntity(_longTermMemory, _isolationPolicy, Options.Create(new AgentMemoryMcpOptions()), "Alice", userId: userId);
 
         // Stabilization fix: now routed through IMemoryIsolationPolicy.ResolveReadScope, matching
         // MemoryGetEntityProvenance's convention -- an absent userId resolves to MemoryScope.Global (a

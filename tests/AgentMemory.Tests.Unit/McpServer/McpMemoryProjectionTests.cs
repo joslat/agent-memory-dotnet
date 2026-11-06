@@ -20,8 +20,10 @@ public sealed class McpMemoryProjectionTests
     {
         var type = typeof(AgentMemory.McpServer.ServiceCollectionExtensions).Assembly
             .GetType("AgentMemory.McpServer.Tools.McpMemoryProjection")!;
-        return type.GetMethod(method, BindingFlags.NonPublic | BindingFlags.Static)!
-            .Invoke(null, [argument])!;
+        // Every projection now takes an optional recall guard (#92); omitted, it is filled with Type.Missing.
+        var info = type.GetMethod(method, BindingFlags.NonPublic | BindingFlags.Static)!;
+        var args = info.GetParameters().Select((_, i) => i == 0 ? argument : Type.Missing).ToArray();
+        return info.Invoke(null, BindingFlags.OptionalParamBinding, null, args, null)!;
     }
 
     private static IEnumerable<string> PropertyNames(object projected) =>
@@ -149,6 +151,7 @@ public sealed class McpMemoryProjectionTests
         });
 
         var names = PropertyNames(projected).ToList();
-        names.Should().BeEquivalentTo(["Topic", "Count", "OldestUtc", "AgedOutUtc"]);
+        // The summary plus the recall guard's three flags (#92); still no forgotten value.
+        names.Should().BeEquivalentTo(["Topic", "Count", "OldestUtc", "AgedOutUtc", "trustLevel", "instructionLike", "withheld"]);
     }
 }

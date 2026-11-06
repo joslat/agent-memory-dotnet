@@ -4,6 +4,7 @@ using ModelContextProtocol.Server;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
+using AgentMemory.McpServer.Security;
 
 namespace AgentMemory.McpServer.Tools;
 
@@ -13,11 +14,12 @@ namespace AgentMemory.McpServer.Tools;
 [McpServerToolType]
 internal sealed class ConversationTools
 {
-    [McpServerTool(Name = "memory_get_conversation"), Description("Get the message history for a specific conversation.")]
+    [McpServerTool(Name = "memory_get_conversation"), Description("Get the message history for a specific conversation." + McpRecallGuard.DescriptionSuffix)]
     public static async Task<string> MemoryGetConversation(
         IShortTermMemoryService shortTermMemory,
         IConversationRepository conversationRepo,
         IMemoryIsolationPolicy isolationPolicy,
+        IOptions<AgentMemoryMcpOptions> options,
         [Description("The conversation identifier to retrieve messages for")] string conversationId,
         [Description("Owner/user identifier (optional). When set, returns messages only if the conversation belongs to that user or is un-attributed; otherwise an empty array. null = unscoped/admin. Set it in multi-tenant deployments to prevent cross-owner reads (R1).")] string? userId = null,
         CancellationToken cancellationToken = default)
@@ -44,14 +46,19 @@ internal sealed class ConversationTools
         }
 
         var messages = await shortTermMemory.GetConversationMessagesAsync(conversationId, cancellationToken).ConfigureAwait(false);
-        return ToolJsonContext.Serialize(messages.Select(m => new
+        // Stored messages are recalled text: guarded like every other (#92, the MCP surface).
+        var guard = McpRecallGuard.From(options.Value);
+        return ToolJsonContext.Serialize(messages.Select(m => (m, v: guard.Check(m.Content, m.Metadata))).Select(x => new
         {
-            m.MessageId,
-            m.ConversationId,
-            m.SessionId,
-            m.Role,
-            m.Content,
-            m.TimestampUtc
+            x.m.MessageId,
+            x.m.ConversationId,
+            x.m.SessionId,
+            x.m.Role,
+            Content = x.v.Text(x.m.Content),
+            x.m.TimestampUtc,
+            trustLevel = x.v.Trust,
+            instructionLike = x.v.InstructionLike,
+            withheld = x.v.Withheld,
         }));
     }
 

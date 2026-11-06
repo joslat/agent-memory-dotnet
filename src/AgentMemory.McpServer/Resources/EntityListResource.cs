@@ -4,6 +4,7 @@ using ModelContextProtocol.Server;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.McpServer.Tools;
+using AgentMemory.McpServer.Security;
 
 namespace AgentMemory.McpServer.Resources;
 
@@ -64,14 +65,19 @@ internal sealed class EntityListResource
 
         var results = await graphQueryService.QueryAsync(query, parameters, cancellationToken).ConfigureAwait(false);
 
+        // Stored names are recalled text, guarded as the recall tools guard it (#92, the MCP surface).
+        var guard = McpRecallGuard.From(options.Value);
         return ToolJsonContext.Serialize(new
         {
-            entities = results.Select(r => new
+            untrustedContent = McpRecallGuard.Notice,
+            entities = results.Select(r => (r, name: r.TryGetValue("name", out var n) ? n?.ToString() : null))
+                .Select(x => (x.r, x.name, v: guard.Check(x.name, MemoryTrustLevel.Untrusted))).Select(x => new
             {
-                id = r.TryGetValue("id", out var id) ? id?.ToString() : null,
-                name = r.TryGetValue("name", out var n) ? n?.ToString() : null,
-                type = r.TryGetValue("type", out var t) ? t?.ToString() : null,
-                aliasCount = r.TryGetValue("aliasCount", out var ac) ? Convert.ToInt64(ac) : 0L
+                id = x.r.TryGetValue("id", out var id) ? id?.ToString() : null,
+                name = x.v.Text(x.name),
+                type = x.v.Text(x.r.TryGetValue("type", out var t) ? t?.ToString() : null),
+                trustLevel = x.v.Trust, instructionLike = x.v.InstructionLike, withheld = x.v.Withheld,
+                aliasCount = x.r.TryGetValue("aliasCount", out var ac) ? Convert.ToInt64(ac) : 0L
             }),
             limit,
             offset,

@@ -286,6 +286,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   lint. Explicit handwritten execution is available; explicit operator CLI wiring is available.
 
 
+### Security
+
+- **MCP recall tools no longer return recalled memory raw** (#92, the MCP surface). `memory_search`,
+  `memory_get_context`, `memory_recall_as_of`, `memory_get_conversation`, `memory_get_entity`,
+  `memory_get_observations` and `memory_lineage`, and the `memory_context`, `memory_entities` and
+  `memory_preferences` resources, now apply the same instruction-like detector and admission
+  decision as the Agent Framework and Semantic Kernel adapters (one shared source, compiled into Core and the MCP
+  server). Every recalled item carries `trustLevel`, `instructionLike` and `withheld`; its text has every angle
+  bracket escaped, so it cannot forge or close a tag in the client's prompt framing; each result carries an
+  `untrustedContent` notice and each tool description says recalled text is data, never instructions.
+  `AgentMemoryMcpOptions.RecallSecurityMode` (`Permissive` by default, as in the other adapters; `Strict`
+  withholds instruction-like text below `MinimumTrustForAdmissionBypass`, keeping the item and its id). **Output
+  change for MCP clients:** new fields on every item, escaped text, and `null` text on withheld items. The coding
+  host's API keeps raw text (escaping would corrupt code) and gains the trust and instruction-like flags. The NAMS MCP
+  server's `nams_recall`, `nams_entity_graph` and `nams_expand_graph` escape and flag recalled text the same way, from
+  the same shared detector (its private copy of the rule is gone); NAMS items carry no trust stamp, so it does not
+  withhold.
+
 ### Added
 
 - **MCP owner pin**: `AgentMemoryMcpOptions.OwnerId` (host: `--owner`, `AGENT_MEMORY_MCP_OWNER`) runs every
