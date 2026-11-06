@@ -136,6 +136,18 @@ ecosystem to lean on, so it was built natively rather than bound or ported. It i
 repository or product; schema and behavioral compatibility with the original are verified explicitly (see
 [Neo4j Memory Ecosystem](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/neo4j-memory-ecosystem.md)).
 
+## Memory packs and the preprint
+
+Version 2.0.0 adds **ampack**, a format for memory packs that a host verifies, walks within declared budgets
+and switches on only after a trial on its own work. The format, the admission procedure and the evidence
+behind them are described in a preprint (not peer reviewed):
+
+> José Luis Latorre Millas. *ampack: signed, declaratively traversable memory packs for AI agents, with trial-gated activation.* Preprint, version 0.10, 5 November 2026.
+> [doi:10.5281/zenodo.24012989](https://doi.org/10.5281/zenodo.24012989)
+
+The specification is in [`spec/`](spec/), the conformance kit in [`conformance/`](conformance/), and a
+citation file in [`CITATION.cff`](CITATION.cff).
+
 ## Related projects
 
 - [GraphBridge](https://github.com/joslat/GraphBridge.EFCore): an Entity Framework Core provider for Neo4j, from the same author, with an experimental GraphRAG toolkit for .NET. Its answers show the stored text each quote came from, or say why they can't answer, and its graphs can be shared with neo4j-graphrag.
