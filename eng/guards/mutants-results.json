@@ -1,6 +1,6 @@
 {
  "format": "agentmemory.guards.mutants-results/2",
- "commit": "46e809ae",
+ "commit": "1aeeaab0",
  "results": [
   {
    "id": "archive-ratio",
@@ -128,7 +128,7 @@
    "door": "PackAuthoring.BuildComposite",
    "mutant_sha256": "55bc5a27655417fe998d84758d01a87c4f3f0cd773eef7917582c66a9f2a9ba5",
    "killed": true,
-   "file_sha256": "e7a38d8e8a15cf85127ce32a7f66344faa7342294ecc603e8d5f85f1c699c3a8",
+   "file_sha256": "be78939ec50cc37f9f20096c562de21b62dc858a99649f7fba5795c6b231a1f2",
    "failed": [
     "Review8WriterGuardTests.F4_the_library_acts_only_on_packs_its_host_s_trust_verifies"
    ],
@@ -569,7 +569,7 @@
     "PackConsentTests.Review12_serve_holds_one_live_snapshot_of_a_module",
     "PackConsentTests.Review13_the_store_installs_only_what_serve_then_holds"
    ],
-   "seconds": 8
+   "seconds": 9
   },
   {
    "id": "mount-plan-at-gate",
@@ -930,11 +930,11 @@
    "door": "serve",
    "mutant_sha256": "c277f60f0f46a9f50c2dc60020be14fccf40fe30f932bee7b756d2165e96e943",
    "killed": true,
-   "file_sha256": "52990e1f2970fa3bf551a3c94bd0fe495879ed22826228548009fa0756545eb6",
+   "file_sha256": "1c206d907179b387ad7d1e4d6f41bb86d5a9803221bbc412499d182973f3750a",
    "failed": [
     "ModuleDelimitingTests.A_pack_record_is_framed_with_its_source_and_cannot_forge_another"
    ],
-   "seconds": 6
+   "seconds": 7
   },
   {
    "id": "safety-certified",
@@ -2010,7 +2010,7 @@
    "failed": [
     "PackFamilyTests.A_family_member_s_usage_policy_is_held_as_an_added_pack_s_is"
    ],
-   "seconds": 10
+   "seconds": 7
   },
   {
    "id": "set-policy-allowed",
@@ -2444,11 +2444,11 @@
    "door": "PackAuthoring.Countersign",
    "mutant_sha256": "bacc4ef24e5bb02b575fa5db2c951a281641312bd92a8b4e419c8d84a13860ad",
    "killed": true,
-   "file_sha256": "e7a38d8e8a15cf85127ce32a7f66344faa7342294ecc603e8d5f85f1c699c3a8",
+   "file_sha256": "be78939ec50cc37f9f20096c562de21b62dc858a99649f7fba5795c6b231a1f2",
    "failed": [
     "Review8WriterGuardTests.F4_the_library_acts_only_on_packs_its_host_s_trust_verifies"
    ],
-   "seconds": 11
+   "seconds": 7
   },
   {
    "id": "library-member-unverified",
@@ -2456,11 +2456,11 @@
    "door": "PackAuthoring.BuildSet",
    "mutant_sha256": "4265b2a1a6a1a4f8142867e4a5dff425e643e969cbf16b52af7b48603a95c180",
    "killed": true,
-   "file_sha256": "e7a38d8e8a15cf85127ce32a7f66344faa7342294ecc603e8d5f85f1c699c3a8",
+   "file_sha256": "be78939ec50cc37f9f20096c562de21b62dc858a99649f7fba5795c6b231a1f2",
    "failed": [
     "Review8WriterGuardTests.F4_the_library_acts_only_on_packs_its_host_s_trust_verifies"
    ],
-   "seconds": 10
+   "seconds": 7
   },
   {
    "id": "before-drops-every-role",
@@ -2492,11 +2492,11 @@
    "door": "install",
    "mutant_sha256": "f7ff97fd9793c93c45f3b833df6cc9ed044ed830f05c6f5ac293d3725b334317",
    "killed": true,
-   "file_sha256": "8f058e249f5842b13675afabff8a7b45b2093b4f764ef359e9a70ec86aa5d737",
+   "file_sha256": "b40d7e1b72fcf4b1d5dc4973ca10bd99ef07355ee7d83d158ead5048f4dc4ee5",
    "failed": [
     "ModuleRecordWriteIntegrationTests.APackSearchedByMeaningFindsAReworded_question_LeavesItsRecordsAsTheyWere_AndClosedRecordsKeepNoVector"
    ],
-   "seconds": 26
+   "seconds": 33
   },
   {
    "id": "meaning-closed-kept-on-removal",
@@ -2528,11 +2528,11 @@
    "door": "gate",
    "mutant_sha256": "e01d28319ed7b31153a7f7d1f558fc95b84fe2203f05a84383a57713794c78d7",
    "killed": true,
-   "file_sha256": "8f058e249f5842b13675afabff8a7b45b2093b4f764ef359e9a70ec86aa5d737",
+   "file_sha256": "b40d7e1b72fcf4b1d5dc4973ca10bd99ef07355ee7d83d158ead5048f4dc4ee5",
    "failed": [
     "ModuleRecordWriteIntegrationTests.APackSearchedByMeaningFindsAReworded_question_LeavesItsRecordsAsTheyWere_AndClosedRecordsKeepNoVector"
    ],
-   "seconds": 25
+   "seconds": 28
   },
   {
    "id": "meaning-failing-judge-offers",
@@ -2540,11 +2540,11 @@
    "door": "gate",
    "mutant_sha256": "1c7256c3f337e331323a1d118fce0ebd1760693e64147afaeaf75c2480f49e1f",
    "killed": true,
-   "file_sha256": "8f058e249f5842b13675afabff8a7b45b2093b4f764ef359e9a70ec86aa5d737",
+   "file_sha256": "b40d7e1b72fcf4b1d5dc4973ca10bd99ef07355ee7d83d158ead5048f4dc4ee5",
    "failed": [
     "ModuleRecordWriteIntegrationTests.APackSearchedByMeaningFindsAReworded_question_LeavesItsRecordsAsTheyWere_AndClosedRecordsKeepNoVector"
    ],
-   "seconds": 25
+   "seconds": 27
   },
   {
    "id": "meaning-silent-judge-is-no",
@@ -2552,7 +2552,7 @@
    "door": "gate",
    "mutant_sha256": "7b0ea72dc516c71fc1cc1f4bac7979b5b6342db72500bfeab07de41527a8eeba",
    "killed": true,
-   "file_sha256": "8f058e249f5842b13675afabff8a7b45b2093b4f764ef359e9a70ec86aa5d737",
+   "file_sha256": "b40d7e1b72fcf4b1d5dc4973ca10bd99ef07355ee7d83d158ead5048f4dc4ee5",
    "failed": [
     "PackMeaningJudgeTests.An_answer_that_is_neither_yes_nor_no_is_a_failure_not_a_no"
    ],
