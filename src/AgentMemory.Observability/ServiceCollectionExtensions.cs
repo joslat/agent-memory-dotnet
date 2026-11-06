@@ -64,7 +64,10 @@ public static class ServiceCollectionExtensions
                 var inner = CreateInstance<IMemoryService>(provider, descriptor);
                 var metrics = provider.GetRequiredService<MemoryMetrics>();
                 var extractionOptions = provider.GetService<Microsoft.Extensions.Options.IOptions<Abstractions.Options.ExtractionOptions>>();
-                return new InstrumentedMemoryService(inner, metrics, extractionOptions);
+                // The observability options too: without them IncludeOwnerIdInTelemetry was documented, bound and read by nobody,
+                // because the decorator was the only place the service is built and it passed none (fixed in 2.0.0).
+                var observabilityOptions = provider.GetService<Microsoft.Extensions.Options.IOptions<ObservabilityOptions>>();
+                return new InstrumentedMemoryService(inner, metrics, extractionOptions, observabilityOptions);
             },
             descriptor.Lifetime));
     }

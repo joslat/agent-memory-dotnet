@@ -3,6 +3,7 @@ using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Observability;
 using FluentAssertions;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using NSubstitute;
 using Xunit;
@@ -106,6 +107,40 @@ public sealed class TelemetryOwnerPrivacyTests
             await sut.RecallAsync(new RecallRequest { SessionId = "s1", Query = "q", UserId = "tenant-a" });
         }
 
+        activities.SelectMany(a => a.TagObjects)
+            .Should().Contain(tag => tag.Key == "memory.user_id" && Equals(tag.Value, "tenant-a"));
+    }
+
+    [Fact]
+    public async Task TheOptInReachesTheServiceThroughDependencyInjection()
+    {
+        // The tests above build the service by hand. Through AddAgentMemoryObservability the decorator passed no
+        // observability options, so the opt-in was bound and read by nobody (fixed in 2.0.0); this goes the host's way.
+        var inner = Substitute.For<IMemoryService>();
+        inner.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new RecallResult
+            {
+                Context = new MemoryContext { SessionId = "s1", AssembledAtUtc = DateTimeOffset.UnixEpoch },
+            });
+        var services = new ServiceCollection();
+        services.AddSingleton(inner);
+        services.AddAgentMemoryObservability(options => options.IncludeOwnerIdInTelemetry = true);
+        using var provider = services.BuildServiceProvider();
+        var sut = provider.GetRequiredService<IMemoryService>();
+
+        var activities = new List<Activity>();
+        using (var listener = new ActivityListener
+        {
+            ShouldListenTo = source => source.Name == MemoryActivitySource.Name,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStopped = activities.Add,
+        })
+        {
+            ActivitySource.AddActivityListener(listener);
+            await sut.RecallAsync(new RecallRequest { SessionId = "s1", Query = "q", UserId = "tenant-a" });
+        }
+
+        sut.Should().BeOfType<InstrumentedMemoryService>();
         activities.SelectMany(a => a.TagObjects)
             .Should().Contain(tag => tag.Key == "memory.user_id" && Equals(tag.Value, "tenant-a"));
     }
