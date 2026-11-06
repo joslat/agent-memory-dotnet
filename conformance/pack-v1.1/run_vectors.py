@@ -5,7 +5,7 @@ Builds a valid pack with `ampack`, derives tampered and ambiguous variants with 
 entirely in Python (canonical list, DSSE signature, strict ZIP), and requires `ampack verify` (.NET) and
 python/ampack_verify.py to reach the expected outcome on every vector. Writes vectors/, trust.json and results.json.
 
-usage: python run_vectors.py <path to Ampack executable> [<out folder>]
+usage: python run_vectors.py <path to Ampack executable> [<out folder>] [--keep-work]
 """
 import base64
 import hashlib
@@ -27,8 +27,9 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE / "python"))
 import ampack_verify as py  # noqa: E402
 
-AMPACK = str(Path(sys.argv[1]).resolve())  # the vectors are built in a work folder: a relative path would not resolve there
-OUT = Path(sys.argv[2]) if len(sys.argv) > 2 else HERE
+_POSITIONAL = [a for a in sys.argv[1:] if not a.startswith("--")]  # flags (--keep-work) are not positions
+AMPACK = str(Path(_POSITIONAL[0]).resolve())  # the vectors are built in a work folder: a relative path would not resolve there
+OUT = Path(_POSITIONAL[1]) if len(_POSITIONAL) > 1 else HERE
 VECTORS = OUT / "vectors"
 
 
