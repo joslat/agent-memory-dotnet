@@ -29,7 +29,7 @@ import ampack_verify as py  # noqa: E402
 
 _POSITIONAL = [a for a in sys.argv[1:] if not a.startswith("--")]  # flags (--keep-work) are not positions
 AMPACK = str(Path(_POSITIONAL[0]).resolve())  # the vectors are built in a work folder: a relative path would not resolve there
-OUT = Path(_POSITIONAL[1]) if len(_POSITIONAL) > 1 else HERE
+OUT = (Path(_POSITIONAL[1]) if len(_POSITIONAL) > 1 else HERE).resolve()  # absolute, so messages relativise against it
 VECTORS = OUT / "vectors"
 
 
@@ -1788,18 +1788,23 @@ def main():
         print("third verifier (reader-rs) not built: three-way agreement not checked")
     # The kit is the heavy task already: the third verifier must not wait for a .NET run, which may be the kit's own caller.
     else:
-        code = subprocess.run([sys.executable, "-I", str(HERE / "run_third.py"), str(third), "--no-wait"]).returncode
+        # The third reader reads the folder this run wrote (an out folder, not this one, when given).
+        code = subprocess.run([sys.executable, "-I", str(HERE / "run_third.py"), str(third), "--kit", str(OUT), "--no-wait"]).returncode
         if code == 3:
             print(f"FAIL the third verifier ({third}) could not run every vector: a test input is missing")
             failures += 1
         elif code != 0:
             print(f"FAIL the third verifier ({third}) disagrees on a vector")
             failures += 1
-    # Only now, after every reader: the work folder holds throwaway keys and the private-key policy.
-    if "--keep-work" not in sys.argv:
-        shutil.rmtree(work, ignore_errors=True)
     return 1 if failures else 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        exit_code = main()
+    finally:
+        # Only now, after every reader, and on every exit: the work folder holds throwaway keys and the private-key
+        # policy. --keep-work keeps it for a standalone run_third.py.
+        if "--keep-work" not in sys.argv:
+            shutil.rmtree(OUT / ".work", ignore_errors=True)
+    sys.exit(exit_code)

@@ -5,7 +5,8 @@ verifier is run, and compares its verdict with the expected one.
 It reads results.json and the vectors and trust files beside it; it never builds, regenerates or rewrites a vector (that is
 run_vectors.py's, which it never calls). Exit 0 verified, 1 refused; anything else is an error that agrees with nothing.
 
-usage: python conformance/pack-v1.1/run_third.py [<path to ampack-rs>] [--show-all] [--show-rules] [--no-wait]
+usage: python conformance/pack-v1.1/run_third.py [<path to ampack-rs>] [--kit <folder>] [--show-all] [--show-rules] [--no-wait]
+       --kit: the folder run_vectors.py wrote (results.json, vectors/, the trust files); default: this folder
        (default: reader-rs/target/release/ampack-rs[.exe], else reader-rs/target/debug/)
 Prints each disagreement, then per vector family (the name up to its first '-') and in total how many agree.
 Waits while a .NET run (dotnet.exe or testhost.exe) is going: one heavy task at a time on this machine. --no-wait is for a
@@ -58,23 +59,30 @@ def find_binary(given):
     return None
 
 
-def command(binary, v):
-    pack = str(VECTORS / f"{v['vector']}.ampack")
-    policy = str(HERE / v["policy"])
+def command(binary, v, base=HERE):
+    vectors = base / "vectors"
+    pack = str(vectors / f"{v['vector']}.ampack")
+    policy = str(base / v["policy"])
     kind = v["kind"]
     if kind == "pack":
-        return [str(binary), "verify", pack, policy, *[str(HERE / r) for r in v.get("revocations", [])]]
+        return [str(binary), "verify", pack, policy, *[str(base / r) for r in v.get("revocations", [])]]
     if kind == "receipt":
-        return [str(binary), "verify", pack, policy, "--receipt", str(VECTORS / f"{v['vector']}.receipt.dsse.json"), "--location", v["location"]]
+        return [str(binary), "verify", pack, policy, "--receipt", str(vectors / f"{v['vector']}.receipt.dsse.json"), "--location", v["location"]]
     if kind in ("certificate", "erasure", "aggregate"):
         doc = v["document"]
-        target = doc if doc.startswith("META/attestations/") else str(VECTORS / doc)
+        target = doc if doc.startswith("META/attestations/") else str(vectors / doc)
         return [str(binary), "verify", pack, policy, f"--{kind}", target]
     raise ValueError(f"unknown kind {kind!r} for {v['vector']}")
 
 
 def main(argv):
-    args = [a for a in argv[1:] if not a.startswith("--")]
+    args, kit = [], HERE
+    rest = iter(argv[1:])
+    for a in rest:
+        if a == "--kit":
+            kit = Path(next(rest, ".")).resolve()
+        elif not a.startswith("--"):
+            args.append(a)
     show_all = "--show-all" in argv
     if len(args) > 1:
         print(__doc__)
@@ -86,7 +94,7 @@ def main(argv):
     while "--no-wait" not in argv and dotnet_running():
         print("a .NET run is going; waiting 60 s")
         time.sleep(60)
-    results = json.loads((HERE / "results.json").read_text(encoding="utf-8"))
+    results = json.loads((kit / "results.json").read_text(encoding="utf-8"))
     # Informative, never the verdict: for the vectors reasons.json pins, whether the refusal names the same rule as the
     # Python verifier's pattern for it (ampack-rs words its reasons as the Python verifier does).
     reasons = json.loads((HERE / "reasons.json").read_text(encoding="utf-8"))["reasons"]
@@ -96,14 +104,14 @@ def main(argv):
     started = time.perf_counter()
     blocked = []
     for v in results["vectors"]:
-        cmd = command(binary, v)
+        cmd = command(binary, v, kit)
         # Every file the reader is handed must exist: a reader refusing a file it cannot read would otherwise pass as the
         # expected refusal (2026-11-06, policy-with-a-private-key after the work folder was removed).
         missing = [a for a in cmd[2:] if (a.endswith(".json") or a.endswith(".ampack")) and not a.startswith("META/")
                    and "://" not in a
                    and not Path(a).is_file()]
         if missing:
-            blocked.append((v["vector"], [str(Path(m).relative_to(HERE)) if Path(m).is_relative_to(HERE) else m for m in missing]))
+            blocked.append((v["vector"], [str(Path(m).relative_to(kit)) if Path(m).is_relative_to(kit) else m for m in missing]))
             continue
         run = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
         verdict = {0: "verified", 1: "refused"}.get(run.returncode, f"error ({run.returncode})")
