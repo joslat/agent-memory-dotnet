@@ -7,15 +7,22 @@ the same configuration disagree, both are shown — a single number would be mor
 
 ## 1. The headline
 
-Structured memory reaches the full-history band while sending **304× fewer tokens per question**.
+Structured memory reaches the full-history band with an answer prompt **about 300× smaller per question**
+(estimated; see the note under the table).
 
 | Arm | Accuracy | Mean context / question | Artifact |
 |---|---:|---:|---|
 | **No memory** (floor) | **0%** (0/19 over two runs) | ~42 tokens | `longmemeval-reference-nomemory-*` |
 | **Raw** | **90.0%** (45/50, one run — see §6) | — | `raw-arm-50q.json` |
-| **Structured** | **76.0% – 90.0%** | **403 tokens** | `longmemeval-prepared-*` |
+| **Structured** | **76.0% – 90.0%** | **403 tokens** (memory alone: 172) | `longmemeval-prepared-*` |
 | **Hybrid** | **84.0% – 90.0%** | 2,505 tokens | `longmemeval-prepared-*` |
-| **Full history** (ceiling) | **80% – 100%** (18/20) | **122,605 tokens** | `longmemeval-reference-fullhistory-*` |
+| **Full history** (ceiling) | **80% – 100%** (18/20, another sample) | **122,067 tokens** | `longmemeval-reference-fullhistory-*` |
+
+**How the token column was counted (corrected 6 November 2026).** Each figure is the whole answer prompt, instructions
+and question included, estimated as characters ÷ 4, which errs by 14–40% against a real tokenizer either way. By exact
+count (o200k), the structured arm's memory sections average 172 tokens and this set's full transcripts 101,303. The
+full-history arm ran on a different sample, 10 questions run twice (3 of them in this set). An earlier edition gave
+122,605 for full history and "304× fewer tokens"; the two reports on disk give 122,067, so about 300×.
 
 The floor is the important control and it is genuinely 0: with no memory the model answers **none** of
 these questions. Everything above 0 is memory doing work.
@@ -153,8 +160,9 @@ caveats, all of which must travel with the figure:
 
 ## 7. How to cite this
 
-- ✅ *"Structured memory reaches the full-history accuracy band on LongMemEval-S using 403 tokens of
-  context per question against 122,605 — roughly 1/300th — over a 0% no-memory floor."*
+- ✅ *"Structured memory reaches the full-history accuracy band on LongMemEval-S with an answer prompt of
+  about 400 tokens per question (estimated; the memory itself about 170 by exact count) against about
+  122,000 for the full history on a different sample — roughly 1/300th — over a 0% no-memory floor."*
 - ✅ *"Semantic 100% (n=25); temporal 85.7% (n=21); episodic not measurable at n=4."*
 - ❌ *"90% on LongMemEval-S."* — true of one run; the same configuration also produced 76%.
 - ❌ *"Structured outperforms hybrid."* — the two accepted runs disagree on the sign.

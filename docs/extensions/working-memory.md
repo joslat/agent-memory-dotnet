@@ -110,8 +110,9 @@ upstream owns, so we ask upstream not to take them for something else.
 
 ## Cost, priced
 
-The structured baseline is 403 tokens per question. A ~300-token block roughly doubles it — and is
-still about 1/400th of full-history. That is a declared increase, which is why `MaxTokens` is a hard
+The structured baseline is about 403 tokens of answer prompt per question (estimated as characters ÷ 4; the
+memory sections alone average 172 by exact count). A ~300-token block roughly doubles it — and is still
+under 1/150th of the full history (about 122,000). That is a declared increase, which is why `MaxTokens` is a hard
 budget enforced by dropping whole trailing lines: **entities first, then preferences, then facts**.
 Facts are the head of the question distribution, so they are the last thing sacrificed.
 
