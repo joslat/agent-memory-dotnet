@@ -324,7 +324,7 @@ The held SDK references are confined to this non-packable tool; published core d
 
 `ModuleSchemaDerivation.Derive(manifest)` returns the generated DDL definitions, stable keys and
 normalized hashes using exactly the same derivation as the migrator. This experimental public API
-lets editors and DemoBrain preview a locally valid manifest without opening a database, activating
+lets editors and desktop hosts preview a locally valid manifest without opening a database, activating
 a module or inventing dependency registrations. Code-only modules return no definitions.
 
 Local preview is not whole-profile validation or application permission: dependency compatibility,
