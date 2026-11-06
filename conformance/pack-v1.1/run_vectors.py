@@ -269,6 +269,13 @@ def reshaped(envelope_bytes, how):
     return py.canonical(envelope).encode()
 
 
+def relative_to_kit(text):
+    """A reader's message with the kit's absolute folder removed (either slash), so it names files as the kit does."""
+    for prefix in {str(OUT) + os.sep, str(OUT).replace("\\", "/") + "/", str(OUT).replace("/", "\\") + "\\"}:
+        text = text.replace(prefix, "")
+    return text
+
+
 def main():
     # Review 1, M14: the Python verifier keeps instants to 100 ns, as .NET does; two lists 100 ns apart are not the same instant.
     assert py.instant("2026-10-29T00:00:00.0000001Z") > py.instant("2026-10-29T00:00:00Z")
@@ -1178,7 +1185,9 @@ def main():
         dict(entry, notBefore="2020-01-01T00:00:00.25-05:30", notAfter="2099-01-01T00:00:00.5+01:00")]}, separators=(",", ":")), encoding="utf-8")
     vectors["key-window-fraction-with-offset"] = (dict(base), "trust-key-window-fraction-offset.json", "verified")
     private_pem = (work / "keys" / "publisher.key.pem").read_text(encoding="utf-8")
-    # A private key never lands in the tree: this policy lives in the work folder, which is git-ignored and removed after the run.
+    # A private key never lands in the tree: this policy lives in the work folder, which is git-ignored and removed after the
+    # last reader has run (the third included; 2026-11-06: removing it before the third verifier made the Rust reader refuse
+    # a missing file and count that as the expected refusal). --keep-work keeps it for a standalone run_third.py.
     (work / "trust-private-key.json").write_text(json.dumps({"format": "agentmemory.pack.trust/1.1", "keys": [dict(entry, publicKey=private_pem)]},
                                                             separators=(",", ":")), encoding="utf-8")
     vectors["policy-with-a-private-key"] = (dict(base), ".work/trust-private-key.json", "refused")
@@ -1761,9 +1770,13 @@ def main():
     else:
         print("FAIL spec/vectors.json is missing: every vector must name the requirements it tests")
         failures += 1
+    # Reader messages name vector files by their absolute path on the machine that ran the kit; the record carries them
+    # relative to the kit, so a published results.json holds no local path (2026-11-06).
+    for r in results:
+        for key in [k for k in r if k.endswith("Says") and isinstance(r[k], str)]:
+            r[key] = relative_to_kit(r[key])
     (OUT / "results.json").write_text(json.dumps({"format": "agentmemory.pack.conformance/1.2", "vectors": results,
                                                   "agreed": len(results) - failures, "total": len(results)}, indent=1) + "\n", encoding="utf-8")
-    shutil.rmtree(work, ignore_errors=True)
     print(f"{len(results) - failures}/{len(results)} vectors: both verifiers agree with the expected outcome")
     # The third verifier (feature 18): when the Rust reader is built, it must agree on every vector too (completeness review,
     # 18: three-way agreement ran by hand only). Not built, it is said, not failed: the kit needs no Rust toolchain.
@@ -1773,9 +1786,17 @@ def main():
     if third is None:
         print("third verifier (reader-rs) not built: three-way agreement not checked")
     # The kit is the heavy task already: the third verifier must not wait for a .NET run, which may be the kit's own caller.
-    elif subprocess.run([sys.executable, "-I", str(HERE / "run_third.py"), str(third), "--no-wait"]).returncode != 0:
-        print(f"FAIL the third verifier ({third}) disagrees on a vector")
-        failures += 1
+    else:
+        code = subprocess.run([sys.executable, "-I", str(HERE / "run_third.py"), str(third), "--no-wait"]).returncode
+        if code == 3:
+            print(f"FAIL the third verifier ({third}) could not run every vector: a test input is missing")
+            failures += 1
+        elif code != 0:
+            print(f"FAIL the third verifier ({third}) disagrees on a vector")
+            failures += 1
+    # Only now, after every reader: the work folder holds throwaway keys and the private-key policy.
+    if "--keep-work" not in sys.argv:
+        shutil.rmtree(work, ignore_errors=True)
     return 1 if failures else 0
 
 

@@ -10,7 +10,8 @@ usage: python conformance/pack-v1.1/run_third.py [<path to ampack-rs>] [--show-a
 Prints each disagreement, then per vector family (the name up to its first '-') and in total how many agree.
 Waits while a .NET run (dotnet.exe or testhost.exe) is going: one heavy task at a time on this machine. --no-wait is for a
 caller that is that task already (run_vectors.py, and a test host running it): waiting there would wait on itself.
-exit 0 when every vector agrees, 1 otherwise, 2 on a usage error.
+exit 0 when every vector agrees, 1 when a reader disagrees, 2 on a usage error, 3 when a test input is missing: a missing
+input blocks its vector, it is never counted as an expected refusal (2026-11-06).
 """
 import json
 import os
@@ -93,8 +94,17 @@ def main(argv):
     families = defaultdict(lambda: [0, 0])
     disagreements = []
     started = time.perf_counter()
+    blocked = []
     for v in results["vectors"]:
         cmd = command(binary, v)
+        # Every file the reader is handed must exist: a reader refusing a file it cannot read would otherwise pass as the
+        # expected refusal (2026-11-06, policy-with-a-private-key after the work folder was removed).
+        missing = [a for a in cmd[2:] if (a.endswith(".json") or a.endswith(".ampack")) and not a.startswith("META/")
+                   and "://" not in a
+                   and not Path(a).is_file()]
+        if missing:
+            blocked.append((v["vector"], [str(Path(m).relative_to(HERE)) if Path(m).is_relative_to(HERE) else m for m in missing]))
+            continue
         run = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
         verdict = {0: "verified", 1: "refused"}.get(run.returncode, f"error ({run.returncode})")
         agree = verdict == v["expected"]
@@ -122,6 +132,10 @@ def main(argv):
     total = sum(t for _, t in families.values())
     print(f"{'total':26} {agreed:5} / {total:<5}   ({elapsed:.1f} s, {binary})")
     print(f"refused for the rule reasons.json pins (Python's wording): {same_rule} / {pinned} (informative)")
+    if blocked:
+        print(f"\nblocked, a test input is missing ({len(blocked)}): a harness failure, not a verdict")
+        for name, missing in blocked:
+            print(f"  {name}: {', '.join(missing)}")
     if "--show-rules" in argv:
         for name, said in other_rule:
             print(f"  other words: {name}: {said[:160]}")
@@ -129,6 +143,8 @@ def main(argv):
         print("\ndisagreements (vector, kind, expected, rust, rust says | .NET says):")
         for name, kind, expected, verdict, said, dotnet in disagreements:
             print(f"  {name} [{kind}] expected {expected}, rust {verdict}: {said[:160]} | {dotnet[:160]}")
+    if blocked:
+        return 3
     return 0 if agreed == total else 1
 
 
