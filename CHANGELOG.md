@@ -16,6 +16,8 @@ compatible; Recommended is opt-in.
 
 ### Licensing
 
+- The `AgentMemory.McpHost` tool package bundles the Apache-2.0 module SDK and packs, so it is licensed
+  `MIT AND Apache-2.0` and carries both licence texts and the Apache NOTICE (LICENSING.md, "Packages that bundle").
 - From 2.0.0 the projects that implement the ampack format or its host procedure are licensed Apache-2.0: `AgentMemory.Extensibility`
   (its 0.x releases were MIT), `AgentMemory.Extensibility.Ampack`, `AgentMemory.Extensibility.Neo4j`, `AgentMemory.Extensibility.AgentFramework`,
   every `src/AgentMemory.Packs.*` library (the sample knowledge pack under `packs/` stays MIT), the `ampack` tool, the Rust reader and the
@@ -23,7 +25,7 @@ compatible; Recommended is opt-in.
   library, the store, the other adapters, the samples and the benchmarks stay MIT. The specification in `spec/` is CC BY 4.0. A proposed patent
   non-assertion pledge (`PATENTS.md`, a draft until the author issues it) is intended to cover conforming implementations of the listed
   specification versions royalty-free, with the conditions stated there. `AgentMemory.Extensibility` and its three adapter packages are
-  0.1.1 from this release, so the licence change sits on a package version boundary (0.1.0 and earlier stay MIT as released; the SDK line stays 0.1 because every pack declares the range `[0.1,0.2)` and a 0.2.0 SDK would refuse them all); "2.0.0" is
+  0.1.1 from this release (their NuGet packages are published on the preview line, `preview-v0.1.1-*`), so the licence change sits on a package version boundary (0.1.0 and earlier stay MIT as released; the SDK line stays 0.1 because every pack declares the range `[0.1,0.2)` and a 0.2.0 SDK would refuse them all); "2.0.0" is
   the repository release, not every package's version. See the README, "Licensing".
 
 - Pack families as hierarchies (CODING-hierarchy): a composite member may name the members it `contains`
@@ -307,7 +309,10 @@ compatible; Recommended is opt-in.
   `AgentMemoryMcpOptions.RecallSecurityMode` (`Permissive` by default, as in the other adapters; `Strict`
   withholds instruction-like text below `MinimumTrustForAdmissionBypass`, keeping the item and its id). **Output
   change for MCP clients:** new fields on every item, escaped text, and `null` text on withheld items. The coding
-  host's API keeps raw text (escaping would corrupt code) and gains the trust and instruction-like flags. The NAMS MCP
+  host's API keeps raw text (escaping would corrupt code), gains the trust and instruction-like flags, and says so in
+  its notice. Metadata is guarded too: a withheld item keeps only its trust stamp, and every string in a returned
+  item's metadata is escaped, nested values included; roles are escaped. `agent-memory-mcp --strict-recall` (or
+  `AGENT_MEMORY_MCP_STRICT_RECALL=true`) turns strict mode on in the shipped host. The NAMS MCP
   server's `nams_recall`, `nams_entity_graph` and `nams_expand_graph` escape and flag recalled text the same way, from
   the same shared detector (its private copy of the rule is gone); NAMS items carry no trust stamp, so it does not
   withhold.

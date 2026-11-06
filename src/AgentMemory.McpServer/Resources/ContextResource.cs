@@ -55,19 +55,19 @@ internal sealed class ContextResource
             recentMessages = context.RecentMessages.Items.Select(m => (m, v: guard.Check(m.Content, m.Metadata))).Select(x => new
             {
                 id = x.m.MessageId,
-                role = x.m.Role,
+                role = x.v.Guard.Escape(x.m.Role),
                 content = x.v.Text(x.m.Content?.Length > 500 ? x.m.Content[..500] + "..." : x.m.Content),
                 timestamp = x.m.TimestampUtc,
                 trustLevel = x.v.Trust, instructionLike = x.v.InstructionLike, withheld = x.v.Withheld,
             }),
-            entities = context.RelevantEntities.Items.Select(e => (e, v: guard.Check(e.Description ?? e.Name, e.Metadata))).Select(x => new
+            entities = context.RelevantEntities.Items.Select(e => (e, v: guard.Check(McpRecallGuard.TrustOf(e.Metadata), e.Name, e.Type, e.Description))).Select(x => new
             {
                 id = x.e.EntityId,
                 name = x.v.Text(x.e.Name),
                 type = x.v.Text(x.e.Type),
                 trustLevel = x.v.Trust, instructionLike = x.v.InstructionLike, withheld = x.v.Withheld,
             }),
-            facts = context.RelevantFacts.Items.Select(f => (f, v: guard.Check($"{f.Subject} {f.Predicate} {f.Object}", f.Metadata))).Select(x => new
+            facts = context.RelevantFacts.Items.Select(f => (f, v: guard.Check(McpRecallGuard.TrustOf(f.Metadata), f.Subject, f.Predicate, f.Object))).Select(x => new
             {
                 id = x.f.FactId,
                 subject = x.v.Text(x.f.Subject),
@@ -75,7 +75,7 @@ internal sealed class ContextResource
                 @object = x.v.Text(x.f.Object),
                 trustLevel = x.v.Trust, instructionLike = x.v.InstructionLike, withheld = x.v.Withheld,
             }),
-            preferences = context.RelevantPreferences.Items.Select(p => (p, v: guard.Check(p.PreferenceText, p.Metadata))).Select(x => new
+            preferences = context.RelevantPreferences.Items.Select(p => (p, v: guard.Check(McpRecallGuard.TrustOf(p.Metadata), p.PreferenceText, p.Category))).Select(x => new
             {
                 id = x.p.PreferenceId,
                 preference = x.v.Text(x.p.PreferenceText),

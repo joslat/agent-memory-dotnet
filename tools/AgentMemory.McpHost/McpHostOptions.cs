@@ -53,6 +53,7 @@ internal sealed record McpHostOptions
     internal string HttpUrl { get; init; } = "http://localhost:5233";
     internal string ServerName { get; init; } = "agent-memory";
     internal bool ReadOnly { get; init; }
+    internal bool StrictRecall { get; init; }
     internal bool EnableGraphQuery { get; init; }
     internal bool Bootstrap { get; init; } = true;
     internal LogLevel LogLevel { get; init; } = LogLevel.Information;
@@ -89,7 +90,7 @@ internal sealed record McpHostOptions
 
     private static readonly string[] Known =
     [
-        "--transport", "--url", "--server-name", "--read-only", "--enable-graph-query",
+        "--transport", "--url", "--server-name", "--read-only", "--strict-recall", "--enable-graph-query",
         "--no-bootstrap", "--log-level", "--owner", "--help", "-h", "/?",
     ];
 
@@ -165,6 +166,9 @@ internal sealed record McpHostOptions
             // the correct combination. Someone who set the variable and someone who passed the flag
             // both asked for read-only, and neither can be cancelled by the other's absence.
             ReadOnly = Flag("--read-only") || Boolean(environment("AGENT_MEMORY_MCP_READ_ONLY")),
+            // A safety switch too, so also the union: recalled text that reads like an instruction is withheld unless
+            // its item is trusted enough (AgentMemoryMcpOptions.RecallSecurityMode = Strict).
+            StrictRecall = Flag("--strict-recall") || Boolean(environment("AGENT_MEMORY_MCP_STRICT_RECALL")),
 
             EnableGraphQuery = Flag("--enable-graph-query")
                 || Boolean(environment("AGENT_MEMORY_MCP_ENABLE_GRAPH_QUERY")),
@@ -262,7 +266,7 @@ internal sealed record McpHostOptions
         agent-memory-mcp - MCP server for AgentMemory for .NET
 
           agent-memory-mcp [--transport stdio|http] [--url http://localhost:5233]
-                           [--read-only] [--enable-graph-query] [--no-bootstrap]
+                           [--read-only] [--strict-recall] [--enable-graph-query] [--no-bootstrap]
                            [--owner <id>] [--server-name agent-memory] [--log-level information]
           agent-memory-mcp --coding-config <private.json>
           agent-memory-mcp --coding-hook <private-client.json>  (configured client hook JSON on stdin)
@@ -320,6 +324,9 @@ internal sealed record McpHostOptions
         --read-only removes every tool that writes from the server's tool list entirely, rather than
         refusing them when called: a tool a client can see is one a model will try. {0} of the {1}
         tools remain ({2} with --enable-graph-query).
+
+        --strict-recall withholds recalled text that reads like an instruction unless its item is trusted
+        enough; every recall result marks trustLevel and instructionLike and escapes angle brackets either way.
 
         --enable-graph-query lists graph_query, which runs arbitrary Cypher, and the whole-graph
         memory_export_graph and memory_find_duplicates. They are off by default and not listed at all;

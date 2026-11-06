@@ -71,7 +71,8 @@ internal sealed class EntityListResource
         {
             untrustedContent = McpRecallGuard.Notice,
             entities = results.Select(r => (r, name: r.TryGetValue("name", out var n) ? n?.ToString() : null))
-                .Select(x => (x.r, x.name, v: guard.Check(x.name, MemoryTrustLevel.Untrusted))).Select(x => new
+                .Select(x => (x.r, x.name, v: guard.Check(MemoryTrustLevel.Untrusted, x.name,
+                    x.r.TryGetValue("type", out var ty) ? ty?.ToString() : null))).Select(x => new
             {
                 id = x.r.TryGetValue("id", out var id) ? id?.ToString() : null,
                 name = x.v.Text(x.name),

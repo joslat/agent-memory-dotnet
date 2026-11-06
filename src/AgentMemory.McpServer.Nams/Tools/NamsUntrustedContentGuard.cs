@@ -36,4 +36,28 @@ internal static class NamsUntrustedContentGuard
     public static string? Escape(string? content) => content is null ? null : RecordFrame.Escape(content);
 
     public static bool IsInstructionLike(string? content) => InstructionLikeContentDetector.IsMatch(content);
+
+    /// <summary>Whether any string in <paramref name="properties"/>, nested values included, reads like an instruction.</summary>
+    public static bool IsInstructionLike(IReadOnlyDictionary<string, System.Text.Json.JsonElement>? properties) =>
+        properties is not null && properties.Values.SelectMany(Strings).Any(InstructionLikeContentDetector.IsMatch);
+
+    /// <summary>Node properties with every string escaped, nested values included; null stays null.</summary>
+    public static Dictionary<string, object?>? EscapeProperties(IReadOnlyDictionary<string, System.Text.Json.JsonElement>? properties) =>
+        properties?.ToDictionary(p => p.Key, p => EscapeJson(p.Value));
+
+    private static object? EscapeJson(System.Text.Json.JsonElement e) => e.ValueKind switch
+    {
+        System.Text.Json.JsonValueKind.String => RecordFrame.Escape(e.GetString() ?? string.Empty),
+        System.Text.Json.JsonValueKind.Object => e.EnumerateObject().ToDictionary(p => p.Name, p => EscapeJson(p.Value)),
+        System.Text.Json.JsonValueKind.Array => e.EnumerateArray().Select(EscapeJson).ToList(),
+        _ => e,
+    };
+
+    private static IEnumerable<string> Strings(System.Text.Json.JsonElement e) => e.ValueKind switch
+    {
+        System.Text.Json.JsonValueKind.String => [e.GetString() ?? string.Empty],
+        System.Text.Json.JsonValueKind.Object => e.EnumerateObject().SelectMany(p => Strings(p.Value)),
+        System.Text.Json.JsonValueKind.Array => e.EnumerateArray().SelectMany(Strings),
+        _ => [],
+    };
 }

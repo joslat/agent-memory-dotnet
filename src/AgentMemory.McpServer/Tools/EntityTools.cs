@@ -57,7 +57,8 @@ internal sealed class EntityTools
         var entities = await longTermMemory.GetEntitiesByNameAsync(name, includeAliases: true, scope, cancellationToken).ConfigureAwait(false);
         // An entity's name and description are recalled text: guarded like every other (#92, the MCP surface).
         var guard = McpRecallGuard.From(options.Value);
-        return ToolJsonContext.Serialize(entities.Select(e => (e, v: guard.Check(e.Description ?? e.Name, e.Metadata))).Select(x => new
+        return ToolJsonContext.Serialize(entities.Select(e => (e, v: guard.Check(McpRecallGuard.TrustOf(e.Metadata),
+            [e.Name, e.CanonicalName, e.Type, e.Subtype, e.Description, .. e.Aliases ?? []]))).Select(x => new
         {
             x.e.EntityId,
             Name = x.v.Text(x.e.Name),

@@ -37,10 +37,12 @@ internal sealed class ObservationTools
         {
             return ToolJsonContext.Serialize(new
             {
+                untrustedContent = McpRecallGuard.Notice,
                 sessionId = sid,
                 wasCompressed = false,
                 observations = Array.Empty<string>(),
                 reflections = Array.Empty<string>(),
+                instructionLike = false,
                 recentMessageCount = 0,
                 originalTokenCount = 0,
                 compressedTokenCount = 0,

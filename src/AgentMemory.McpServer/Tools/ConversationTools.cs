@@ -53,7 +53,7 @@ internal sealed class ConversationTools
             x.m.MessageId,
             x.m.ConversationId,
             x.m.SessionId,
-            x.m.Role,
+            Role = x.v.Guard.Escape(x.m.Role),
             Content = x.v.Text(x.m.Content),
             x.m.TimestampUtc,
             trustLevel = x.v.Trust,

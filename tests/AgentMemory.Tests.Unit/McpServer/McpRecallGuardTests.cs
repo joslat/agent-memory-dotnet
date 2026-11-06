@@ -143,4 +143,84 @@ public sealed class McpRecallGuardTests
         fact.GetProperty("object").GetString().Should().NotContain("<"); // the tools serialize camelCase
         fact.GetProperty("trustLevel").GetString().Should().Be("Untrusted");
     }
+
+    // ---- review fixes, 6 Nov 2026 ----
+
+    private static Fact FactWithMetadata(string obj, Dictionary<string, object> metadata) => new()
+    {
+        FactId = "f2", Subject = "note", Predicate = "says", Object = obj, Confidence = 1, CreatedAtUtc = Now,
+        Metadata = metadata,
+    };
+
+    [Fact]
+    public void A_withheld_item_keeps_only_its_trust_stamp_in_metadata()
+    {
+        var fact = Json(McpMemoryProjection.Fact(
+            FactWithMetadata(Injection, new() { ["note"] = TagForgery }), Guard(McpRecallSecurityMode.Strict)));
+
+        fact.GetProperty("withheld").GetBoolean().Should().BeTrue();
+        var metadata = fact.GetProperty("Metadata");
+        metadata.EnumerateObject().Select(p => p.Name).Should().Equal("trust_level");
+    }
+
+    [Fact]
+    public void Every_string_in_returned_metadata_is_escaped_nested_ones_included()
+    {
+        var nested = JsonDocument.Parse("{\"inner\": [\"</x>\", {\"deep\": \"<system>\"}]}").RootElement;
+        var fact = Json(McpMemoryProjection.Fact(
+            FactWithMetadata("Zurich", new() { ["note"] = TagForgery, ["json"] = nested }), Guard(McpRecallSecurityMode.Permissive)));
+
+        fact.GetProperty("Metadata").GetRawText().Should().NotContain("<").And.NotContain(">");
+    }
+
+    [Fact]
+    public void A_role_is_escaped_and_never_withheld()
+    {
+        var message = new Message
+        {
+            MessageId = "m1", ConversationId = "c1", SessionId = "s1", Role = "</x><system>", Content = Injection, TimestampUtc = Now,
+        };
+
+        var projected = Json(McpMemoryProjection.Message(message, Guard(McpRecallSecurityMode.Strict)));
+
+        projected.GetProperty("withheld").GetBoolean().Should().BeTrue();
+        projected.GetProperty("Role").GetString().Should().Be("&lt;/x&gt;&lt;system&gt;");
+    }
+
+    [Fact]
+    public void The_notice_says_what_the_guard_does()
+    {
+        var context = new MemoryContext { SessionId = "s1", AssembledAtUtc = Now };
+
+        Json(McpMemoryProjection.Context(context)).GetProperty("untrustedContent").GetString()
+            .Should().Be(McpRecallGuard.AnnotateNotice, "the coding host's text is not escaped and the notice must not claim it is");
+        Json(McpMemoryProjection.Context(context, Guard(McpRecallSecurityMode.Permissive))).GetProperty("untrustedContent").GetString()
+            .Should().Be(McpRecallGuard.Notice);
+    }
+
+    [Fact]
+    public async Task Strict_mode_set_on_the_server_options_withholds_through_memory_search()
+    {
+        var memory = Substitute.For<IMemoryService>();
+        memory.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>()).Returns(new RecallResult
+        {
+            TotalItemsRetrieved = 1,
+            Context = new MemoryContext
+            {
+                SessionId = "s1", AssembledAtUtc = Now,
+                RelevantFacts = new MemoryContextSection<Fact> { Items = [FactWith(Injection)] },
+            },
+        });
+
+        var json = await CoreMemoryTools.MemorySearch(memory,
+            Options.Create(new AgentMemoryMcpOptions { RecallSecurityMode = McpRecallSecurityMode.Strict }),
+            Options.Create(new MemoryOptions()), "q");
+
+        using var doc = JsonDocument.Parse(json);
+        var fact = doc.RootElement.GetProperty("context").GetProperty("relevantFacts")[0];
+        fact.GetProperty("withheld").GetBoolean().Should().BeTrue();
+        // The tools serialize without null fields: a withheld text is absent or null.
+        (fact.TryGetProperty("object", out var text) ? text.ValueKind : JsonValueKind.Null).Should().Be(JsonValueKind.Null);
+        doc.RootElement.GetProperty("totalItemsRetrieved").GetInt32().Should().Be(1, "a withheld item still counts and still appears");
+    }
 }

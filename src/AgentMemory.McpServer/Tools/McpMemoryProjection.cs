@@ -40,7 +40,7 @@ internal static class McpMemoryProjection
             context.WorkingMemoryBlock is null ? null : guard.Check(context.WorkingMemoryBlock, MemoryTrustLevel.Untrusted);
         return new
         {
-            untrustedContent = McpRecallGuard.Notice,
+            untrustedContent = guard.NoticeText,
             context.SessionId,
             context.AssembledAtUtc,
             context.Truncated,
@@ -97,10 +97,10 @@ internal static class McpMemoryProjection
         {
             message.MessageId,
             message.SessionId,
-            message.Role,
+            Role = v.Guard.Escape(message.Role),
             Content = v.Text(message.Content),
             message.TimestampUtc,
-            message.Metadata,
+            Metadata = v.Metadata(message.Metadata),
             trustLevel = v.Trust,
             instructionLike = v.InstructionLike,
             withheld = v.Withheld,
@@ -110,7 +110,8 @@ internal static class McpMemoryProjection
     internal static object Entity(Entity entity, McpRecallGuard? guard = null)
     {
         // The text the in-process adapters judge for an entity: its description, or its name without one.
-        var v = (guard ?? McpRecallGuard.AnnotateOnly).Check(entity.Description ?? entity.Name, entity.Metadata);
+        var v = (guard ?? McpRecallGuard.AnnotateOnly).Check(McpRecallGuard.TrustOf(entity.Metadata),
+            entity.Name, entity.CanonicalName, entity.Type, entity.Subtype, entity.Description);
         return new
         {
             entity.EntityId,
@@ -121,7 +122,7 @@ internal static class McpMemoryProjection
             Description = v.Text(entity.Description),
             entity.Confidence,
             entity.SourceMessageIds,
-            entity.Metadata,
+            Metadata = v.Metadata(entity.Metadata),
             trustLevel = v.Trust,
             instructionLike = v.InstructionLike,
             withheld = v.Withheld,
@@ -130,7 +131,8 @@ internal static class McpMemoryProjection
 
     internal static object Fact(Fact fact, McpRecallGuard? guard = null)
     {
-        var v = (guard ?? McpRecallGuard.AnnotateOnly).Check($"{fact.Subject} {fact.Predicate} {fact.Object}", fact.Metadata);
+        var v = (guard ?? McpRecallGuard.AnnotateOnly).Check(McpRecallGuard.TrustOf(fact.Metadata),
+            fact.Subject, fact.Predicate, fact.Object, fact.Category);
         return new
         {
             fact.FactId,
@@ -144,7 +146,7 @@ internal static class McpMemoryProjection
             fact.InvalidatedAtUtc,
             Category = v.Text(fact.Category),
             fact.SourceMessageIds,
-            fact.Metadata,
+            Metadata = v.Metadata(fact.Metadata),
             trustLevel = v.Trust,
             instructionLike = v.InstructionLike,
             withheld = v.Withheld,
@@ -153,7 +155,8 @@ internal static class McpMemoryProjection
 
     internal static object Preference(Preference preference, McpRecallGuard? guard = null)
     {
-        var v = (guard ?? McpRecallGuard.AnnotateOnly).Check(preference.PreferenceText, preference.Metadata);
+        var v = (guard ?? McpRecallGuard.AnnotateOnly).Check(McpRecallGuard.TrustOf(preference.Metadata),
+            preference.Category, preference.PreferenceText);
         return new
         {
             preference.PreferenceId,
@@ -161,7 +164,7 @@ internal static class McpMemoryProjection
             PreferenceText = v.Text(preference.PreferenceText),
             preference.Confidence,
             preference.SourceMessageIds,
-            preference.Metadata,
+            Metadata = v.Metadata(preference.Metadata),
             trustLevel = v.Trust,
             instructionLike = v.InstructionLike,
             withheld = v.Withheld,
@@ -179,7 +182,7 @@ internal static class McpMemoryProjection
     /// </remarks>
     internal static object Trace(ReasoningTrace trace, McpRecallGuard? guard = null)
     {
-        var v = (guard ?? McpRecallGuard.AnnotateOnly).Check($"{trace.Task} {trace.Outcome}", trace.Metadata);
+        var v = (guard ?? McpRecallGuard.AnnotateOnly).Check(McpRecallGuard.TrustOf(trace.Metadata), trace.Task, trace.Outcome);
         return new
         {
             trace.TraceId,

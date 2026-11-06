@@ -64,7 +64,9 @@ internal sealed class PreferenceListResource
         {
             untrustedContent = McpRecallGuard.Notice,
             preferences = results.Select(r => (r, text: r.TryGetValue("preference", out var pref) ? pref?.ToString() : null))
-                .Select(x => (x.r, x.text, v: guard.Check(x.text, MemoryTrustLevel.Untrusted))).Select(x => new
+                .Select(x => (x.r, x.text, v: guard.Check(MemoryTrustLevel.Untrusted, x.text,
+                    x.r.TryGetValue("category", out var cy) ? cy?.ToString() : null,
+                    x.r.TryGetValue("context", out var cx) ? cx?.ToString() : null))).Select(x => new
             {
                 id = x.r.TryGetValue("id", out var id) ? id?.ToString() : null,
                 preference = x.v.Text(x.text),

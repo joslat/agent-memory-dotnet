@@ -131,6 +131,7 @@ internal static class McpHostProgram
                 mcpOptions.ServerVersion = ThisAssembly.Version;
                 mcpOptions.EnableGraphQuery = options.EnableGraphQuery;
                 mcpOptions.ReadOnly = options.ReadOnly;
+                if (options.StrictRecall) mcpOptions.RecallSecurityMode = McpRecallSecurityMode.Strict;
                 mcpOptions.EnableExtraction = extraction;
                 mcpOptions.OwnerId = options.OwnerId;
             })
