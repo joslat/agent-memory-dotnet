@@ -6,6 +6,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-11-07
+
+Memory that looks at the calendar. A question such as "plan my prep for go-live week" does not resemble "I will be in
+Bariloche from December 9 to 13", so recall that only measures resemblance never puts the two side by side. 2.1.0 adds
+look-ahead recall, which reads by date. It also reads into date fields the dates the store-aware writer keeps in its
+words, and makes the Recommended preset the default (falling back to Conversational when no retrieval judge is
+configured). The release follows Pablo Piovano's experiment *Your agent doesn't forget with an error. It forgets with a
+tidy answer.* (LinkedIn, 3 November 2026). In it, file, vector and graph memories all missed the clash between Bruna's
+go-live and her sister's wedding, and none of them said so. His scenario is now in the repository
+(`tools/AgentMemory.Scenarios`), with his permission. Thank you, Pablo, for the test we should have written ourselves.
+
+The 2.0.0 tag's packages did not reach nuget.org (the publishing key had expired), so this is the first release on
+NuGet since 1.9.0. Its packages carry everything in 2.0.0 below, as well as this section.
+
 ### Added
 
 - **Look-ahead recall**: three reads by date, never by similarity, each off by default and on in the Recommended preset.
