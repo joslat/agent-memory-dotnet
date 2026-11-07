@@ -45,6 +45,33 @@ internal sealed class RecordingChatClient(IChatClient inner, string purpose, Cal
     }
 }
 
+/// <summary>
+/// Records the JEV judge's HTTP calls (retrieval and update judgements) in the calls file, as purpose "judge": the judge
+/// has its own transport, so the chat recorder never sees it. The bodies only; never the headers, which carry the key.
+/// They are counted apart from the model calls and are not under the run's cap, which limits model calls.
+/// </summary>
+internal sealed class RecordingJudgeHandler(CallLedger ledger) : DelegatingHandler
+{
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        var number = ledger.TakeJudge();
+        var sent = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        var watch = Stopwatch.StartNew();
+        try
+        {
+            var response = await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            ledger.Write(new { judgeCall = number, purpose = "judge", ms = watch.ElapsedMilliseconds, status = (int)response.StatusCode, request = sent, response = body });
+            return response;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            ledger.Write(new { judgeCall = number, purpose = "judge", ms = watch.ElapsedMilliseconds, request = sent, error = exception.Message });
+            throw;
+        }
+    }
+}
+
 /// <summary>Counts a run's model calls by purpose, enforces the cap, and owns the calls file.</summary>
 internal sealed class CallLedger(string path, int maxCalls) : IDisposable
 {
@@ -61,6 +88,14 @@ internal sealed class CallLedger(string path, int maxCalls) : IDisposable
     private int _exhausted;
 
     public IReadOnlyDictionary<string, int> ByPurpose => _byPurpose;
+
+    /// <summary>The judge's calls, counted apart from the model calls (<see cref="RecordingJudgeHandler"/>).</summary>
+    public int JudgeCalls => _judgeCalls;
+
+    private int _judgeCalls;
+
+    /// <summary>Numbers a judge call; judge calls are not under the cap.</summary>
+    public int TakeJudge() => Interlocked.Increment(ref _judgeCalls);
 
     public int Take(string purpose)
     {

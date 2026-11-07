@@ -1,3 +1,4 @@
+using AgentMemory.Abstractions.Exceptions;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
@@ -303,5 +304,58 @@ public sealed class LookAheadAssemblerTests
 
         MemoryService.CollectAccessedNodes(context).Where(n => n.NodeKind == MemoryNodeKind.Fact).Select(n => n.NodeId)
             .Should().BeEquivalentTo(["mate", "go-live", "bariloche"]);
+    }
+
+    // ── review round 2 ────────────────────────────────────────────────
+
+    [Fact]
+    public async Task UnderTheFailStrategyTheLookAheadSectionsAreNotTrimmedAndTheBudgetFails()
+    {
+        var room = ContextBudgetEstimator.EstimateChars(new[] { GoLive });
+        var options = new MemoryOptions { ContextBudget = new ContextBudget { MaxCharacters = room, TruncationStrategy = TruncationStrategy.Fail } };
+
+        var act = () => Sut(options).AssembleContextAsync(new RecallRequest
+        {
+            SessionId = "s1", Query = "What do I have on my calendar between December 7 and December 13?", QueryEmbedding = new float[8],
+            Options = RecallOptions.Default with { TimeWindows = true },
+        }, CancellationToken.None);
+
+        (await act.Should().ThrowAsync<MemoryException>()).Which.Code.Should().Be(MemoryErrorCodes.ContextBudgetExceeded);
+    }
+
+    [Fact]
+    public async Task AnAnchorDatedOnlyByItsWordsReachesTheWindowSection()
+    {
+        // The anchor's date came from its words, so the window read (date fields only) cannot return it.
+        var spoken = GoLive with { FactId = "spoken-go-live", OccurredOn = null };
+        _longTerm.FindAnchorFactAsync(Arg.Any<string>(), Arg.Any<DateTimeOffset>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<Fact?>(spoken with { OccurredOn = GoLive.OccurredOn }));
+        _longTerm.GetFactsInWindowAsync(Arg.Any<DateTimeOffset>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Fact>>([Bariloche]));
+
+        var context = await AskAsync("Plan my prep for go-live week.", RecallOptions.Default with { TimeWindows = true });
+
+        context.WindowFacts.Items.Select(f => f.FactId).Should().Equal("bariloche", "spoken-go-live");
+    }
+
+    [Fact]
+    public void AFullWindowMakesRoomForItsAnchor()
+    {
+        var window = MemoryContextAssembler.WithAnchor([Bariloche, Mate with { OccurredOn = Now }], GoLive, max: 2);
+
+        window.Select(f => f.FactId).Should().Contain("go-live").And.HaveCount(2);
+    }
+
+    [Theory]
+    [InlineData(DatePrecision.Month, 1, 31)]
+    [InlineData(DatePrecision.Year, 1, 365)]
+    [InlineData(DatePrecision.Day, 1, 1)]
+    public void AnOverlapWindowSpansWhatTheDateStated(DatePrecision precision, int firstDay, int days)
+    {
+        var fact = Mate with { OccurredOn = new DateTimeOffset(2026, precision == DatePrecision.Year ? 1 : 12, firstDay, 0, 0, 0, TimeSpan.Zero), OccurredOnPrecision = precision };
+
+        var window = MemoryContextAssembler.WindowOf(fact, Now)!;
+
+        (window.EndUtc - window.StartUtc).TotalDays.Should().BeApproximately(days, 0.01);
     }
 }

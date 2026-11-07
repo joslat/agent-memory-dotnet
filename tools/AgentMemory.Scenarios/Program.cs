@@ -108,24 +108,28 @@ else
 }
 
 var failures = new List<string>();
+var memories = new List<IMemory>();
+var took = new Dictionary<string, TimeSpan>();
+var stores = new Dictionary<string, object>();
+var asked = new List<object>();
+var scoreboard = new Dictionary<string, List<string>>();
 try
 {
     // ── The memories ───────────────────────────────────────────────────────
     var clock = new ScenarioClock { UtcNow = turns[0].At };
     var run = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(4));
-    var memories = new List<IMemory>();
     if (armNames.Contains("file")) memories.Add(new FileMemory());
     if (armNames.Contains("vector")) memories.Add(new VectorMemory(embeddings));
     foreach (var arm in graphArms)
     {
         var owner = $"{scenario.Owner}-{arm.Writes}-{run}";
-        memories.Add(await GraphMemory.CreateAsync(arm, memoryChat, embeddings, clock, neo4j, owner, writers.Contains(arm.Name), log));
+        memories.Add(await GraphMemory.CreateAsync(arm, memoryChat, embeddings, clock, neo4j, owner, writers.Contains(arm.Name), log, ledger));
     }
 
     // ── Writing: every memory hears the same statements, each at its moment ─
     Console.WriteLine();
     Console.WriteLine("WRITING");
-    var took = memories.ToDictionary(memory => memory.Name, _ => TimeSpan.Zero);
+    foreach (var memory in memories) took[memory.Name] = TimeSpan.Zero;
     for (var i = 0; i < turns.Count; i++)
     {
         clock.UtcNow = turns[i].At;
@@ -161,7 +165,7 @@ try
         Console.WriteLine($"  {memory.Name,-22} {took[memory.Name].TotalSeconds,7:0.0} s   {memory.How}");
 
     // ── What each written store holds ──────────────────────────────────────
-    var stores = new Dictionary<string, object>();
+
     foreach (var graph in memories.OfType<GraphMemory>().Where(g => g.Writes))
     {
         var snapshot = await graph.SnapshotAsync();
@@ -178,8 +182,7 @@ try
     clock.UtcNow = scenario.AskedAt;
     Console.WriteLine();
     Console.WriteLine($"ASKING  on {scenario.AskedOn:dddd, MMMM d, yyyy}");
-    var asked = new List<object>();
-    var scoreboard = new Dictionary<string, List<string>>();
+
     foreach (var question in scenario.Questions)
     {
         if (ledger.Exhausted)
@@ -261,6 +264,41 @@ try
     foreach (var (name, verdicts) in scoreboard)
         Console.WriteLine($"  {name,-24}{string.Join("", verdicts.Select(v => $"{v,-11}"))}");
 
+    await WriteReportAsync();
+    Console.WriteLine();
+    Console.WriteLine($"  model calls {ledger.Calls} ({string.Join(", ", ledger.ByPurpose.Select(p => $"{p.Key} {p.Value}"))}), judge calls {ledger.JudgeCalls}, library warnings {log.Warnings}");
+    Console.WriteLine($"  report, prompts, explained recalls: {Path.Combine(output, "report.json")}");
+    Console.WriteLine($"  every model call: calls.jsonl · every span: spans.jsonl · the library's log: agentmemory.log");
+    if (failures.Count > 0)
+    {
+        Console.WriteLine($"  INCOMPLETE: {failures.Count} failure(s); the first: {failures[0]}");
+        return 1;
+    }
+
+    return 0;
+}
+catch (Exception exception) when (exception is not OperationCanceledException)
+{
+    // A failure outside the per-step handlers (an embedding call in a vector arm's recall, a store read) still leaves
+    // what was measured: the report is written, marked incomplete, and the run exits 1.
+    failures.Add($"run: {exception.GetType().Name}: {exception.Message}");
+    Console.WriteLine();
+    Console.WriteLine($"  FAILED: {exception.Message}");
+    try { await WriteReportAsync(); } catch (Exception writing) { Console.WriteLine($"  the report could not be written: {writing.Message}"); }
+    return 1;
+}
+finally
+{
+    foreach (var memory in memories)
+    {
+        try { await memory.DisposeAsync(); } catch (Exception disposing) { Console.WriteLine($"  {memory.Name} did not close: {disposing.Message}"); }
+    }
+
+    if (container is not null) await container.DisposeAsync();
+}
+
+async Task WriteReportAsync()
+{
     var report = new
     {
         format = "agentmemory-scenario/1",
@@ -272,31 +310,15 @@ try
             models = settings.Summary, judge = graphArms.Any(a => a.Judge) ? "jev (api.typesafe.ai/v1/systemone)" : null,
             neo4j = container is null ? neo4j.Uri : "neo4j:5.26 (Testcontainers)", commit = GitCommit(root), harness = "scenarios/1",
         },
-        calls = new { total = ledger.Calls, byPurpose = ledger.ByPurpose, cap = maxCalls },
+        calls = new { total = ledger.Calls, byPurpose = ledger.ByPurpose, cap = maxCalls, judge = ledger.JudgeCalls },
         warnings = log.Warnings,
-        arms = memories.Select(m => new { m.Name, m.How, seconds = Math.Round(took[m.Name].TotalSeconds, 1), writes = m is not GraphMemory g || g.Writes }),
+        arms = memories.Select(m => new { m.Name, m.How, seconds = Math.Round(took.GetValueOrDefault(m.Name).TotalSeconds, 1), writes = m is not GraphMemory g || g.Writes }),
         stores,
         asked,
         scoreboard,
     };
     await File.WriteAllTextAsync(Path.Combine(output, "report.json"),
         JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }));
-    Console.WriteLine();
-    Console.WriteLine($"  calls {ledger.Calls} ({string.Join(", ", ledger.ByPurpose.Select(p => $"{p.Key} {p.Value}"))}), library warnings {log.Warnings}");
-    Console.WriteLine($"  report, prompts, explained recalls: {Path.Combine(output, "report.json")}");
-    Console.WriteLine($"  every model call: calls.jsonl · every span: spans.jsonl · the library's log: agentmemory.log");
-    if (failures.Count > 0)
-    {
-        Console.WriteLine($"  INCOMPLETE: {failures.Count} failure(s); the first: {failures[0]}");
-        return 1;
-    }
-
-    foreach (var memory in memories) await memory.DisposeAsync();
-    return 0;
-}
-finally
-{
-    if (container is not null) await container.DisposeAsync();
 }
 
 // The same model and instructions for every memory; only the MEMORY block changes (Pablo Piovano's prompt, unchanged).

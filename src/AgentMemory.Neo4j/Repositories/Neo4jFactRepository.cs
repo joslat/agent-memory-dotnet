@@ -1181,7 +1181,8 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
     /// The candidate that states the anchor's own date, carrying that date as <see cref="Fact.OccurredOn"/> (or its
     /// <see cref="Fact.ValidFrom"/>): its date fields, or else the date its words state. A date that is only the day the
     /// fact was learned ("Diego will open the office on go-live day", stamped the day it was said) is no date of the
-    /// anchor's, so it is never chosen: no window is better than a wrong one. A date still ahead wins, then the nearest.
+    /// anchor's, so it is never chosen: no window is better than a wrong one. Nor is a date stored only to the month or the
+    /// year. A date still ahead wins, then the nearest.
     /// </summary>
     internal static Fact? ChooseAnchor(IReadOnlyList<Fact> candidates, DateTimeOffset now)
     {
@@ -1191,7 +1192,11 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         {
             var date = fact.OccurredOn ?? fact.ValidFrom;
             var fromWords = false;
-            if (date is null || date.Value.UtcDateTime.Date == fact.CreatedAtUtc.UtcDateTime.Date)
+            // A month or a year ("the launch in December", stored at December 1) is no day to centre a week on: only the
+            // words can still give one.
+            var coarse = (fact.OccurredOn is not null ? fact.OccurredOnPrecision : fact.ValidFromPrecision)
+                is DatePrecision.Month or DatePrecision.Year;
+            if (date is null || coarse || date.Value.UtcDateTime.Date == fact.CreatedAtUtc.UtcDateTime.Date)
             {
                 var read = AgentMemory.Core.Memory.FactDateReader.Read($"{fact.Subject} {fact.Predicate} {fact.Object}", fact.CreatedAtUtc);
                 date = read?.OccurredOn ?? read?.ValidFrom;

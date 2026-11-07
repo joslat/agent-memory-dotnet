@@ -14,10 +14,10 @@ Every run keeps its trace beside the report:
 
 | File | What it holds |
 |---|---|
-| `calls.jsonl` | every model call: what was sent, what came back, the tokens |
+| `calls.jsonl` | every model call: what was sent, what came back, the tokens; and every JEV judge call (purpose `judge`), its request and response bodies |
 | `spans.jsonl` | the library's spans and their tags |
 | `agentmemory.log` | the library's log, at Debug |
-| `report.json` | the stores, each prompt, and an explained recall per question, with every candidate fact, its score and its rank |
+| `report.json` | the stores, each prompt, and an explained recall per question, with every candidate fact, its score and its rank. The explanation is a second recall with diagnostics on, made after the scored prompt was taken: the candidates and their ranks are the same, but the judge is asked again and may keep a different set |
 
 ## Bruna's go-live
 
@@ -76,6 +76,7 @@ dotnet run --project tools/AgentMemory.Scenarios -- --max-calls 400 --output art
 dotnet run --project tools/AgentMemory.Scenarios -- --arms vector,graph-recommended --no-answers
 ```
 
-`--max-calls` caps the run's chat calls. A run that reaches the cap fails rather than finishing half-measured, and a run
-with any failure exits with 1, its report marked incomplete. Reports go under `artifacts/evaluation/`, which is not
+`--max-calls` caps the run's chat calls; judge calls are counted apart (`calls.judge`) and are not capped. A run that
+reaches the cap fails rather than finishing half-measured, and a run with any failure, including one outside a step,
+exits with 1, its report written with what was measured and marked incomplete. Reports go under `artifacts/evaluation/`, which is not
 committed.

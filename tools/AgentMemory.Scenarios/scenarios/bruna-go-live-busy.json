@@ -266,6 +266,11 @@
           "fact": "it happens in Córdoba",
           "mentions": [
             [
+              "go-live",
+              "go live",
+              "cutover"
+            ],
+            [
               "Córdoba"
             ]
           ]
@@ -380,9 +385,7 @@
         [
           "go-live",
           "go live",
-          "cutover",
-          "on-site",
-          "office"
+          "cutover"
         ],
         [
           "Córdoba"

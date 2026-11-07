@@ -147,4 +147,29 @@ public sealed class FactDateReaderTests
         fact.ValidFrom.Should().Be(On(2026, 12, 9));
         fact.ValidUntil.Should().Be(EndOf(2026, 12, 13));
     }
+
+    [Theory]
+    [InlineData("from 9 to 13 December")]
+    [InlineData("9-13 December")]
+    [InlineData("from the 9th to the 13th of December")]
+    [InlineData("from 9 December to 13 December")]
+    [InlineData("between 9 and 13 December")]
+    public void ADayFirstRangeIsAStayNotItsLastDay(string words)
+    {
+        // Round 2: "away from 9 to 13 December" was read as an event on December 13, so overlap missed December 11.
+        var fact = FactDateReader.Apply(Fact("Bruna", "is away in Bariloche", words), said: On(2026, 11, 12));
+
+        fact.ValidFrom.Should().Be(On(2026, 12, 9));
+        fact.ValidUntil.Should().Be(EndOf(2026, 12, 13));
+        fact.OccurredOn.Should().BeNull();
+    }
+
+    [Fact]
+    public void ADayFirstRangeAcrossTheNewYearTakesItsYearFromItsEnd()
+    {
+        var fact = FactDateReader.Apply(Fact("Bruna", "is on leave", "from 28 December to 3 January 2027"), said: On(2026, 11, 12));
+
+        fact.ValidFrom.Should().Be(On(2026, 12, 28));
+        fact.ValidUntil.Should().Be(EndOf(2027, 1, 3));
+    }
 }

@@ -959,7 +959,8 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
 
             fanOutReport = fanOut.Report;
             entities = fanOut.Entities;
-            facts = fanOut.Facts;
+            // A sub-query can bring back a fact the look-ahead sections already hold: it stays in its date section only.
+            facts = lookAhead.Ids.Count == 0 ? fanOut.Facts : fanOut.Facts.Where(f => !lookAhead.Ids.Contains(f.FactId)).ToArray();
             preferences = fanOut.Preferences;
             relevantMessages = fanOut.Messages;
             traces = fanOut.Traces;
@@ -975,11 +976,13 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
             // The look-ahead sections keep their own item caps but count toward the total: they are charged first
             // (trimmed, overlap first, only when they alone exceed it) and the other sections share what is left.
             // With look-ahead off they are empty and nothing here changes.
+            // Under TruncationStrategy.Fail nothing is trimmed: an over-budget context reaches the failure the host chose.
             var lookAheadTrimmed = false;
             var reserved = 0;
             if (lookAhead.Ids.Count > 0)
             {
-                (lookAhead, lookAheadTrimmed) = FitLookAhead(lookAhead, ResolveMaxChars(budget));
+                if (budget.TruncationStrategy != TruncationStrategy.Fail)
+                    (lookAhead, lookAheadTrimmed) = FitLookAhead(lookAhead, ResolveMaxChars(budget));
                 reserved = LookAheadChars(lookAhead);
             }
 
@@ -1709,6 +1712,7 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
 
         IReadOnlyList<Fact> window = Array.Empty<Fact>();
         TimeWindow? resolved = null;
+        Fact? anchorInWindow = null;
         var firedWindow = false;
         if (recallOpts.TimeWindows && TemporalWindowParser.Resolve(question, asOfQuestion) is { } asked)
         {
@@ -1724,6 +1728,7 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
                 {
                     (start, end) = asked.Around(date);
                     anchorFactId = anchorFact.FactId;
+                    anchorInWindow = anchorFact;
                 }
             }
 
@@ -1734,6 +1739,7 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
                 window = await TimedAsync("memory.recall.window",
                         () => _longTerm.GetFactsInWindowAsync(from, until, recallOpts.MaxWindowItems, scope, cancellationToken))
                     .ConfigureAwait(false);
+                window = WithAnchor(window, anchorInWindow, recallOpts.MaxWindowItems);
             }
         }
 
@@ -1747,6 +1753,14 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
                     () => _longTerm.GetUpcomingFactsAsync(now, now + recallOpts.UpcomingWindow, recallOpts.MaxUpcomingItems, scope, cancellationToken))
                 .ConfigureAwait(false);
             upcoming = found.Where(f => !inWindow.Contains(f.FactId)).ToArray();
+        }
+
+        // A fact that is due or expiring now renders in that section, which comes first; never in a date section too.
+        if (due.Due.Count > 0 || due.Expiring.Count > 0)
+        {
+            var dueIds = due.Due.Concat(due.Expiring).Select(f => f.FactId).ToHashSet(StringComparer.Ordinal);
+            window = window.Where(f => !dueIds.Contains(f.FactId)).ToArray();
+            upcoming = upcoming.Where(f => !dueIds.Contains(f.FactId)).ToArray();
         }
 
         IReadOnlyList<Fact> overlapping = Array.Empty<Fact>();
@@ -1812,7 +1826,7 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
     {
         if (fact.OccurredOn is { } on)
         {
-            var (start, end) = TemporalWindowParser.Day(on);
+            var (start, end) = Span(on, fact.OccurredOnPrecision);
             return new TimeWindow { StartUtc = start, EndUtc = end };
         }
 
@@ -1821,11 +1835,38 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
 
         if (fact.ValidFrom is { } begins && begins > now)
         {
-            var (start, end) = TemporalWindowParser.Day(begins);
+            var (start, end) = Span(begins, fact.ValidFromPrecision);
             return new TimeWindow { StartUtc = start, EndUtc = end };
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// The span a stored date stands for: "in December" is stored at December 1 with month precision and occupies the
+    /// month, "in 2027" the year; a day, an instant or an unspecified precision occupies its day.
+    /// </summary>
+    internal static (DateTimeOffset Start, DateTimeOffset End) Span(DateTimeOffset at, DatePrecision precision) => precision switch
+    {
+        DatePrecision.Month => (new DateTimeOffset(at.Year, at.Month, 1, 0, 0, 0, at.Offset),
+            new DateTimeOffset(at.Year, at.Month, 1, 0, 0, 0, at.Offset).AddMonths(1).AddTicks(-1)),
+        DatePrecision.Year => (new DateTimeOffset(at.Year, 1, 1, 0, 0, 0, at.Offset),
+            new DateTimeOffset(at.Year, 1, 1, 0, 0, 0, at.Offset).AddYears(1).AddTicks(-1)),
+        _ => TemporalWindowParser.Day(at),
+    };
+
+    /// <summary>
+    /// The window's facts with the anchor that placed the window among them: an anchor dated only by its words has no
+    /// date field the window read can find, so without this "go-live week" would resolve and the go-live itself would
+    /// be missing. In date order, within <paramref name="max"/>; the anchor stays when the window is full.
+    /// </summary>
+    internal static IReadOnlyList<Fact> WithAnchor(IReadOnlyList<Fact> window, Fact? anchor, int max)
+    {
+        if (anchor is null || max <= 0 || window.Any(f => f.FactId == anchor.FactId)) return window;
+        var kept = window.ToList();
+        if (kept.Count >= max) kept.RemoveAt(kept.Count - 1);
+        kept.Add(anchor);
+        return kept.OrderBy(f => f.OccurredOn ?? f.ValidFrom ?? DateTimeOffset.MaxValue).ToArray();
     }
 
     /// <summary>How many items a recall leg returned, for every result shape the legs use.</summary>
@@ -2080,8 +2121,11 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
             return new AssembledSections(recent, relevant, entities, preferences, facts, traces, graphRagContext, false);
 
         var strategy = ResolveStrategy(budget.TruncationStrategy);
-        var result = strategy.Truncate(new TruncationInput(
-            Math.Max(0, maxChars - reservedChars), sectionChars, recent, relevant, entities, preferences, facts, traces, graphRagContext));
+        // The failure strategy reports the whole context against the whole limit, the reserved sections included.
+        var result = strategy.Truncate(budget.TruncationStrategy == TruncationStrategy.Fail
+            ? new TruncationInput(maxChars, sectionChars + reservedChars, recent, relevant, entities, preferences, facts, traces, graphRagContext)
+            : new TruncationInput(
+                Math.Max(0, maxChars - reservedChars), sectionChars, recent, relevant, entities, preferences, facts, traces, graphRagContext));
 
         return new AssembledSections(
             result.Recent, result.Relevant, result.Entities, result.Preferences,

@@ -72,7 +72,7 @@ internal sealed class GraphMemory : IMemory
 
     public static async Task<GraphMemory> CreateAsync(
         GraphArm arm, IChatClient chat, IEmbeddingGenerator<string, Embedding<float>> embeddings, TimeProvider clock,
-        Neo4jTarget neo4j, string owner, bool writes, ILoggerProvider log, CancellationToken cancellationToken = default)
+        Neo4jTarget neo4j, string owner, bool writes, ILoggerProvider log, CallLedger? ledger = null, CancellationToken cancellationToken = default)
     {
         var options = arm.Memory();
         var services = new ServiceCollection();
@@ -99,6 +99,17 @@ internal sealed class GraphMemory : IMemory
         });
         if (arm.Gate is { } gate)
         {
+            // The judge's transport, recorded: the gate registers its client only if none is (TryAdd).
+            if (ledger is not null)
+            {
+                services.AddSingleton(sp => new SystemOneClient(
+                    new HttpClient(new RecordingJudgeHandler(ledger)
+                    {
+                        InnerHandler = new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMinutes(5) },
+                    }) { Timeout = TimeSpan.FromSeconds(30) },
+                    sp.GetService<TimeProvider>(), sp.GetService<ILogger<SystemOneClient>>()));
+            }
+
             services.AddAgentMemoryGate(g =>
             {
                 g.ApplyRecommended();

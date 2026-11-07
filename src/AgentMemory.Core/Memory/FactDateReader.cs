@@ -49,6 +49,16 @@ internal static class FactDateReader
         + @"(?<d2>[0-3]?\d)(?:st|nd|rd|th)?(?![\d:])(?:,?\s+(?<y>(?:19|20)\d{2}))?\b",
         Options, Timeout);
 
+    /// <summary>
+    /// A day-first range: "from 9 to 13 December", "9-13 December", "the 9th to the 13th of December", "9 December to
+    /// 13 December", "between 28 December and 3 January 2027". The first month may be left out; it is then the second's.
+    /// </summary>
+    private static readonly Regex DayFirstRange = new(
+        @"\b(?:from\s+|(?<between>between)\s+)?(?:the\s+)?(?<d1>[0-3]?\d)(?:st|nd|rd|th)?(?:\s+(?:of\s+)?(?<m1>" + Month + @")\.?)?"
+        + @"\s*(?<sep>to|until|till|through|thru|and|-|–)\s*(?:the\s+)?(?<d2>[0-3]?\d)(?:st|nd|rd|th)?\s+(?:of\s+)?(?<m2>" + Month + @")\.?"
+        + @"(?:,?\s+(?<y>(?:19|20)\d{2}))?\b",
+        Options, Timeout);
+
     /// <summary>An ISO range: "2026-12-09 to 2026-12-13", "from 2026-12-09 until 2026-12-13", "2026-12-09 – 2026-12-13".</summary>
     private static readonly Regex IsoRange = new(
         @"\b(?:from\s+|(?<between>between)\s+)?(?<y1>(?:19|20)\d{2})-(?<m1>[01]\d)-(?<d1>[0-3]\d)"
@@ -142,9 +152,15 @@ internal static class FactDateReader
                 return (start.Value, end.Value.AddDays(1).AddSeconds(-1), iso.Index, iso.Length);
         }
 
-        if (Range.Match(text) is not { Success: true } range || !JoinsARange(range)) return null;
-        var m1 = MonthNumber(range.Groups["m1"].Value);
+        // Month first ("December 9 to 13"), else day first ("9 to 13 December"). Either may leave out one month: the
+        // month-first range its second, the day-first range its first.
+        var range = Range.Match(text);
+        if (!range.Success || !JoinsARange(range)) range = DayFirstRange.Match(text);
+        if (!range.Success || !JoinsARange(range)) return null;
+        var m1 = range.Groups["m1"].Success ? MonthNumber(range.Groups["m1"].Value) : 0;
         var m2 = range.Groups["m2"].Success ? MonthNumber(range.Groups["m2"].Value) : m1;
+        if (m1 == 0) m1 = m2;
+        if (m1 == 0) return null;
         var d1 = int.Parse(range.Groups["d1"].Value, CultureInfo.InvariantCulture);
         var d2 = int.Parse(range.Groups["d2"].Value, CultureInfo.InvariantCulture);
         var crossesNewYear = m2 < m1 ? 1 : 0;
