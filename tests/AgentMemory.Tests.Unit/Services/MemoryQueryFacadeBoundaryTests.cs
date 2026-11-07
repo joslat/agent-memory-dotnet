@@ -52,7 +52,7 @@ public sealed class MemoryQueryFacadeBoundaryTests
 
         return (IMemoryQueryFacade)ActivatorUtilities.CreateInstance(
             provider, type, _longTerm, _reasoning, embeddings,
-            Substitute.For<IClock>(), Substitute.For<IIdGenerator>(), isolation)!;
+            Substitute.For<TimeProvider>(), Substitute.For<IIdGenerator>(), isolation)!;
     }
 
     [Fact]

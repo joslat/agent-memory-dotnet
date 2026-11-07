@@ -15,10 +15,10 @@ namespace AgentMemory.Tests.Unit.Services;
 /// </summary>
 public sealed class MemoryDecayAccessBoostTests
 {
-    private readonly IClock _clock = Substitute.For<IClock>();
+    private readonly TimeProvider _clock = Substitute.For<TimeProvider>();
     private readonly DateTimeOffset _now = new(2026, 6, 15, 12, 0, 0, TimeSpan.Zero);
 
-    public MemoryDecayAccessBoostTests() => _clock.UtcNow.Returns(_now);
+    public MemoryDecayAccessBoostTests() => _clock.GetUtcNow().Returns(_now);
 
     private MemoryDecayService CreateSut(MemoryDecayOptions? options = null) =>
         new(Substitute.For<IEntityRepository>(),

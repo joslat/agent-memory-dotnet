@@ -43,8 +43,9 @@ public class WorkingMemoryMergeSeamIntegrationTests : IAsyncLifetime
 
     private static readonly MemoryScope Alice = MemoryScope.For("alice", includeShared: false);
 
-    private sealed class FixedClock : IClock
+    private sealed class FixedClock : TimeProvider
     {
+        public override DateTimeOffset GetUtcNow() => UtcNow;
         public DateTimeOffset UtcNow => DateTimeOffset.UtcNow;
     }
 

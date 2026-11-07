@@ -42,7 +42,7 @@ var conversational = args.Contains("--conversational", StringComparer.Ordinal);
 var builder = Host.CreateApplicationBuilder(args.Where(a => a != "--conversational").ToArray());
 builder.Services.AddSingleton(chatClient);              // the agent's model, and the one extraction asks
 builder.Services.AddSingleton(embeddingGenerator);
-builder.Services.AddSingleton<IClock, SystemClock>();
+builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IIdGenerator, GuidIdGenerator>();
 
 // Apply the selected preset first; explicit host settings follow it.

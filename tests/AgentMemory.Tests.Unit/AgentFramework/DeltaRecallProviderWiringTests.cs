@@ -26,14 +26,14 @@ public sealed class DeltaRecallProviderWiringTests
 {
     private readonly IMemoryService _memoryService = Substitute.For<IMemoryService>();
     private readonly IEmbeddingOrchestrator _embeddings = Substitute.For<IEmbeddingOrchestrator>();
-    private readonly IClock _clock = Substitute.For<IClock>();
+    private readonly TimeProvider _clock = Substitute.For<TimeProvider>();
     private readonly IIdGenerator _ids = Substitute.For<IIdGenerator>();
 
     private static readonly DateTimeOffset Now = new(2026, 8, 15, 12, 0, 0, TimeSpan.Zero);
 
     public DeltaRecallProviderWiringTests()
     {
-        _clock.UtcNow.Returns(Now);
+        _clock.GetUtcNow().Returns(Now);
         _ids.GenerateId().Returns(_ => Guid.NewGuid().ToString("N"));
         _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
             .Returns(new RecallResult
@@ -47,7 +47,7 @@ public sealed class DeltaRecallProviderWiringTests
         var options = new AgentFrameworkOptions();
         configure?.Invoke(options);
         return new Neo4jMemoryContextProvider(
-            _memoryService, _embeddings, _clock, _ids,
+            _memoryService, _embeddings, new TimeProviderClock(_clock), _ids,
             Options.Create(new MemoryOptions()),
             Options.Create(new ContextFormatOptions()),
             Options.Create(options),

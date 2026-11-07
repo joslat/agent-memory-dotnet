@@ -161,7 +161,7 @@ public sealed class EmptyModuleSetParityTests
                 });
 
             var embeddings = Substitute.For<IEmbeddingOrchestrator>();
-            var clock = Substitute.For<IClock>();
+            var clock = Substitute.For<TimeProvider>();
             var ids = Substitute.For<IIdGenerator>();
             var memoryOptions = Options.Create(new MemoryOptions());
             var formatOptions = Options.Create(new ContextFormatOptions());
@@ -169,7 +169,7 @@ public sealed class EmptyModuleSetParityTests
 
             // The BASELINE: the shipped provider as a host runs it today.
             Core = new Neo4jMemoryContextProvider(
-                memory, embeddings, clock, ids, memoryOptions, formatOptions, agentOptions,
+                memory, embeddings, new TimeProviderClock(clock), ids, memoryOptions, formatOptions, agentOptions,
                 NullLogger<Neo4jMemoryContextProvider>.Instance);
 
             var policy = Substitute.For<IMemoryIsolationPolicy>();
@@ -183,7 +183,7 @@ public sealed class EmptyModuleSetParityTests
 
             // The SUBJECT: the same provider, extended. One instance, one attribution stamp.
             Provider = new AgentMemory.Extensibility.AgentFramework.ExtensibleMemoryContextProvider(
-                memory, embeddings, clock, ids, memoryOptions, formatOptions, agentOptions,
+                memory, embeddings, new TimeProviderClock(clock), ids, memoryOptions, formatOptions, agentOptions,
                 NullLogger<Neo4jMemoryContextProvider>.Instance,
                 compiler,
                 contributors,
@@ -301,7 +301,7 @@ public sealed class ModuleAdmissionTests
             Provider = new AgentMemory.Extensibility.AgentFramework.ExtensibleMemoryContextProvider(
                 memory,
                 Substitute.For<IEmbeddingOrchestrator>(),
-                Substitute.For<IClock>(),
+                new TimeProviderClock(Substitute.For<TimeProvider>()),
                 Substitute.For<IIdGenerator>(),
                 Options.Create(new MemoryOptions()),
                 Options.Create(new ContextFormatOptions()),

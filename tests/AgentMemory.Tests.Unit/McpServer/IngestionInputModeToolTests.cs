@@ -79,8 +79,8 @@ public sealed class IngestionInputModeToolTests
         var ids = Substitute.For<IIdGenerator>();
         ids.GenerateId().Returns("message");
         services.AddSingleton(ids);
-        var clock = Substitute.For<IClock>();
-        clock.UtcNow.Returns(DateTimeOffset.UnixEpoch);
+        var clock = Substitute.For<TimeProvider>();
+        clock.GetUtcNow().Returns(DateTimeOffset.UnixEpoch);
         services.AddSingleton(clock);
         services.AddMcpServer().AddAgentMemoryMcpTools(o => o.ReadOnly = readOnly);
         return services.BuildServiceProvider();

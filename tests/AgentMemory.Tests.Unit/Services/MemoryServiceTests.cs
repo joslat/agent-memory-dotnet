@@ -19,7 +19,7 @@ public sealed class MemoryServiceTests
     private readonly IFactRepository _factRepository;
     private readonly IPreferenceRepository _preferenceRepository;
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly IIdGenerator _idGenerator;
     private readonly DateTimeOffset _fixedTime = new(2025, 1, 15, 12, 0, 0, TimeSpan.Zero);
 
@@ -32,10 +32,10 @@ public sealed class MemoryServiceTests
         _factRepository = Substitute.For<IFactRepository>();
         _preferenceRepository = Substitute.For<IPreferenceRepository>();
         _embeddingOrchestrator = Substitute.For<IEmbeddingOrchestrator>();
-        _clock = Substitute.For<IClock>();
+        _clock = Substitute.For<TimeProvider>();
         _idGenerator = Substitute.For<IIdGenerator>();
 
-        _clock.UtcNow.Returns(_fixedTime);
+        _clock.GetUtcNow().Returns(_fixedTime);
         _idGenerator.GenerateId().Returns("generated-msg-id");
 
         _assembler

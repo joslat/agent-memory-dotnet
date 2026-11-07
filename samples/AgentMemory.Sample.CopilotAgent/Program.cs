@@ -52,7 +52,7 @@ builder.Services.AddNeo4jAgentMemory(options =>
     options.EmbeddingDimensions = modelSettings.EmbeddingDimensions!.Value;
 });
 builder.Services.AddAgentMemoryCore(o => o.Isolation.Mode = MemoryIsolationMode.StrictMultiTenant);
-builder.Services.AddSingleton<IClock, SystemClock>();
+builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IIdGenerator, GuidIdGenerator>();
 builder.Services.AddSingleton(embeddingGenerator);
 builder.Services.AddSingleton(chatClient);

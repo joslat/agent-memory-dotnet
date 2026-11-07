@@ -47,7 +47,9 @@ internal sealed class HybridRetriever : IRetriever
     /// Fuses two already-ranked result lists with Reciprocal Rank Fusion: each item contributes
     /// <c>1 / (k + rank)</c> (1-based rank within its own list) to its content's combined score, and the
     /// items are ordered by the summed score. Items appearing in both lists are reinforced. This compares
-    /// the lists by RANK, not by their incomparable raw score scales.
+    /// the lists by RANK, not by their incomparable raw score scales. Items are matched by the node they came from
+    /// (<see cref="RetrieverResultItem.Id"/>), so two nodes with the same text stay two results (#248); only an item
+    /// with no identity (a custom retrieval query without an <c>id</c> column) is matched by its text.
     /// </summary>
     internal static List<RetrieverResultItem> FuseReciprocalRank(
         IReadOnlyList<RetrieverResultItem> vectorItems,
@@ -62,7 +64,7 @@ internal sealed class HybridRetriever : IRetriever
             for (int i = 0; i < items.Count; i++)
             {
                 var item = items[i];
-                var key = item.Content;
+                var key = item.Id is { } id ? "id:" + id : "text:" + item.Content;
                 var rrf = 1.0 / (RrfK + i + 1); // i is 0-based ⇒ rank = i + 1
                 scores[key] = scores.TryGetValue(key, out var prev) ? prev + rrf : rrf;
                 representative.TryAdd(key, item); // first occurrence (vector before fulltext) wins as representative

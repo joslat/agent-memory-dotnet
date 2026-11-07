@@ -19,7 +19,7 @@ public sealed class MemoryContextAssemblerTests
     private readonly IReasoningMemoryService _reasoning;
     private readonly IGraphRagContextSource _graphRag;
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly DateTimeOffset _fixedTime = new(2025, 1, 15, 12, 0, 0, TimeSpan.Zero);
     private readonly float[] _generatedEmbedding = new float[1536];
 
@@ -30,9 +30,9 @@ public sealed class MemoryContextAssemblerTests
         _reasoning = Substitute.For<IReasoningMemoryService>();
         _graphRag = Substitute.For<IGraphRagContextSource>();
         _embeddingOrchestrator = Substitute.For<IEmbeddingOrchestrator>();
-        _clock = Substitute.For<IClock>();
+        _clock = Substitute.For<TimeProvider>();
 
-        _clock.UtcNow.Returns(_fixedTime);
+        _clock.GetUtcNow().Returns(_fixedTime);
 
         _embeddingOrchestrator
             .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())

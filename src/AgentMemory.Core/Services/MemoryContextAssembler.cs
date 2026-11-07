@@ -21,7 +21,7 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
     private readonly IReasoningMemoryService _reasoning;
     private readonly IGraphRagContextSource? _graphRag;
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly MemoryOptions _options;
     private readonly IWritableMemoryRankingContext? _rankingContext;
     private readonly IReadOnlyList<IMemoryReranker> _rerankers;
@@ -42,7 +42,7 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         IReasoningMemoryService reasoning,
         IGraphRagContextSource? graphRag,
         IEmbeddingOrchestrator embeddingOrchestrator,
-        IClock clock,
+        TimeProvider clock,
         IOptions<MemoryOptions> options,
         ILogger<MemoryContextAssembler> logger,
         IMemoryIsolationPolicy isolationPolicy,
@@ -65,7 +65,7 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         IReasoningMemoryService reasoning,
         IGraphRagContextSource? graphRag,
         IEmbeddingOrchestrator embeddingOrchestrator,
-        IClock clock,
+        TimeProvider clock,
         IOptions<MemoryOptions> options,
         ILogger<MemoryContextAssembler> logger,
         IMemoryIsolationPolicy isolationPolicy,
@@ -258,8 +258,8 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         {
             var ids = entities.Select(entity => entity.EntityId).Distinct(StringComparer.Ordinal).ToList();
             return await TimedAsync("memory.recall.relationships", () => factNames.Count == 0
-                    ? _longTerm.GetRelationshipsAmongAsync(ids, limit, _clock.UtcNow, scope, cancellationToken)
-                    : _longTerm.GetRelationshipsAroundAsync(ids, factNames, limit, _clock.UtcNow, scope, cancellationToken))
+                    ? _longTerm.GetRelationshipsAmongAsync(ids, limit, _clock.GetUtcNow(), scope, cancellationToken)
+                    : _longTerm.GetRelationshipsAroundAsync(ids, factNames, limit, _clock.GetUtcNow(), scope, cancellationToken))
                 .ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
@@ -742,8 +742,8 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
             var dueTask = fireProspective
                 ? TimedAsync("memory.recall.due",
                     () => _longTerm.GetDueFactsAsync(
-                        _clock.UtcNow - recallOpts.DueLookback,
-                        _clock.UtcNow,
+                        _clock.GetUtcNow() - recallOpts.DueLookback,
+                        _clock.GetUtcNow(),
                         recallOpts.ExpiringWindow,
                         recallOpts.MaxDueItems,
                         scope,
@@ -899,7 +899,7 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         }
 
         // J-6 (b). A plan that has begun takes over from the value it was planned to replace (now).
-        (facts, factScores) = HandOver(facts, factScores, _clock.UtcNow);
+        (facts, factScores) = HandOver(facts, factScores, _clock.GetUtcNow());
 
         // Look-ahead recall (RecallOptions.Upcoming, TimeWindows, OverlapExpansion): reads by date, after the scored
         // sections resolve, because overlap starts from what they found. With every flag off nothing below is issued.
@@ -1096,7 +1096,7 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         var context = new MemoryContext
         {
             SessionId = request.SessionId,
-            AssembledAtUtc = _clock.UtcNow,
+            AssembledAtUtc = _clock.GetUtcNow(),
             Projection = projection,
             SeparatesSharedKnowledge = SharedBudgetFor(scope, _options.SharedRecallBudget) is not null,
             RelevantRelationships = new MemoryContextSection<RecalledRelationship> { Items = relationships },
@@ -1477,7 +1477,7 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         // have read "indistinguishable" -- no harness set the flag, and this path ignored it.
         //
         // THE CLOCKS ARE THE WHOLE POINT. Firing asks "what came due", and on an as-of read that is
-        // due AS OF `validAsOf`, not as of the machine. `_clock.UtcNow` appears nowhere below: using
+        // due AS OF `validAsOf`, not as of the machine. `_clock.GetUtcNow()` appears nowhere below: using
         // it would answer today's question against a past instant's evidence and look entirely
         // correct doing so. `systemAsOf` bounds what was BELIEVED, so a reminder recorded after the
         // transaction instant cannot fire from a read of before it.
@@ -1556,7 +1556,7 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         var context = new MemoryContext
         {
             SessionId = request.SessionId,
-            AssembledAtUtc = _clock.UtcNow,
+            AssembledAtUtc = _clock.GetUtcNow(),
             Projection = projection,
             SeparatesSharedKnowledge = SharedBudgetFor(scope, _options.SharedRecallBudget) is not null,
             // Design §5.5: the as-of path does not fan out. A caller who asked for it anyway is told
@@ -1700,7 +1700,7 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
     {
         if (!recallOpts.Upcoming && !recallOpts.TimeWindows && !recallOpts.OverlapExpansion) return LookAheadResult.None;
 
-        var now = _clock.UtcNow;
+        var now = _clock.GetUtcNow();
         // The question's own "now" for reading it: a replayed "what do I have next week?" means the week after it was
         // asked, as MemoryService.RecallAsync reads it when it chooses this path. Upcoming stays on the live clock, like
         // prospective firing: it volunteers what starts after now.

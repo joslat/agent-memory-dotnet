@@ -43,6 +43,9 @@ public static class ServiceCollectionExtensions
 
         services.AddAgentMemoryExtensibility();
 
+        // The clock the provider's constructors take (#164), reading the registered TimeProvider; by type, as Core and
+        // the Agent Framework package register it.
+        services.TryAddSingleton<AgentMemory.Abstractions.Services.IClock, AgentMemory.Core.Stubs.SystemClock>();
         services.TryAddScoped<ExtensibleMemoryContextProvider>();
 
         // Anything asking for the shipped provider gets the extended one. It IS one, by inheritance,

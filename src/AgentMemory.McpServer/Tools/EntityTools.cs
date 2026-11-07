@@ -106,7 +106,7 @@ internal sealed class EntityTools
     public static async Task<string> MemoryCreateRelationship(
         ILongTermMemoryService longTermMemory,
         IIdGenerator idGenerator,
-        IClock clock,
+        TimeProvider clock,
         IOptions<AgentMemoryMcpOptions> options,
         [Description("Entity ID of the source entity")] string sourceEntityId,
         [Description("Entity ID of the target entity")] string targetEntityId,
@@ -125,7 +125,7 @@ internal sealed class EntityTools
             Description = description,
             OwnerId = userId,
             Confidence = confidence ?? options.Value.DefaultConfidence,
-            CreatedAtUtc = clock.UtcNow
+            CreatedAtUtc = clock.GetUtcNow()
         };
 
         var result = await longTermMemory.AddRelationshipAsync(relationship, cancellationToken).ConfigureAwait(false);

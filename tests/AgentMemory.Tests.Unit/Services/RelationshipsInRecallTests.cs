@@ -86,7 +86,7 @@ public sealed class RelationshipsInRecallTests
         var options = new MemoryOptions();
         var sut = new MemoryContextAssembler(
             Substitute.For<IShortTermMemoryService>(), longTerm, Substitute.For<IReasoningMemoryService>(), graphRag: null,
-            embeddings, Substitute.For<IClock>(), Options.Create(options), NullLogger<MemoryContextAssembler>.Instance,
+            embeddings, Substitute.For<TimeProvider>(), Options.Create(options), NullLogger<MemoryContextAssembler>.Instance,
             new DefaultMemoryIsolationPolicy(Options.Create(options.Isolation), NullLogger<DefaultMemoryIsolationPolicy>.Instance));
         return (sut, longTerm);
     }
@@ -150,8 +150,8 @@ public sealed class RelationshipsInRecallTests
             .Returns(ci => { _upserted.Add(ci.Arg<Relationship>()); return Task.FromResult(ci.Arg<Relationship>()); });
         _relationships.EndAsync(Arg.Any<string>(), Arg.Any<DateTimeOffset>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(ci => { _ended.Add(ci.ArgAt<string>(0)); return Task.FromResult(true); });
-        var clock = Substitute.For<IClock>();
-        clock.UtcNow.Returns(T0);
+        var clock = Substitute.For<TimeProvider>();
+        clock.GetUtcNow().Returns(T0);
         var ids = Substitute.For<IIdGenerator>();
         ids.GenerateId().Returns(_ => Guid.NewGuid().ToString("N"));
         var entities = Substitute.For<IEntityRepository>();
@@ -278,8 +278,8 @@ public sealed class RelationshipsInRecallTests
             .Returns(Task.FromResult<IReadOnlyList<Relationship>>([]));
         _relationships.UpsertAsync(Arg.Any<Relationship>(), Arg.Any<CancellationToken>())
             .Returns(ci => { _upserted.Add(ci.Arg<Relationship>()); return Task.FromResult(ci.Arg<Relationship>()); });
-        var clock = Substitute.For<IClock>();
-        clock.UtcNow.Returns(T0);
+        var clock = Substitute.For<TimeProvider>();
+        clock.GetUtcNow().Returns(T0);
         var ids = Substitute.For<IIdGenerator>();
         ids.GenerateId().Returns(_ => Guid.NewGuid().ToString("N"));
         var stage = new PersistenceStage(Substitute.For<IEmbeddingOrchestrator>(), entities, facts, Substitute.For<IPreferenceRepository>(),

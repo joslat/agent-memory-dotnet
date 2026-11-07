@@ -17,7 +17,7 @@ namespace AgentMemory.AgentFramework;
 public sealed class AgentTraceRecorder
 {
     private readonly IReasoningMemoryService _reasoningService;
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly IIdGenerator _idGenerator;
     private readonly bool _persist;
     private readonly ILogger<AgentTraceRecorder> _logger;
@@ -63,7 +63,7 @@ public sealed class AgentTraceRecorder
     {
         _ownerContext = ownerContext;
         _reasoningService = reasoningService ?? throw new ArgumentNullException(nameof(reasoningService));
-        _clock = clock ?? throw new ArgumentNullException(nameof(clock));
+        _clock = (clock ?? throw new ArgumentNullException(nameof(clock))).ToTimeProvider();
         _idGenerator = idGenerator ?? throw new ArgumentNullException(nameof(idGenerator));
         ArgumentNullException.ThrowIfNull(options);
         _persist = options.Value.PersistReasoningTraces;
@@ -93,7 +93,7 @@ public sealed class AgentTraceRecorder
                 SessionId = sessionId,
                 OwnerId = ownerId,
                 Task = task,
-                StartedAtUtc = _clock.UtcNow
+                StartedAtUtc = _clock.GetUtcNow()
             };
             _stepCounts[synthetic.TraceId] = 0;
             return synthetic;

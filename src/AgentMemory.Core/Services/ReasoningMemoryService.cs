@@ -17,7 +17,7 @@ internal sealed class ReasoningMemoryService : IReasoningMemoryService, IScoredT
     private readonly IReasoningStepRepository _stepRepo;
     private readonly IToolCallRepository _toolCallRepo;
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly IIdGenerator _idGenerator;
     private readonly ReasoningMemoryOptions _options;
     private readonly ILogger<ReasoningMemoryService> _logger;
@@ -31,7 +31,7 @@ internal sealed class ReasoningMemoryService : IReasoningMemoryService, IScoredT
         IReasoningStepRepository stepRepo,
         IToolCallRepository toolCallRepo,
         IEmbeddingOrchestrator embeddingOrchestrator,
-        IClock clock,
+        TimeProvider clock,
         IIdGenerator idGenerator,
         IOptions<ReasoningMemoryOptions> options,
         ILogger<ReasoningMemoryService> logger,
@@ -80,7 +80,7 @@ internal sealed class ReasoningMemoryService : IReasoningMemoryService, IScoredT
             OwnerId = resolvedOwnerId,
             Task = task,
             TaskEmbedding = effectiveEmbedding,
-            StartedAtUtc = _clock.UtcNow,
+            StartedAtUtc = _clock.GetUtcNow(),
             // #92 Phase 3: trust_level is a framework-reserved metadata key -- a caller of this public
             // service method must never be able to self-assign a trust level that bypasses the admission
             // policy's instruction-like-content detection for this trace's Task text on recall.
@@ -228,7 +228,7 @@ internal sealed class ReasoningMemoryService : IReasoningMemoryService, IScoredT
         {
             Outcome = outcome,
             Success = success,
-            CompletedAtUtc = _clock.UtcNow
+            CompletedAtUtc = _clock.GetUtcNow()
         };
 
         _logger.LogDebug("Completing trace {TraceId}, success={Success}", traceId, success);

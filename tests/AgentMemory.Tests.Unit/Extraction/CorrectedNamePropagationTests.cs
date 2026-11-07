@@ -19,13 +19,13 @@ public sealed class CorrectedNamePropagationTests
         var entities = Substitute.For<IEntityRepository>();
         var facts = Substitute.For<IFactRepository>();
         var embeddings = Substitute.For<IEmbeddingOrchestrator>();
-        var clock = Substitute.For<IClock>();
+        var clock = Substitute.For<TimeProvider>();
         var ids = Substitute.For<IIdGenerator>();
         var now = DateTimeOffset.UnixEpoch.AddDays(1);
         var scope = MemoryScope.For("owner", includeShared: false);
         using var cancellation = new CancellationTokenSource();
         var token = cancellation.Token;
-        clock.UtcNow.Returns(now);
+        clock.GetUtcNow().Returns(now);
         ids.GenerateId().Returns("restated");
         var source = new Entity
         {

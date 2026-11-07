@@ -159,8 +159,8 @@ public sealed class DeclinedFactClosingTests
                     Arg.Any<DateTimeOffset?>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
                 .Returns(ci => _accepted.Contains(ci.ArgAt<string>(0)));
 
-            var clock = Substitute.For<IClock>();
-            clock.UtcNow.Returns(Now);
+            var clock = Substitute.For<TimeProvider>();
+            clock.GetUtcNow().Returns(Now);
             var ids = Substitute.For<IIdGenerator>();
             ids.GenerateId().Returns("new-fact");
             var embeddings = Substitute.For<IEmbeddingOrchestrator>();

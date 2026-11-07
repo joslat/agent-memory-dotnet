@@ -21,10 +21,10 @@ public sealed class PersistenceStageBatchTests
         var preferenceRepository = Substitute.For<IPreferenceRepository, IBatchMemoryRepository<Preference>>();
         var relationshipRepository = Substitute.For<IRelationshipRepository, IBatchMemoryRepository<Relationship>>();
         var embeddingOrchestrator = Substitute.For<IEmbeddingOrchestrator>();
-        var clock = Substitute.For<IClock>();
+        var clock = Substitute.For<TimeProvider>();
         var idGenerator = Substitute.For<IIdGenerator>();
 
-        clock.UtcNow.Returns(DateTimeOffset.Parse("2026-07-29T00:00:00Z"));
+        clock.GetUtcNow().Returns(DateTimeOffset.Parse("2026-07-29T00:00:00Z"));
         idGenerator.GenerateId().Returns(
             "fact-1", "fact-2",
             "preference-1", "preference-2",

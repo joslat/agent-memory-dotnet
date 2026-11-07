@@ -95,7 +95,7 @@ public sealed class RecalledTurnPlacementTests
 
     private Neo4jMemoryContextProvider Provider(ContextFormatOptions? format = null, AgentFrameworkOptions? agent = null) =>
         new(
-            _memoryService, Substitute.For<IEmbeddingOrchestrator>(), Substitute.For<IClock>(), Substitute.For<IIdGenerator>(),
+            _memoryService, Substitute.For<IEmbeddingOrchestrator>(), new TimeProviderClock(Substitute.For<TimeProvider>()), Substitute.For<IIdGenerator>(),
             Options.Create(new MemoryOptions()),
             Options.Create(format ?? new ContextFormatOptions()),
             Options.Create(agent ?? new AgentFrameworkOptions()),
@@ -356,7 +356,7 @@ public sealed class RecalledTurnPlacementTests
             },
         });
         var facade = new Neo4jMicrosoftMemoryFacade(
-            memory, new Neo4jChatMessageStore(memory, Substitute.For<IClock>(), Substitute.For<IIdGenerator>(), NullLogger<Neo4jChatMessageStore>.Instance),
+            memory, new Neo4jChatMessageStore(memory, new TimeProviderClock(Substitute.For<TimeProvider>()), Substitute.For<IIdGenerator>(), NullLogger<Neo4jChatMessageStore>.Instance),
             Options.Create(new AgentFrameworkOptions()), NullLogger<Neo4jMicrosoftMemoryFacade>.Instance);
 
         var result = await facade.GetContextForRunAsync([], "s1", "c1");

@@ -14,7 +14,7 @@ namespace AgentMemory.AgentFramework;
 public sealed class Neo4jChatMessageStore
 {
     private readonly IMemoryService _memoryService;
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly IIdGenerator _idGenerator;
     private readonly ILogger<Neo4jChatMessageStore> _logger;
     private readonly ContextFormatOptions _formatOptions;
@@ -29,7 +29,7 @@ public sealed class Neo4jChatMessageStore
         IMemoryContextAdmissionPolicy? admissionPolicy = null)
     {
         _memoryService = memoryService ?? throw new ArgumentNullException(nameof(memoryService));
-        _clock = clock ?? throw new ArgumentNullException(nameof(clock));
+        _clock = (clock ?? throw new ArgumentNullException(nameof(clock))).ToTimeProvider();
         _idGenerator = idGenerator ?? throw new ArgumentNullException(nameof(idGenerator));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         // Stabilization fix: GetMessagesAsync previously mapped RecentMessages through the bare

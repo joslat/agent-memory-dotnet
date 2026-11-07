@@ -134,7 +134,7 @@ internal sealed class CoreMemoryTools
     public static async Task<string> MemoryAddEntity(
         ILongTermMemoryService longTermMemory,
         IIdGenerator idGenerator,
-        IClock clock,
+        TimeProvider clock,
         IOptions<AgentMemoryMcpOptions> options,
         IOptions<LongTermMemoryOptions> longTermOptions,
         [Description("Name of the entity")] string name,
@@ -153,7 +153,7 @@ internal sealed class CoreMemoryTools
             Description = description,
             Confidence = confidenceValue,
             OwnerId = userId,
-            CreatedAtUtc = clock.UtcNow
+            CreatedAtUtc = clock.GetUtcNow()
         };
 
         var result = await longTermMemory.AddEntityAsync(entity, cancellationToken).ConfigureAwait(false);
@@ -175,7 +175,7 @@ internal sealed class CoreMemoryTools
     public static async Task<string> MemoryAddPreference(
         ILongTermMemoryService longTermMemory,
         IIdGenerator idGenerator,
-        IClock clock,
+        TimeProvider clock,
         IOptions<AgentMemoryMcpOptions> options,
         IOptions<LongTermMemoryOptions> longTermOptions,
         [Description("Category of the preference (e.g., 'communication', 'style', 'tooling')")] string category,
@@ -194,7 +194,7 @@ internal sealed class CoreMemoryTools
             Context = context,
             Confidence = confidenceValue,
             OwnerId = userId,
-            CreatedAtUtc = clock.UtcNow
+            CreatedAtUtc = clock.GetUtcNow()
         };
 
         var result = await longTermMemory.AddPreferenceAsync(preference, cancellationToken).ConfigureAwait(false);
@@ -216,7 +216,7 @@ internal sealed class CoreMemoryTools
     public static async Task<string> MemoryAddFact(
         ILongTermMemoryService longTermMemory,
         IIdGenerator idGenerator,
-        IClock clock,
+        TimeProvider clock,
         IOptions<AgentMemoryMcpOptions> options,
         IOptions<LongTermMemoryOptions> longTermOptions,
         [Description("Subject of the fact (e.g., a person or concept name)")] string subject,
@@ -249,7 +249,7 @@ internal sealed class CoreMemoryTools
             Category = category,
             Confidence = confidenceValue,
             OwnerId = userId,
-            CreatedAtUtc = clock.UtcNow,
+            CreatedAtUtc = clock.GetUtcNow(),
             Metadata = callerMetadata.WithTrustLevel(MemoryTrustLevel.ToolDerived)
         };
 

@@ -21,14 +21,14 @@ namespace AgentMemory.Neo4j.Services;
 internal sealed class Neo4jMemoryDecayService : IMemoryDecayService
 {
     private readonly INeo4jTransactionRunner _tx;
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly MemoryDecayOptions _options;
     private readonly ILogger<Neo4jMemoryDecayService> _logger;
     private readonly bool _workingMemoryEnabled;
 
     public Neo4jMemoryDecayService(
         INeo4jTransactionRunner tx,
-        IClock clock,
+        TimeProvider clock,
         IOptions<MemoryDecayOptions> options,
         ILogger<Neo4jMemoryDecayService> logger,
         IOptions<MemoryOptions>? memoryOptions = null)
@@ -55,7 +55,7 @@ internal sealed class Neo4jMemoryDecayService : IMemoryDecayService
         bool hasOwner = scope?.HasOwnerFilter == true;
         bool nonDestructive = _options.NonDestructive;
         double lambda = Math.Log(2) / _options.DecayHalfLifeDays;
-        string now = _clock.UtcNow.ToString("O");
+        string now = _clock.GetUtcNow().ToString("O");
 
         _logger.LogDebug(
             "Pruning expired memories (minScore={MinScore}, halfLifeDays={HalfLife}, owner={Owner}, nonDestructive={NonDestructive})",
@@ -152,7 +152,7 @@ internal sealed class Neo4jMemoryDecayService : IMemoryDecayService
         var label = nodeKind.ToString(); // enum name == Neo4j label (Entity/Fact/Preference)
 
         var cypher = DecayQueries.UpdateAccessTimestamp(label);
-        string now = _clock.UtcNow.ToString("O");
+        string now = _clock.GetUtcNow().ToString("O");
 
         await _tx.WriteAsync(async runner =>
         {
@@ -193,7 +193,7 @@ internal sealed class Neo4jMemoryDecayService : IMemoryDecayService
             ids.Add(nodeId);
         }
 
-        string now = _clock.UtcNow.ToString("O");
+        string now = _clock.GetUtcNow().ToString("O");
 
         // A single transaction for every kind: the whole point is to stop paying per-node transaction
         // and session overhead on the read path. It is also more atomic than the loop it replaces, which
@@ -221,7 +221,7 @@ internal sealed class Neo4jMemoryDecayService : IMemoryDecayService
         double confidence, DateTimeOffset createdAt, DateTimeOffset? lastAccessedAt, int accessCount)
     {
         var reference = lastAccessedAt ?? createdAt;
-        double daysSince = Math.Max(0, (_clock.UtcNow - reference).TotalDays);
+        double daysSince = Math.Max(0, (_clock.GetUtcNow() - reference).TotalDays);
         double lambda = Math.Log(2) / _options.DecayHalfLifeDays;
         // BUG-R7: damped, capped, and decayed on the same curve as confidence. Must stay identical to
         // MemoryDecayService.ComputeScore and to the Cypher prune/rerank expressions.

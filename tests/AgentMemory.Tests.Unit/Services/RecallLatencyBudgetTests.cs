@@ -87,7 +87,7 @@ public sealed class RecallLatencyBudgetTests
         new(_shortTerm, _longTerm, _reasoning,
             graphRag: null,
             _embeddings,
-            Substitute.For<IClock>(),
+            Substitute.For<TimeProvider>(),
             Options.Create(new MemoryOptions()),
             NullLogger<MemoryContextAssembler>.Instance,
             Substitute.For<IMemoryIsolationPolicy>());

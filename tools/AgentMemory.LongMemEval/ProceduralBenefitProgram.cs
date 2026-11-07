@@ -231,7 +231,7 @@ internal static class ProceduralBenefitProgram
         new(
             services.GetRequiredService<IMemoryService>(),
             services.GetRequiredService<IEmbeddingOrchestrator>(),
-            services.GetRequiredService<IClock>(),
+            new TimeProviderClock(services.GetRequiredService<TimeProvider>()),
             services.GetRequiredService<IIdGenerator>(),
             Options.Create(new MemoryOptions { Recall = ProceduralRecallOnly }),
             Options.Create(new ContextFormatOptions

@@ -21,7 +21,7 @@ namespace AgentMemory.AgentFramework;
 public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
 {
     private readonly IMemoryService _memoryService;
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly IIdGenerator _idGenerator;
     private readonly AgentFrameworkOptions _options;
     private readonly IBackgroundExtraction? _backgroundExtraction;
@@ -73,7 +73,7 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
         : base(null, AgentMemoryChatHistory.ExcludeInjectedContext, null)
     {
         _memoryService = memoryService ?? throw new ArgumentNullException(nameof(memoryService));
-        _clock = clock ?? throw new ArgumentNullException(nameof(clock));
+        _clock = (clock ?? throw new ArgumentNullException(nameof(clock))).ToTimeProvider();
         _idGenerator = idGenerator ?? throw new ArgumentNullException(nameof(idGenerator));
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _storeContext = storeContext;

@@ -64,7 +64,7 @@ public sealed class AccessTrackingQueueWiringTests
             Substitute.For<IPreferenceRepository>(),
             Substitute.For<IEmbeddingOrchestrator>(),
             Microsoft.Extensions.Options.Options.Create(options),
-            Substitute.For<IClock>(),
+            Substitute.For<TimeProvider>(),
             Substitute.For<IIdGenerator>(),
             NullLogger<MemoryService>.Instance,
             decayService: _decay,
@@ -142,7 +142,7 @@ public sealed class AccessTrackingQueueWiringTests
             Substitute.For<IPreferenceRepository>(),
             Substitute.For<IEmbeddingOrchestrator>(),
             Microsoft.Extensions.Options.Options.Create(options),
-            Substitute.For<IClock>(),
+            Substitute.For<TimeProvider>(),
             Substitute.For<IIdGenerator>(),
             NullLogger<MemoryService>.Instance,
             decayService: _decay);

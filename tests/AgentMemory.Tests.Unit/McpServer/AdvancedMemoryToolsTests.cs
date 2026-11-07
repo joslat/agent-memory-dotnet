@@ -16,14 +16,14 @@ public sealed class AdvancedMemoryToolsTests
     private readonly IGraphQueryService _graphQueryService = Substitute.For<IGraphQueryService>();
     private readonly IMemoryService _memoryService = Substitute.For<IMemoryService>();
     private readonly IIdGenerator _idGenerator = Substitute.For<IIdGenerator>();
-    private readonly IClock _clock = Substitute.For<IClock>();
+    private readonly TimeProvider _clock = Substitute.For<TimeProvider>();
 
     private static readonly DateTimeOffset FixedTime = new(2025, 6, 1, 0, 0, 0, TimeSpan.Zero);
 
     public AdvancedMemoryToolsTests()
     {
         _idGenerator.GenerateId().Returns("gen-id-1");
-        _clock.UtcNow.Returns(FixedTime);
+        _clock.GetUtcNow().Returns(FixedTime);
     }
 
     // ── memory_record_tool_call ──

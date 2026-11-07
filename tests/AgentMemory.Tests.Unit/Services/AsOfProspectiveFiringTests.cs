@@ -75,7 +75,7 @@ public sealed class AsOfProspectiveFiringTests
     /// </summary>
     /// <remarks>
     /// The machine clock here is 2026-09-15 and the as-of instant is 2026-05-04 — four months apart,
-    /// so an implementation that reached for <c>_clock.UtcNow</c> cannot coincidentally pass. Both
+    /// so an implementation that reached for <c>_clock.GetUtcNow()</c> cannot coincidentally pass. Both
     /// ends of the window are checked: <c>since</c> is <c>validAsOf - DueLookback</c>, and <c>now</c>
     /// is <c>validAsOf</c> itself.
     /// </remarks>
@@ -255,8 +255,8 @@ public sealed class AsOfProspectiveFiringTests
 
             // The machine clock is deliberately FOUR MONTHS after the as-of instant, so an
             // implementation reaching for it cannot coincidentally produce the right window.
-            var clock = Substitute.For<IClock>();
-            clock.UtcNow.Returns(MachineNow);
+            var clock = Substitute.For<TimeProvider>();
+            clock.GetUtcNow().Returns(MachineNow);
 
             var options = new MemoryOptions();
             var assembler = new MemoryContextAssembler(

@@ -176,7 +176,7 @@ public sealed class ModuleTurnIngestionTests
             .Returns(c => Stored(c.ArgAt<string>(0), c.ArgAt<string>(1), c.ArgAt<string>(2), c.ArgAt<string>(3)));
         services.AddSingleton(memory); services.AddSingleton(Substitute.For<IEmbeddingOrchestrator>());
         services.AddSingleton(Substitute.For<IMemoryQueryFacade>()); services.AddSingleton(Substitute.For<IMemoryIsolationPolicy>());
-        var clock = Substitute.For<IClock>(); clock.UtcNow.Returns(DateTimeOffset.UnixEpoch); services.AddSingleton(clock);
+        var clock = Substitute.For<TimeProvider>(); clock.GetUtcNow().Returns(DateTimeOffset.UnixEpoch); services.AddSingleton(clock);
         var ids = Substitute.For<IIdGenerator>(); ids.GenerateId().Returns(_ => Guid.NewGuid().ToString("N")); services.AddSingleton(ids);
         services.AddScoped<TestContext>();
         services.AddScoped<IMemoryStoreContext>(sp => sp.GetRequiredService<TestContext>());

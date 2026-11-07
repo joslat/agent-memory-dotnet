@@ -11,7 +11,7 @@ namespace AgentMemory.Core.Stubs;
 internal sealed class StubEntityResolver : IEntityResolver
 {
     private readonly ILogger<StubEntityResolver> _logger;
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly IIdGenerator _idGenerator;
 
     /// <summary>
@@ -19,7 +19,7 @@ internal sealed class StubEntityResolver : IEntityResolver
     /// </summary>
     public StubEntityResolver(
         ILogger<StubEntityResolver> logger,
-        IClock clock,
+        TimeProvider clock,
         IIdGenerator idGenerator)
     {
         _logger = logger;
@@ -49,7 +49,7 @@ internal sealed class StubEntityResolver : IEntityResolver
             Aliases = extractedEntity.Aliases,
             Attributes = extractedEntity.Attributes,
             SourceMessageIds = sourceMessageIds,
-            CreatedAtUtc = _clock.UtcNow
+            CreatedAtUtc = _clock.GetUtcNow()
         };
 
         return Task.FromResult(entity);

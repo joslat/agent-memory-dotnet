@@ -21,7 +21,7 @@ internal sealed class Neo4jMessageRepository : IMessageRepository
     /// G1 (40.45): every time this repository stamps or compares comes from here, so a host (or a replay) that sets the
     /// clock sets all of it. Without DI, the system clock.
     /// </summary>
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly INeo4jTransactionRunner _tx;
     private readonly ILogger<Neo4jMessageRepository> _logger;
     private readonly bool _useOptimizedMessageBatchWrites;
@@ -30,12 +30,12 @@ internal sealed class Neo4jMessageRepository : IMessageRepository
         INeo4jTransactionRunner tx,
         ILogger<Neo4jMessageRepository> logger,
         IOptions<Neo4jOptions>? options = null,
-        IClock? clock = null)
+        TimeProvider? clock = null)
     {
         _tx = tx;
         _logger = logger;
         _useOptimizedMessageBatchWrites = options?.Value.UseOptimizedMessageBatchWrites ?? true;
-        _clock = clock ?? new SystemClock();
+        _clock = clock ?? TimeProvider.System;
     }
 
     public async Task<Message> AddAsync(Message message, CancellationToken cancellationToken = default)
@@ -359,7 +359,7 @@ internal sealed class Neo4jMessageRepository : IMessageRepository
         return await _tx.WriteAsync(async runner =>
         {
             var cursor = await runner.RunAsync(MessageQueries.Invalidate,
-                new { id = messageId, now = _clock.UtcNow.ToString("O") }).ConfigureAwait(false);
+                new { id = messageId, now = _clock.GetUtcNow().ToString("O") }).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
             return records.Count > 0 && records[0]["invalidated"].As<bool>();
         }, cancellationToken).ConfigureAwait(false);

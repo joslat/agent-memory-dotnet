@@ -91,7 +91,7 @@ public sealed class SurfaceBudgetEnforcementTests
             _reasoning,
             _graphRag,
             embeddings,
-            Substitute.For<IClock>(),
+            Substitute.For<TimeProvider>(),
             Options.Create(new MemoryOptions { EnableGraphRag = true }),
             NullLogger<MemoryContextAssembler>.Instance,
             new DefaultMemoryIsolationPolicy(

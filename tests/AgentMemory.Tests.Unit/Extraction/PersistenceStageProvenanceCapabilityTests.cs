@@ -21,9 +21,9 @@ public sealed class PersistenceStageProvenanceCapabilityTests
         var factRepo = Substitute.For<IFactRepository, IUpsertPersistsProvenance>();
         var preferenceRepo = Substitute.For<IPreferenceRepository, IUpsertPersistsProvenance>();
         var relationshipRepo = Substitute.For<IRelationshipRepository>();
-        var clock = Substitute.For<IClock>();
+        var clock = Substitute.For<TimeProvider>();
         var ids = Substitute.For<IIdGenerator>();
-        clock.UtcNow.Returns(DateTimeOffset.UtcNow);
+        clock.GetUtcNow().Returns(DateTimeOffset.UtcNow);
         ids.GenerateId().Returns("memory-1");
         entityRepo.UpsertAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>())
             .Returns(call => call.Arg<Entity>());

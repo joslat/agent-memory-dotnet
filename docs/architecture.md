@@ -794,7 +794,7 @@ preferences, superseded preferences, new entities.
 | Invariant | Mechanism |
 |---|---|
 | **Exactly once, by construction** | The window is half-open — strictly `> since`, inclusively `<= until` — in every query without exception, so consecutive deltas partition time exactly |
-| **One clock read** | `until` is read from `IClock` **once** and handed back as `TakenAtUtc`. A write landing during the read falls into the *next* delta rather than being lost to read skew |
+| **One clock read** | `until` is read from the `TimeProvider` **once** and handed back as `TakenAtUtc`. A write landing during the read falls into the *next* delta rather than being lost to read skew |
 | **Pairs are not also expiries** | Supersession stamps **both** clocks, so the expiry bucket gates on `invalidated_at IS NULL`. Without it one change appears twice and the invariant is quietly false while every presence-checking test still passes |
 | **Novelty is the transaction clock** | Never `updated_at`, which every restatement bumps — restatements would replay as "new" forever |
 | **Truncation is reported** | Per-bucket caps are named in `TruncatedSections` *and* in the rendered text |

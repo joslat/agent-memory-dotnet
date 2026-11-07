@@ -29,7 +29,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
     /// G1 (40.45): every time this repository stamps or compares comes from here, so a host (or a replay) that sets the
     /// clock sets all of it. Without DI, the system clock.
     /// </summary>
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly INeo4jTransactionRunner _tx;
     private readonly bool _rescueShortOwnerResults;
     /// <summary>2.13: skip a futile widened probe + scan for an owner holding nothing.</summary>
@@ -63,7 +63,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         OwnerRowCounts? ownerRowCounts = null,
         ISharedCorpusProbe? sharedCorpus = null,
         IOptions<Neo4jOptions>? neo4jOptions = null,
-        IClock? clock = null)
+        TimeProvider? clock = null)
     {
         _filteredOwnerIndex = neo4jOptions?.Value.FilteredVectorIndexes ?? false;
         _ownerFirstThreshold = memoryOptions?.Value.OwnerFirstVectorThreshold ?? 0;
@@ -79,7 +79,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         _ranking = ranking?.Value ?? MemoryRankingOptions.Default;
         _decay = decay?.Value ?? MemoryDecayOptions.Default;
         _rankingContext = rankingContext;
-        _clock = clock ?? new SystemClock();
+        _clock = clock ?? TimeProvider.System;
     }
 
     public async Task<Fact> UpsertAsync(Fact fact, CancellationToken cancellationToken = default)
@@ -128,7 +128,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
                 ["occurredOnPrecision"] = DatePrecisionProperty.ToStored(fact.OccurredOnPrecision),
                 ["sourceMessageIds"] = fact.SourceMessageIds.ToList(),
                 ["createdAtUtc"] = fact.CreatedAtUtc.ToString("O"),
-                ["updatedAtUtc"] = _clock.UtcNow.ToString("O"),
+                ["updatedAtUtc"] = _clock.GetUtcNow().ToString("O"),
                 ["metadata"] = SerializeMetadata(fact.Metadata)
             };
 
@@ -180,7 +180,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
             .Select(g => g.Last())
             .ToList();
 
-        var updatedAt = _clock.UtcNow.ToString("O");
+        var updatedAt = _clock.GetUtcNow().ToString("O");
 
         // L11. The fact merge key is the composite {subject_key, predicate_key, object_key,
         // owner_key}, and it is now backed by a range index — so an oversized value stops being a
@@ -299,7 +299,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         string @object,
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default) =>
-        FindSupersededCandidatesAsync(winnerFactId, subject, predicate, @object, _clock.UtcNow, scope, cancellationToken);
+        FindSupersededCandidatesAsync(winnerFactId, subject, predicate, @object, _clock.GetUtcNow(), scope, cancellationToken);
 
     public async Task<IReadOnlyList<Fact>> FindSupersededCandidatesAsync(
         string winnerFactId,
@@ -543,9 +543,9 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         bool currentValidTime = validTime == ValidTimeMode.Current;
         // Both gated queries read $now; supplied only when the gate is on, so an ungated query's
         // parameter set stays byte-identical to what it has always sent.
-        if (currentValidTime) parameters["now"] = _clock.UtcNow.ToString("O");
+        if (currentValidTime) parameters["now"] = _clock.GetUtcNow().ToString("O");
         if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
-        if (recencyRerank) RerankParameters.Add(parameters, ranking, _decay, _clock.UtcNow);
+        if (recencyRerank) RerankParameters.Add(parameters, ranking, _decay, _clock.GetUtcNow());
 
         // G-14: a small owner is scored exactly (it cannot be crowded out of a global top-K it never asks for).
         var plan = hasOwner
@@ -1299,7 +1299,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
                 ["embedding"] = fact.Embedding is { Length: > 0 } ? fact.Embedding.ToList() : null,
                 ["operator"] = fact.Metadata.GetDerivationOperator()?.ToString(),
                 ["derivation"] = fact.Metadata.GetDerivation(),
-                ["now"] = _clock.UtcNow.ToString(
+                ["now"] = _clock.GetUtcNow().ToString(
                     "O", System.Globalization.CultureInfo.InvariantCulture),
                 ["metadata"] = SerializeMetadata(fact.Metadata),
                 ["inputFactIds"] = inputFactIds.ToList(),
@@ -1446,7 +1446,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         _logger.LogDebug("Invalidating fact {Id}, owner={Owner}", factId, scope?.OwnerId);
 
         var cypher = FactQueries.Invalidate(hasOwner);
-        string now = _clock.UtcNow.ToString("O");
+        string now = _clock.GetUtcNow().ToString("O");
 
         return await _tx.WriteAsync(async runner =>
         {
@@ -1464,7 +1464,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         _logger.LogDebug("Superseding fact {Loser} with {Winner}, owner={Owner}", loserFactId, winnerFactId, scope?.OwnerId);
 
         var cypher = FactQueries.Supersede(hasOwner);
-        string now = _clock.UtcNow.ToString("O");
+        string now = _clock.GetUtcNow().ToString("O");
 
         return await _tx.WriteAsync(async runner =>
         {
@@ -1484,7 +1484,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         _logger.LogDebug("Superseding fact {Loser} with {Winner} ({Reason}), owner={Owner}", loserFactId, winnerFactId, reason, scope?.OwnerId);
 
         var cypher = FactQueries.SupersedeWithReason(hasOwner);
-        string now = _clock.UtcNow.ToString("O");
+        string now = _clock.GetUtcNow().ToString("O");
 
         return await _tx.WriteAsync(async runner =>
         {
@@ -1516,7 +1516,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
             ["ownerId"] = scope.OwnerId!,
             ["subjectKeys"] = subjects.Select(MemoryTripleCanonicalizer.CanonicalValue).Distinct().ToList(),
             ["predicateKeys"] = predicates.Select(MemoryTripleCanonicalizer.Canonical).Distinct().ToList(),
-            ["now"] = _clock.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
+            ["now"] = _clock.GetUtcNow().ToString("O", System.Globalization.CultureInfo.InvariantCulture),
         };
         return await _tx.ReadAsync(async runner =>
         {

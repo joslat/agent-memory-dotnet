@@ -24,8 +24,8 @@ public class ConflictDetectionIntegrationTests : IAsyncLifetime
     public ConflictDetectionIntegrationTests(Neo4jIntegrationFixture fixture)
     {
         _fixture = fixture;
-        var clock = Substitute.For<IClock>();
-        clock.UtcNow.Returns(new DateTimeOffset(2026, 6, 6, 0, 0, 0, TimeSpan.Zero));
+        var clock = Substitute.For<TimeProvider>();
+        clock.GetUtcNow().Returns(new DateTimeOffset(2026, 6, 6, 0, 0, 0, TimeSpan.Zero));
         _svc = new Neo4jConflictDetectionService(
             fixture.TransactionRunner, clock, NullLogger<Neo4jConflictDetectionService>.Instance);
         _facts = new Neo4jFactRepository(fixture.TransactionRunner, NullLogger<Neo4jFactRepository>.Instance);

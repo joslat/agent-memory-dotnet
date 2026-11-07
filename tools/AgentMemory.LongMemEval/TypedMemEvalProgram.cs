@@ -309,7 +309,7 @@ internal static class TypedMemEvalProgram
                         ExtractionProgress = (completed, total) => Console.WriteLine(
                             $"typedmemeval: extraction units {completed}/{total}."),
                         // 40.66. Null unless --bitemporal-clocks: the profile then registered a ReplayClock.
-                        ReplayClock = profile.Services.GetService<IClock>() as ReplayClock,
+                        ReplayClock = profile.Services.GetService<TimeProvider>() as ReplayClock,
                         AskedClocks = options.BitemporalClocks ? TypedMemEvalClocks.Read(vertical) : null,
                     });
                 result = await runner.RunAsync(adapter, vertical, facade).ConfigureAwait(false);

@@ -19,14 +19,14 @@ internal sealed class Neo4jSchemaManager : ISchemaManager
 {
     private readonly INeo4jTransactionRunner _tx;
     private readonly IIdGenerator _idGenerator;
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly ILogger<Neo4jSchemaManager> _logger;
 
     /// <summary>Initializes a new instance of <see cref="Neo4jSchemaManager"/>.</summary>
     public Neo4jSchemaManager(
         INeo4jTransactionRunner tx,
         IIdGenerator idGenerator,
-        IClock clock,
+        TimeProvider clock,
         ILogger<Neo4jSchemaManager> logger)
     {
         _tx = tx;
@@ -61,7 +61,7 @@ internal sealed class Neo4jSchemaManager : ISchemaManager
     public async Task SaveSchemaAsync(EntitySchemaConfig schema, string? createdBy = null, bool setActive = true, CancellationToken cancellationToken = default)
     {
         var id = _idGenerator.GenerateId();
-        var createdAtUtc = _clock.UtcNow.ToString("O");
+        var createdAtUtc = _clock.GetUtcNow().ToString("O");
         var config = SchemaLoader.Serialize(schema);
 
         // One write transaction so the deactivate-then-activate stays atomic: the saved version is the only

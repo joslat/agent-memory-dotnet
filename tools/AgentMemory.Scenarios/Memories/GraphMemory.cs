@@ -71,7 +71,7 @@ internal sealed class GraphMemory : IMemory
     public bool Writes => _writes;
 
     public static async Task<GraphMemory> CreateAsync(
-        GraphArm arm, IChatClient chat, IEmbeddingGenerator<string, Embedding<float>> embeddings, IClock clock,
+        GraphArm arm, IChatClient chat, IEmbeddingGenerator<string, Embedding<float>> embeddings, TimeProvider clock,
         Neo4jTarget neo4j, string owner, bool writes, ILoggerProvider log, CancellationToken cancellationToken = default)
     {
         var options = arm.Memory();

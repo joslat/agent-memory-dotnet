@@ -92,7 +92,7 @@ services.AddNeo4jAgentMemory(options => { ... });
 
 // 2. Core memory services (short-term, long-term, reasoning, extraction pipeline)
 services.AddAgentMemoryCore(_ => { });
-services.AddSingleton<IClock, SystemClock>();
+services.AddSingleton(TimeProvider.System);
 services.AddSingleton<IIdGenerator, GuidIdGenerator>();
 services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(azureClient.GetEmbeddingClient(embeddingDeployment).AsIEmbeddingGenerator());
 

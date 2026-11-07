@@ -96,8 +96,8 @@ builder.Services.AddNeo4jAgentMemory(options =>
 // 2. Core memory services
 builder.Services.AddAgentMemoryCore(_ => { });
 
-// 3. Infrastructure helpers
-builder.Services.AddSingleton<IClock, SystemClock>();
+// 3. Infrastructure helpers (AddAgentMemoryCore registers these defaults too; shown here to replace them)
+builder.Services.AddSingleton(TimeProvider.System);   // a test or a replay registers a FakeTimeProvider instead
 builder.Services.AddSingleton<IIdGenerator, GuidIdGenerator>();
 
 // 4. Embedding provider — swap StubEmbeddingGenerator for a real provider in production
@@ -510,6 +510,13 @@ What it adds to the Conversational preset:
   JSON after the bounded attempts), the extractors write that turn instead, and the warning, the extraction span (`memory.write.fallback`)
   and `ExtractionStageResult.WriterFallbackReason` say so; `Extraction.FallBackToExtractorsWhenWriterFails = false`
   stores nothing for such a turn and records the error instead.
+  Each operation quotes the words of the message it rests on. A quote the message doesn't contain is a claim the
+  message doesn't make, so that operation isn't stored. A quote that is found puts its character offsets in the stored
+  memory's metadata (`source_quote_start`, `source_quote_end`). Only whitespace, typographic quotes and dashes are
+  forgiven, plus a case-folded match. On the Bruna scenario, 166 of 166 quotes were found exactly. Operations the writer
+  doesn't keep are recorded with a reason: `UnknownAction`, `MissingText`, `MissingId`, `OverLimit`, `NotAnObject` or
+  `QuoteNotFound`. They appear on the write span (`memory.write.dropped`, `memory.write.dropped_reasons`) and in the
+  debug log.
 - **Bitemporal changes** (`Extraction.BitemporalChanges`): a question about the past keeps the value that was true then.
   The writer was measured with it on.
 - **Dates read from the writer's words** (`LlmExtractionOptions.DatesFromText`): the writer keeps a date as it was said

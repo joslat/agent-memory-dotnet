@@ -35,8 +35,8 @@ public class SupersessionIntegrationTests : IAsyncLifetime
         _fixture = fixture;
         _facts = new Neo4jFactRepository(fixture.TransactionRunner, NullLogger<Neo4jFactRepository>.Instance);
         _prefs = new Neo4jPreferenceRepository(fixture.TransactionRunner, NullLogger<Neo4jPreferenceRepository>.Instance);
-        var clock = Substitute.For<IClock>();
-        clock.UtcNow.Returns(new DateTimeOffset(2026, 6, 13, 0, 0, 0, TimeSpan.Zero));
+        var clock = Substitute.For<TimeProvider>();
+        clock.GetUtcNow().Returns(new DateTimeOffset(2026, 6, 13, 0, 0, 0, TimeSpan.Zero));
         _conflicts = new Neo4jConflictDetectionService(
             fixture.TransactionRunner, clock, NullLogger<Neo4jConflictDetectionService>.Instance);
     }

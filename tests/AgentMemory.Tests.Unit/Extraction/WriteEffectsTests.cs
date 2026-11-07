@@ -22,11 +22,11 @@ public sealed class WriteEffectsTests
 
     private readonly IFactRepository _facts = Substitute.For<IFactRepository>();
     private readonly IPreferenceRepository _preferences = Substitute.For<IPreferenceRepository>();
-    private readonly IClock _clock = Substitute.For<IClock>();
+    private readonly TimeProvider _clock = Substitute.For<TimeProvider>();
 
     public WriteEffectsTests()
     {
-        _clock.UtcNow.Returns(Today);
+        _clock.GetUtcNow().Returns(Today);
         _facts.UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>()).Returns(ci => Task.FromResult(ci.Arg<Fact>()));
         _facts.GetBySubjectAsync(Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Fact>>([]));

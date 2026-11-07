@@ -214,9 +214,9 @@ public sealed class PersistenceStageTransactionCoalescingTests
         var facts = Substitute.For<IFactRepository>();
         var preferences = Substitute.For<IPreferenceRepository>();
         var relationships = Substitute.For<IRelationshipRepository>();
-        var clock = Substitute.For<IClock>();
+        var clock = Substitute.For<TimeProvider>();
         var ids = Substitute.For<IIdGenerator>();
-        clock.UtcNow.Returns(DateTimeOffset.Parse("2026-08-04T12:00:00Z"));
+        clock.GetUtcNow().Returns(DateTimeOffset.Parse("2026-08-04T12:00:00Z"));
         return new PersistenceStage(
             embedding!,
             entityRepository,

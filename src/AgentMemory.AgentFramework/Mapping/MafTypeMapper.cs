@@ -23,7 +23,7 @@ internal static class MafTypeMapper
         ChatMessage chatMessage,
         string sessionId,
         string conversationId,
-        IClock clock,
+        TimeProvider clock,
         IIdGenerator idGen)
     {
         return new Message
@@ -33,7 +33,7 @@ internal static class MafTypeMapper
             SessionId = sessionId,
             Role = ToInternalRole(chatMessage.Role),
             Content = chatMessage.Text ?? string.Empty,
-            TimestampUtc = clock.UtcNow,
+            TimestampUtc = clock.GetUtcNow(),
             Metadata = new Dictionary<string, object>()
         };
     }

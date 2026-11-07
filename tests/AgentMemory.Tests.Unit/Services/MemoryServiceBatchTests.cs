@@ -22,14 +22,14 @@ public sealed class MemoryServiceBatchTests
     private readonly IFactRepository _factRepo = Substitute.For<IFactRepository>();
     private readonly IPreferenceRepository _prefRepo = Substitute.For<IPreferenceRepository>();
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator = Substitute.For<IEmbeddingOrchestrator>();
-    private readonly IClock _clock = Substitute.For<IClock>();
+    private readonly TimeProvider _clock = Substitute.For<TimeProvider>();
     private readonly IIdGenerator _idGenerator = Substitute.For<IIdGenerator>();
 
     private static readonly DateTimeOffset FixedTime = new(2025, 6, 1, 0, 0, 0, TimeSpan.Zero);
 
     public MemoryServiceBatchTests()
     {
-        _clock.UtcNow.Returns(FixedTime);
+        _clock.GetUtcNow().Returns(FixedTime);
         _idGenerator.GenerateId().Returns("gen-id");
         _extraction.ExtractAsync(Arg.Any<ExtractionRequest>(), Arg.Any<CancellationToken>())
             .Returns(new ExtractionResult());

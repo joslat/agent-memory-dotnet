@@ -32,7 +32,7 @@ public sealed class RecallSectionDiagnosticsTests
     private readonly ILongTermMemoryService _longTerm = Substitute.For<ILongTermMemoryService>();
     private readonly IReasoningMemoryService _reasoning = Substitute.For<IReasoningMemoryService>();
     private readonly IEmbeddingOrchestrator _embeddings = Substitute.For<IEmbeddingOrchestrator>();
-    private readonly IClock _clock = Substitute.For<IClock>();
+    private readonly TimeProvider _clock = Substitute.For<TimeProvider>();
 
     private static readonly IMemoryIsolationPolicy SingleTenant =
         new DefaultMemoryIsolationPolicy(
@@ -41,7 +41,7 @@ public sealed class RecallSectionDiagnosticsTests
 
     public RecallSectionDiagnosticsTests()
     {
-        _clock.UtcNow.Returns(DateTimeOffset.UnixEpoch);
+        _clock.GetUtcNow().Returns(DateTimeOffset.UnixEpoch);
         _embeddings.EmbedQueryAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new float[8]));
         _shortTerm.GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())

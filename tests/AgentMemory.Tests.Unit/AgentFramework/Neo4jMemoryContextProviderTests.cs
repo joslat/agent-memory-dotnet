@@ -19,19 +19,19 @@ public sealed class Neo4jMemoryContextProviderTests
 {
     private readonly IMemoryService _memoryService = Substitute.For<IMemoryService>();
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator = Substitute.For<IEmbeddingOrchestrator>();
-    private readonly IClock _clock = Substitute.For<IClock>();
+    private readonly TimeProvider _clock = Substitute.For<TimeProvider>();
     private readonly IIdGenerator _idGenerator = Substitute.For<IIdGenerator>();
     private readonly Neo4jMemoryContextProvider _sut;
 
     public Neo4jMemoryContextProviderTests()
     {
-        _clock.UtcNow.Returns(DateTimeOffset.UtcNow);
+        _clock.GetUtcNow().Returns(DateTimeOffset.UtcNow);
         _memoryService.RouteIdKeyedAdds();
         _idGenerator.GenerateId().Returns(_ => Guid.NewGuid().ToString("N"));
         _sut = new Neo4jMemoryContextProvider(
             _memoryService,
             _embeddingOrchestrator,
-            _clock,
+            new TimeProviderClock(_clock),
             _idGenerator,
             Options.Create(new MemoryOptions()),
             Options.Create(new ContextFormatOptions()),
@@ -48,7 +48,7 @@ public sealed class Neo4jMemoryContextProviderTests
         new(
             _memoryService,
             _embeddingOrchestrator,
-            _clock,
+            new TimeProviderClock(_clock),
             _idGenerator,
             Options.Create(new MemoryOptions { Recall = recall }),
             Options.Create(new ContextFormatOptions()),
@@ -133,7 +133,7 @@ public sealed class Neo4jMemoryContextProviderTests
         new(
             _memoryService,
             _embeddingOrchestrator,
-            _clock,
+            new TimeProviderClock(_clock),
             _idGenerator,
             Options.Create(new MemoryOptions { Recall = recall ?? RecallOptions.Default }),
             Options.Create(new ContextFormatOptions()),
@@ -208,7 +208,7 @@ public sealed class Neo4jMemoryContextProviderTests
         // H-4: with IncludeReasoningTraces off (the default) the formatter drops traces, so searching them was a
         // vector query per turn whose result was thrown away (measured ≈35 ms a turn).
         var sut = new Neo4jMemoryContextProvider(
-            _memoryService, _embeddingOrchestrator, _clock, _idGenerator,
+            _memoryService, _embeddingOrchestrator, new TimeProviderClock(_clock), _idGenerator,
             Options.Create(new MemoryOptions { Recall = new RecallOptions { MaxTraces = 3 } }),
             Options.Create(new ContextFormatOptions { IncludeReasoningTraces = include }),
             Options.Create(new AgentFrameworkOptions()),
@@ -358,7 +358,7 @@ public sealed class Neo4jMemoryContextProviderTests
         new(
             _memoryService,
             _embeddingOrchestrator,
-            _clock,
+            new TimeProviderClock(_clock),
             _idGenerator,
             Options.Create(new MemoryOptions()),
             Options.Create(formatOptions ?? new ContextFormatOptions()),
@@ -580,7 +580,7 @@ public sealed class Neo4jMemoryContextProviderTests
     {
         var owner = Substitute.For<IWritableMemoryOwnerContext>();
         var sut = new Neo4jMemoryContextProvider(
-            _memoryService, _embeddingOrchestrator, _clock, _idGenerator, Options.Create(new MemoryOptions()),
+            _memoryService, _embeddingOrchestrator, new TimeProviderClock(_clock), _idGenerator, Options.Create(new MemoryOptions()),
             Options.Create(new ContextFormatOptions()), Options.Create(new AgentFrameworkOptions()),
             NullLogger<Neo4jMemoryContextProvider>.Instance, ownerContext: owner);
         _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
@@ -599,7 +599,7 @@ public sealed class Neo4jMemoryContextProviderTests
     {
         var owner = Substitute.For<IWritableMemoryOwnerContext>();
         var sut = new Neo4jMemoryContextProvider(
-            _memoryService, _embeddingOrchestrator, _clock, _idGenerator, Options.Create(new MemoryOptions()),
+            _memoryService, _embeddingOrchestrator, new TimeProviderClock(_clock), _idGenerator, Options.Create(new MemoryOptions()),
             Options.Create(new ContextFormatOptions()), Options.Create(new AgentFrameworkOptions()),
             NullLogger<Neo4jMemoryContextProvider>.Instance, ownerContext: owner);
 
@@ -617,7 +617,7 @@ public sealed class Neo4jMemoryContextProviderTests
         // An unowned turn must reset the ambient owner to null (shared), never inherit a previous turn's.
         var owner = Substitute.For<IWritableMemoryOwnerContext>();
         var sut = new Neo4jMemoryContextProvider(
-            _memoryService, _embeddingOrchestrator, _clock, _idGenerator, Options.Create(new MemoryOptions()),
+            _memoryService, _embeddingOrchestrator, new TimeProviderClock(_clock), _idGenerator, Options.Create(new MemoryOptions()),
             Options.Create(new ContextFormatOptions()), Options.Create(new AgentFrameworkOptions()),
             NullLogger<Neo4jMemoryContextProvider>.Instance, ownerContext: owner);
         _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
@@ -640,7 +640,7 @@ public sealed class Neo4jMemoryContextProviderTests
         new(
             _memoryService,
             _embeddingOrchestrator,
-            _clock,
+            new TimeProviderClock(_clock),
             _idGenerator,
             Options.Create(new MemoryOptions()),
             Options.Create(new ContextFormatOptions()),

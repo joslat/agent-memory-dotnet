@@ -26,7 +26,7 @@ internal sealed partial class CompositeEntityResolver : IEntityResolver, IExtrac
     private readonly IEntityRepository _entityRepository;
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
     private readonly ExtractionOptions _options;
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly IIdGenerator _idGenerator;
     private readonly ILogger<CompositeEntityResolver> _logger;
 
@@ -37,7 +37,7 @@ internal sealed partial class CompositeEntityResolver : IEntityResolver, IExtrac
         IEntityRepository entityRepository,
         IEmbeddingOrchestrator embeddingOrchestrator,
         IOptions<ExtractionOptions> options,
-        IClock clock,
+        TimeProvider clock,
         IIdGenerator idGenerator,
         ILogger<CompositeEntityResolver> logger)
     {
@@ -412,7 +412,7 @@ internal sealed partial class CompositeEntityResolver : IEntityResolver, IExtrac
             Aliases = extracted.Aliases,
             Attributes = extracted.Attributes,
             SourceMessageIds = sourceMessageIds,
-            CreatedAtUtc = _clock.UtcNow
+            CreatedAtUtc = _clock.GetUtcNow()
         };
 
         var stored = persistResolution

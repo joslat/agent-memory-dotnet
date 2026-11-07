@@ -60,7 +60,7 @@ public sealed class MemoryServiceExtractionContextTests
             {
                 Extraction = new ExtractionOptions { ExtractionContextTurns = contextTurns },
             }),
-            Substitute.For<IClock>(),
+            Substitute.For<TimeProvider>(),
             Substitute.For<IIdGenerator>(),
             NullLogger<MemoryService>.Instance);
 

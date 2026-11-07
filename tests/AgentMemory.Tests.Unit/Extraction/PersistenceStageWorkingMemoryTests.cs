@@ -41,10 +41,10 @@ public sealed class PersistenceStageWorkingMemoryTests
         var preferenceRepository = Substitute.For<IPreferenceRepository>();
         var relationshipRepository = Substitute.For<IRelationshipRepository>();
         var embeddingOrchestrator = Substitute.For<IEmbeddingOrchestrator>();
-        var clock = Substitute.For<IClock>();
+        var clock = Substitute.For<TimeProvider>();
         var idGenerator = Substitute.For<IIdGenerator>();
 
-        clock.UtcNow.Returns(DateTimeOffset.Parse("2026-08-16T00:00:00Z"));
+        clock.GetUtcNow().Returns(DateTimeOffset.Parse("2026-08-16T00:00:00Z"));
         idGenerator.GenerateId().Returns(call => $"id-{Guid.NewGuid():N}");
         embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new float[4]);

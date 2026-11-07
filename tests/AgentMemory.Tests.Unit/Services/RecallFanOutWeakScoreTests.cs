@@ -35,7 +35,7 @@ public sealed class RecallFanOutWeakScoreTests
         Substitute.For<ILongTermMemoryService, IScoredLongTermSearch>();
     private readonly IReasoningMemoryService _reasoning = Substitute.For<IReasoningMemoryService>();
     private readonly IEmbeddingOrchestrator _embeddings = Substitute.For<IEmbeddingOrchestrator>();
-    private readonly IClock _clock = Substitute.For<IClock>();
+    private readonly TimeProvider _clock = Substitute.For<TimeProvider>();
     private readonly ISubQueryDeriver _deriver = Substitute.For<ISubQueryDeriver>();
 
     private static readonly IMemoryIsolationPolicy SingleTenantPolicy =
@@ -45,7 +45,7 @@ public sealed class RecallFanOutWeakScoreTests
 
     public RecallFanOutWeakScoreTests()
     {
-        _clock.UtcNow.Returns(new DateTimeOffset(2026, 8, 21, 12, 0, 0, TimeSpan.Zero));
+        _clock.GetUtcNow().Returns(new DateTimeOffset(2026, 8, 21, 12, 0, 0, TimeSpan.Zero));
         _shortTerm.GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<Message>());
         _embeddings.EmbedQueryAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())

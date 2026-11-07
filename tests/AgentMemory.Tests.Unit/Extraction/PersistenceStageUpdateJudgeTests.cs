@@ -25,7 +25,7 @@ public sealed class PersistenceStageUpdateJudgeTests
     private readonly IFactRepository _factRepo = Substitute.For<IFactRepository>();
     private readonly IPreferenceRepository _prefRepo = Substitute.For<IPreferenceRepository>();
     private readonly IRelationshipRepository _relRepo = Substitute.For<IRelationshipRepository>();
-    private readonly IClock _clock = Substitute.For<IClock>();
+    private readonly TimeProvider _clock = Substitute.For<TimeProvider>();
     private readonly IIdGenerator _idGen = Substitute.For<IIdGenerator>();
     private readonly IMemoryUpdateJudge _judge = Substitute.For<IMemoryUpdateJudge>();
 
@@ -37,7 +37,7 @@ public sealed class PersistenceStageUpdateJudgeTests
 
     public PersistenceStageUpdateJudgeTests()
     {
-        _clock.UtcNow.Returns(new DateTimeOffset(2026, 10, 3, 11, 0, 0, TimeSpan.Zero));
+        _clock.GetUtcNow().Returns(new DateTimeOffset(2026, 10, 3, 11, 0, 0, TimeSpan.Zero));
         _orchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new float[8]);
         _factRepo.UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>()).Returns(ci => Task.FromResult(ci.Arg<Fact>()));
         _prefRepo.UpsertAsync(Arg.Any<Preference>(), Arg.Any<CancellationToken>()).Returns(ci => Task.FromResult(ci.Arg<Preference>()));

@@ -22,7 +22,7 @@ public sealed class MemoryContextRankedSectionsTests
     private readonly ILongTermMemoryService _longTerm = Substitute.For<ILongTermMemoryService, IScoredLongTermSearch>();
     private readonly IReasoningMemoryService _reasoning = Substitute.For<IReasoningMemoryService, IScoredTraceSearch>();
     private readonly IEmbeddingOrchestrator _embeddings = Substitute.For<IEmbeddingOrchestrator>();
-    private readonly IClock _clock = Substitute.For<IClock>();
+    private readonly TimeProvider _clock = Substitute.For<TimeProvider>();
     private readonly DateTimeOffset _fixedTime = new(2025, 1, 15, 12, 0, 0, TimeSpan.Zero);
 
     private IScoredMessageSearch ScoredMessages => (IScoredMessageSearch)_shortTerm;
@@ -31,7 +31,7 @@ public sealed class MemoryContextRankedSectionsTests
 
     public MemoryContextRankedSectionsTests()
     {
-        _clock.UtcNow.Returns(_fixedTime);
+        _clock.GetUtcNow().Returns(_fixedTime);
         SetupUnscoredReturns();
         SetupScoredReturns();
     }

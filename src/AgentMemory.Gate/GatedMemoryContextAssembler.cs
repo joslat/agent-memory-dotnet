@@ -34,7 +34,7 @@ public sealed class GatedMemoryContextAssembler : IMemoryContextAssembler
     private readonly IMemoryGate _gate;
     private readonly IOptions<MemoryGateOptions> _options;
     private readonly RecallOptions _appRecall;
-    private readonly IClock? _clock;
+    private readonly TimeProvider? _clock;
     private readonly ILogger<GatedMemoryContextAssembler> _logger;
     private readonly ICompoundQuestionPlanner? _questionPlanner;
     private int _warnedNoJudge;
@@ -51,7 +51,7 @@ public sealed class GatedMemoryContextAssembler : IMemoryContextAssembler
         _gate = gate;
         _options = options;
         _appRecall = memoryOptions?.Value.Recall ?? RecallOptions.Default;
-        _clock = clock;
+        _clock = clock?.ToTimeProvider();
         _logger = logger;
     }
 
@@ -120,7 +120,7 @@ public sealed class GatedMemoryContextAssembler : IMemoryContextAssembler
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(o.Timeout);
             var gateRequest = new MemoryGateRequest(
-                request.Query, Conversation(wide, request.Query), _clock?.UtcNow ?? DateTimeOffset.UtcNow,
+                request.Query, Conversation(wide, request.Query), _clock?.GetUtcNow() ?? DateTimeOffset.UtcNow,
                 [.. candidates.Select(c => c.Candidate), .. companions]);
             companionsSent = companions.Count;
             var baseline = _gate.DecideAsync(gateRequest, timeout.Token);

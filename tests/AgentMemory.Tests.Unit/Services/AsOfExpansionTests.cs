@@ -134,7 +134,7 @@ public sealed class AsOfExpansionTests
             Substitute.For<IReasoningMemoryService>(),
             graphRag: null,
             embeddings,
-            Substitute.For<IClock>(),
+            Substitute.For<TimeProvider>(),
             Options.Create(options),
             NullLogger<MemoryContextAssembler>.Instance,
             new DefaultMemoryIsolationPolicy(

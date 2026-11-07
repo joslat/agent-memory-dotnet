@@ -134,7 +134,7 @@ public sealed class StoreSessions(TextWriter output)
         var clock = new MovingClock(InstantOf(turns[0]));
         var services = new ServiceCollection();
         services.AddLogging(ArenaLogging.Console);
-        services.AddSingleton<IClock>(clock);
+        services.AddSingleton<TimeProvider>(clock);
         // A measurement sees every writer failure: the turn stores nothing and its error is recorded, never handed to the
         // extractors (the library's default since 2026-10-08), so a run with a failed turn is visible and is run again.
         store.Options.Extraction.FallBackToExtractorsWhenWriterFails = false;
@@ -500,8 +500,9 @@ public sealed class StoreSessions(TextWriter output)
         return na == 0 || nb == 0 ? 0 : dot / Math.Sqrt(na * nb);
     }
 
-    private sealed class MovingClock(DateTimeOffset start) : IClock
+    private sealed class MovingClock(DateTimeOffset start) : TimeProvider
     {
+            public override DateTimeOffset GetUtcNow() => UtcNow;
         public DateTimeOffset Now { get; set; } = start;
 
         public DateTimeOffset UtcNow => Now;

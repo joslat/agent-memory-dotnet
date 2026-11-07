@@ -26,8 +26,9 @@ public sealed class RecentTopicsIntegrationTests : IAsyncLifetime
 
     public Task DisposeAsync() => Task.CompletedTask;
 
-    private sealed class FixedClock : IClock
+    private sealed class FixedClock : TimeProvider
     {
+        public override DateTimeOffset GetUtcNow() => UtcNow;
         public DateTimeOffset UtcNow => Now;
     }
 

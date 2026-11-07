@@ -35,6 +35,39 @@ public sealed class HybridFusionAndEscapingTests
     }
 
     [Fact]
+    public void TwoNodesWithIdenticalTextBothSurviveFusion()
+    {
+        // #248: fusion keyed on text merged two different nodes that happened to say the same thing.
+        var vector = new List<RetrieverResultItem> { new("Standup at 9", Id: "fact-1"), new("Standup at 9", Id: "fact-2") };
+
+        var fused = HybridRetriever.FuseReciprocalRank(vector, [], topK: 10);
+
+        fused.Select(i => i.Id).Should().Equal("fact-1", "fact-2");
+    }
+
+    [Fact]
+    public void OneNodeFromBothRoutesIsOneItemReinforcedByBoth()
+    {
+        // The same node from both retrievers is one result, ranked above a node found by only one of them, even when the
+        // two retrievers project its text differently.
+        var vector = new List<RetrieverResultItem> { new("other", Id: "fact-9"), new("Bruna flies to Bariloche", Id: "fact-1") };
+        var fulltext = new List<RetrieverResultItem> { new("Bruna | flies to | Bariloche", Id: "fact-1") };
+
+        var fused = HybridRetriever.FuseReciprocalRank(vector, fulltext, topK: 10);
+
+        fused.Select(i => i.Id).Should().Equal("fact-1", "fact-9");
+    }
+
+    [Fact]
+    public void ACustomRetrievalQueryWithoutAnIdFallsBackToText()
+    {
+        var vector = new List<RetrieverResultItem> { new("A"), new("B") };
+        var fulltext = new List<RetrieverResultItem> { new("B") };
+
+        HybridRetriever.FuseReciprocalRank(vector, fulltext, topK: 10).Select(i => i.Content).Should().Equal("B", "A");
+    }
+
+    [Fact]
     public void FuseReciprocalRank_RespectsTopK()
     {
         var vector = new List<RetrieverResultItem> { new("A"), new("B") };

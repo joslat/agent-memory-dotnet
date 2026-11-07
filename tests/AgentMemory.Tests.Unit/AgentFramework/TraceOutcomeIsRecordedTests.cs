@@ -44,7 +44,7 @@ public sealed class TraceOutcomeIsRecordedTests
         var options = Options.Create(new AgentFrameworkOptions { PersistReasoningTraces = true });
         return (new AgentTraceRecorder(
             service,
-            Substitute.For<IClock>(),
+            new TimeProviderClock(Substitute.For<TimeProvider>()),
             Substitute.For<IIdGenerator>(),
             options,
             NullLogger<AgentTraceRecorder>.Instance), service);

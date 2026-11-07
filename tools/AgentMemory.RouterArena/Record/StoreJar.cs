@@ -78,7 +78,7 @@ public sealed class StoreJar(TextWriter output)
             await using var store = await runner.LoadAsync(world, prefix, cancellationToken).ConfigureAwait(false);
             var services = new ServiceCollection();
             services.AddLogging(ArenaLogging.Console);
-            services.AddSingleton<IClock>(new FixedClock(WrittenAt));
+            services.AddSingleton<TimeProvider>(new FixedClock(WrittenAt));
             services.AddNeo4jAgentMemory(store.Options, Neo4j, _ => { });
             services.AddSingleton(chat);
             services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(embeddings);
@@ -143,8 +143,9 @@ public sealed class StoreJar(TextWriter output)
             return rows;
         }, cancellationToken);
 
-    private sealed class FixedClock(DateTimeOffset now) : IClock
+    private sealed class FixedClock(DateTimeOffset now) : TimeProvider
     {
+            public override DateTimeOffset GetUtcNow() => UtcNow;
         public DateTimeOffset UtcNow => now;
     }
 }

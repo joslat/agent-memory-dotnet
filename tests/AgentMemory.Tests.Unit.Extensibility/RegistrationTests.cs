@@ -159,7 +159,7 @@ public sealed class FrameworkRegistrationTests
         services.AddLogging();
         services.AddSingleton(Substitute.For<AgentMemory.Abstractions.Services.IMemoryService>());
         services.AddSingleton(Substitute.For<AgentMemory.Abstractions.Services.IEmbeddingOrchestrator>());
-        services.AddSingleton(Substitute.For<AgentMemory.Abstractions.Services.IClock>());
+        services.AddSingleton(Substitute.For<TimeProvider>());
         services.AddSingleton(Substitute.For<AgentMemory.Abstractions.Services.IIdGenerator>());
         services.AddSingleton(Microsoft.Extensions.Options.Options.Create(
             new AgentMemory.Abstractions.Options.MemoryOptions()));

@@ -153,7 +153,7 @@ public sealed class SharedKnowledgeBoundaryTests
         var options = new MemoryOptions { SharedRecallBudget = sharedBudget };
         return new MemoryContextAssembler(
             shortTerm, longTerm, Substitute.For<IReasoningMemoryService>(), graphRag: null, embeddings,
-            Substitute.For<IClock>(), Options.Create(options), NullLogger<MemoryContextAssembler>.Instance,
+            Substitute.For<TimeProvider>(), Options.Create(options), NullLogger<MemoryContextAssembler>.Instance,
             new DefaultMemoryIsolationPolicy(Options.Create(options.Isolation), NullLogger<DefaultMemoryIsolationPolicy>.Instance));
     }
 
@@ -244,8 +244,8 @@ public sealed class SharedKnowledgeBoundaryTests
     {
         var options = new ExtractionOptions();
         options.EntityResolution.EnablePartialNameMatch = true;
-        var clock = Substitute.For<IClock>();
-        clock.UtcNow.Returns(T0);
+        var clock = Substitute.For<TimeProvider>();
+        clock.GetUtcNow().Returns(T0);
         var ids = Substitute.For<IIdGenerator>();
         ids.GenerateId().Returns(_ => Guid.NewGuid().ToString("N"));
         var embeddings = Substitute.For<IEmbeddingOrchestrator>();

@@ -25,8 +25,9 @@ public class WorkingMemoryExpiryAndPruneIntegrationTests : IAsyncLifetime
     private readonly MovableClock _clock = new() { UtcNow = new DateTimeOffset(2026, 9, 26, 12, 0, 0, TimeSpan.Zero) };
     private readonly MemoryOptions _options = new();
 
-    private sealed class MovableClock : IClock
+    private sealed class MovableClock : TimeProvider
     {
+        public override DateTimeOffset GetUtcNow() => UtcNow;
         public DateTimeOffset UtcNow { get; set; }
     }
 
@@ -74,7 +75,7 @@ public class WorkingMemoryExpiryAndPruneIntegrationTests : IAsyncLifetime
         Predicate = "works_at",
         Object = @object,
         Confidence = 0.95,
-        CreatedAtUtc = _clock.UtcNow.AddDays(-1),
+        CreatedAtUtc = _clock.GetUtcNow().AddDays(-1),
         ValidUntil = validUntil,
         OwnerId = owner,
     };
@@ -83,13 +84,13 @@ public class WorkingMemoryExpiryAndPruneIntegrationTests : IAsyncLifetime
     public async Task A_fact_that_expired_is_gone_from_the_block_on_the_next_read()
     {
         var workingMemory = WorkingMemory();
-        await _facts.UpsertAsync(NewFact("Acme", validUntil: _clock.UtcNow.AddHours(1)));
+        await _facts.UpsertAsync(NewFact("Acme", validUntil: _clock.GetUtcNow().AddHours(1)));
         await _facts.UpsertAsync(NewFact("Globex"));
         await workingMemory.RebuildAsync("alice");
         (await workingMemory.GetAsync("alice"))!.Text.Should().Contain("Acme");
 
         // No write happens; only time passes the fact's valid_until.
-        _clock.UtcNow = _clock.UtcNow.AddHours(2);
+        _clock.UtcNow = _clock.GetUtcNow().AddHours(2);
 
         var block = await workingMemory.GetAsync("alice");
         block!.Text.Should().NotContain("Acme").And.Contain("Globex");
@@ -99,7 +100,7 @@ public class WorkingMemoryExpiryAndPruneIntegrationTests : IAsyncLifetime
     public async Task A_prune_clears_the_block_of_the_pruned_owner()
     {
         var workingMemory = WorkingMemory();
-        await _facts.UpsertAsync(NewFact("Acme") with { CreatedAtUtc = _clock.UtcNow.AddYears(-5) });
+        await _facts.UpsertAsync(NewFact("Acme") with { CreatedAtUtc = _clock.GetUtcNow().AddYears(-5) });
         await workingMemory.RebuildAsync("alice");
         (await workingMemory.GetAsync("alice")).Should().NotBeNull();
 
@@ -114,8 +115,8 @@ public class WorkingMemoryExpiryAndPruneIntegrationTests : IAsyncLifetime
         // Review round 2: the prune cleared the block and nothing rebuilt it until the owner wrote again,
         // so an owner who only reads ("what do you know about me?") got no profile at all.
         var workingMemory = WorkingMemory();
-        await _facts.UpsertAsync(NewFact("Acme") with { CreatedAtUtc = _clock.UtcNow.AddYears(-5) });
-        await _facts.UpsertAsync(NewFact("Globex") with { CreatedAtUtc = _clock.UtcNow });
+        await _facts.UpsertAsync(NewFact("Acme") with { CreatedAtUtc = _clock.GetUtcNow().AddYears(-5) });
+        await _facts.UpsertAsync(NewFact("Globex") with { CreatedAtUtc = _clock.GetUtcNow() });
         await workingMemory.RebuildAsync("alice");
 
         await HardPrune().PruneExpiredMemoriesAsync(MemoryScope.For("alice", includeShared: false));
@@ -129,8 +130,8 @@ public class WorkingMemoryExpiryAndPruneIntegrationTests : IAsyncLifetime
     {
         // The nightly unscoped prune clears every block when any owner lost something.
         var workingMemory = WorkingMemory();
-        await _facts.UpsertAsync(NewFact("Acme") with { CreatedAtUtc = _clock.UtcNow.AddYears(-5) });
-        await _facts.UpsertAsync(NewFact("Initech", owner: "bob") with { CreatedAtUtc = _clock.UtcNow });
+        await _facts.UpsertAsync(NewFact("Acme") with { CreatedAtUtc = _clock.GetUtcNow().AddYears(-5) });
+        await _facts.UpsertAsync(NewFact("Initech", owner: "bob") with { CreatedAtUtc = _clock.GetUtcNow() });
         await workingMemory.RebuildAsync("alice");
         await workingMemory.RebuildAsync("bob");
 
@@ -146,11 +147,11 @@ public class WorkingMemoryExpiryAndPruneIntegrationTests : IAsyncLifetime
         // The owner's only fact starts on Monday: the rebuild stores no text and Monday as the boundary.
         // The boundary was dropped with the empty text, so the block stayed empty after Monday.
         var workingMemory = WorkingMemory();
-        await _facts.UpsertAsync(NewFact("Acme") with { ValidFrom = _clock.UtcNow.AddDays(2) });
+        await _facts.UpsertAsync(NewFact("Acme") with { ValidFrom = _clock.GetUtcNow().AddDays(2) });
         await workingMemory.RebuildAsync("alice");
         (await workingMemory.GetAsync("alice")).Should().BeNull();
 
-        _clock.UtcNow = _clock.UtcNow.AddDays(3);
+        _clock.UtcNow = _clock.GetUtcNow().AddDays(3);
 
         (await workingMemory.GetAsync("alice"))!.Text.Should().Contain("Acme");
     }
@@ -159,9 +160,9 @@ public class WorkingMemoryExpiryAndPruneIntegrationTests : IAsyncLifetime
     public async Task A_rebuild_on_read_that_cannot_write_does_not_fail_recall()
     {
         // Review round 2: GetAsync became a write on the recall path, outside the rebuilder's never-throw.
-        await _facts.UpsertAsync(NewFact("Acme", validUntil: _clock.UtcNow.AddHours(1)));
+        await _facts.UpsertAsync(NewFact("Acme", validUntil: _clock.GetUtcNow().AddHours(1)));
         await WorkingMemory().RebuildAsync("alice");
-        _clock.UtcNow = _clock.UtcNow.AddHours(2);
+        _clock.UtcNow = _clock.GetUtcNow().AddHours(2);
 
         var read = async () => await WorkingMemory(new ReadOnlyRunner(_fixture.TransactionRunner)).GetAsync("alice");
 
@@ -173,9 +174,9 @@ public class WorkingMemoryExpiryAndPruneIntegrationTests : IAsyncLifetime
     {
         // Review round 3: with the block due and the write failing, every recall ran the rebuild's reads,
         // a failing write and a warning, for as long as the cause lasted.
-        await _facts.UpsertAsync(NewFact("Acme", validUntil: _clock.UtcNow.AddHours(1)));
+        await _facts.UpsertAsync(NewFact("Acme", validUntil: _clock.GetUtcNow().AddHours(1)));
         await WorkingMemory().RebuildAsync("alice");
-        _clock.UtcNow = _clock.UtcNow.AddHours(2);
+        _clock.UtcNow = _clock.GetUtcNow().AddHours(2);
         var runner = new CountingReadOnlyRunner(_fixture.TransactionRunner);
         var backoff = new WorkingMemoryRebuildBackoff();
         Neo4jWorkingMemoryService Service() => new(runner, _clock, new Ids(), Options.Create(_options),
@@ -200,11 +201,11 @@ public class WorkingMemoryExpiryAndPruneIntegrationTests : IAsyncLifetime
         _options.WorkingMemory.RecentStableFactSlots = recentSlots;
         for (int i = 0; i < 12; i++)
         {
-            var fact = NewFact($"Old{i}") with { Predicate = $"likes_{i}", CreatedAtUtc = _clock.UtcNow.AddDays(-30 + i) };
+            var fact = NewFact($"Old{i}") with { Predicate = $"likes_{i}", CreatedAtUtc = _clock.GetUtcNow().AddDays(-30 + i) };
             await _facts.UpsertAsync(fact);
             await _facts.UpsertAsync(fact with { FactId = Guid.NewGuid().ToString("N") });   // a second mention
         }
-        await _facts.UpsertAsync(NewFact("Initech") with { Predicate = "works_at", CreatedAtUtc = _clock.UtcNow });
+        await _facts.UpsertAsync(NewFact("Initech") with { Predicate = "works_at", CreatedAtUtc = _clock.GetUtcNow() });
 
         await WorkingMemory().RebuildAsync("alice");
 

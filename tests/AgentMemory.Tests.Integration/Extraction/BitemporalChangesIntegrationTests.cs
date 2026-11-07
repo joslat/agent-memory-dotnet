@@ -291,13 +291,14 @@ public sealed class BitemporalChangesIntegrationTests : IAsyncLifetime
                 "with closed rows included, the old value says why it closed and what replaced it");
     }
 
-    private sealed class ReplayClock(DateTimeOffset start) : IClock
+    private sealed class ReplayClock(DateTimeOffset start) : TimeProvider
     {
+        public override DateTimeOffset GetUtcNow() => UtcNow;
         public DateTimeOffset Now { get; set; } = start;
         public DateTimeOffset UtcNow => Now;
     }
 
-    private void Build(bool bitemporal, IClock? clock = null, bool resolveTemporalQueries = false)
+    private void Build(bool bitemporal, TimeProvider? clock = null, bool resolveTemporalQueries = false)
     {
         var services = new ServiceCollection();
         services.AddLogging();

@@ -24,14 +24,14 @@ public sealed class PersistenceStageTests
     private readonly IFactRepository _factRepo = Substitute.For<IFactRepository>();
     private readonly IPreferenceRepository _prefRepo = Substitute.For<IPreferenceRepository>();
     private readonly IRelationshipRepository _relRepo = Substitute.For<IRelationshipRepository>();
-    private readonly IClock _clock = Substitute.For<IClock>();
+    private readonly TimeProvider _clock = Substitute.For<TimeProvider>();
     private readonly IIdGenerator _idGen = Substitute.For<IIdGenerator>();
 
     private static readonly IReadOnlyList<string> TwoMessageIds = new[] { "msg-1", "msg-2" };
 
     public PersistenceStageTests()
     {
-        _clock.UtcNow.Returns(DateTimeOffset.UtcNow);
+        _clock.GetUtcNow().Returns(DateTimeOffset.UtcNow);
 
         _orchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new float[384]);

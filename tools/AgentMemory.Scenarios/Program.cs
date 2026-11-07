@@ -357,7 +357,8 @@ static string? GitCommit(string root)
 }
 
 /// <summary>The script's clock: three months are replayed in minutes, so "now" is wherever the script has reached.</summary>
-internal sealed class ScenarioClock : IClock
+internal sealed class ScenarioClock : TimeProvider
 {
+        public override DateTimeOffset GetUtcNow() => UtcNow;
     public DateTimeOffset UtcNow { get; set; }
 }

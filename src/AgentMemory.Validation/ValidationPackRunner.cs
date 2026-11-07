@@ -152,7 +152,7 @@ public sealed partial class ValidationPackRunner(
 
         var services = new ServiceCollection();
         services.AddLogging(builder => logging?.Invoke(builder));
-        services.AddSingleton<IClock>(clock);
+        services.AddSingleton<TimeProvider>(clock);
         services.AddSingleton<IEntityExtractor>(new ScriptedEntities(script));
         services.AddSingleton<IFactExtractor>(new ScriptedFacts(script));
         services.AddSingleton<IRelationshipExtractor>(new ScriptedRelationships(script));

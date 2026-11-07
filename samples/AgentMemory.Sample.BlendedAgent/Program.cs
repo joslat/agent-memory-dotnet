@@ -79,7 +79,7 @@ builder.Services.AddAgentMemoryCore(new MemoryOptions
     }
 });
 
-builder.Services.AddSingleton<IClock, SystemClock>();
+builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IIdGenerator, GuidIdGenerator>();
 
 // IEmbeddingGenerator<string, Embedding<float>> is required by the GraphRAG adapter

@@ -156,10 +156,10 @@ public sealed class FactEntityLinkingTests
         var preferenceRepository = Substitute.For<IPreferenceRepository>();
         var relationshipRepository = Substitute.For<IRelationshipRepository>();
         var embeddingOrchestrator = Substitute.For<IEmbeddingOrchestrator>();
-        var clock = Substitute.For<IClock>();
+        var clock = Substitute.For<TimeProvider>();
         var idGenerator = Substitute.For<IIdGenerator>();
 
-        clock.UtcNow.Returns(DateTimeOffset.Parse("2026-09-13T00:00:00Z"));
+        clock.GetUtcNow().Returns(DateTimeOffset.Parse("2026-09-13T00:00:00Z"));
         idGenerator.GenerateId().Returns("fact-1", "fact-2", "fact-3");
         embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new float[4]);

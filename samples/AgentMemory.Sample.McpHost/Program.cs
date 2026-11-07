@@ -49,8 +49,8 @@ builder.Services.AddNeo4jAgentMemory(neo4j =>
 // Register core memory services
 builder.Services.AddAgentMemoryCore(_ => { });
 
-// Provide default IClock and IIdGenerator implementations.
-builder.Services.AddSingleton<IClock, SystemClock>();
+// Provide the default TimeProvider and IIdGenerator implementations.
+builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IIdGenerator, GuidIdGenerator>();
 
 builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(

@@ -148,16 +148,18 @@ internal static class EntityQueries
     /// </summary>
     /// <summary>
     /// The owner's live entity by name or alias (I-7): not merged away, not invalidated; case-insensitive
-    /// on the stored name and aliases; an exact name first, then the most mentioned, then the id.
+    /// on the stored name and aliases; an exact name first, then the most mentioned, then the id. The first two rows,
+    /// each with its rank (<c>tier</c>: 0 for an exact name, 1 for an alias): two at the same rank are ambiguous and the
+    /// repository resolves neither (#251).
     /// </summary>
     public const string FindLiveByName = @"
             MATCH (e:Entity {owner_id: $ownerId})
             WHERE e.merged_into IS NULL AND e.invalidated_at IS NULL
               AND ($type IS NULL OR toLower(e.type) = toLower($type))
               AND (toLower(e.name) = $nameLower OR any(a IN coalesce(e.aliases, []) WHERE toLower(a) = $nameLower))
-            RETURN e
-            ORDER BY CASE WHEN toLower(e.name) = $nameLower THEN 0 ELSE 1 END, coalesce(e.mention_count, 1) DESC, e.id
-            LIMIT 1";
+            RETURN e, CASE WHEN toLower(e.name) = $nameLower THEN 0 ELSE 1 END AS tier
+            ORDER BY tier, coalesce(e.mention_count, 1) DESC, e.id
+            LIMIT 2";
 
     /// <summary>
     /// <see cref="FindLiveByName"/> for a scope that includes shared memory: the owner's entity, else a shared one
@@ -174,10 +176,10 @@ internal static class EntityQueries
             WHERE e.merged_into IS NULL AND e.invalidated_at IS NULL
               AND ($type IS NULL OR toLower(e.type) = toLower($type))
               AND (toLower(e.name) = $nameLower OR any(a IN coalesce(e.aliases, []) WHERE toLower(a) = $nameLower))
-            RETURN e
-            ORDER BY CASE WHEN e.owner_id = $ownerId THEN 0 ELSE 1 END,
-                     CASE WHEN toLower(e.name) = $nameLower THEN 0 ELSE 1 END, coalesce(e.mention_count, 1) DESC, e.id
-            LIMIT 1";
+            RETURN e, CASE WHEN e.owner_id = $ownerId THEN 0 ELSE 2 END
+                      + CASE WHEN toLower(e.name) = $nameLower THEN 0 ELSE 1 END AS tier
+            ORDER BY tier, coalesce(e.mention_count, 1) DESC, e.id
+            LIMIT 2";
 
     public static string GetByTypeWithoutEmbedding(bool hasOwnerFilter, bool includeShared)
     {

@@ -24,8 +24,8 @@ public sealed class ShortTermMemoryEmbeddingValidationTests
 
     private ShortTermMemoryService CreateSut()
     {
-        var clock = Substitute.For<IClock>();
-        clock.UtcNow.Returns(new DateTimeOffset(2026, 8, 7, 12, 0, 0, TimeSpan.Zero));
+        var clock = Substitute.For<TimeProvider>();
+        clock.GetUtcNow().Returns(new DateTimeOffset(2026, 8, 7, 12, 0, 0, TimeSpan.Zero));
         var ids = Substitute.For<IIdGenerator>();
         ids.GenerateId().Returns(_ => Guid.NewGuid().ToString("n"));
         _messageRepo.AddBatchAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>())

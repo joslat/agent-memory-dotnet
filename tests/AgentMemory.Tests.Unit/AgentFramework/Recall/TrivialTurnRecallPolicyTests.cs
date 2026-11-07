@@ -119,10 +119,10 @@ public sealed class RecallPolicyDefaultConsistencyTests
         // the way the perf harness builds one can prove the fallback itself changed.
         var memory = Substitute.For<IMemoryService>();
         var embeddings = Substitute.For<IEmbeddingOrchestrator>();
-        var clock = Substitute.For<IClock>();
+        var clock = Substitute.For<TimeProvider>();
         var ids = Substitute.For<IIdGenerator>();
 
-        clock.UtcNow.Returns(DateTimeOffset.UtcNow);
+        clock.GetUtcNow().Returns(DateTimeOffset.UtcNow);
         ids.GenerateId().Returns(_ => Guid.NewGuid().ToString("N"));
         embeddings.EmbedQueryAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new float[] { 0.1f }));
@@ -134,7 +134,7 @@ public sealed class RecallPolicyDefaultConsistencyTests
 
         // No recallPolicy argument -- exactly how tools, tests and hand-wired hosts build it.
         var sut = new Neo4jMemoryContextProvider(
-            memory, embeddings, clock, ids,
+            memory, embeddings, new TimeProviderClock(clock), ids,
             Options.Create(new MemoryOptions()),
             Options.Create(new ContextFormatOptions()),
             Options.Create(new AgentFrameworkOptions()),

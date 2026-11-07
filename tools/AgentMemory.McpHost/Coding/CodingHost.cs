@@ -56,7 +56,7 @@ internal static class CodingHost
         // Explicit permission; the job receipt preserves the actual path independently of success.
         memory.Extraction.FallBackToExtractorsWhenWriterFails = configuration.Options.AllowExtractorFallback;
         services.AddAgentMemoryCore(memory);
-        services.AddSingleton<IClock, SystemClock>();
+        services.AddSingleton(TimeProvider.System);
         services.AddSingleton<IIdGenerator, GuidIdGenerator>();
         services.AddSingleton<IChatClient>(provider => InferenceClientFactory.TryCreateChatClient(host.Inference,
             "coding writer", out var chat, out _, model: host.Inference.EffectiveExtractionModel)

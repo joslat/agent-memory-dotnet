@@ -25,11 +25,11 @@ public sealed class BitemporalChangesTests
     private readonly IFactRepository _facts = Substitute.For<IFactRepository>();
     private readonly List<(string Loser, string Winner, FactClosureReason Reason, DateTimeOffset? ChangedAt)> _closed = [];
     private readonly List<(string Loser, string Winner)> _closedWithoutReason = [];
-    private readonly IClock _clock = Substitute.For<IClock>();
+    private readonly TimeProvider _clock = Substitute.For<TimeProvider>();
 
     public BitemporalChangesTests()
     {
-        _clock.UtcNow.Returns(Today);
+        _clock.GetUtcNow().Returns(Today);
         _facts.UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>()).Returns(ci => Task.FromResult(ci.Arg<Fact>()));
         _facts.FindSupersededCandidatesAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
                 Arg.Any<DateTimeOffset>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())

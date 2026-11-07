@@ -78,6 +78,29 @@ NuGet since 1.9.0. Its packages carry everything in 2.0.0 below, as well as this
 - **The Recommended preset turns on look-ahead recall and `DatesFromText`.** Recommended shipped opt-in in 2.0.0; the
   Conversational preset and the low-level defaults are unchanged.
 
+- **Time comes from .NET's `TimeProvider`** ([#164](https://github.com/joslat/agent-memory-dotnet/issues/164)).
+  Register a `TimeProvider` (for example `FakeTimeProvider` in tests) and every component reads it. A host's own
+  `IClock` registration is still honoured: the default `TimeProvider` reads it. `IClock` stays for the public
+  constructors that take it (`Neo4jMemoryContextProvider`, `Neo4jChatHistoryProvider`, `Neo4jChatMessageStore`,
+  `AgentTraceRecorder`, `ExtensibleMemoryContextProvider`, `GatedMemoryContextAssembler`). It is removed in 3.0.
+  `TimeProviderClock` and `IClock.ToTimeProvider()` bridge the two.
+
+### Fixed
+
+- **The store-aware writer checks the quote behind each operation** ([#249](https://github.com/joslat/agent-memory-dotnet/issues/249)).
+  An operation whose quote isn't in the message isn't stored. A quote that's found keeps its character offsets in the
+  memory's metadata (`source_quote_start`, `source_quote_end`).
+- **The writer records the operations it drops** ([#250](https://github.com/joslat/agent-memory-dotnet/issues/250)).
+  Each comes with a reason code, shown on the write span (`memory.write.dropped`, `memory.write.dropped_reasons`) and in
+  the debug log.
+- **Hybrid retrieval fuses results by the node they came from** ([#248](https://github.com/joslat/agent-memory-dotnet/issues/248)),
+  not by their text. Two nodes with the same text stay two results, and one node found by both routes counts once.
+  Only a custom retrieval query that returns no `id` column falls back to matching by text.
+- **Name resolution no longer picks one of several equal matches** ([#251](https://github.com/joslat/agent-memory-dotnet/issues/251)).
+  When two live entities match a name at the same rank (both by exact name, or both by alias), `FindLiveByNameAsync`
+  returns null and logs a warning. The fact or edge is then not attached to either; before, the more-mentioned entity
+  received it. An exact name still wins over aliases, and the owner's entity over a shared one.
+
 ## [2.0.0] - 2026-11-06
 
 Memory a host can trust before it switches it on. 2.0.0 adds the ampack memory-pack format (signed,

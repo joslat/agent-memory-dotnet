@@ -29,8 +29,8 @@ public sealed class CanonicalFactSubjectTests
             .Returns(call => { _upserted.Add(call.Arg<Fact>()); return call.Arg<Fact>(); });
         var embeddings = Substitute.For<IEmbeddingOrchestrator>();
         embeddings.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new float[4]);
-        var clock = Substitute.For<IClock>();
-        clock.UtcNow.Returns(DateTimeOffset.Parse("2026-09-26T00:00:00Z"));
+        var clock = Substitute.For<TimeProvider>();
+        clock.GetUtcNow().Returns(DateTimeOffset.Parse("2026-09-26T00:00:00Z"));
         var ids = Substitute.For<IIdGenerator>();
         ids.GenerateId().Returns(_ => Guid.NewGuid().ToString("N"));
 
@@ -104,7 +104,7 @@ public sealed class CanonicalFactSubjectTests
         var ids = Substitute.For<IIdGenerator>();
         ids.GenerateId().Returns(_ => Guid.NewGuid().ToString("N"));
         var sut = new PersistenceStage(embeddings, entities, facts, Substitute.For<IPreferenceRepository>(),
-            Substitute.For<IRelationshipRepository>(), Substitute.For<IClock>(), ids, NullLogger<PersistenceStage>.Instance,
+            Substitute.For<IRelationshipRepository>(), Substitute.For<TimeProvider>(), ids, NullLogger<PersistenceStage>.Instance,
             new PassThroughMemoryPersistenceTransaction(),
             Options.Create(new ExtractionOptions { CanonicalFactSubjects = true }));
         var tomas = new Entity { EntityId = "entity-tomas", Name = "Tomás Silva", Type = "PERSON", Confidence = 1, CreatedAtUtc = DateTimeOffset.UnixEpoch };

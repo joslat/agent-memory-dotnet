@@ -26,7 +26,7 @@ public sealed class LlmMemoryWriterTests
     private readonly IEntityRepository _entities = Substitute.For<IEntityRepository>();
     private readonly IRelationshipRepository _relationships = Substitute.For<IRelationshipRepository>();
     private readonly IEmbeddingOrchestrator _embeddings = Substitute.For<IEmbeddingOrchestrator>();
-    private readonly IClock _clock = Substitute.For<IClock>();
+    private readonly TimeProvider _clock = Substitute.For<TimeProvider>();
     private readonly IChatClient _chat = Substitute.For<IChatClient>();
     private readonly List<(string System, string User, int? Room)> _asked = [];
     private readonly Queue<string> _replies = new();
@@ -35,7 +35,7 @@ public sealed class LlmMemoryWriterTests
 
     public LlmMemoryWriterTests()
     {
-        _clock.UtcNow.Returns(Now);
+        _clock.GetUtcNow().Returns(Now);
         _embeddings.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new float[4]);
         _facts.FindLatestObjectAsync(default!, default!, default!, default).ReturnsForAnyArgs((string?)null);
         _facts.FindMentioningAsync(default!, default!, default, default).ReturnsForAnyArgs([]);
@@ -260,5 +260,32 @@ public sealed class LlmMemoryWriterTests
         var result = await Writer().WriteAsync(Turn("I scheduled the training session for December 3.", MemoryScope.For("bruna")));
 
         result.Facts.Should().ContainSingle().Which.OccurredOn.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task An_operation_whose_quote_is_not_in_the_message_is_not_stored_and_a_located_one_keeps_its_offsets()
+    {
+        _replies.Enqueue("""
+            {"ops": [
+              {"op": "add", "kind": "fact", "text": "Lukas | lives in | Leoben", "quote": "We moved to Leoben"},
+              {"op": "add", "kind": "fact", "text": "Lukas | works in | Graz", "quote": "I work in Graz"}
+            ]}
+            """);
+
+        var result = await Writer().WriteAsync(Turn("We moved to Leoben last spring.", MemoryScope.For("lukas")));
+
+        var fact = result.Facts.Should().ContainSingle().Which;
+        fact.Object.Should().Be("Leoben");
+        (fact.SourceQuoteStart, fact.SourceQuoteEnd).Should().Be((0, 18));
+    }
+
+    [Fact]
+    public async Task An_operation_without_a_quote_is_kept_without_offsets()
+    {
+        _replies.Enqueue("{\"ops\": [{\"op\": \"add\", \"kind\": \"fact\", \"text\": \"Lukas | lives in | Leoben\"}]}");
+
+        var result = await Writer().WriteAsync(Turn("We moved to Leoben.", MemoryScope.For("lukas")));
+
+        result.Facts.Should().ContainSingle().Which.SourceQuoteStart.Should().BeNull();
     }
 }

@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -292,6 +292,12 @@ public static class ServiceCollectionExtensions
         // Sensible defaults for the two ambient primitives that many services depend on (assembler,
         // reasoning, consolidation, dedup). TryAdd so a consumer can still register their own first.
         // Without these the meta package wasn't self-sufficient — every sample had to register them by hand.
+        // Time (#164): the library reads TimeProvider. Register one (FakeTimeProvider in tests) and everything follows
+        // it. A host that registered its own IClock, the 2.0 way to set time, keeps it: the default TimeProvider then
+        // reads that clock. The default IClock reads the TimeProvider, for the public constructors that still take one.
+        services.TryAddSingleton<TimeProvider>(sp => HostClock(services) is null
+            ? TimeProvider.System
+            : sp.GetRequiredService<IClock>().ToTimeProvider());
         services.TryAddSingleton<IClock, SystemClock>();
         services.TryAddSingleton<IIdGenerator, GuidIdGenerator>();
         services.TryAddSingleton<ISessionIdGenerator, SessionIdGenerator>();
@@ -332,7 +338,7 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<IReasoningMemoryService>(),
             sp.GetService<IGraphRagContextSource>(),
             sp.GetRequiredService<IEmbeddingOrchestrator>(),
-            sp.GetRequiredService<IClock>(),
+            sp.GetRequiredService<TimeProvider>(),
             sp.GetRequiredService<IOptions<MemoryOptions>>(),
             sp.GetRequiredService<ILogger<MemoryContextAssembler>>(),
             sp.GetRequiredService<IMemoryIsolationPolicy>(),
@@ -534,6 +540,16 @@ public static class ServiceCollectionExtensions
         services.TryAddScoped<IRelationshipExtractor, StubRelationshipExtractor>();
 
         return services;
+    }
+    /// <summary>
+    /// The host's own <see cref="IClock"/> registration, if it made one (the last registration wins, as in resolution);
+    /// null when the clock is the default: <see cref="SystemClock"/> registered by type, as the library and the 2.0
+    /// samples register it. That one reads <see cref="TimeProvider"/>, so it must not be read back.
+    /// </summary>
+    internal static ServiceDescriptor? HostClock(IServiceCollection services)
+    {
+        var clock = services.LastOrDefault(d => d.ServiceType == typeof(IClock) && !d.IsKeyedService);
+        return clock is null || clock.ImplementationType == typeof(SystemClock) ? null : clock;
     }
 }
 

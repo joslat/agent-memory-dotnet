@@ -64,7 +64,7 @@ public sealed class PersistenceStageFactBatchSemanticsTests
             factRepository,
             Substitute.For<IPreferenceRepository>(),
             Substitute.For<IRelationshipRepository>(),
-            Substitute.For<IClock>(),
+            Substitute.For<TimeProvider>(),
             idGenerator,
             NullLogger<PersistenceStage>.Instance,
             new PassThroughMemoryPersistenceTransaction(),

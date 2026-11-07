@@ -14,13 +14,13 @@ namespace AgentMemory.Core.Extraction;
 internal sealed class FactPersistence
 {
     private readonly IFactRepository _factRepository;
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly ExtractionOptions _options;
     private readonly ILogger _logger;
     private readonly FactPreparation _factPreparation;
     private readonly FactReplacementResolver _replacements;
 
-    public FactPersistence(IFactRepository factRepository, IClock clock, ExtractionOptions options,
+    public FactPersistence(IFactRepository factRepository, TimeProvider clock, ExtractionOptions options,
         ILogger logger, FactPreparation factPreparation, ClosingPipeline closings)
     {
         _factRepository = factRepository;

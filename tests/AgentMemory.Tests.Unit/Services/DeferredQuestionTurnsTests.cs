@@ -50,7 +50,7 @@ public sealed class DeferredQuestionTurnsTests
             Substitute.For<IShortTermMemoryService>(), Substitute.For<IMemoryContextAssembler>(), _pipeline,
             Substitute.For<IEntityRepository>(), Substitute.For<IFactRepository>(), Substitute.For<IPreferenceRepository>(),
             Substitute.For<IEmbeddingOrchestrator>(), Microsoft.Extensions.Options.Options.Create(options),
-            Substitute.For<IClock>(), Substitute.For<IIdGenerator>(), NullLogger<MemoryService>.Instance,
+            Substitute.For<TimeProvider>(), Substitute.For<IIdGenerator>(), NullLogger<MemoryService>.Instance,
             messageRepository: messages ?? _messages);
     }
 

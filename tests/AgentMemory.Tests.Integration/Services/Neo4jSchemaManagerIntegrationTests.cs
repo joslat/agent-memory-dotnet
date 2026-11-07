@@ -29,9 +29,9 @@ public class Neo4jSchemaManagerIntegrationTests : IAsyncLifetime
     {
         _fixture = fixture;
 
-        var clock = Substitute.For<IClock>();
+        var clock = Substitute.For<TimeProvider>();
         // Successive saves get strictly increasing created_at so "newest version" ordering is deterministic.
-        clock.UtcNow.Returns(
+        clock.GetUtcNow().Returns(
             _t0, _t0.AddSeconds(1), _t0.AddSeconds(2), _t0.AddSeconds(3), _t0.AddSeconds(4), _t0.AddSeconds(5));
 
         _manager = new Neo4jSchemaManager(

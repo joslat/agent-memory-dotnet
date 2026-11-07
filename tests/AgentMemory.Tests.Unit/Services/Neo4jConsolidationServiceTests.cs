@@ -11,12 +11,12 @@ namespace AgentMemory.Tests.Unit.Services;
 public sealed class Neo4jConsolidationServiceTests
 {
     private readonly INeo4jTransactionRunner _tx = Substitute.For<INeo4jTransactionRunner>();
-    private readonly IClock _clock = Substitute.For<IClock>();
+    private readonly TimeProvider _clock = Substitute.For<TimeProvider>();
     private readonly IIdGenerator _idGen = Substitute.For<IIdGenerator>();
 
     private Neo4jConsolidationService CreateSut()
     {
-        _clock.UtcNow.Returns(new DateTimeOffset(2026, 6, 6, 0, 0, 0, TimeSpan.Zero));
+        _clock.GetUtcNow().Returns(new DateTimeOffset(2026, 6, 6, 0, 0, 0, TimeSpan.Zero));
         _idGen.GenerateId().Returns("run-1");
         return new Neo4jConsolidationService(_tx, _clock, _idGen, NullLogger<Neo4jConsolidationService>.Instance);
     }
@@ -71,7 +71,7 @@ public sealed class Neo4jConsolidationServiceTests
 
     private Neo4jConsolidationService CreateDreamingSut(bool withCheck = true)
     {
-        _clock.UtcNow.Returns(new DateTimeOffset(2026, 6, 6, 0, 0, 0, TimeSpan.Zero));
+        _clock.GetUtcNow().Returns(new DateTimeOffset(2026, 6, 6, 0, 0, 0, TimeSpan.Zero));
         _idGen.GenerateId().Returns("run-1");
         return new Neo4jConsolidationService(_tx, _clock, _idGen, NullLogger<Neo4jConsolidationService>.Instance, withCheck ? _check : null);
     }

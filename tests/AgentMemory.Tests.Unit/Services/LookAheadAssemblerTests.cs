@@ -23,7 +23,7 @@ public sealed class LookAheadAssemblerTests
     private readonly ILongTermMemoryService _longTerm = Substitute.For<ILongTermMemoryService>();
     private readonly IReasoningMemoryService _reasoning = Substitute.For<IReasoningMemoryService>();
     private readonly IEmbeddingOrchestrator _embeddings = Substitute.For<IEmbeddingOrchestrator>();
-    private readonly IClock _clock = Substitute.For<IClock>();
+    private readonly TimeProvider _clock = Substitute.For<TimeProvider>();
     private IReadOnlyList<Fact> _relevant = [];
 
     private static readonly IMemoryIsolationPolicy Policy =
@@ -53,7 +53,7 @@ public sealed class LookAheadAssemblerTests
 
     public LookAheadAssemblerTests()
     {
-        _clock.UtcNow.Returns(Now);
+        _clock.GetUtcNow().Returns(Now);
         _embeddings.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(Task.FromResult(new float[8]));
         _embeddings.EmbedQueryAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(Task.FromResult(new float[8]));
         _shortTerm.GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())

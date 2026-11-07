@@ -17,7 +17,7 @@ namespace AgentMemory.Core.Extraction;
 /// </summary>
 internal sealed class PersistenceStage : IPersistenceStage
 {
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly ExtractionOptions _options;
     private readonly IMemoryPersistenceTransaction _persistenceTransaction;
     private readonly ILogger<PersistenceStage> _logger;
@@ -38,7 +38,7 @@ internal sealed class PersistenceStage : IPersistenceStage
         IFactRepository factRepository,
         IPreferenceRepository preferenceRepository,
         IRelationshipRepository relationshipRepository,
-        IClock clock,
+        TimeProvider clock,
         IIdGenerator idGenerator,
         ILogger<PersistenceStage> logger,
         IMemoryPersistenceTransaction persistenceTransaction,
@@ -91,7 +91,7 @@ internal sealed class PersistenceStage : IPersistenceStage
         MemoryTrustLevel trustLevel = MemoryTrustLevel.Untrusted,
         CancellationToken cancellationToken = default)
     {
-        var started = _clock.UtcNow;
+        var started = _clock.GetUtcNow();
         var result = await PersistCoreAsync(extraction, ownerId, trustLevel, cancellationToken)
             .ConfigureAwait(false);
 
@@ -157,7 +157,7 @@ internal sealed class PersistenceStage : IPersistenceStage
                 FilteredFacts = ReplacementShapes.Prepare(
                     extraction.FilteredFacts,
                     name => extraction.ResolvedEntityMap.TryGetValue(name, out var entity) ? entity.Type : null,
-                    _clock.UtcNow),
+                    _clock.GetUtcNow()),
             };
 
         var prepared = await _embeddingPreparation.PrepareAsync(extraction, cancellationToken).ConfigureAwait(false);

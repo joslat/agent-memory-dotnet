@@ -17,7 +17,7 @@ internal sealed class MemoryRecallExplainer(
     IFactRepository facts,
     IEmbeddingOrchestrator embeddings,
     IOptions<MemoryOptions> options,
-    IClock clock,
+    TimeProvider clock,
     IMemoryRouter? router = null,
     IMemoryHistoryService? history = null,
     IEntityRepository? entities = null,
@@ -86,7 +86,7 @@ internal sealed class MemoryRecallExplainer(
         }
 
         var recall = MemoryContextAssembler.EffectiveRecall(request.Options, settings.Recall);
-        var now = request.TemporalReferenceTime ?? clock.UtcNow;
+        var now = request.TemporalReferenceTime ?? clock.GetUtcNow();
         if (recall.ValidTime == ValidTimeMode.Current &&
             ((candidate.ValidFrom is { } from && from > now) || (candidate.ValidUntil is { } until && until <= now)))
             return Gate(MemoryWhyNot.Validity, "Outside its valid time at the recall's instant.");

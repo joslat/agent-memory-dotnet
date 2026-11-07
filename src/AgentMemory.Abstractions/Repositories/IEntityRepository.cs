@@ -69,7 +69,9 @@ public interface IEntityRepository
     /// <summary>
     /// The owner's live entity with this name or alias, if any: never one merged into another or
     /// invalidated; an exact name before an alias; case-insensitive. With <see cref="MemoryScope.IncludeShared"/>, a
-    /// shared entity too, after the owner's own. The default reads
+    /// shared entity too, after the owner's own. Null when the name is ambiguous: two or more entities match it at the
+    /// same rank (both by exact name, or both by alias, in the same scope tier), so a caller never attaches a fact or
+    /// an edge to one of them by chance (#251). The default reads
     /// <see cref="GetByNameAsync"/> and prefers an exact name (it cannot see merges or invalidation); a
     /// backend overrides it with one filtered, ordered read.
     /// </summary>
@@ -80,11 +82,15 @@ public interface IEntityRepository
         CancellationToken cancellationToken = default)
     {
         var named = await GetByNameAsync(name, includeAliases: true, scope, cancellationToken).ConfigureAwait(false);
-        return named
+        var ranked = named
             .Where(e => type is null || string.Equals(e.Type, type, StringComparison.OrdinalIgnoreCase))
-            .OrderByDescending(e => string.Equals(e.Name, name, StringComparison.OrdinalIgnoreCase))
-            .ThenBy(e => e.EntityId, StringComparer.Ordinal)
-            .FirstOrDefault();
+            .Select(e => (Entity: e, Tier: string.Equals(e.Name, name, StringComparison.OrdinalIgnoreCase) ? 0 : 1))
+            .OrderBy(c => c.Tier)
+            .ThenBy(c => c.Entity.EntityId, StringComparer.Ordinal)
+            .Take(2)
+            .ToList();
+        if (ranked.Count == 0 || (ranked.Count > 1 && ranked[0].Tier == ranked[1].Tier)) return null;
+        return ranked[0].Entity;
     }
 
     /// <summary>

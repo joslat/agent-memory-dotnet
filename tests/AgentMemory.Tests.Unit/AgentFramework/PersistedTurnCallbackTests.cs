@@ -45,7 +45,7 @@ public sealed class PersistedTurnCallbackTests
     {
         var (memory, clock) = Services(); var provider = new Observer(memory, clock, new() { AutoExtractOnPersist = false }) { Enabled = false };
         clock.ClearReceivedCalls(); await Store(provider); provider.Seen.Should().BeNull();
-        _ = clock.DidNotReceive().UtcNow;
+        _ = clock.DidNotReceive().GetUtcNow();
     }
 
     [Fact]
@@ -82,7 +82,7 @@ public sealed class PersistedTurnCallbackTests
     {
         var (memory, clock) = Services(); var provider = new Observer(memory, clock, new()); clock.ClearReceivedCalls();
         await provider.PerformStoreAsync([], [], "s", "c", CancellationToken.None, "owner");
-        provider.Seen.Should().BeNull(); _ = clock.DidNotReceive().UtcNow;
+        provider.Seen.Should().BeNull(); _ = clock.DidNotReceive().GetUtcNow();
     }
 
     [Fact]
@@ -111,9 +111,9 @@ public sealed class PersistedTurnCallbackTests
     private static Task Store(Observer provider, CancellationToken token = default) => provider.PerformStoreAsync(
         [new(ChatRole.User, "input-user"), new(ChatRole.System, "never stored")], [new(ChatRole.Assistant, "input-assistant")], "s", "c", token, "owner");
 
-    private static (IMemoryService Memory, IClock Clock) Services()
+    private static (IMemoryService Memory, TimeProvider Clock) Services()
     {
-        var memory = Substitute.For<IMemoryService>(); var clock = Substitute.For<IClock>(); clock.UtcNow.Returns(DateTimeOffset.UnixEpoch);
+        var memory = Substitute.For<IMemoryService>(); var clock = Substitute.For<TimeProvider>(); clock.GetUtcNow().Returns(DateTimeOffset.UnixEpoch);
         memory.AddMessageAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
             .Returns(call => new Message { MessageId = "stored-" + call.ArgAt<string>(2), SessionId = "s", ConversationId = "c", Role = call.ArgAt<string>(2), Content = "stored:" + call.ArgAt<string>(2), TimestampUtc = DateTimeOffset.UnixEpoch });
         memory.AddMessageWithIdAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
@@ -124,8 +124,8 @@ public sealed class PersistedTurnCallbackTests
     private sealed class TestStore : IWritableMemoryStoreContext
     { public string? ApplicationId { get; set; } }
 
-    private sealed class Observer(IMemoryService memory, IClock clock, AgentFrameworkOptions options, IMemoryStoreContext? store = null) : Neo4jMemoryContextProvider(
-        memory, Substitute.For<IEmbeddingOrchestrator>(), clock, Substitute.For<IIdGenerator>(), Options.Create(new MemoryOptions()),
+    private sealed class Observer(IMemoryService memory, TimeProvider clock, AgentFrameworkOptions options, IMemoryStoreContext? store = null) : Neo4jMemoryContextProvider(
+        memory, Substitute.For<IEmbeddingOrchestrator>(), new TimeProviderClock(clock), Substitute.For<IIdGenerator>(), Options.Create(new MemoryOptions()),
         Options.Create(new ContextFormatOptions()), Options.Create(options), NullLogger<Neo4jMemoryContextProvider>.Instance, storeContext: store)
     {
         public bool Enabled { get; init; } = true;

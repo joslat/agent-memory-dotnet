@@ -31,8 +31,8 @@ public class ConsolidationIntegrationTests : IAsyncLifetime
     public ConsolidationIntegrationTests(Neo4jIntegrationFixture fixture)
     {
         _fixture = fixture;
-        var clock = Substitute.For<IClock>();
-        clock.UtcNow.Returns(Now);
+        var clock = Substitute.For<TimeProvider>();
+        clock.GetUtcNow().Returns(Now);
         var idGen = Substitute.For<IIdGenerator>();
         idGen.GenerateId().Returns(_ => $"run-{Guid.NewGuid():N}");
 

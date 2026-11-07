@@ -15,7 +15,7 @@ public sealed class MemoryDecayServiceTests
     private readonly IEntityRepository _entityRepo;
     private readonly IFactRepository _factRepo;
     private readonly IPreferenceRepository _prefRepo;
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly DateTimeOffset _now = new(2025, 6, 15, 12, 0, 0, TimeSpan.Zero);
 
     public MemoryDecayServiceTests()
@@ -23,8 +23,8 @@ public sealed class MemoryDecayServiceTests
         _entityRepo = Substitute.For<IEntityRepository>();
         _factRepo = Substitute.For<IFactRepository>();
         _prefRepo = Substitute.For<IPreferenceRepository>();
-        _clock = Substitute.For<IClock>();
-        _clock.UtcNow.Returns(_now);
+        _clock = Substitute.For<TimeProvider>();
+        _clock.GetUtcNow().Returns(_now);
     }
 
     private MemoryDecayService CreateSut(MemoryDecayOptions? options = null) =>

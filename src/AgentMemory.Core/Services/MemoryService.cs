@@ -33,7 +33,7 @@ internal sealed class MemoryService : IMemoryService
     private readonly IMemoryAccessTracker? _accessTracker;
     private readonly MemoryOptions _options;
     private readonly IMessageRepository? _messageRepository;
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly IIdGenerator _idGenerator;
     // 40.56. Optional for the SemVer reason above; DI supplies the rule-based router. Asked only when routing is on.
     private readonly IMemoryRouter? _router;
@@ -51,7 +51,7 @@ internal sealed class MemoryService : IMemoryService
         IPreferenceRepository preferenceRepository,
         IEmbeddingOrchestrator embeddingOrchestrator,
         IOptions<MemoryOptions> options,
-        IClock clock,
+        TimeProvider clock,
         IIdGenerator idGenerator,
         ILogger<MemoryService> logger,
         IMemoryDecayService? decayService = null,
@@ -122,7 +122,7 @@ internal sealed class MemoryService : IMemoryService
         // from when the turn was spoken, and for a replayed or backfilled transcript that is not
         // wall-clock -- resolving against the wrong now binds the query to a window the corpus cannot
         // contain, which returns nothing and reads as the feature not working.
-        var temporalReference = request.TemporalReferenceTime ?? _clock.UtcNow;
+        var temporalReference = request.TemporalReferenceTime ?? _clock.GetUtcNow();
         // A question that names a period ("between December 7 and 13", "go-live week") is answered live, with the
         // period's facts added by RecallOptions.TimeWindows, never as-of one instant inside it. With TimeWindows off
         // the window is not parsed at all and this branch is exactly as before.
@@ -333,7 +333,7 @@ internal sealed class MemoryService : IMemoryService
     /// <summary>A question the router sends nowhere: an empty context, with the route on its plan.</summary>
     private RecallResult Unrecalled(RecallRequest request, MemoryRoute routed, System.Diagnostics.Activity? activity)
     {
-        var context = new MemoryContext { SessionId = request.SessionId, AssembledAtUtc = _clock.UtcNow };
+        var context = new MemoryContext { SessionId = request.SessionId, AssembledAtUtc = _clock.GetUtcNow() };
         context = context with { Route = RoutePlan(request, context, validAsOf: null, knownAsOf: null, fromQuestion: false, routed) };
         EmitRoute(activity, context.Route);
         return new RecallResult { Context = context, TotalItemsRetrieved = 0, EstimatedTokenCount = 0 };
@@ -456,7 +456,7 @@ internal sealed class MemoryService : IMemoryService
             ConversationId = conversationId,
             Role = role,
             Content = content,
-            TimestampUtc = _clock.UtcNow,
+            TimestampUtc = _clock.GetUtcNow(),
             Metadata = metadata ?? new Dictionary<string, object>()
         };
 
@@ -486,7 +486,7 @@ internal sealed class MemoryService : IMemoryService
             ConversationId = conversationId,
             Role = role,
             Content = content,
-            TimestampUtc = _clock.UtcNow,
+            TimestampUtc = _clock.GetUtcNow(),
             Metadata = metadata ?? new Dictionary<string, object>()
         };
 
@@ -893,7 +893,7 @@ internal sealed class MemoryService : IMemoryService
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var until = _clock.UtcNow;
+        var until = _clock.GetUtcNow();
         if (request.Since >= until)
         {
             throw new ArgumentOutOfRangeException(

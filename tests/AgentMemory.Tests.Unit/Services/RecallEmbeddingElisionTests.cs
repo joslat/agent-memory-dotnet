@@ -39,7 +39,7 @@ public sealed class RecallEmbeddingElisionTests
     private readonly ILongTermMemoryService _longTerm = Substitute.For<ILongTermMemoryService>();
     private readonly IReasoningMemoryService _reasoning = Substitute.For<IReasoningMemoryService>();
     private readonly IEmbeddingOrchestrator _embeddings = Substitute.For<IEmbeddingOrchestrator>();
-    private readonly IClock _clock = Substitute.For<IClock>();
+    private readonly TimeProvider _clock = Substitute.For<TimeProvider>();
 
     private static readonly IMemoryIsolationPolicy SingleTenant =
         new DefaultMemoryIsolationPolicy(
@@ -48,7 +48,7 @@ public sealed class RecallEmbeddingElisionTests
 
     public RecallEmbeddingElisionTests()
     {
-        _clock.UtcNow.Returns(new DateTimeOffset(2026, 8, 11, 12, 0, 0, TimeSpan.Zero));
+        _clock.GetUtcNow().Returns(new DateTimeOffset(2026, 8, 11, 12, 0, 0, TimeSpan.Zero));
 
         _embeddings.EmbedQueryAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new float[8]));
@@ -121,7 +121,7 @@ public sealed class RecallEmbeddingElisionTests
             SessionId = "s",
             Query = "hi",
             Options = RecentMessagesOnly(),
-        }, _clock.UtcNow, _clock.UtcNow);
+        }, _clock.GetUtcNow(), _clock.GetUtcNow());
 
         await _embeddings.DidNotReceive()
             .EmbedQueryAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());

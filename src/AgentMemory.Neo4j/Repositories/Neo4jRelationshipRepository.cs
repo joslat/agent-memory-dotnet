@@ -18,15 +18,15 @@ internal sealed class Neo4jRelationshipRepository : IRelationshipRepository, IBa
     /// G1 (40.45): every time this repository stamps or compares comes from here, so a host (or a replay) that sets the
     /// clock sets all of it. Without DI, the system clock.
     /// </summary>
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly INeo4jTransactionRunner _tx;
     private readonly ILogger<Neo4jRelationshipRepository> _logger;
 
-    public Neo4jRelationshipRepository(INeo4jTransactionRunner tx, ILogger<Neo4jRelationshipRepository> logger, IClock? clock = null)
+    public Neo4jRelationshipRepository(INeo4jTransactionRunner tx, ILogger<Neo4jRelationshipRepository> logger, TimeProvider? clock = null)
     {
         _tx = tx;
         _logger = logger;
-        _clock = clock ?? new SystemClock();
+        _clock = clock ?? TimeProvider.System;
     }
 
     public async Task<Relationship> UpsertAsync(Relationship relationship, CancellationToken cancellationToken = default)
@@ -50,7 +50,7 @@ internal sealed class Neo4jRelationshipRepository : IRelationshipRepository, IBa
                 ["attributes"] = SerializeMetadata(relationship.Attributes),
                 ["sourceMessageIds"] = relationship.SourceMessageIds.ToList(),
                 ["createdAt"] = relationship.CreatedAtUtc.ToString("O"),
-                ["updatedAt"] = _clock.UtcNow.ToString("O"),
+                ["updatedAt"] = _clock.GetUtcNow().ToString("O"),
                 ["metadata"] = SerializeMetadata(relationship.Metadata)
             };
 
@@ -67,7 +67,7 @@ internal sealed class Neo4jRelationshipRepository : IRelationshipRepository, IBa
         if (relationships.Count == 0) return Array.Empty<Relationship>();
 
         _logger.LogDebug("Batch upserting {Count} relationships", relationships.Count);
-        var updatedAt = _clock.UtcNow.ToString("O");
+        var updatedAt = _clock.GetUtcNow().ToString("O");
         var items = relationships.Select(relationship => new Dictionary<string, object?>
         {
             ["id"] = relationship.RelationshipId,

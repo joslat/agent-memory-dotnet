@@ -93,7 +93,7 @@ public sealed class PersistenceStageBatchFailureTests
             Substitute.For<IFactRepository>(),
             Substitute.For<IPreferenceRepository>(),
             Substitute.For<IRelationshipRepository>(),
-            Substitute.For<IClock>(),
+            Substitute.For<TimeProvider>(),
             Substitute.For<IIdGenerator>(),
             NullLogger<PersistenceStage>.Instance,
             new PassThroughMemoryPersistenceTransaction(),

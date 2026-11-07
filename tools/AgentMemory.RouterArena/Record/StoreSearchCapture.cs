@@ -25,14 +25,14 @@ internal sealed record SearchCaptureResult
 }
 
 /// <summary>Captures the actual pre-judge context from the registered assembler in the writer's isolated store.</summary>
-internal sealed class StoreSearchCapture(IMemoryContextAssembler inner, MemoryOptions options, IClock clock)
+internal sealed class StoreSearchCapture(IMemoryContextAssembler inner, MemoryOptions options, TimeProvider clock)
 {
     public static void Register(IServiceCollection services, MemoryOptions options)
     {
         var original = services.Last(d => d.ServiceType == typeof(IMemoryContextAssembler));
         // The recorder registers the standard factory, before AddAgentMemoryGate decorates it.
         var factory = original.ImplementationFactory ?? throw new InvalidOperationException("Expected the original assembler factory.");
-        services.AddScoped(sp => new StoreSearchCapture((IMemoryContextAssembler)factory(sp), options, sp.GetRequiredService<IClock>()));
+        services.AddScoped(sp => new StoreSearchCapture((IMemoryContextAssembler)factory(sp), options, sp.GetRequiredService<TimeProvider>()));
     }
 
     public async Task<SearchCaptureResult> CaptureAsync(SearchCaptureQuery query, string sessionId, string ownerId,
@@ -41,10 +41,10 @@ internal sealed class StoreSearchCapture(IMemoryContextAssembler inner, MemoryOp
         cancellationToken.ThrowIfCancellationRequested();
         if (string.IsNullOrWhiteSpace(ownerId) || string.IsNullOrWhiteSpace(sessionId) || wideLimit is < 1 or > 512)
             throw new ArgumentException("A scoped capture and bounded wide limit are required.");
-        var at = clock.UtcNow;
+        var at = clock.GetUtcNow();
         var gate = new GatedMemoryContextAssembler(inner, new NoJudge(),
             Options.Create(new MemoryGateOptions { Mode = MemoryGateMode.Everything, WideLimit = wideLimit }),
-            NullLogger<GatedMemoryContextAssembler>.Instance, Options.Create(options), clock);
+            NullLogger<GatedMemoryContextAssembler>.Instance, Options.Create(options), new TimeProviderClock(clock));
         var basis = options.Recall with { Scope = MemoryScope.For(ownerId, includeShared: false), IncludeDiagnostics = true };
         var recall = new RecallRequest
         {

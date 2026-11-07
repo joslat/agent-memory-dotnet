@@ -91,8 +91,8 @@ public sealed class PersistenceStageFusedBatchTests
         embeddings.EmbedBatchAsync(Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
             .Returns(call => call.Arg<IReadOnlyList<string>>()
                 .Select(_ => new float[] { 1.0f, 0.0f }).ToArray());
-        var clock = Substitute.For<IClock>();
-        clock.UtcNow.Returns(DateTimeOffset.Parse("2026-08-04T12:00:00Z"));
+        var clock = Substitute.For<TimeProvider>();
+        clock.GetUtcNow().Returns(DateTimeOffset.Parse("2026-08-04T12:00:00Z"));
         var ids = Substitute.For<IIdGenerator>();
         ids.GenerateId().Returns("fact-1", "preference-1", "relationship-1");
 

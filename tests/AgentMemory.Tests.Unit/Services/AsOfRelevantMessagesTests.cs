@@ -78,7 +78,7 @@ public sealed class AsOfRelevantMessagesTests
             Substitute.For<IReasoningMemoryService>(),
             graphRag: null,
             Substitute.For<IEmbeddingOrchestrator>(),
-            Substitute.For<IClock>(),
+            Substitute.For<TimeProvider>(),
             Options.Create(options),
             NullLogger<MemoryContextAssembler>.Instance,
             new DefaultMemoryIsolationPolicy(Options.Create(options.Isolation), NullLogger<DefaultMemoryIsolationPolicy>.Instance));

@@ -39,8 +39,8 @@ public class EntityResolutionOwnerScopeIntegrationTests : IAsyncLifetime
         var embed = Substitute.For<IEmbeddingOrchestrator>();
         embed.EmbedTextAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new float[] { 0.1f, 0.2f, 0.3f, 0.4f });
-        var clock = Substitute.For<IClock>();
-        clock.UtcNow.Returns(DateTimeOffset.UtcNow);
+        var clock = Substitute.For<TimeProvider>();
+        clock.GetUtcNow().Returns(DateTimeOffset.UtcNow);
         var idGen = Substitute.For<IIdGenerator>();
         idGen.GenerateId().Returns(newId);
 
