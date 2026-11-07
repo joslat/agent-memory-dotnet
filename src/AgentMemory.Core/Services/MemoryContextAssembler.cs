@@ -901,6 +901,22 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         // J-6 (b). A plan that has begun takes over from the value it was planned to replace (now).
         (facts, factScores) = HandOver(facts, factScores, _clock.UtcNow);
 
+        // Look-ahead recall (RecallOptions.Upcoming, TimeWindows, OverlapExpansion): reads by date, after the scored
+        // sections resolve, because overlap starts from what they found. With every flag off nothing below is issued.
+        // A fact recalled by date renders in its own section only, never twice.
+        var lookAhead = includeMemory
+            ? await LookAheadAsync(request, recallOpts, facts, prospective, scope, cancellationToken).ConfigureAwait(false)
+            : LookAheadResult.None;
+        if (lookAhead.Ids.Count > 0 && facts.Count > 0)
+        {
+            var kept = facts.Where(f => !lookAhead.Ids.Contains(f.FactId)).ToArray();
+            if (kept.Length != facts.Count)
+            {
+                facts = kept;
+                factScores = factScores.Where(s => !lookAhead.Ids.Contains(s.Fact.FactId)).ToArray();
+            }
+        }
+
         // 30.8. Runs AFTER the fact section resolves, because its trigger is what that section came
         // back with. One extra query, only on a thin recall, only with the flag on -- a well-answered
         // turn pays nothing at all.
@@ -1149,6 +1165,28 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
                     ? Diagnose(fireProspective, recallOpts.MaxDueItems, prospective.Expiring, [], minScore)
                     : null
             },
+            UpcomingFacts = new MemoryContextSection<Fact>
+            {
+                Items = lookAhead.Upcoming,
+                Diagnostics = recallOpts.IncludeDiagnostics
+                    ? Diagnose(lookAhead.FiredUpcoming, recallOpts.MaxUpcomingItems, lookAhead.Upcoming, [], minScore)
+                    : null
+            },
+            WindowFacts = new MemoryContextSection<Fact>
+            {
+                Items = lookAhead.Window,
+                Diagnostics = recallOpts.IncludeDiagnostics
+                    ? Diagnose(lookAhead.FiredWindow, recallOpts.MaxWindowItems, lookAhead.Window, [], minScore)
+                    : null
+            },
+            OverlappingFacts = new MemoryContextSection<Fact>
+            {
+                Items = lookAhead.Overlapping,
+                Diagnostics = recallOpts.IncludeDiagnostics
+                    ? Diagnose(lookAhead.FiredOverlap, recallOpts.MaxOverlapItems, lookAhead.Overlapping, [], minScore)
+                    : null
+            },
+            ResolvedTimeWindow = lookAhead.ResolvedWindow,
             ForgottenTopics = forgottenTopics,
             GraphRagContext = graphRagContext,
             GraphRagItems = graphRagItems,
@@ -1618,6 +1656,134 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         if (activity?.GetTagItem(MemoryTelemetry.MemoryType) is not null && ResultCount(result) is { } count)
             activity.SetTag(MemoryTelemetry.ResultsCount, count);
         return result;
+    }
+
+    /// <summary>What the look-ahead reads found; <see cref="None"/> when every flag is off.</summary>
+    internal sealed record LookAheadResult(
+        IReadOnlyList<Fact> Upcoming,
+        IReadOnlyList<Fact> Window,
+        IReadOnlyList<Fact> Overlapping,
+        TimeWindow? ResolvedWindow,
+        bool FiredUpcoming,
+        bool FiredWindow,
+        bool FiredOverlap,
+        IReadOnlySet<string> Ids)
+    {
+        public static LookAheadResult None { get; } = new(
+            Array.Empty<Fact>(), Array.Empty<Fact>(), Array.Empty<Fact>(), null, false, false, false,
+            new HashSet<string>(StringComparer.Ordinal));
+    }
+
+    /// <summary>
+    /// The three look-ahead reads, by date and never by similarity: the window the question names (or anchors on an
+    /// event), what starts soon for a question that looks ahead, and what overlaps in time with the dated facts found.
+    /// </summary>
+    private async Task<LookAheadResult> LookAheadAsync(
+        RecallRequest request,
+        RecallOptions recallOpts,
+        IReadOnlyList<Fact> relevant,
+        ProspectiveDueResult due,
+        MemoryScope scope,
+        CancellationToken cancellationToken)
+    {
+        if (!recallOpts.Upcoming && !recallOpts.TimeWindows && !recallOpts.OverlapExpansion) return LookAheadResult.None;
+
+        var now = _clock.UtcNow;
+        var question = request.Question ?? request.Query;
+
+        IReadOnlyList<Fact> window = Array.Empty<Fact>();
+        TimeWindow? resolved = null;
+        var firedWindow = false;
+        if (recallOpts.TimeWindows && TemporalWindowParser.Resolve(question, now) is { } asked)
+        {
+            var start = asked.Start;
+            var end = asked.End;
+            string? anchorFactId = null;
+            if (asked.Anchor is { } anchor)
+            {
+                var anchorFact = await TimedAsync("memory.recall.window.anchor",
+                        () => _longTerm.FindAnchorFactAsync(anchor, now, scope, cancellationToken))
+                    .ConfigureAwait(false);
+                if (anchorFact is not null && (anchorFact.OccurredOn ?? anchorFact.ValidFrom) is { } date)
+                {
+                    (start, end) = asked.Around(date);
+                    anchorFactId = anchorFact.FactId;
+                }
+            }
+
+            if (start is { } from && end is { } until)
+            {
+                firedWindow = true;
+                resolved = new TimeWindow { StartUtc = from, EndUtc = until, Anchor = asked.Anchor, AnchorFactId = anchorFactId };
+                window = await TimedAsync("memory.recall.window",
+                        () => _longTerm.GetFactsInWindowAsync(from, until, recallOpts.MaxWindowItems, scope, cancellationToken))
+                    .ConfigureAwait(false);
+            }
+        }
+
+        IReadOnlyList<Fact> upcoming = Array.Empty<Fact>();
+        var firedUpcoming = false;
+        if (recallOpts.Upcoming && (recallOpts.UpcomingOnEveryRecall || TemporalWindowParser.LooksAhead(question)))
+        {
+            firedUpcoming = true;
+            var inWindow = window.Select(f => f.FactId).ToHashSet(StringComparer.Ordinal);
+            var found = await TimedAsync("memory.recall.upcoming",
+                    () => _longTerm.GetUpcomingFactsAsync(now, now + recallOpts.UpcomingWindow, recallOpts.MaxUpcomingItems, scope, cancellationToken))
+                .ConfigureAwait(false);
+            upcoming = found.Where(f => !inWindow.Contains(f.FactId)).ToArray();
+        }
+
+        IReadOnlyList<Fact> overlapping = Array.Empty<Fact>();
+        var firedOverlap = false;
+        if (recallOpts.OverlapExpansion)
+        {
+            var windows = relevant.Concat(due.Due).Concat(window).Concat(upcoming)
+                .Select(f => WindowOf(f, now))
+                .OfType<TimeWindow>()
+                .DistinctBy(w => (w.StartUtc, w.EndUtc))
+                .Take(MaxOverlapWindows)
+                .ToArray();
+            if (windows.Length > 0)
+            {
+                firedOverlap = true;
+                var present = relevant.Concat(due.Due).Concat(due.Expiring).Concat(window).Concat(upcoming)
+                    .Select(f => f.FactId).ToHashSet(StringComparer.Ordinal);
+                overlapping = await TimedAsync("memory.recall.overlap",
+                        () => _longTerm.GetOverlappingFactsAsync(windows, present, recallOpts.MaxOverlapItems, scope, cancellationToken))
+                    .ConfigureAwait(false);
+            }
+        }
+
+        var ids = window.Concat(upcoming).Concat(overlapping).Select(f => f.FactId).ToHashSet(StringComparer.Ordinal);
+        return new LookAheadResult(upcoming, window, overlapping, resolved, firedUpcoming, firedWindow, firedOverlap, ids);
+    }
+
+    /// <summary>At most this many dated facts seed the overlap read, so one recall stays one bounded query.</summary>
+    private const int MaxOverlapWindows = 10;
+
+    /// <summary>
+    /// The span of time a fact occupies, when it has one worth overlapping: an event's day, a bounded stay, or the
+    /// day a fact still ahead starts. A fact merely valid since some past moment occupies no window: everything
+    /// still true would overlap it.
+    /// </summary>
+    internal static TimeWindow? WindowOf(Fact fact, DateTimeOffset now)
+    {
+        if (fact.OccurredOn is { } on)
+        {
+            var (start, end) = TemporalWindowParser.Day(on);
+            return new TimeWindow { StartUtc = start, EndUtc = end };
+        }
+
+        if (fact.ValidFrom is { } from && fact.ValidUntil is { } until && until > from)
+            return new TimeWindow { StartUtc = from, EndUtc = until };
+
+        if (fact.ValidFrom is { } begins && begins > now)
+        {
+            var (start, end) = TemporalWindowParser.Day(begins);
+            return new TimeWindow { StartUtc = start, EndUtc = end };
+        }
+
+        return null;
     }
 
     /// <summary>How many items a recall leg returned, for every result shape the legs use.</summary>

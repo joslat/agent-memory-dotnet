@@ -78,6 +78,11 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
         var context = MemoryWriterPrompt.Context(now, request.Window, owner, stored);
         var ops = await AskAsync(system, context, cancellationToken).ConfigureAwait(false);
         var result = MemoryWriterOps.ToResult(ops, stored, owner);
+        if (_options.DatesFromText)
+        {
+            // The dates the facts' own words state, as date fields too (the words stay as written).
+            result = result with { Facts = [.. result.Facts.Select(fact => AgentMemory.Core.Memory.FactDateReader.Apply(fact, now))] };
+        }
         activity?.SetTag("memory.write.operations", ops.Count);
         if (_logger.IsEnabled(LogLevel.Debug))
             _logger.LogDebug("Memory writer: shown [{Stored}]; answered [{Ops}].",

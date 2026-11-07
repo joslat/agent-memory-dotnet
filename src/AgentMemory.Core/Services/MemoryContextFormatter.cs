@@ -83,6 +83,18 @@ internal static class MemoryContextFormatter
                     : string.Empty),
             f => f.Metadata.GetTrustLevel(), opts, logger);
 
+        // Look-ahead: by date, each fact with its dates. Empty sections append nothing, so an unflagged recall is
+        // byte-identical.
+        AppendCategory(sb, "window", $"### {LookAheadText.WindowLabel(ctx.ResolvedTimeWindow)}", ctx.WindowFacts.Items,
+            f => $"- {f.Subject} {f.Predicate} {f.Object}{FactDates.Suffix(f)}",
+            f => f.Metadata.GetTrustLevel(), opts, logger);
+        AppendCategory(sb, "upcoming", "### Coming Up", ctx.UpcomingFacts.Items,
+            f => $"- {f.Subject} {f.Predicate} {f.Object}{FactDates.Suffix(f)}",
+            f => f.Metadata.GetTrustLevel(), opts, logger);
+        AppendCategory(sb, "overlapping", "### At The Same Time", ctx.OverlappingFacts.Items,
+            f => $"- {f.Subject} {f.Predicate} {f.Object}{FactDates.Suffix(f)}",
+            f => f.Metadata.GetTrustLevel(), opts, logger);
+
         if (graphFirst) AppendGraphRag(sb, ctx.GraphRagContext, opts, logger);
         AppendMessages(sb, "### Recent Messages", ctx.RecentMessages, ctx.SessionId, opts, logger);
         AppendMessages(sb, "### Relevant Past Messages", ctx.RelevantMessages, ctx.SessionId, opts, logger);

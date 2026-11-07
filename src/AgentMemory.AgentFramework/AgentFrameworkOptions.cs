@@ -234,4 +234,15 @@ public sealed class AgentFrameworkOptions
         DeferQuestionTurns = false;
         return this;
     }
+
+    /// <summary>
+    /// The Agent Framework half of <paramref name="preset"/>: <see cref="ApplyRecommended"/>,
+    /// <see cref="ApplyConversational"/>, or nothing for the low-level defaults. Returns this instance.
+    /// </summary>
+    public AgentFrameworkOptions ApplyPreset(AgentMemory.Abstractions.Options.MemoryPreset preset) => preset switch
+    {
+        AgentMemory.Abstractions.Options.MemoryPreset.Recommended => ApplyRecommended(),
+        AgentMemory.Abstractions.Options.MemoryPreset.Conversational => ApplyConversational(),
+        _ => this,
+    };
 }

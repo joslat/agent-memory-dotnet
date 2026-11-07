@@ -1,3 +1,5 @@
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using AgentMemory.Abstractions.Services;
 using Microsoft.Extensions.DependencyInjection;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Core;
@@ -53,6 +55,54 @@ public static class ServiceCollectionExtensions
         if (configureLlm is not null)
             services.AddLlmExtraction(configureLlm);
 
+        return services;
+    }
+
+    /// <summary>
+    /// Registers core, Neo4j and LLM extraction for a chosen preset: its memory half and its extraction half, then the
+    /// caller's overrides. Choose the preset with <c>AgentMemoryPresets.Choose(configuration)</c> (AgentMemory.Gate):
+    /// Recommended unless configured otherwise, Conversational when no retrieval judge is configured.
+    /// </summary>
+    /// <param name="services">The service collection to configure.</param>
+    /// <param name="preset">The preset decision; registered as a singleton and reported in the memory tiers line.</param>
+    /// <param name="configureNeo4j">Configures Neo4j connection options.</param>
+    /// <param name="configureMemory">Optional: overrides on the preset's memory options.</param>
+    /// <param name="configureLlm">Optional: overrides on the preset's extraction options.</param>
+    /// <param name="configureStore">Optional: the application / memory-store isolation tier.</param>
+    /// <remarks>
+    /// The retrieval gate and the Agent Framework adapter have halves of their own:
+    /// <c>services.AddAgentMemoryGate(preset, configuration)</c> registers the gate only when the preset runs a judge,
+    /// and <c>AgentFrameworkOptions.ApplyPreset(preset.Effective)</c> sets the adapter. With
+    /// <see cref="MemoryPreset.LowLevel"/> and no <paramref name="configureLlm"/>, extraction stays the Core stubs, as
+    /// with the other overloads.
+    /// </remarks>
+    public static IServiceCollection AddNeo4jAgentMemory(
+        this IServiceCollection services,
+        MemoryPresetChoice preset,
+        Action<NeoInfra.Neo4jOptions> configureNeo4j,
+        Action<MemoryOptions>? configureMemory = null,
+        Action<LlmExtractionOptions>? configureLlm = null,
+        Action<NeoInfra.MemoryStoreOptions>? configureStore = null)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(preset);
+        ArgumentNullException.ThrowIfNull(configureNeo4j);
+
+        var memory = preset.CreateMemoryOptions();
+        configureMemory?.Invoke(memory);
+        services.AddAgentMemoryCore(memory);
+        NeoInfra.ServiceCollectionExtensions.AddNeo4jAgentMemory(services, configureNeo4j, configureStore);
+        if (preset.Effective != MemoryPreset.LowLevel || configureLlm is not null)
+        {
+            services.AddLlmExtraction(llm =>
+            {
+                llm.ApplyPreset(preset.Effective);
+                configureLlm?.Invoke(llm);
+            });
+        }
+
+        services.AddSingleton(preset);
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IMemoryTierSource>(new PresetTierSource(preset)));
         return services;
     }
 

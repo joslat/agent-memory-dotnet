@@ -61,6 +61,12 @@ internal static class McpMemoryProjection
             // sees three empty arrays and nothing else changes.
             dueFacts = context.DueFacts.Items.Select(f => Fact(f, guard)).ToList(),
             expiringFacts = context.ExpiringFacts.Items.Select(f => Fact(f, guard)).ToList(),
+            // Look-ahead: counted like the sections above, and null when empty so an unflagged client's JSON is
+            // unchanged (the tool JSON options omit nulls).
+            windowFacts = context.WindowFacts.Items.Count > 0 ? context.WindowFacts.Items.Select(f => Fact(f, guard)).ToList() : null,
+            resolvedTimeWindow = context.ResolvedTimeWindow,
+            upcomingFacts = context.UpcomingFacts.Items.Count > 0 ? context.UpcomingFacts.Items.Select(f => Fact(f, guard)).ToList() : null,
+            overlappingFacts = context.OverlappingFacts.Items.Count > 0 ? context.OverlappingFacts.Items.Select(f => Fact(f, guard)).ToList() : null,
             // The SUMMARY, never the forgotten facts -- rendering those would undo the forgetting, and
             // an MCP client is exactly the consumer that would treat them as ordinary memory.
             forgottenTopics = context.ForgottenTopics.Select(t => ForgottenTopic(t, guard)).ToList(),

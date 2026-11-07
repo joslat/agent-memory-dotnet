@@ -532,6 +532,14 @@ public sealed record MemoryOptions
         var options = CreateConversational();
         options.Extraction.BitemporalChanges = true;
         options.FanOut.Enabled = false;
-        return options with { Projection = options.Projection with { ResolveSupersessions = true } };
+        return options with
+        {
+            Projection = options.Projection with { ResolveSupersessions = true },
+            // Look-ahead recall: what is coming up for a question that looks ahead, the facts inside a period the
+            // question names or anchors on an event ("go-live week"), and what overlaps in time with the dated facts
+            // recalled. All three read by date, so a trip that clashes with a go-live is seen although nothing about
+            // it resembles the question (the Bruna scenario, tools/AgentMemory.Scenarios).
+            Recall = options.Recall with { Upcoming = true, TimeWindows = true, OverlapExpansion = true },
+        };
     }
 }

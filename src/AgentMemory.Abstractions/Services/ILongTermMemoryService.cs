@@ -472,6 +472,62 @@ public interface ILongTermMemoryService
         Task.FromResult(ProspectiveDueResult.Empty);
 
     /// <summary>
+    /// The owner's live facts that start in <c>(now, until]</c>: a <c>valid_from</c>, or an event's
+    /// <c>occurred_on</c>, in that range. Earliest first. For <c>RecallOptions.Upcoming</c>.
+    /// </summary>
+    /// <remarks>
+    /// Selected by time alone, like <see cref="GetDueFactsAsync"/>: no embedding, no similarity floor. Defaults to
+    /// empty, so a store that cannot answer simply volunteers nothing.
+    /// </remarks>
+    Task<IReadOnlyList<Fact>> GetUpcomingFactsAsync(
+        DateTimeOffset now,
+        DateTimeOffset until,
+        int limit,
+        MemoryScope? scope,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<Fact>>(Array.Empty<Fact>());
+
+    /// <summary>
+    /// The owner's live facts dated inside <c>[start, end]</c>: an event on a day in it, or a stay with a start or an
+    /// end in it, or a bounded stay that spans it. Earliest first. For <c>RecallOptions.TimeWindows</c>.
+    /// </summary>
+    /// <remarks>
+    /// A fact valid from some moment with no end (a job, a home) is not a window fact: it would span every window,
+    /// and fill every one of them with what is merely still true. Defaults to empty.
+    /// </remarks>
+    Task<IReadOnlyList<Fact>> GetFactsInWindowAsync(
+        DateTimeOffset start,
+        DateTimeOffset end,
+        int limit,
+        MemoryScope? scope,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<Fact>>(Array.Empty<Fact>());
+
+    /// <summary>
+    /// The owner's live dated fact that names <paramref name="anchor"/> (in its subject, predicate or object,
+    /// ignoring case), the one dated nearest to <paramref name="now"/>; null when none does. It gives an anchored
+    /// window ("go-live week") its date.
+    /// </summary>
+    Task<Fact?> FindAnchorFactAsync(
+        string anchor,
+        DateTimeOffset now,
+        MemoryScope? scope,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<Fact?>(null);
+
+    /// <summary>
+    /// The owner's live facts dated inside any of <paramref name="windows"/>, as <see cref="GetFactsInWindowAsync"/>
+    /// dates them, leaving out <paramref name="excludeFactIds"/>. Earliest first. For <c>RecallOptions.OverlapExpansion</c>.
+    /// </summary>
+    Task<IReadOnlyList<Fact>> GetOverlappingFactsAsync(
+        IReadOnlyList<TimeWindow> windows,
+        IReadOnlyCollection<string> excludeFactIds,
+        int limit,
+        MemoryScope? scope,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<Fact>>(Array.Empty<Fact>());
+
+    /// <summary>
     /// Facts the prune let go of, for reporting a stated absence (30.8). Default: empty.
     /// </summary>
     /// <remarks>

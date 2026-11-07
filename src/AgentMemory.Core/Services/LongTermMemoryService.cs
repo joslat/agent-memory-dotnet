@@ -624,6 +624,43 @@ internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLon
     }
 
     /// <inheritdoc/>
+    public Task<IReadOnlyList<Fact>> GetUpcomingFactsAsync(
+        DateTimeOffset now, DateTimeOffset until, int limit, MemoryScope? scope, CancellationToken cancellationToken = default)
+    {
+        var resolved = _isolationPolicy.ResolveReadScope(
+            scope, ownerId: null, nameof(GetUpcomingFactsAsync), MemoryOperationAccess.Tenant);
+        return _factRepo.GetUpcomingFactsAsync(now, until, limit, resolved, cancellationToken);
+    }
+
+    /// <inheritdoc/>
+    public Task<IReadOnlyList<Fact>> GetFactsInWindowAsync(
+        DateTimeOffset start, DateTimeOffset end, int limit, MemoryScope? scope, CancellationToken cancellationToken = default)
+    {
+        var resolved = _isolationPolicy.ResolveReadScope(
+            scope, ownerId: null, nameof(GetFactsInWindowAsync), MemoryOperationAccess.Tenant);
+        return _factRepo.GetFactsInWindowAsync(start, end, limit, resolved, cancellationToken);
+    }
+
+    /// <inheritdoc/>
+    public Task<Fact?> FindAnchorFactAsync(
+        string anchor, DateTimeOffset now, MemoryScope? scope, CancellationToken cancellationToken = default)
+    {
+        var resolved = _isolationPolicy.ResolveReadScope(
+            scope, ownerId: null, nameof(FindAnchorFactAsync), MemoryOperationAccess.Tenant);
+        return _factRepo.FindAnchorFactAsync(anchor, now, resolved, cancellationToken);
+    }
+
+    /// <inheritdoc/>
+    public Task<IReadOnlyList<Fact>> GetOverlappingFactsAsync(
+        IReadOnlyList<TimeWindow> windows, IReadOnlyCollection<string> excludeFactIds, int limit, MemoryScope? scope,
+        CancellationToken cancellationToken = default)
+    {
+        var resolved = _isolationPolicy.ResolveReadScope(
+            scope, ownerId: null, nameof(GetOverlappingFactsAsync), MemoryOperationAccess.Tenant);
+        return _factRepo.GetOverlappingFactsAsync(windows, excludeFactIds, limit, resolved, cancellationToken);
+    }
+
+    /// <inheritdoc/>
     /// <remarks>
     /// Scope resolved through the isolation policy like every other read. The <paramref name="minScore"/>
     /// arrives from the caller unchanged and deliberately: a tombstone must clear the same similarity

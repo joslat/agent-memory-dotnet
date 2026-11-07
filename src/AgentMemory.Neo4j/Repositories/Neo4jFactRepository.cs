@@ -1096,6 +1096,135 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
     }
 
     /// <inheritdoc/>
+    public Task<IReadOnlyList<Fact>> GetUpcomingFactsAsync(
+        DateTimeOffset now, DateTimeOffset until, int limit, MemoryScope? scope, CancellationToken cancellationToken = default)
+    {
+        var culture = System.Globalization.CultureInfo.InvariantCulture;
+        return ReadDatedFactsAsync(
+            FactQueries.GetUpcomingFacts(scope?.OwnerId is not null, scope?.IncludeShared ?? false),
+            new Dictionary<string, object?>
+            {
+                ["now"] = now.ToString("O", culture),
+                ["until"] = until.ToString("O", culture),
+                ["limit"] = limit,
+            },
+            scope, cancellationToken);
+    }
+
+    /// <inheritdoc/>
+    public Task<IReadOnlyList<Fact>> GetFactsInWindowAsync(
+        DateTimeOffset start, DateTimeOffset end, int limit, MemoryScope? scope, CancellationToken cancellationToken = default)
+    {
+        var culture = System.Globalization.CultureInfo.InvariantCulture;
+        return ReadDatedFactsAsync(
+            FactQueries.GetFactsInWindow(scope?.OwnerId is not null, scope?.IncludeShared ?? false),
+            new Dictionary<string, object?>
+            {
+                ["start"] = start.ToString("O", culture),
+                ["end"] = end.ToString("O", culture),
+                ["limit"] = limit,
+            },
+            scope, cancellationToken);
+    }
+
+    /// <inheritdoc/>
+    public async Task<Fact?> FindAnchorFactAsync(
+        string anchor, DateTimeOffset now, MemoryScope? scope, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(anchor);
+        // "go-live" is also written "go live" and "golive": hyphens read as spaces on both sides, and the joined form too.
+        var spaced = anchor.Trim().ToLowerInvariant().Replace('-', ' ');
+        var anchors = new[] { spaced, spaced.Replace(" ", "", StringComparison.Ordinal) }
+            .Distinct(StringComparer.Ordinal).ToArray();
+        var candidates = await ReadDatedFactsAsync(
+            FactQueries.FindAnchorCandidates(scope?.OwnerId is not null, scope?.IncludeShared ?? false),
+            new Dictionary<string, object?> { ["anchors"] = anchors, ["limit"] = MaxAnchorCandidates },
+            scope, cancellationToken).ConfigureAwait(false);
+        return ChooseAnchor(candidates, now);
+    }
+
+    /// <inheritdoc/>
+    public Task<IReadOnlyList<Fact>> GetOverlappingFactsAsync(
+        IReadOnlyList<TimeWindow> windows, IReadOnlyCollection<string> excludeFactIds, int limit, MemoryScope? scope,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(windows);
+        ArgumentNullException.ThrowIfNull(excludeFactIds);
+        if (windows.Count == 0 || limit <= 0) return Task.FromResult<IReadOnlyList<Fact>>(Array.Empty<Fact>());
+        var culture = System.Globalization.CultureInfo.InvariantCulture;
+        return ReadDatedFactsAsync(
+            FactQueries.GetOverlappingFacts(scope?.OwnerId is not null, scope?.IncludeShared ?? false),
+            new Dictionary<string, object?>
+            {
+                ["windows"] = windows.Select(w => new Dictionary<string, object?>
+                {
+                    ["start"] = w.StartUtc.ToString("O", culture),
+                    ["end"] = w.EndUtc.ToString("O", culture),
+                }).ToList(),
+                ["exclude"] = excludeFactIds.ToList(),
+                ["limit"] = limit,
+            },
+            scope, cancellationToken);
+    }
+
+    /// <summary>How many facts naming an anchor are weighed for its date.</summary>
+    private const int MaxAnchorCandidates = 25;
+
+    /// <summary>
+    /// The candidate that states the anchor's own date, carrying that date as <see cref="Fact.OccurredOn"/> (or its
+    /// <see cref="Fact.ValidFrom"/>): its date fields, or else the date its words state. A date that is only the day the
+    /// fact was learned ("Diego will open the office on go-live day", stamped the day it was said) is no date of the
+    /// anchor's, so it is never chosen: no window is better than a wrong one. A date still ahead wins, then the nearest.
+    /// </summary>
+    internal static Fact? ChooseAnchor(IReadOnlyList<Fact> candidates, DateTimeOffset now)
+    {
+        Fact? best = null;
+        DateTimeOffset bestDate = default;
+        foreach (var fact in candidates)
+        {
+            var date = fact.OccurredOn ?? fact.ValidFrom;
+            var fromWords = false;
+            if (date is null || date.Value.UtcDateTime.Date == fact.CreatedAtUtc.UtcDateTime.Date)
+            {
+                var read = AgentMemory.Core.Memory.FactDateReader.Read($"{fact.Subject} {fact.Predicate} {fact.Object}", fact.CreatedAtUtc);
+                date = read?.OccurredOn ?? read?.ValidFrom;
+                fromWords = date is not null;
+            }
+
+            if (date is not { } stated || (!fromWords && stated.UtcDateTime.Date == fact.CreatedAtUtc.UtcDateTime.Date)) continue;
+            if (best is null || Better(stated, bestDate, now))
+            {
+                best = fromWords ? fact with { OccurredOn = stated, OccurredOnPrecision = DatePrecision.Day } : fact;
+                bestDate = stated;
+            }
+        }
+
+        return best;
+
+        static bool Better(DateTimeOffset candidate, DateTimeOffset current, DateTimeOffset now)
+        {
+            var today = now.UtcDateTime.Date;
+            var candidateAhead = candidate.UtcDateTime.Date >= today;
+            var currentAhead = current.UtcDateTime.Date >= today;
+            if (candidateAhead != currentAhead) return candidateAhead;
+            return (candidate - now).Duration() < (current - now).Duration();
+        }
+    }
+
+    /// <summary>One read of facts by time, mapped without embeddings: these reads never score by similarity.</summary>
+    private async Task<IReadOnlyList<Fact>> ReadDatedFactsAsync(
+        string cypher, Dictionary<string, object?> parameters, MemoryScope? scope, CancellationToken cancellationToken)
+    {
+        if (scope?.OwnerId is not null) parameters["ownerId"] = scope.OwnerId;
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            return (IReadOnlyList<Fact>)records.Select(r => MapToFact(r["f"].As<INode>(), embedding: null)).ToList();
+        }, cancellationToken).ConfigureAwait(false) ?? Array.Empty<Fact>();
+    }
+
+    /// <inheritdoc/>
     public async Task<IReadOnlyList<Fact>> GetGroupFactsAsync(
         string subjectKey,
         string predicateKey,

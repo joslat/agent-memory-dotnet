@@ -216,6 +216,79 @@ public sealed record RecallOptions
     public TimeSpan DueLookback { get; init; } = TimeSpan.FromDays(7);
 
     /// <summary>
+    /// Volunteers what is coming up: the owner's live facts that start in <c>(now, now + UpcomingWindow]</c>, in date
+    /// order, in their own section. Default off, and off is byte-identical: the query is never issued.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// "Plan my prep for go-live week" does not resemble "I will be in Bariloche from December 9 to 13", so a
+    /// similarity-scored recall never brings the trip, and the clash with the go-live is never seen. This is a
+    /// <b>time-predicate</b> selection, like <see cref="ProspectiveFiring"/>: no embedding and no similarity floor.
+    /// A fact starts at its <c>valid_from</c>, or at its <c>occurred_on</c> when it is an event.
+    /// </para>
+    /// <para>
+    /// By default it fires only for a question that looks ahead (planning, scheduling, "this week", "upcoming",
+    /// a future tense; see <see cref="UpcomingOnEveryRecall"/>), so a question about the past is not given a
+    /// calendar it did not ask for. Cost when on: one owner-scoped read per such recall, its own budget
+    /// (<see cref="MaxUpcomingItems"/>), never competing with <see cref="MaxFacts"/>.
+    /// </para>
+    /// </remarks>
+    public bool Upcoming { get; init; }
+
+    /// <summary>How far ahead <see cref="Upcoming"/> looks. 14 days by default.</summary>
+    public TimeSpan UpcomingWindow { get; init; } = TimeSpan.FromDays(14);
+
+    /// <summary>Budget for the upcoming section, its own claimant. 5 by default.</summary>
+    public int MaxUpcomingItems { get; init; } = 5;
+
+    /// <summary>
+    /// Fires <see cref="Upcoming"/> on every recall rather than only for a question that looks ahead. Default off.
+    /// </summary>
+    public bool UpcomingOnEveryRecall { get; init; }
+
+    /// <summary>
+    /// Answers a question about a period with what is dated inside it. Default off, and off is byte-identical: the
+    /// question is not parsed for a window and no query is issued.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The window comes from the question: "between December 7 and December 13", "on December 11", "this week",
+    /// "next week", "the next 10 days", "tomorrow"; or from an event the question anchors it on: "go-live week" is
+    /// the Monday-to-Sunday week of the owner's go-live, "launch day" the day of the launch, found by a dated fact
+    /// that names it. The owner's live facts dated inside the window (an event on a day in it, or a stay that starts,
+    /// ends or spans it) are recalled in their own section, in date order, and the window is reported on
+    /// <c>MemoryContext.ResolvedTimeWindow</c>.
+    /// </para>
+    /// <para>
+    /// A question that names a window is recalled against now, with the window's facts added; it does not take the
+    /// as-of path of <c>MemoryOptions.ResolveTemporalQueries</c>, which answers a question about one past instant.
+    /// A fact that is valid without an end (a job, a home) does not span every window: only bounded stays and
+    /// dated events are window facts. Cost when on: a regex pass over the question, and for a resolved window one
+    /// owner-scoped read (two for an anchored one).
+    /// </para>
+    /// </remarks>
+    public bool TimeWindows { get; init; }
+
+    /// <summary>Budget for the time-window section. 10 by default.</summary>
+    public int MaxWindowItems { get; init; } = 10;
+
+    /// <summary>
+    /// Adds the owner's facts that overlap in time with the dated facts recalled for the question. Default off,
+    /// and off is byte-identical: the query is never issued.
+    /// </summary>
+    /// <remarks>
+    /// When recall brings "the go-live is on December 11", a trip from December 9 to 13 is the fact the person needs
+    /// next to it, and nothing about it resembles the question. After the other sections resolve, their dated facts
+    /// (events and bounded stays) give the windows; the owner's other live facts dated inside any of them are added
+    /// in their own section. Overlap is in time only: whether two things clash is left to the reader, who sees both.
+    /// Cost when on: one owner-scoped read per recall that recalled a dated fact.
+    /// </remarks>
+    public bool OverlapExpansion { get; init; }
+
+    /// <summary>Budget for the overlapping section. 5 by default.</summary>
+    public int MaxOverlapItems { get; init; } = 5;
+
+    /// <summary>
     /// Reports aged-out memory as a stated absence when a fact section comes back thin. Default off,
     /// and off is byte-identical.
     /// </summary>

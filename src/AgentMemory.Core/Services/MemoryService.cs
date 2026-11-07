@@ -123,7 +123,13 @@ internal sealed class MemoryService : IMemoryService
         // wall-clock -- resolving against the wrong now binds the query to a window the corpus cannot
         // contain, which returns nothing and reads as the feature not working.
         var temporalReference = request.TemporalReferenceTime ?? _clock.UtcNow;
+        // A question that names a period ("between December 7 and 13", "go-live week") is answered live, with the
+        // period's facts added by RecallOptions.TimeWindows, never as-of one instant inside it. With TimeWindows off
+        // the window is not parsed at all and this branch is exactly as before.
+        var namesAWindow = MemoryContextAssembler.EffectiveRecall(request.Options, _options.Recall).TimeWindows
+            && TemporalWindowParser.Resolve(request.Question ?? request.Query, temporalReference) is not null;
         if (_options.ResolveTemporalQueries
+            && !namesAWindow
             && TemporalQueryParser.Resolve(request.Query, temporalReference) is { } asOf)
         {
             activity?.SetTag("memory.recall.resolved_as_of", asOf.ToString("O"));
@@ -198,6 +204,11 @@ internal sealed class MemoryService : IMemoryService
             // and invisible on the surface that renders it.
             + context.DueFacts.Items.Count
             + context.ExpiringFacts.Items.Count
+            // The look-ahead sections, for the same reason: a recall whose only content is what is coming up must
+            // still render.
+            + context.UpcomingFacts.Items.Count
+            + context.WindowFacts.Items.Count
+            + context.OverlappingFacts.Items.Count
             // 30.8, same reason: a recall whose only content is "I used to know things about X"
             // would otherwise hit the formatter's zero-items early return and render nothing -- which
             // is precisely the recall where saying so matters most.

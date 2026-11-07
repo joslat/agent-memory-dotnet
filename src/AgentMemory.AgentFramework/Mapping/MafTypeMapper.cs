@@ -303,6 +303,23 @@ internal static class MafTypeMapper
                         : string.Empty),
                 f => f.Metadata.GetTrustLevel(), "Expiring soon: ", "; "));
 
+        // Look-ahead (RecallOptions.TimeWindows, Upcoming, OverlapExpansion): selected by date, so every fact carries
+        // its dates. Each section is empty unless its flag ran, so an unflagged recall produces byte-identical messages.
+        if (context.WindowFacts.Items.Count > 0)
+            memory.AddRange(CategoryMessages("window", context.WindowFacts.Items,
+                f => $"{f.Subject} {f.Predicate} {f.Object}{FactDates.Suffix(f)}",
+                f => f.Metadata.GetTrustLevel(), $"{LookAheadText.WindowLabel(context.ResolvedTimeWindow)}: ", "; "));
+
+        if (context.UpcomingFacts.Items.Count > 0)
+            memory.AddRange(CategoryMessages("upcoming", context.UpcomingFacts.Items,
+                f => $"{f.Subject} {f.Predicate} {f.Object}{FactDates.Suffix(f)}",
+                f => f.Metadata.GetTrustLevel(), "Coming up: ", "; "));
+
+        if (context.OverlappingFacts.Items.Count > 0)
+            memory.AddRange(CategoryMessages("overlapping", context.OverlappingFacts.Items,
+                f => $"{f.Subject} {f.Predicate} {f.Object}{FactDates.Suffix(f)}",
+                f => f.Metadata.GetTrustLevel(), "At the same time: ", "; "));
+
         // 30.8. A stated absence. Untrusted like everything else: the topic is an extracted fact's
         // subject, so it is user text, and being a statement ABOUT memory does not make it trusted.
         if (context.ForgottenTopics.Count > 0)

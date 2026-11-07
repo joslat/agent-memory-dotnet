@@ -113,6 +113,7 @@ internal sealed class MemoryRecallExplainer(
         var (recalled, cap) = kind switch
         {
             MemoryItemKind.Fact => (context.RelevantFacts.Items.Concat(context.DueFacts.Items).Concat(context.ExpiringFacts.Items)
+                .Concat(context.WindowFacts.Items).Concat(context.UpcomingFacts.Items).Concat(context.OverlappingFacts.Items)
                 .Any(f => f.FactId == itemId), recall.MaxFacts),
             MemoryItemKind.Preference => (context.RelevantPreferences.Items.Any(p => p.PreferenceId == itemId), recall.MaxPreferences),
             _ => (context.RelevantEntities.Items.Any(e => e.EntityId == itemId), recall.MaxEntities),
