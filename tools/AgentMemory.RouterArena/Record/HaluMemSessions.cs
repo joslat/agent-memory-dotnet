@@ -98,7 +98,7 @@ public sealed class HaluMemSessions(TextWriter output)
         var clock = new Clock(first);
         var services = new ServiceCollection();
         services.AddLogging(ArenaLogging.Console);
-        services.AddSingleton<IClock>(clock);
+        services.AddSingleton<TimeProvider>(clock);
 #pragma warning disable AMGATE001
         // --history on: recall shows what a kept fact replaced, "(since D; previously X)", as the prompt renders it.
         var memory = BenchmarkMemoryOptions.CreateRecommended(history);
@@ -252,8 +252,9 @@ public sealed class HaluMemSessions(TextWriter output)
         }
     }
 
-    private sealed class Clock(DateTimeOffset start) : IClock
+    private sealed class Clock(DateTimeOffset start) : TimeProvider
     {
+            public override DateTimeOffset GetUtcNow() => UtcNow;
         public DateTimeOffset Now { get; set; } = start;
 
         public DateTimeOffset UtcNow => Now;

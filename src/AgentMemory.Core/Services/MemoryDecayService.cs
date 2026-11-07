@@ -17,7 +17,7 @@ internal sealed class MemoryDecayService : IMemoryDecayService
     private readonly IEntityRepository _entityRepo;
     private readonly IFactRepository _factRepo;
     private readonly IPreferenceRepository _prefRepo;
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly MemoryDecayOptions _options;
     private readonly ILogger<MemoryDecayService> _logger;
 
@@ -28,7 +28,7 @@ internal sealed class MemoryDecayService : IMemoryDecayService
         IEntityRepository entityRepo,
         IFactRepository factRepo,
         IPreferenceRepository prefRepo,
-        IClock clock,
+        TimeProvider clock,
         IOptions<MemoryDecayOptions> options,
         ILogger<MemoryDecayService> logger)
     {
@@ -87,7 +87,7 @@ internal sealed class MemoryDecayService : IMemoryDecayService
         DateTimeOffset? lastAccessedAt,
         int accessCount)
     {
-        var now = _clock.UtcNow;
+        var now = _clock.GetUtcNow();
         var reference = lastAccessedAt ?? createdAt;
         double daysSinceAccess = Math.Max(0, (now - reference).TotalDays);
         double lambda = Math.Log(2) / _options.DecayHalfLifeDays;

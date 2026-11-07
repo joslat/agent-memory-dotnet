@@ -38,8 +38,8 @@ public sealed class WithinExtractionDedupTests
         embeddings.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(call => VectorFor(call.Arg<string>()));
         embeddings.EmbedBatchAsync(Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
             .Returns(call => (IReadOnlyList<float[]>)call.Arg<IReadOnlyList<string>>().Select(VectorFor).ToList());
-        var clock = Substitute.For<IClock>();
-        clock.UtcNow.Returns(DateTimeOffset.Parse("2026-09-26T00:00:00Z"));
+        var clock = Substitute.For<TimeProvider>();
+        clock.GetUtcNow().Returns(DateTimeOffset.Parse("2026-09-26T00:00:00Z"));
         var ids = Substitute.For<IIdGenerator>();
         ids.GenerateId().Returns(_ => Guid.NewGuid().ToString("N"));
 
@@ -258,8 +258,8 @@ public sealed class WithinExtractionDedupTests
         entities.UpsertAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>())
             .Returns(ci => { written.Add(ci.Arg<Entity>().Name); return Task.FromResult(ci.Arg<Entity>()); });
         _facts.UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>()).Returns(ci => Task.FromResult(ci.Arg<Fact>()));
-        var clock = Substitute.For<IClock>();
-        clock.UtcNow.Returns(DateTimeOffset.Parse("2026-09-26T00:00:00Z"));
+        var clock = Substitute.For<TimeProvider>();
+        clock.GetUtcNow().Returns(DateTimeOffset.Parse("2026-09-26T00:00:00Z"));
         var ids = Substitute.For<IIdGenerator>();
         ids.GenerateId().Returns(_ => Guid.NewGuid().ToString("N"));
         var stage = new PersistenceStage(Substitute.For<IEmbeddingOrchestrator>(), entities, _facts, Substitute.For<IPreferenceRepository>(),

@@ -29,7 +29,7 @@ public sealed class ServiceCollectionExtensionsTests
         services.AddSingleton(Substitute.For<ILongTermMemoryService>());
         services.AddSingleton(Substitute.For<IReasoningMemoryService>());
         services.AddSingleton(Substitute.For<IEmbeddingOrchestrator>());
-        services.AddSingleton(Substitute.For<IClock>());
+        services.AddSingleton(Substitute.For<TimeProvider>());
         services.AddSingleton(Substitute.For<IIdGenerator>());
         services.AddSingleton(Substitute.For<IMemoryIsolationPolicy>());
 

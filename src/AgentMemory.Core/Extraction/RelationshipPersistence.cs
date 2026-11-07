@@ -15,14 +15,14 @@ internal sealed class RelationshipPersistence
 {
     private readonly IEntityRepository _entityRepository;
     private readonly IRelationshipRepository _relationshipRepository;
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly IIdGenerator _idGenerator;
     private readonly ExtractionOptions _options;
     private readonly ILogger _logger;
     private readonly ClosingPipeline _closings;
 
     public RelationshipPersistence(IEntityRepository entityRepository, IRelationshipRepository relationshipRepository,
-        IClock clock, IIdGenerator idGenerator, ExtractionOptions options, ILogger logger, ClosingPipeline closings)
+        TimeProvider clock, IIdGenerator idGenerator, ExtractionOptions options, ILogger logger, ClosingPipeline closings)
     {
         _entityRepository = entityRepository;
         _relationshipRepository = relationshipRepository;
@@ -119,7 +119,7 @@ internal sealed class RelationshipPersistence
             return edgesBySource[sourceId] = edges;
         }
         static string EdgeType(string type) => MemoryTripleCanonicalizer.Canonical(type);
-        bool IsLive(Relationship edge) => edge.ValidUntil is not { } until || until > _clock.UtcNow;
+        bool IsLive(Relationship edge) => edge.ValidUntil is not { } until || until > _clock.GetUtcNow();
 
         // An endpoint looked for in the owner's memory and not found was never resolved (the outcome extraction gives when it
         // has no owner to look in); one the extraction resolved but did not write was not persisted.
@@ -210,7 +210,7 @@ internal sealed class RelationshipPersistence
                     Attributes = extracted.Attributes,
                     OwnerId = ownerId,
                     SourceMessageIds = sourceMessageIds,
-                    CreatedAtUtc = _clock.UtcNow
+                    CreatedAtUtc = _clock.GetUtcNow()
                 }, relSourceKey));
         }
 
@@ -304,7 +304,7 @@ internal sealed class RelationshipPersistence
                     try
                     {
                         // 40.65. With BitemporalChanges the edge ends when the new one began, as its fact does.
-                        var endedAt = _clock.UtcNow;
+                        var endedAt = _clock.GetUtcNow();
                         if (_options.BitemporalChanges && item.ValidFrom is { } began && began <= endedAt) endedAt = began;
                         await _closings.ApplyAsync(ClosingProposal.Relationship(previous.RelationshipId, endedAt,
                             endScope, ClosingSource.DeterministicReplacement, item.RelationshipId), cancellationToken)

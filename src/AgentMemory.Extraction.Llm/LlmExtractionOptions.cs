@@ -185,6 +185,20 @@ public sealed class LlmExtractionOptions
     /// </summary>
     public bool ChatModelUpdateJudge { get; set; }
 
+    /// <summary>
+    /// Gives the writer's facts the dates their own words state ("on Friday, December 11", "from December 9 to 13",
+    /// "starting December 4") as date fields too, keeping the words as written. Default off, and off is byte-identical:
+    /// nothing is read and every fact is stored as the writer produced it. On in the Recommended preset.
+    /// </summary>
+    /// <remarks>
+    /// The writer keeps a date in the text, as it was said, which a prompt reads and a similarity search finds; nothing
+    /// that selects by date can see it (<c>RecallOptions.Upcoming</c>, <c>TimeWindows</c>, <c>OverlapExpansion</c>). In the
+    /// Bruna scenario the writer dated 1 of 46 facts. The reading is deterministic: an explicit month and day or an ISO
+    /// date, or a range of them, resolved against when the turn was said; never a relative date; a fact that names two
+    /// dates without a range keeps none; a field the writer set is never overwritten. No model call.
+    /// </remarks>
+    public bool DatesFromText { get; set; }
+
     /// <summary>How many stored memories the writer is shown by meaning (the people the turn names and what mentions them
     /// come first, up to six more). 14, as measured.</summary>
 
@@ -296,6 +310,18 @@ public sealed class LlmExtractionOptions
         ApplyConversational();
         UseMemoryWriter = true;
         ChatModelUpdateJudge = true;
+        DatesFromText = true;
         return this;
     }
+
+    /// <summary>
+    /// The extraction half of <paramref name="preset"/>: <see cref="ApplyRecommended"/>, <see cref="ApplyConversational"/>,
+    /// or nothing for the low-level defaults. Returns this instance.
+    /// </summary>
+    public LlmExtractionOptions ApplyPreset(MemoryPreset preset) => preset switch
+    {
+        MemoryPreset.Recommended => ApplyRecommended(),
+        MemoryPreset.Conversational => ApplyConversational(),
+        _ => this,
+    };
 }

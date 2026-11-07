@@ -27,12 +27,12 @@ public sealed class PersistenceStageEmbeddingBatchTests
     private readonly IFactRepository _factRepository = Substitute.For<IFactRepository>();
     private readonly IPreferenceRepository _preferenceRepository = Substitute.For<IPreferenceRepository>();
     private readonly IRelationshipRepository _relationshipRepository = Substitute.For<IRelationshipRepository>();
-    private readonly IClock _clock = Substitute.For<IClock>();
+    private readonly TimeProvider _clock = Substitute.For<TimeProvider>();
     private readonly IIdGenerator _idGenerator = Substitute.For<IIdGenerator>();
 
     public PersistenceStageEmbeddingBatchTests()
     {
-        _clock.UtcNow.Returns(DateTimeOffset.Parse("2026-08-03T00:00:00Z"));
+        _clock.GetUtcNow().Returns(DateTimeOffset.Parse("2026-08-03T00:00:00Z"));
         _idGenerator.GenerateId().Returns("fact-1", "fact-2", "preference-1");
         _orchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(call => [(float)call.Arg<string>().Length]);

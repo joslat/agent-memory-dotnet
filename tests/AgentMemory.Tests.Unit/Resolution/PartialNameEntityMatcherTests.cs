@@ -174,8 +174,8 @@ public sealed class CompositeEntityResolverPartialNameAndReuseTests
     {
         var options = new ExtractionOptions();
         options.EntityResolution.EnablePartialNameMatch = partial;
-        var clock = Substitute.For<IClock>();
-        clock.UtcNow.Returns(FixedTime);
+        var clock = Substitute.For<TimeProvider>();
+        clock.GetUtcNow().Returns(FixedTime);
         var ids = Substitute.For<IIdGenerator>();
         ids.GenerateId().Returns("new-id");
         return new CompositeEntityResolver(

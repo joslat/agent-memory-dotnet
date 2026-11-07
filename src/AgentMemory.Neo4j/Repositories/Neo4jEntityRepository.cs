@@ -27,7 +27,7 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
     /// G1 (40.45): every time this repository stamps or compares comes from here, so a host (or a replay) that sets the
     /// clock sets all of it. Without DI, the system clock.
     /// </summary>
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly INeo4jTransactionRunner _tx;
     private readonly bool _rescueShortOwnerResults;
     /// <summary>2.13: skip a futile widened probe + scan for an owner holding nothing.</summary>
@@ -91,7 +91,7 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
         IWorkingMemoryService? workingMemory = null,
         ISharedCorpusProbe? sharedCorpus = null,
         IOptions<Neo4jOptions>? neo4jOptions = null,
-        IClock? clock = null)
+        TimeProvider? clock = null)
     {
         _filteredOwnerIndex = neo4jOptions?.Value.FilteredVectorIndexes ?? false;
         _workingMemory = workingMemory;
@@ -106,7 +106,7 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
         _ranking = ranking?.Value ?? MemoryRankingOptions.Default;
         _decay = decay?.Value ?? MemoryDecayOptions.Default;
         _rankingContext = rankingContext;
-        _clock = clock ?? new SystemClock();
+        _clock = clock ?? TimeProvider.System;
     }
 
     public async Task<Entity> UpsertAsync(Entity entity, CancellationToken cancellationToken = default)
@@ -264,7 +264,7 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
             };
             if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
             if (filteredKey is not null) parameters["ownerKey"] = filteredKey;
-            if (recencyRerank) RerankParameters.Add(parameters, ranking, _decay, _clock.UtcNow);
+            if (recencyRerank) RerankParameters.Add(parameters, ranking, _decay, _clock.GetUtcNow());
 
             return await _tx.ReadAsync(async runner =>
             {
@@ -452,6 +452,17 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
                 scope.IncludeShared ? EntityQueries.FindLiveByNameOrShared : EntityQueries.FindLiveByName, parameters).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
             if (records.Count == 0) return null;
+            // #251. Two live entities at the same rank (both the exact name, or both an alias) are two candidates, not
+            // one: a fact or edge attached to the most mentioned would be silently wrong, and the error compounds.
+            if (records.Count > 1 && records[0]["tier"].As<long>() == records[1]["tier"].As<long>())
+            {
+                _logger.LogWarning(
+                    "Entity name '{Name}' is ambiguous for owner {Owner}: two or more live entities match it equally ({First}, {Second}); neither is resolved.",
+                    name, scope.OwnerId,
+                    records[0]["e"].As<INode>().Properties.GetValueOrDefault("id"),
+                    records[1]["e"].As<INode>().Properties.GetValueOrDefault("id"));
+                return null;
+            }
             var node = records[0]["e"].As<INode>();
             return MapToEntity(node, ReadEmbedding(node));
         }, cancellationToken).ConfigureAwait(false);
@@ -727,7 +738,7 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
             await runner.RunAsync(EntityQueries.RefreshSearchFields, new
             {
                 entityId,
-                updatedAt = _clock.UtcNow.ToString("O")
+                updatedAt = _clock.GetUtcNow().ToString("O")
             }).ConfigureAwait(false);
         }, cancellationToken).ConfigureAwait(false);
     }
@@ -941,7 +952,7 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
         _logger.LogDebug("Invalidating entity {Id}, owner={Owner}", entityId, scope?.OwnerId);
 
         var cypher = EntityQueries.Invalidate(hasOwner);
-        string now = _clock.UtcNow.ToString("O");
+        string now = _clock.GetUtcNow().ToString("O");
 
         return await _tx.WriteAsync(async runner =>
         {

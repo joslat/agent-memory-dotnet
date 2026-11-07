@@ -165,7 +165,7 @@ public sealed class MetaPackageDiRegistrationTests
         // reasoning, dedup and consolidation. (Consumers can still override via their own registration.)
         var provider = BuildServices().BuildServiceProvider();
 
-        provider.GetService<IClock>().Should().NotBeNull();
+        provider.GetService<TimeProvider>().Should().NotBeNull();
         provider.GetService<IIdGenerator>().Should().NotBeNull();
     }
 

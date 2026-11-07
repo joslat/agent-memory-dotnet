@@ -68,7 +68,7 @@ public sealed class ExtractionQualityEvaluator
     public async Task<ExtractionQualityResult> EvaluateAsync(CancellationToken cancellationToken)
     {
         var memory = _services.GetRequiredService<IMemoryService>();
-        var clock = _services.GetRequiredService<IClock>();
+        var clock = _services.GetRequiredService<TimeProvider>();
         var results = new List<ExtractionCaseResult>();
 
         foreach (var testCase in _fixture.Cases)
@@ -79,7 +79,7 @@ public sealed class ExtractionQualityEvaluator
             // quality number untrustworthy.
             var owner = $"{_fixture.OwnerPrefix}-{testCase.Id}";
             var sessionId = $"{owner}-session";
-            var now = clock.UtcNow;
+            var now = clock.GetUtcNow();
 
             var messages = testCase.Messages.Select((m, i) => new Message
             {

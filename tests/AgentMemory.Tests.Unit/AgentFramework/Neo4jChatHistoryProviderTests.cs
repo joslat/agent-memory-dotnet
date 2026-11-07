@@ -15,14 +15,14 @@ namespace AgentMemory.Tests.Unit.AgentFramework;
 public sealed class Neo4jChatHistoryProviderTests
 {
     private readonly IMemoryService _memoryService = Substitute.For<IMemoryService>();
-    private readonly IClock _clock = Substitute.For<IClock>();
+    private readonly TimeProvider _clock = Substitute.For<TimeProvider>();
     private readonly IIdGenerator _idGen = Substitute.For<IIdGenerator>();
 
     private static readonly DateTimeOffset _now = new(2025, 6, 1, 10, 0, 0, TimeSpan.Zero);
 
     public Neo4jChatHistoryProviderTests()
     {
-        _clock.UtcNow.Returns(_now);
+        _clock.GetUtcNow().Returns(_now);
         _memoryService.RouteIdKeyedAdds();
         _idGen.GenerateId().Returns("test-id");
     }
@@ -30,7 +30,7 @@ public sealed class Neo4jChatHistoryProviderTests
     private Neo4jChatHistoryProvider CreateSut(AgentFrameworkOptions? options = null) =>
         new(
             _memoryService,
-            _clock,
+            new TimeProviderClock(_clock),
             _idGen,
             options ?? new AgentFrameworkOptions(),
             NullLogger<Neo4jChatHistoryProvider>.Instance);
@@ -65,14 +65,14 @@ public sealed class Neo4jChatHistoryProviderTests
     [Fact]
     public void Constructor_NullMemoryService_Throws() =>
         FluentActions.Invoking(() => new Neo4jChatHistoryProvider(
-            null!, _clock, _idGen, new AgentFrameworkOptions(),
+            null!, new TimeProviderClock(_clock), _idGen, new AgentFrameworkOptions(),
             NullLogger<Neo4jChatHistoryProvider>.Instance))
         .Should().Throw<ArgumentNullException>().WithParameterName("memoryService");
 
     [Fact]
     public void Constructor_NullOptions_Throws() =>
         FluentActions.Invoking(() => new Neo4jChatHistoryProvider(
-            _memoryService, _clock, _idGen, null!,
+            _memoryService, new TimeProviderClock(_clock), _idGen, null!,
             NullLogger<Neo4jChatHistoryProvider>.Instance))
         .Should().Throw<ArgumentNullException>().WithParameterName("options");
 
@@ -86,7 +86,7 @@ public sealed class Neo4jChatHistoryProviderTests
     [Fact]
     public void Constructor_NullLogger_Throws() =>
         FluentActions.Invoking(() => new Neo4jChatHistoryProvider(
-            _memoryService, _clock, _idGen, new AgentFrameworkOptions(), null!))
+            _memoryService, new TimeProviderClock(_clock), _idGen, new AgentFrameworkOptions(), null!))
         .Should().Throw<ArgumentNullException>().WithParameterName("logger");
 
     [Fact]

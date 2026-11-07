@@ -50,8 +50,8 @@ public sealed class TraceOutcomeRenderingTests
                 Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<ReasoningTrace>>(traces));
 
-        var clock = Substitute.For<IClock>();
-        clock.UtcNow.Returns(DateTimeOffset.UnixEpoch);
+        var clock = Substitute.For<TimeProvider>();
+        clock.GetUtcNow().Returns(DateTimeOffset.UnixEpoch);
 
         return new MemoryQueryFacade(
             _longTerm, _reasoning, _embeddings, clock,

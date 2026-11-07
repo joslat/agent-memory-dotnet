@@ -42,7 +42,7 @@ public sealed class ProceduralSurfaceReachabilityTests
             Substitute.For<IReasoningStepRepository>(),
             Substitute.For<IToolCallRepository>(),
             Substitute.For<IEmbeddingOrchestrator>(),
-            Substitute.For<IClock>(),
+            Substitute.For<TimeProvider>(),
             Substitute.For<IIdGenerator>(),
             Microsoft.Extensions.Options.Options.Create(new ReasoningMemoryOptions()),
             NullLogger<ReasoningMemoryService>.Instance,

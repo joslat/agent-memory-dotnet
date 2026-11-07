@@ -22,14 +22,14 @@ internal sealed class Neo4jConsolidationService : IConsolidationService
     private const int SourceChecksInParallel = 4;
 
     private readonly INeo4jTransactionRunner _tx;
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly IIdGenerator _idGenerator;
     private readonly ILogger<Neo4jConsolidationService> _logger;
     private readonly IPreferenceSourceCheck? _sourceCheck;
 
     public Neo4jConsolidationService(
         INeo4jTransactionRunner tx,
-        IClock clock,
+        TimeProvider clock,
         IIdGenerator idGenerator,
         ILogger<Neo4jConsolidationService> logger,
         IPreferenceSourceCheck? sourceCheck = null)
@@ -47,7 +47,7 @@ internal sealed class Neo4jConsolidationService : IConsolidationService
         CancellationToken cancellationToken = default)
     {
         var opts = options ?? new ConsolidationOptions();
-        var ranAt = _clock.UtcNow;
+        var ranAt = _clock.GetUtcNow();
         var runId = _idGenerator.GenerateId();
         var cutoff = (ranAt - opts.ConversationExpiry).UtcDateTime.ToString("O");
 
@@ -193,7 +193,7 @@ internal sealed class Neo4jConsolidationService : IConsolidationService
             async (group, ct) =>
             {
                 var first = group.First();
-                var request = new PreferenceSourceRequest(first.Message, ParseInstant(first.SaidAt) ?? _clock.UtcNow, first.Earlier,
+                var request = new PreferenceSourceRequest(first.Message, ParseInstant(first.SaidAt) ?? _clock.GetUtcNow(), first.Earlier,
                     group.Select(s => new PreferenceSourceItem(s.Id, s.Category, s.Text)).ToList());
                 IReadOnlyCollection<string> unsaid;
                 try

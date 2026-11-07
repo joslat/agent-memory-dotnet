@@ -103,7 +103,7 @@ public static class PerfFixture
         var shortTerm = services.GetRequiredService<IShortTermMemoryService>();
         var longTerm = services.GetRequiredService<ILongTermMemoryService>();
         var reasoning = services.GetRequiredService<IReasoningMemoryService>();
-        var clock = services.GetRequiredService<IClock>();
+        var clock = services.GetRequiredService<TimeProvider>();
 
         log.WriteLine("perf: seeding scale-S fixture…");
 
@@ -111,7 +111,7 @@ public static class PerfFixture
                 identity.ConversationId, identity.SessionId, identity.OwnerId, null, cancellationToken)
             .ConfigureAwait(false);
 
-        var now = clock.UtcNow;
+        var now = clock.GetUtcNow();
 
         for (var i = 0; i < MessageCount; i++)
         {

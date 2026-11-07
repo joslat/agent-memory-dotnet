@@ -190,7 +190,7 @@ public sealed class StrictMultiTenantIntegrationTests : IAsyncLifetime
         var act = () => CoreMemoryTools.MemoryAddEntity(
             sp.GetRequiredService<ILongTermMemoryService>(),
             sp.GetRequiredService<IIdGenerator>(),
-            sp.GetRequiredService<IClock>(),
+            sp.GetRequiredService<TimeProvider>(),
             Options.Create(new AgentMemoryMcpOptions()),
             Options.Create(new LongTermMemoryOptions()),
             name: "Alice", type: "Person");
@@ -207,7 +207,7 @@ public sealed class StrictMultiTenantIntegrationTests : IAsyncLifetime
         var act = () => CoreMemoryTools.MemoryAddPreference(
             sp.GetRequiredService<ILongTermMemoryService>(),
             sp.GetRequiredService<IIdGenerator>(),
-            sp.GetRequiredService<IClock>(),
+            sp.GetRequiredService<TimeProvider>(),
             Options.Create(new AgentMemoryMcpOptions()),
             Options.Create(new LongTermMemoryOptions()),
             category: "style", preferenceText: "concise answers");
@@ -224,7 +224,7 @@ public sealed class StrictMultiTenantIntegrationTests : IAsyncLifetime
         var act = () => CoreMemoryTools.MemoryAddFact(
             sp.GetRequiredService<ILongTermMemoryService>(),
             sp.GetRequiredService<IIdGenerator>(),
-            sp.GetRequiredService<IClock>(),
+            sp.GetRequiredService<TimeProvider>(),
             Options.Create(new AgentMemoryMcpOptions()),
             Options.Create(new LongTermMemoryOptions()),
             subject: "Alice", predicate: "works_at", factObject: "Acme");
@@ -241,7 +241,7 @@ public sealed class StrictMultiTenantIntegrationTests : IAsyncLifetime
         var act = () => EntityTools.MemoryCreateRelationship(
             sp.GetRequiredService<ILongTermMemoryService>(),
             sp.GetRequiredService<IIdGenerator>(),
-            sp.GetRequiredService<IClock>(),
+            sp.GetRequiredService<TimeProvider>(),
             Options.Create(new AgentMemoryMcpOptions()),
             sourceEntityId: "e1", targetEntityId: "e2", relationshipType: "KNOWS");
 
@@ -321,7 +321,7 @@ public sealed class StrictMultiTenantIntegrationTests : IAsyncLifetime
         var longTerm = sp.GetRequiredService<ILongTermMemoryService>();
 
         await CoreMemoryTools.MemoryAddFact(
-            longTerm, sp.GetRequiredService<IIdGenerator>(), sp.GetRequiredService<IClock>(),
+            longTerm, sp.GetRequiredService<IIdGenerator>(), sp.GetRequiredService<TimeProvider>(),
             Options.Create(new AgentMemoryMcpOptions()), Options.Create(new LongTermMemoryOptions()),
             subject: "alice-secret", predicate: "is", factObject: "private", userId: "alice");
 

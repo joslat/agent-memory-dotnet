@@ -62,9 +62,9 @@ builder.Services.AddAgentMemoryCore(_ =>
     // for the full configuration surface.
 });
 
-// Provide default IClock and IIdGenerator implementations.
+// Provide the default TimeProvider and IIdGenerator implementations.
 // Replace with custom implementations for testing or special time/ID requirements.
-builder.Services.AddSingleton<IClock, SystemClock>();
+builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IIdGenerator, GuidIdGenerator>();
 
 builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(

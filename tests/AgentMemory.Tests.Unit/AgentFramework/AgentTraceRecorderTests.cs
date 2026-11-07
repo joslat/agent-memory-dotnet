@@ -12,7 +12,7 @@ namespace AgentMemory.Tests.Unit.AgentFramework;
 public sealed class AgentTraceRecorderTests
 {
     private readonly IReasoningMemoryService _reasoningService;
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly IIdGenerator _idGenerator;
     private static readonly DateTimeOffset FixedNow =
         new(2025, 1, 15, 12, 0, 0, TimeSpan.Zero);
@@ -20,10 +20,10 @@ public sealed class AgentTraceRecorderTests
     public AgentTraceRecorderTests()
     {
         _reasoningService = Substitute.For<IReasoningMemoryService>();
-        _clock = Substitute.For<IClock>();
+        _clock = Substitute.For<TimeProvider>();
         _idGenerator = Substitute.For<IIdGenerator>();
 
-        _clock.UtcNow.Returns(FixedNow);
+        _clock.GetUtcNow().Returns(FixedNow);
         _idGenerator.GenerateId().Returns("gen-id");
 
         _reasoningService
@@ -83,7 +83,7 @@ public sealed class AgentTraceRecorderTests
     }
 
     private AgentTraceRecorder CreateSut(bool persist = true, IMemoryOwnerContext? ownerContext = null) => new(
-        _reasoningService, _clock, _idGenerator,
+        _reasoningService, new TimeProviderClock(_clock), _idGenerator,
         Options.Create(new AgentFrameworkOptions { PersistReasoningTraces = persist }),
         NullLogger<AgentTraceRecorder>.Instance, ownerContext);
 
@@ -271,7 +271,7 @@ public sealed class AgentTraceRecorderTests
     public async Task CompleteTrace_NonExistentTrace_LogsWarning()
     {
         var logger = new CapturingLogger<AgentTraceRecorder>();
-        var sut = new AgentTraceRecorder(_reasoningService, _clock, _idGenerator,
+        var sut = new AgentTraceRecorder(_reasoningService, new TimeProviderClock(_clock), _idGenerator,
             Options.Create(new AgentFrameworkOptions { PersistReasoningTraces = true }), logger);
 
         // Don't call StartTrace — traceId is unknown to this recorder.

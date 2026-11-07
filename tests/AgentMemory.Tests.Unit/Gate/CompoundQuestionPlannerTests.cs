@@ -126,13 +126,13 @@ public sealed class CompoundQuestionPlannerTests
                     Confidence = 1, CreatedAtUtc = DateTimeOffset.UnixEpoch }],
             },
         });
-        var clock = Substitute.For<IClock>();
-        clock.UtcNow.Returns(DateTimeOffset.UnixEpoch);
+        var clock = Substitute.For<TimeProvider>();
+        clock.GetUtcNow().Returns(DateTimeOffset.UnixEpoch);
         var planner = Substitute.For<ICompoundQuestionPlanner>();
         var oldConstructor = new GatedMemoryContextAssembler(inner, judge, options,
-            NullLogger<GatedMemoryContextAssembler>.Instance, null, clock);
+            NullLogger<GatedMemoryContextAssembler>.Instance, null, new TimeProviderClock(clock));
         var newConstructor = new GatedMemoryContextAssembler(inner, judge, options,
-            NullLogger<GatedMemoryContextAssembler>.Instance, null, clock, planner);
+            NullLogger<GatedMemoryContextAssembler>.Instance, null, new TimeProviderClock(clock), planner);
         var request = new RecallRequest { Query = "Who tests Orion and when is launch?", SessionId = "s" };
 
         var before = await oldConstructor.AssembleContextAsync(request);

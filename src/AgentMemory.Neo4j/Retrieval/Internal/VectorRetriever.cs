@@ -91,6 +91,8 @@ internal sealed class VectorRetriever : IRetriever
         else
             content = (data.Values.FirstOrDefault(v => v is string)
                        ?? data.Values.FirstOrDefault(v => v is not null))?.ToString() ?? "";
-        return new RetrieverResultItem(content, data.Count > 0 ? data! : null);
+        // The id column, when the query returns one, identifies the result for fusion (#248); it stays in the metadata.
+        var id = data.TryGetValue("id", out var idVal) && idVal is string or long or int ? idVal!.ToString() : null;
+        return new RetrieverResultItem(content, data.Count > 0 ? data! : null, id);
     }
 }

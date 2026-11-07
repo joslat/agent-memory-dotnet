@@ -68,7 +68,7 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
         // The write owner's own memories only; with no owner (or a write shared with everyone), the ownerless ones. Never
         // another owner's: what is read here goes into the prompt.
         var scope = SharedScopes.OwnedOrShared(SharedScopes.WriteOwner(request.Scope));
-        var now = _services.GetService<IClock>()?.UtcNow ?? DateTimeOffset.UtcNow;
+        var now = _services.GetService<TimeProvider>()?.GetUtcNow() ?? DateTimeOffset.UtcNow;
         var owner = await OwnerNameAsync(scope, cancellationToken).ConfigureAwait(false);
         var text = string.Join("\n", said.Select(m => m.Content));
         var stored = await StoredAsync(text, owner, scope, now, cancellationToken).ConfigureAwait(false);
@@ -76,8 +76,39 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
 
         var system = MemoryWriterPrompt.System(owner, _options.MemoryWriterMaxOperations);
         var context = MemoryWriterPrompt.Context(now, request.Window, owner, stored);
-        var ops = await AskAsync(system, context, cancellationToken).ConfigureAwait(false);
+        var (answered, dropped) = await AskAsync(system, context, cancellationToken).ConfigureAwait(false);
+
+        // #249. Every operation that writes must quote the words it rests on, and the quote must be in the message: one
+        // that is not is a claim the message does not make, and is dropped (and recorded, #250). A located quote's offsets
+        // go to the stored memory's provenance. An operation without a quote is kept as it was, without offsets.
+        var message = said[^1].Content;
+        var ops = new List<MemoryWriterOps.Op>(answered.Count);
+        var drops = new List<MemoryWriterOps.DroppedOp>(dropped);
+        foreach (var op in answered)
+        {
+            if (op.Action == "confirm" || op.Quote is null) { ops.Add(op); continue; }
+            if (MemoryWriterQuotes.Locate(message, op.Quote) is { } span) ops.Add(op with { QuoteStart = span.Start, QuoteEnd = span.End });
+            else drops.Add(new MemoryWriterOps.DroppedOp(op.Index, MemoryWriterOps.DropReason.QuoteNotFound, op.Text));
+        }
+
+        if (drops.Count > 0)
+        {
+            activity?.SetTag("memory.write.dropped", drops.Count);
+            activity?.SetTag("memory.write.dropped_reasons", string.Join(",", drops.GroupBy(d => d.Reason).Select(g => $"{g.Key}:{g.Count()}")));
+            if (_logger.IsEnabled(LogLevel.Debug))
+                _logger.LogDebug("Memory writer: dropped {Count} operation(s): {Dropped}.", drops.Count,
+                    string.Join(" ; ", drops.Select(d => $"#{d.Index} {d.Reason}{(d.Text is null ? "" : ": " + d.Text)}")));
+        }
+
         var result = MemoryWriterOps.ToResult(ops, stored, owner);
+        if (_options.DatesFromText)
+        {
+            // The dates the facts' own words state, as date fields too (the words stay as written). A yearless date is
+            // read against when the message was said, not when it is written: a replayed November 2025 turn saying
+            // "December 3" means December 2025. One user message is the writer's turn; with several, the last one.
+            var saidAt = said.Select(m => m.TimestampUtc).DefaultIfEmpty(now).Max();
+            result = result with { Facts = [.. result.Facts.Select(fact => AgentMemory.Core.Memory.FactDateReader.Apply(fact, saidAt))] };
+        }
         activity?.SetTag("memory.write.operations", ops.Count);
         if (_logger.IsEnabled(LogLevel.Debug))
             _logger.LogDebug("Memory writer: shown [{Stored}]; answered [{Ops}].",
@@ -100,7 +131,8 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
     /// no JSON 104 times and the second 10, each a model that reasoned through its whole room and answered nothing (12,000
     /// output tokens over the two): a runaway the next call rarely repeats, so one more call saves most of the lost turns.
     /// </summary>
-    private async Task<IReadOnlyList<MemoryWriterOps.Op>> AskAsync(string system, string context, CancellationToken cancellationToken)
+    private async Task<(IReadOnlyList<MemoryWriterOps.Op> Ops, IReadOnlyList<MemoryWriterOps.DroppedOp> Dropped)> AskAsync(
+        string system, string context, CancellationToken cancellationToken)
     {
         const int Attempts = 3;
         var room = _options.MemoryWriterMaxOutputTokens;
@@ -111,8 +143,8 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
                 [new ChatMessage(ChatRole.System, system), new ChatMessage(ChatRole.User, context)], room, json: false, cancellationToken)
                 .ConfigureAwait(false);
             reply = response.Text;
-            if (MemoryWriterOps.TryParse(reply, _options.MemoryWriterMaxOperations, out var ops))
-                return ops;
+            if (MemoryWriterOps.TryParse(reply, _options.MemoryWriterMaxOperations, out var ops, out var dropped))
+                return (ops, dropped);
             _logger.LogWarning("Memory writer: the reply held no JSON (attempt {Attempt} of {Attempts}, {Room} tokens of room).", attempt, Attempts, room);
             if (attempt == 1) room *= 2;
         }
@@ -366,7 +398,45 @@ internal static class MemoryWriterPrompt
 internal static class MemoryWriterOps
 {
     /// <summary>One operation: add, replace, correct or confirm; its kind, text and (for all but add) the stored id it names.</summary>
-    internal sealed record Op(string Action, string Kind, string Text, string? Id, string? Until = null);
+    internal sealed record Op(string Action, string Kind, string Text, string? Id, string? Until = null)
+    {
+        /// <summary>The words of the message the operation says it rests on (#249), as the model gave them.</summary>
+        public string? Quote { get; init; }
+
+        /// <summary>Where <see cref="Quote"/> stands in the message once located: start (inclusive) and end (exclusive).</summary>
+        public int? QuoteStart { get; init; }
+
+        /// <inheritdoc cref="QuoteStart"/>
+        public int? QuoteEnd { get; init; }
+
+        /// <summary>The operation's position in the reply's "ops" list, from 0.</summary>
+        public int Index { get; init; }
+    }
+
+    /// <summary>Why an operation in a reply was not kept (#250).</summary>
+    internal enum DropReason
+    {
+        /// <summary>An entry of "ops" that is not a JSON object.</summary>
+        NotAnObject,
+
+        /// <summary>No "op", or one that is not add, replace, correct or confirm.</summary>
+        UnknownAction,
+
+        /// <summary>An add, replace or correct without "text".</summary>
+        MissingText,
+
+        /// <summary>A confirm without "id".</summary>
+        MissingId,
+
+        /// <summary>An entry past the most operations a reply may hold.</summary>
+        OverLimit,
+
+        /// <summary>A quote the message does not contain (#249).</summary>
+        QuoteNotFound,
+    }
+
+    /// <summary>An operation the writer did not keep, where it was in the reply, why, and its text when it had one.</summary>
+    internal sealed record DroppedOp(int Index, DropReason Reason, string? Text);
 
     /// <summary>A stored memory shown to the writer: its short label (F3, P1, E2, R4), its text, and what it really is.</summary>
     internal sealed record Stored(string Id, char Letter, string Text)
@@ -404,9 +474,16 @@ internal static class MemoryWriterOps
     /// <paramref name="max"/> entries are read, and those that are not an add, replace or correct with a text, or a confirm with
     /// an id, are dropped.
     /// </summary>
-    internal static bool TryParse(string? reply, int max, out IReadOnlyList<Op> ops)
+    internal static bool TryParse(string? reply, int max, out IReadOnlyList<Op> ops) => TryParse(reply, max, out ops, out _);
+
+    /// <summary>
+    /// As <see cref="TryParse(string?, int, out IReadOnlyList{Op})"/>, with the entries it did not keep and why (#250): a
+    /// reply whose facts are real but mis-shaped no longer loses them without a trace.
+    /// </summary>
+    internal static bool TryParse(string? reply, int max, out IReadOnlyList<Op> ops, out IReadOnlyList<DroppedOp> dropped)
     {
         ops = [];
+        dropped = [];
         var json = LlmExtractionRunner.ExtractJson(reply);
         if (json is null) return false;
         try
@@ -415,18 +492,29 @@ internal static class MemoryWriterOps
             if (doc.RootElement.ValueKind != JsonValueKind.Object) return false;
             if (!doc.RootElement.TryGetProperty("ops", out var list) || list.ValueKind != JsonValueKind.Array) return true;
             var kept = new List<Op>();
-            foreach (var o in list.EnumerateArray().Take(max))
+            var lost = new List<DroppedOp>();
+            var index = -1;
+            foreach (var o in list.EnumerateArray())
             {
-                if (o.ValueKind != JsonValueKind.Object) continue;
+                index++;
+                if (index >= max) { lost.Add(new DroppedOp(index, DropReason.OverLimit, o.ValueKind == JsonValueKind.Object ? Str(o, "text") : null)); continue; }
+                if (o.ValueKind != JsonValueKind.Object) { lost.Add(new DroppedOp(index, DropReason.NotAnObject, null)); continue; }
                 var action = Str(o, "op")?.Trim().ToLowerInvariant();
                 var text = Str(o, "text")?.Trim();
                 var id = Str(o, "id")?.Trim();
-                if (action is null || !Actions.Contains(action)) continue;
-                if (action == "confirm" ? string.IsNullOrEmpty(id) : string.IsNullOrEmpty(text)) continue;
+                if (action is null || !Actions.Contains(action)) { lost.Add(new DroppedOp(index, DropReason.UnknownAction, text)); continue; }
+                if (action == "confirm" && string.IsNullOrEmpty(id)) { lost.Add(new DroppedOp(index, DropReason.MissingId, text)); continue; }
+                if (action != "confirm" && string.IsNullOrEmpty(text)) { lost.Add(new DroppedOp(index, DropReason.MissingText, null)); continue; }
                 var kind = Str(o, "kind")?.Trim().ToLowerInvariant();
-                kept.Add(new Op(action, kind is not null && ItemKinds.Contains(kind) ? kind : "fact", text ?? "", id, Str(o, "until")?.Trim()));
+                var quote = Str(o, "quote");
+                kept.Add(new Op(action, kind is not null && ItemKinds.Contains(kind) ? kind : "fact", text ?? "", id, Str(o, "until")?.Trim())
+                {
+                    Quote = string.IsNullOrWhiteSpace(quote) ? null : quote,
+                    Index = index,
+                });
             }
             ops = kept;
+            dropped = lost;
             return true;
         }
         catch (JsonException)
@@ -498,6 +586,7 @@ internal static class MemoryWriterOps
                     {
                         Category = "general", PreferenceText = op.Text, SourceRole = "user",
                         ReplacesId = target?.Letter == 'P' ? target.Id : null,
+                        SourceQuoteStart = op.QuoteStart, SourceQuoteEnd = op.QuoteEnd,
                     });
                     break;
                 case "entity":
@@ -538,6 +627,8 @@ internal static class MemoryWriterOps
         ReplacementIsCorrection = (target?.Letter is 'F' or 'R') && op.Action == "correct",
         ValidUntil = EndOfDay(op.Until),
         ValidUntilPrecision = EndOfDay(op.Until) is null ? DatePrecision.Unspecified : DatePrecision.Day,
+        SourceQuoteStart = op.QuoteStart,
+        SourceQuoteEnd = op.QuoteEnd,
     };
 
     // Models can copy the prompt's format label and outer quotes into the JSON text value.

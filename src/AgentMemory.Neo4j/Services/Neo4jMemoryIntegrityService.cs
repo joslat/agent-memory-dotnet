@@ -7,7 +7,7 @@ using Neo4j.Driver;
 namespace AgentMemory.Neo4j.Services;
 
 /// <summary>G6 (PLAN 40.50): the integrity rules, one read query each.</summary>
-internal sealed class Neo4jMemoryIntegrityService(INeo4jTransactionRunner tx, IClock clock) : IMemoryIntegrityService
+internal sealed class Neo4jMemoryIntegrityService(INeo4jTransactionRunner tx, TimeProvider clock) : IMemoryIntegrityService
 {
     private static readonly (string Id, string Description, string Severity, string Query)[] Rules =
     [
@@ -42,6 +42,6 @@ internal sealed class Neo4jMemoryIntegrityService(INeo4jTransactionRunner tx, IC
             }
             return results;
         }, cancellationToken).ConfigureAwait(false);
-        return new MemoryIntegrityReport { CheckedAtUtc = clock.UtcNow, OwnerId = owner, Rules = found };
+        return new MemoryIntegrityReport { CheckedAtUtc = clock.GetUtcNow(), OwnerId = owner, Rules = found };
     }
 }

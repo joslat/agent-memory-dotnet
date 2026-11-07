@@ -79,7 +79,7 @@ public sealed class Showcase(TextWriter output)
         {
             var services = new ServiceCollection();
             services.AddLogging(ArenaLogging.Console);
-            services.AddSingleton<IClock>(new FixedClock(AskedAt));
+            services.AddSingleton<TimeProvider>(new FixedClock(AskedAt));
             services.AddNeo4jAgentMemory(store.Options, Neo4j, _ => { });
             services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(embeddings);
             services.AddSingleton(chat);
@@ -174,8 +174,9 @@ public sealed class Showcase(TextWriter output)
         new(ChatRole.User, question),
     ];
 
-    private sealed class FixedClock(DateTimeOffset now) : IClock
+    private sealed class FixedClock(DateTimeOffset now) : TimeProvider
     {
+            public override DateTimeOffset GetUtcNow() => UtcNow;
         public DateTimeOffset UtcNow => now;
     }
 }

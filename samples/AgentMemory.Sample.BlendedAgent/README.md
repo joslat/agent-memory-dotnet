@@ -138,7 +138,7 @@ services.AddNeo4jAgentMemory(options => { ... });
 //    them: `options = options with { ... }` compiles, rebinds a local, and is discarded — leaving
 //    every default in place, GraphRAG included.
 services.AddAgentMemoryCore(new MemoryOptions { EnableGraphRag = true, ... });
-services.AddSingleton<IClock, SystemClock>();
+services.AddSingleton(TimeProvider.System);
 services.AddSingleton<IIdGenerator, GuidIdGenerator>();
 services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(azureClient.GetEmbeddingClient(embeddingDeployment).AsIEmbeddingGenerator());
 

@@ -785,6 +785,80 @@ internal static class FactQueries
         + DeltaOwner(hasOwnerFilter, includeShared) + @"
             RETURN f ORDER BY f.valid_until ASC LIMIT $limit";
 
+    // ── Look-ahead recall: upcoming, time windows, overlaps ─────────────
+
+    /// <summary>The day a fact is dated on: an event's <c>occurred_on</c>, or a stay's start.</summary>
+    private const string FactStart = "coalesce(f.occurred_on, f.valid_from)";
+
+    /// <summary>
+    /// A fact dated inside <c>[$start, $end]</c> (or a window's <c>start</c>/<c>end</c> under another alias): an event on
+    /// a day in it, a stay that starts or ends in it, or a bounded stay that spans it. A fact valid from some moment
+    /// with no end is not one: it would span every window.
+    /// </summary>
+    private static string InWindow(string start, string end) => $@"
+              AND ((f.occurred_on IS NOT NULL AND f.occurred_on >= datetime({start}) AND f.occurred_on <= datetime({end}))
+                OR (f.valid_from IS NOT NULL AND f.valid_from >= datetime({start}) AND f.valid_from <= datetime({end}))
+                OR (f.valid_until IS NOT NULL AND f.valid_until >= datetime({start}) AND f.valid_until <= datetime({end}))
+                OR (f.valid_from IS NOT NULL AND f.valid_until IS NOT NULL
+                    AND f.valid_from < datetime({start}) AND f.valid_until > datetime({end})))";
+
+    /// <summary>
+    /// The owner's live facts that start in <c>(now, until]</c>, earliest first (<c>RecallOptions.Upcoming</c>).
+    /// </summary>
+    /// <remarks>
+    /// A time-predicate read like <see cref="GetDueFacts"/>, with one difference that matters: it reads
+    /// <c>coalesce(occurred_on, valid_from)</c>, because an event ("the go-live on December 11") is dated by
+    /// <c>occurred_on</c> and never has a <c>valid_from</c>.
+    /// </remarks>
+    public static string GetUpcomingFacts(bool hasOwnerFilter, bool includeShared) => @"
+            MATCH (f:Fact)
+            WHERE f.invalidated_at IS NULL
+              AND " + FactStart + @" IS NOT NULL
+              AND " + FactStart + @" > datetime($now)
+              AND " + FactStart + @" <= datetime($until)"
+        + DeltaOwner(hasOwnerFilter, includeShared) + @"
+            RETURN f ORDER BY " + FactStart + @" ASC LIMIT $limit";
+
+    /// <summary>The owner's live facts dated inside <c>[$start, $end]</c>, earliest first (<c>RecallOptions.TimeWindows</c>).</summary>
+    public static string GetFactsInWindow(bool hasOwnerFilter, bool includeShared) => @"
+            MATCH (f:Fact)
+            WHERE f.invalidated_at IS NULL" + InWindow("$start", "$end")
+        + DeltaOwner(hasOwnerFilter, includeShared) + @"
+            RETURN f ORDER BY coalesce(f.occurred_on, f.valid_from, f.valid_until) ASC LIMIT $limit";
+
+    /// <summary>
+    /// The owner's live facts that name one of <c>$anchors</c> (lower case, hyphens read as spaces) in their subject,
+    /// predicate or object, newest first: the candidates an anchored window ("go-live week") takes its date from.
+    /// </summary>
+    /// <remarks>
+    /// Only facts that can carry a date: a date field, or words shaped like a date (<c>$datedWords</c>: an ISO date, a
+    /// month name and a day, a day and a month name; a number alone is not a date). The
+    /// limit then bounds candidates that may date the event, so newer mentions without a date cannot crowd out an older
+    /// dated one. Dated or not: a date can be in the fact's words only ("the go-live is scheduled for 2026-12-11"), and which one
+    /// states the anchor's own date is decided in code, where the words can be read
+    /// (<c>Neo4jFactRepository.FindAnchorFactAsync</c>).
+    /// </remarks>
+    public static string FindAnchorCandidates(bool hasOwnerFilter, bool includeShared) => @"
+            MATCH (f:Fact)
+            WHERE f.invalidated_at IS NULL
+              AND any(a IN $anchors WHERE replace(toLower(f.subject + ' ' + f.predicate + ' ' + f.object), '-', ' ') CONTAINS a)
+              AND (" + FactStart + @" IS NOT NULL OR (f.subject + ' ' + f.predicate + ' ' + f.object) =~ $datedWords)"
+        + DeltaOwner(hasOwnerFilter, includeShared) + @"
+            RETURN f ORDER BY f.created_at DESC LIMIT $limit";
+
+    /// <summary>
+    /// The owner's live facts dated inside any of <c>$windows</c> (maps of <c>start</c> and <c>end</c>), leaving out
+    /// <c>$exclude</c>, earliest first (<c>RecallOptions.OverlapExpansion</c>).
+    /// </summary>
+    public static string GetOverlappingFacts(bool hasOwnerFilter, bool includeShared) => @"
+            UNWIND $windows AS w
+            MATCH (f:Fact)
+            WHERE f.invalidated_at IS NULL
+              AND NOT f.id IN $exclude" + InWindow("w.start", "w.end")
+        + DeltaOwner(hasOwnerFilter, includeShared) + @"
+            WITH DISTINCT f
+            RETURN f ORDER BY coalesce(f.occurred_on, f.valid_from, f.valid_until) ASC LIMIT $limit";
+
     // ── Identity expansion (E-1) ───────────────────────────────────────
 
     /// <summary>

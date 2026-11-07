@@ -24,7 +24,7 @@ internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository,
     /// G1 (40.45): every time this repository stamps or compares comes from here, so a host (or a replay) that sets the
     /// clock sets all of it. Without DI, the system clock.
     /// </summary>
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly INeo4jTransactionRunner _tx;
     private readonly bool _rescueShortOwnerResults;
     /// <summary>2.13: skip a futile widened probe + scan for an owner holding nothing.</summary>
@@ -83,7 +83,7 @@ internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository,
         IMemoryRankingContext? rankingContext = null,
         IOptions<MemoryOptions>? memoryOptions = null,
         ISharedCorpusProbe? sharedCorpus = null,
-        IClock? clock = null)
+        TimeProvider? clock = null)
     {
         _sharedCorpus = sharedCorpus;
         _rescueShortOwnerResults = memoryOptions?.Value.RescueShortOwnerResults ?? false;
@@ -95,7 +95,7 @@ internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository,
         _ranking = ranking?.Value ?? MemoryRankingOptions.Default;
         _decay = decay?.Value ?? MemoryDecayOptions.Default;
         _rankingContext = rankingContext;
-        _clock = clock ?? new SystemClock();
+        _clock = clock ?? TimeProvider.System;
     }
 
     public async Task<Preference> UpsertAsync(Preference preference, CancellationToken cancellationToken = default)
@@ -285,7 +285,7 @@ internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository,
                 ["minScore"] = minScore,
             };
             if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
-            if (recencyRerank) RerankParameters.Add(parameters, ranking, _decay, _clock.UtcNow);
+            if (recencyRerank) RerankParameters.Add(parameters, ranking, _decay, _clock.GetUtcNow());
 
             return await _tx.ReadAsync(async runner =>
             {
@@ -481,7 +481,7 @@ internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository,
         _logger.LogDebug("Invalidating preference {Id}, owner={Owner}", preferenceId, scope?.OwnerId);
 
         var cypher = PreferenceQueries.Invalidate(hasOwner);
-        string now = _clock.UtcNow.ToString("O");
+        string now = _clock.GetUtcNow().ToString("O");
 
         return await _tx.WriteAsync(async runner =>
         {
@@ -499,7 +499,7 @@ internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository,
         _logger.LogDebug("Superseding preference {Loser} with {Winner}, owner={Owner}", loserPreferenceId, winnerPreferenceId, scope?.OwnerId);
 
         var cypher = PreferenceQueries.Supersede(hasOwner);
-        string now = _clock.UtcNow.ToString("O");
+        string now = _clock.GetUtcNow().ToString("O");
 
         return await _tx.WriteAsync(async runner =>
         {

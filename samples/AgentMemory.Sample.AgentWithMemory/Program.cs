@@ -72,7 +72,7 @@ builder.Services.AddNeo4jAgentMemory(options =>
 // (see SafeRunAsync below), so flipping this on changes nothing for the golden path -- see step 4 for
 // what happens when a call forgets to.
 builder.Services.AddAgentMemoryCore(o => o.Isolation.Mode = MemoryIsolationMode.StrictMultiTenant);
-builder.Services.AddSingleton<IClock, SystemClock>();
+builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IIdGenerator, GuidIdGenerator>();
 builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(
     embeddingGenerator);

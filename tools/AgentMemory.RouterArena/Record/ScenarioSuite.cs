@@ -84,7 +84,7 @@ public sealed class ScenarioSuite(TextWriter output)
         {
             var services = new ServiceCollection();
             services.AddLogging(ArenaLogging.Console);
-            services.AddSingleton<IClock>(clock);
+            services.AddSingleton<TimeProvider>(clock);
 #pragma warning disable AMGATE001
             services.AddNeo4jAgentMemory(MemoryOptions.CreateRecommended(), Neo4j, o => o.ApplyRecommended());
             services.AddSingleton<IChatClient>(new UsageCountingChatClient(chat));
@@ -295,8 +295,9 @@ public sealed class ScenarioSuite(TextWriter output)
         return list;
     }
 
-    private sealed class Clock(DateTimeOffset start) : IClock
+    private sealed class Clock(DateTimeOffset start) : TimeProvider
     {
+            public override DateTimeOffset GetUtcNow() => UtcNow;
         public DateTimeOffset Now { get; set; } = start;
 
         public DateTimeOffset UtcNow => Now;

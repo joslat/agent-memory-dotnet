@@ -172,7 +172,7 @@ internal sealed class AdvancedMemoryTools
     public static async Task<string> ExtractAndPersist(
         IMemoryService memoryService,
         IIdGenerator idGenerator,
-        IClock clock,
+        TimeProvider clock,
         IOptions<AgentMemoryMcpOptions> options,
         [Description("The message text to extract from")] string messageText,
         [Description("Session identifier (optional, uses default if omitted)")] string? sessionId = null,
@@ -196,7 +196,7 @@ internal sealed class AdvancedMemoryTools
             ConversationId = cid,
             Role = role,
             Content = messageText,
-            TimestampUtc = clock.UtcNow
+            TimestampUtc = clock.GetUtcNow()
         };
 
         var result = await memoryService.ExtractAndPersistAsync(

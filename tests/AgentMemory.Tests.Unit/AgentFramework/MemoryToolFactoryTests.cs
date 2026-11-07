@@ -14,7 +14,7 @@ public sealed class MemoryToolFactoryTests
     private readonly ILongTermMemoryService _longTermService;
     private readonly IReasoningMemoryService _reasoningService;
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly IIdGenerator _idGenerator;
 
     public MemoryToolFactoryTests()
@@ -22,14 +22,14 @@ public sealed class MemoryToolFactoryTests
         _longTermService = Substitute.For<ILongTermMemoryService>();
         _reasoningService = Substitute.For<IReasoningMemoryService>();
         _embeddingOrchestrator = Substitute.For<IEmbeddingOrchestrator>();
-        _clock = Substitute.For<IClock>();
+        _clock = Substitute.For<TimeProvider>();
         _idGenerator = Substitute.For<IIdGenerator>();
 
         _embeddingOrchestrator
             .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new float[384]);
 
-        _clock.UtcNow.Returns(DateTimeOffset.UtcNow);
+        _clock.GetUtcNow().Returns(DateTimeOffset.UtcNow);
         _idGenerator.GenerateId().Returns("test-id");
 
         _longTermService

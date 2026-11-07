@@ -17,7 +17,7 @@ internal sealed class MemoryQueryFacade : IMemoryQueryFacade
     private readonly ILongTermMemoryService _longTerm;
     private readonly IReasoningMemoryService _reasoning;
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly IIdGenerator _idGenerator;
     private readonly IMemoryOwnerContext? _ownerContext;
     private readonly ILogger<MemoryQueryFacade> _logger;
@@ -32,7 +32,7 @@ internal sealed class MemoryQueryFacade : IMemoryQueryFacade
         ILongTermMemoryService longTerm,
         IReasoningMemoryService reasoning,
         IEmbeddingOrchestrator embeddingOrchestrator,
-        IClock clock,
+        TimeProvider clock,
         IIdGenerator idGenerator,
         ILogger<MemoryQueryFacade> logger,
         IMemoryIsolationPolicy isolationPolicy,
@@ -117,7 +117,7 @@ internal sealed class MemoryQueryFacade : IMemoryQueryFacade
                 PreferenceText = preferenceText,
                 Confidence = 1.0,
                 OwnerId = _isolationPolicy.ResolveWriteOwner(_ownerContext?.UserId, "remember_preference", MemoryOperationAccess.Tenant),
-                CreatedAtUtc = _clock.UtcNow,
+                CreatedAtUtc = _clock.GetUtcNow(),
             };
             await _longTerm.AddPreferenceAsync(preference, cancellationToken).ConfigureAwait(false);
             return $"Preference stored: [{resolvedCategory}] {preferenceText}";
@@ -141,7 +141,7 @@ internal sealed class MemoryQueryFacade : IMemoryQueryFacade
                 Object = @object,
                 Confidence = 1.0,
                 OwnerId = _isolationPolicy.ResolveWriteOwner(_ownerContext?.UserId, "remember_fact", MemoryOperationAccess.Tenant),
-                CreatedAtUtc = _clock.UtcNow,
+                CreatedAtUtc = _clock.GetUtcNow(),
             };
             await _longTerm.AddFactAsync(fact, cancellationToken).ConfigureAwait(false);
             return $"Fact stored: {subject} {predicate} {@object}";

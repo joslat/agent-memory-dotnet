@@ -13,12 +13,12 @@ namespace AgentMemory.Tests.Unit.AgentFramework;
 
 public sealed class MafTypeMapperTests
 {
-    private readonly IClock _clock = Substitute.For<IClock>();
+    private readonly TimeProvider _clock = Substitute.For<TimeProvider>();
     private readonly IIdGenerator _idGen = Substitute.For<IIdGenerator>();
 
     public MafTypeMapperTests()
     {
-        _clock.UtcNow.Returns(new DateTimeOffset(2025, 1, 28, 12, 0, 0, TimeSpan.Zero));
+        _clock.GetUtcNow().Returns(new DateTimeOffset(2025, 1, 28, 12, 0, 0, TimeSpan.Zero));
         _idGen.GenerateId().Returns("msg-001");
     }
 
@@ -36,7 +36,7 @@ public sealed class MafTypeMapperTests
         result.ConversationId.Should().Be("c1");
         result.Role.Should().Be("user");
         result.Content.Should().Be("Hello!");
-        result.TimestampUtc.Should().Be(_clock.UtcNow);
+        result.TimestampUtc.Should().Be(_clock.GetUtcNow());
     }
 
     [Fact]

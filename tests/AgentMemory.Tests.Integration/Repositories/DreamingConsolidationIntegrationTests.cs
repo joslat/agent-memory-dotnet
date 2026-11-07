@@ -28,8 +28,8 @@ public class DreamingConsolidationIntegrationTests : IAsyncLifetime
     public DreamingConsolidationIntegrationTests(Neo4jIntegrationFixture fixture)
     {
         _fixture = fixture;
-        var clock = Substitute.For<IClock>();
-        clock.UtcNow.Returns(Now);
+        var clock = Substitute.For<TimeProvider>();
+        clock.GetUtcNow().Returns(Now);
         var idGen = Substitute.For<IIdGenerator>();
         idGen.GenerateId().Returns(_ => $"run-{Guid.NewGuid():N}");
         _svc = new Neo4jConsolidationService(fixture.TransactionRunner, clock, idGen, NullLogger<Neo4jConsolidationService>.Instance, _check);

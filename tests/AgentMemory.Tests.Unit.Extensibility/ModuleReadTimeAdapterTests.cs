@@ -159,7 +159,7 @@ public sealed class ModuleReadTimeAdapterTests
             var compiler = new ContextCompiler(contributors, isolation, TimeProvider.System,
                 NullLogger<ContextCompiler>.Instance);
             _provider = new ExtensibleMemoryContextProvider(Memory,
-                Substitute.For<IEmbeddingOrchestrator>(), Substitute.For<IClock>(), Substitute.For<IIdGenerator>(),
+                Substitute.For<IEmbeddingOrchestrator>(), new TimeProviderClock(Substitute.For<TimeProvider>()), Substitute.For<IIdGenerator>(),
                 Options.Create(new MemoryOptions()), Options.Create(new ContextFormatOptions()),
                 Options.Create(new AgentFrameworkOptions()), NullLogger<Neo4jMemoryContextProvider>.Instance,
                 compiler, contributors, NullLogger<ExtensibleMemoryContextProvider>.Instance);

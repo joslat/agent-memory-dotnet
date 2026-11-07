@@ -44,8 +44,8 @@ public sealed class IndexedCandidatesTests
     {
         var options = new ExtractionOptions();
         options.EntityResolution.IndexedCandidates = indexed;
-        var clock = Substitute.For<IClock>();
-        clock.UtcNow.Returns(T0);
+        var clock = Substitute.For<TimeProvider>();
+        clock.GetUtcNow().Returns(T0);
         var ids = Substitute.For<IIdGenerator>();
         ids.GenerateId().Returns(_ => Guid.NewGuid().ToString("N"));
         return new CompositeEntityResolver(_entities, _embeddings, Options.Create(options), clock, ids,

@@ -174,8 +174,9 @@ public sealed class DatePrecisionIntegrationTests : IAsyncLifetime
         read!.ValidFromPrecision.Should().Be(DatePrecision.Unspecified);
     }
 
-    private sealed class FixedClock : IClock
+    private sealed class FixedClock : TimeProvider
     {
+        public override DateTimeOffset GetUtcNow() => UtcNow;
         public DateTimeOffset UtcNow => new(2026, 9, 27, 0, 0, 0, TimeSpan.Zero);
     }
 

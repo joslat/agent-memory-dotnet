@@ -16,7 +16,7 @@ internal sealed class ShortTermMemoryService : IShortTermMemoryService, IScoredM
     private readonly IMessageRepository _messageRepo;
     private readonly IReasoningTraceRepository _reasoningTraceRepo;
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly IIdGenerator _idGenerator;
     private readonly ShortTermMemoryOptions _options;
     private readonly ILogger<ShortTermMemoryService> _logger;
@@ -29,7 +29,7 @@ internal sealed class ShortTermMemoryService : IShortTermMemoryService, IScoredM
         IMessageRepository messageRepo,
         IReasoningTraceRepository reasoningTraceRepo,
         IEmbeddingOrchestrator embeddingOrchestrator,
-        IClock clock,
+        TimeProvider clock,
         IIdGenerator idGenerator,
         IOptions<ShortTermMemoryOptions> options,
         ILogger<ShortTermMemoryService> logger)
@@ -52,7 +52,7 @@ internal sealed class ShortTermMemoryService : IShortTermMemoryService, IScoredM
         IReadOnlyDictionary<string, object>? metadata = null,
         CancellationToken cancellationToken = default)
     {
-        var now = _clock.UtcNow;
+        var now = _clock.GetUtcNow();
         var conversation = new Conversation
         {
             ConversationId = conversationId,

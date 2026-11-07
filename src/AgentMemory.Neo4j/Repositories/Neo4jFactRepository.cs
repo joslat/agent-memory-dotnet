@@ -29,7 +29,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
     /// G1 (40.45): every time this repository stamps or compares comes from here, so a host (or a replay) that sets the
     /// clock sets all of it. Without DI, the system clock.
     /// </summary>
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly INeo4jTransactionRunner _tx;
     private readonly bool _rescueShortOwnerResults;
     /// <summary>2.13: skip a futile widened probe + scan for an owner holding nothing.</summary>
@@ -63,7 +63,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         OwnerRowCounts? ownerRowCounts = null,
         ISharedCorpusProbe? sharedCorpus = null,
         IOptions<Neo4jOptions>? neo4jOptions = null,
-        IClock? clock = null)
+        TimeProvider? clock = null)
     {
         _filteredOwnerIndex = neo4jOptions?.Value.FilteredVectorIndexes ?? false;
         _ownerFirstThreshold = memoryOptions?.Value.OwnerFirstVectorThreshold ?? 0;
@@ -79,7 +79,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         _ranking = ranking?.Value ?? MemoryRankingOptions.Default;
         _decay = decay?.Value ?? MemoryDecayOptions.Default;
         _rankingContext = rankingContext;
-        _clock = clock ?? new SystemClock();
+        _clock = clock ?? TimeProvider.System;
     }
 
     public async Task<Fact> UpsertAsync(Fact fact, CancellationToken cancellationToken = default)
@@ -128,7 +128,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
                 ["occurredOnPrecision"] = DatePrecisionProperty.ToStored(fact.OccurredOnPrecision),
                 ["sourceMessageIds"] = fact.SourceMessageIds.ToList(),
                 ["createdAtUtc"] = fact.CreatedAtUtc.ToString("O"),
-                ["updatedAtUtc"] = _clock.UtcNow.ToString("O"),
+                ["updatedAtUtc"] = _clock.GetUtcNow().ToString("O"),
                 ["metadata"] = SerializeMetadata(fact.Metadata)
             };
 
@@ -180,7 +180,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
             .Select(g => g.Last())
             .ToList();
 
-        var updatedAt = _clock.UtcNow.ToString("O");
+        var updatedAt = _clock.GetUtcNow().ToString("O");
 
         // L11. The fact merge key is the composite {subject_key, predicate_key, object_key,
         // owner_key}, and it is now backed by a range index — so an oversized value stops being a
@@ -299,7 +299,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         string @object,
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default) =>
-        FindSupersededCandidatesAsync(winnerFactId, subject, predicate, @object, _clock.UtcNow, scope, cancellationToken);
+        FindSupersededCandidatesAsync(winnerFactId, subject, predicate, @object, _clock.GetUtcNow(), scope, cancellationToken);
 
     public async Task<IReadOnlyList<Fact>> FindSupersededCandidatesAsync(
         string winnerFactId,
@@ -543,9 +543,9 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         bool currentValidTime = validTime == ValidTimeMode.Current;
         // Both gated queries read $now; supplied only when the gate is on, so an ungated query's
         // parameter set stays byte-identical to what it has always sent.
-        if (currentValidTime) parameters["now"] = _clock.UtcNow.ToString("O");
+        if (currentValidTime) parameters["now"] = _clock.GetUtcNow().ToString("O");
         if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
-        if (recencyRerank) RerankParameters.Add(parameters, ranking, _decay, _clock.UtcNow);
+        if (recencyRerank) RerankParameters.Add(parameters, ranking, _decay, _clock.GetUtcNow());
 
         // G-14: a small owner is scored exactly (it cannot be crowded out of a global top-K it never asks for).
         var plan = hasOwner
@@ -1096,6 +1096,147 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
     }
 
     /// <inheritdoc/>
+    public Task<IReadOnlyList<Fact>> GetUpcomingFactsAsync(
+        DateTimeOffset now, DateTimeOffset until, int limit, MemoryScope? scope, CancellationToken cancellationToken = default)
+    {
+        var culture = System.Globalization.CultureInfo.InvariantCulture;
+        return ReadDatedFactsAsync(
+            FactQueries.GetUpcomingFacts(scope?.OwnerId is not null, scope?.IncludeShared ?? false),
+            new Dictionary<string, object?>
+            {
+                ["now"] = now.ToString("O", culture),
+                ["until"] = until.ToString("O", culture),
+                ["limit"] = limit,
+            },
+            scope, cancellationToken);
+    }
+
+    /// <inheritdoc/>
+    public Task<IReadOnlyList<Fact>> GetFactsInWindowAsync(
+        DateTimeOffset start, DateTimeOffset end, int limit, MemoryScope? scope, CancellationToken cancellationToken = default)
+    {
+        var culture = System.Globalization.CultureInfo.InvariantCulture;
+        return ReadDatedFactsAsync(
+            FactQueries.GetFactsInWindow(scope?.OwnerId is not null, scope?.IncludeShared ?? false),
+            new Dictionary<string, object?>
+            {
+                ["start"] = start.ToString("O", culture),
+                ["end"] = end.ToString("O", culture),
+                ["limit"] = limit,
+            },
+            scope, cancellationToken);
+    }
+
+    /// <inheritdoc/>
+    public async Task<Fact?> FindAnchorFactAsync(
+        string anchor, DateTimeOffset now, MemoryScope? scope, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(anchor);
+        // "go-live" is also written "go live" and "golive": hyphens read as spaces on both sides, and the joined form too.
+        var spaced = anchor.Trim().ToLowerInvariant().Replace('-', ' ');
+        var anchors = new[] { spaced, spaced.Replace(" ", "", StringComparison.Ordinal) }
+            .Distinct(StringComparer.Ordinal).ToArray();
+        var candidates = await ReadDatedFactsAsync(
+            FactQueries.FindAnchorCandidates(scope?.OwnerId is not null, scope?.IncludeShared ?? false),
+            new Dictionary<string, object?> { ["anchors"] = anchors, ["limit"] = MaxAnchorCandidates, ["datedWords"] = DatedWords },
+            scope, cancellationToken).ConfigureAwait(false);
+        return ChooseAnchor(candidates, now);
+    }
+
+    /// <inheritdoc/>
+    public Task<IReadOnlyList<Fact>> GetOverlappingFactsAsync(
+        IReadOnlyList<TimeWindow> windows, IReadOnlyCollection<string> excludeFactIds, int limit, MemoryScope? scope,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(windows);
+        ArgumentNullException.ThrowIfNull(excludeFactIds);
+        if (windows.Count == 0 || limit <= 0) return Task.FromResult<IReadOnlyList<Fact>>(Array.Empty<Fact>());
+        var culture = System.Globalization.CultureInfo.InvariantCulture;
+        return ReadDatedFactsAsync(
+            FactQueries.GetOverlappingFacts(scope?.OwnerId is not null, scope?.IncludeShared ?? false),
+            new Dictionary<string, object?>
+            {
+                ["windows"] = windows.Select(w => new Dictionary<string, object?>
+                {
+                    ["start"] = w.StartUtc.ToString("O", culture),
+                    ["end"] = w.EndUtc.ToString("O", culture),
+                }).ToList(),
+                ["exclude"] = excludeFactIds.ToList(),
+                ["limit"] = limit,
+            },
+            scope, cancellationToken);
+    }
+
+    /// <summary>
+    /// Words shaped like a date, as Cypher reads them (Java regex, no backslashes): an ISO date, a month name and a day,
+    /// a day and a month name. A candidate anchor without a date field must match it.
+    /// </summary>
+    private const string DatedWords =
+        "(?i).*([0-9]{4}-[0-9]{2}-[0-9]{2}|(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[.]?[ ]+[0-9]|[0-9]+(st|nd|rd|th)?[ ]+(of[ ]+)?(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)).*";
+
+    /// <summary>How many facts naming an anchor are weighed for its date.</summary>
+    private const int MaxAnchorCandidates = 25;
+
+    /// <summary>
+    /// The candidate that states the anchor's own date, carrying that date as <see cref="Fact.OccurredOn"/> (or its
+    /// <see cref="Fact.ValidFrom"/>): its date fields, or else the date its words state. A date that is only the day the
+    /// fact was learned ("Diego will open the office on go-live day", stamped the day it was said) is no date of the
+    /// anchor's, so it is never chosen: no window is better than a wrong one. Nor is a date stored only to the month or the
+    /// year. A date still ahead wins, then the nearest.
+    /// </summary>
+    internal static Fact? ChooseAnchor(IReadOnlyList<Fact> candidates, DateTimeOffset now)
+    {
+        Fact? best = null;
+        DateTimeOffset bestDate = default;
+        foreach (var fact in candidates)
+        {
+            var date = fact.OccurredOn ?? fact.ValidFrom;
+            var fromWords = false;
+            // A month or a year ("the launch in December", stored at December 1) is no day to centre a week on: only the
+            // words can still give one.
+            var coarse = (fact.OccurredOn is not null ? fact.OccurredOnPrecision : fact.ValidFromPrecision)
+                is DatePrecision.Month or DatePrecision.Year;
+            if (date is null || coarse || date.Value.UtcDateTime.Date == fact.CreatedAtUtc.UtcDateTime.Date)
+            {
+                var read = AgentMemory.Core.Memory.FactDateReader.Read($"{fact.Subject} {fact.Predicate} {fact.Object}", fact.CreatedAtUtc);
+                date = read?.OccurredOn ?? read?.ValidFrom;
+                fromWords = date is not null;
+            }
+
+            if (date is not { } stated || (!fromWords && stated.UtcDateTime.Date == fact.CreatedAtUtc.UtcDateTime.Date)) continue;
+            if (best is null || Better(stated, bestDate, now))
+            {
+                best = fromWords ? fact with { OccurredOn = stated, OccurredOnPrecision = DatePrecision.Day } : fact;
+                bestDate = stated;
+            }
+        }
+
+        return best;
+
+        static bool Better(DateTimeOffset candidate, DateTimeOffset current, DateTimeOffset now)
+        {
+            var today = now.UtcDateTime.Date;
+            var candidateAhead = candidate.UtcDateTime.Date >= today;
+            var currentAhead = current.UtcDateTime.Date >= today;
+            if (candidateAhead != currentAhead) return candidateAhead;
+            return (candidate - now).Duration() < (current - now).Duration();
+        }
+    }
+
+    /// <summary>One read of facts by time, mapped without embeddings: these reads never score by similarity.</summary>
+    private async Task<IReadOnlyList<Fact>> ReadDatedFactsAsync(
+        string cypher, Dictionary<string, object?> parameters, MemoryScope? scope, CancellationToken cancellationToken)
+    {
+        if (scope?.OwnerId is not null) parameters["ownerId"] = scope.OwnerId;
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            return (IReadOnlyList<Fact>)records.Select(r => MapToFact(r["f"].As<INode>(), embedding: null)).ToList();
+        }, cancellationToken).ConfigureAwait(false) ?? Array.Empty<Fact>();
+    }
+
+    /// <inheritdoc/>
     public async Task<IReadOnlyList<Fact>> GetGroupFactsAsync(
         string subjectKey,
         string predicateKey,
@@ -1163,7 +1304,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
                 ["embedding"] = fact.Embedding is { Length: > 0 } ? fact.Embedding.ToList() : null,
                 ["operator"] = fact.Metadata.GetDerivationOperator()?.ToString(),
                 ["derivation"] = fact.Metadata.GetDerivation(),
-                ["now"] = _clock.UtcNow.ToString(
+                ["now"] = _clock.GetUtcNow().ToString(
                     "O", System.Globalization.CultureInfo.InvariantCulture),
                 ["metadata"] = SerializeMetadata(fact.Metadata),
                 ["inputFactIds"] = inputFactIds.ToList(),
@@ -1310,7 +1451,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         _logger.LogDebug("Invalidating fact {Id}, owner={Owner}", factId, scope?.OwnerId);
 
         var cypher = FactQueries.Invalidate(hasOwner);
-        string now = _clock.UtcNow.ToString("O");
+        string now = _clock.GetUtcNow().ToString("O");
 
         return await _tx.WriteAsync(async runner =>
         {
@@ -1328,7 +1469,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         _logger.LogDebug("Superseding fact {Loser} with {Winner}, owner={Owner}", loserFactId, winnerFactId, scope?.OwnerId);
 
         var cypher = FactQueries.Supersede(hasOwner);
-        string now = _clock.UtcNow.ToString("O");
+        string now = _clock.GetUtcNow().ToString("O");
 
         return await _tx.WriteAsync(async runner =>
         {
@@ -1348,7 +1489,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         _logger.LogDebug("Superseding fact {Loser} with {Winner} ({Reason}), owner={Owner}", loserFactId, winnerFactId, reason, scope?.OwnerId);
 
         var cypher = FactQueries.SupersedeWithReason(hasOwner);
-        string now = _clock.UtcNow.ToString("O");
+        string now = _clock.GetUtcNow().ToString("O");
 
         return await _tx.WriteAsync(async runner =>
         {
@@ -1380,7 +1521,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
             ["ownerId"] = scope.OwnerId!,
             ["subjectKeys"] = subjects.Select(MemoryTripleCanonicalizer.CanonicalValue).Distinct().ToList(),
             ["predicateKeys"] = predicates.Select(MemoryTripleCanonicalizer.Canonical).Distinct().ToList(),
-            ["now"] = _clock.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
+            ["now"] = _clock.GetUtcNow().ToString("O", System.Globalization.CultureInfo.InvariantCulture),
         };
         return await _tx.ReadAsync(async runner =>
         {

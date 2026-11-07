@@ -15,7 +15,7 @@ public sealed class CoreMemoryToolsTests
     private readonly IMemoryService _memoryService = Substitute.For<IMemoryService>();
     private readonly ILongTermMemoryService _longTermMemory = Substitute.For<ILongTermMemoryService>();
     private readonly IIdGenerator _idGenerator = Substitute.For<IIdGenerator>();
-    private readonly IClock _clock = Substitute.For<IClock>();
+    private readonly TimeProvider _clock = Substitute.For<TimeProvider>();
     private readonly IOptions<AgentMemoryMcpOptions> _options = Options.Create(new AgentMemoryMcpOptions());
 
     // 25.2. The tool now starts from the host's CONFIGURED recall options rather than the static
@@ -29,7 +29,7 @@ public sealed class CoreMemoryToolsTests
     public CoreMemoryToolsTests()
     {
         _idGenerator.GenerateId().Returns("generated-id-1");
-        _clock.UtcNow.Returns(FixedTime);
+        _clock.GetUtcNow().Returns(FixedTime);
     }
 
     private RecallResult CreateRecallResult(int totalItems = 5) => new()

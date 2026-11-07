@@ -16,7 +16,7 @@ public sealed class ShortTermMemoryServiceTests
     private readonly IMessageRepository _messageRepo;
     private readonly IReasoningTraceRepository _reasoningTraceRepo;
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly IIdGenerator _idGenerator;
     private readonly DateTimeOffset _fixedTime = new(2025, 1, 15, 12, 0, 0, TimeSpan.Zero);
 
@@ -26,10 +26,10 @@ public sealed class ShortTermMemoryServiceTests
         _messageRepo = Substitute.For<IMessageRepository>();
         _reasoningTraceRepo = Substitute.For<IReasoningTraceRepository>();
         _embeddingOrchestrator = Substitute.For<IEmbeddingOrchestrator>();
-        _clock = Substitute.For<IClock>();
+        _clock = Substitute.For<TimeProvider>();
         _idGenerator = Substitute.For<IIdGenerator>();
 
-        _clock.UtcNow.Returns(_fixedTime);
+        _clock.GetUtcNow().Returns(_fixedTime);
         _idGenerator.GenerateId().Returns("generated-id-1", "generated-id-2", "generated-id-3");
         _embeddingOrchestrator
             .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())

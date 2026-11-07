@@ -71,7 +71,7 @@ public sealed class TraceModelContractTests
         var embeddings = Substitute.For<IEmbeddingOrchestrator>();
         embeddings.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new[] { 1f });
         var sut = new Neo4jMemoryContextProvider(
-            memory, embeddings, Substitute.For<IClock>(), Substitute.For<IIdGenerator>(),
+            memory, embeddings, new TimeProviderClock(Substitute.For<TimeProvider>()), Substitute.For<IIdGenerator>(),
             Options.Create(new MemoryOptions()), Options.Create(new ContextFormatOptions()),
             Options.Create(new AgentFrameworkOptions()), NullLogger<Neo4jMemoryContextProvider>.Instance);
 

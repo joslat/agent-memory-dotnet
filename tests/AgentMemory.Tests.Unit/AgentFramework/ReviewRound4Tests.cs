@@ -87,7 +87,7 @@ public sealed class ReviewRound4Tests
         var ids = Substitute.For<IIdGenerator>();
         ids.GenerateId().Returns(_ => Guid.NewGuid().ToString("N"));
         var sut = new PersistenceStage(embeddings, entities, facts, Substitute.For<IPreferenceRepository>(), relationships,
-            Substitute.For<IClock>(), ids, NullLogger<PersistenceStage>.Instance, new PassThroughMemoryPersistenceTransaction(),
+            Substitute.For<TimeProvider>(), ids, NullLogger<PersistenceStage>.Instance, new PassThroughMemoryPersistenceTransaction(),
             Options.Create(new ExtractionOptions { ResolveUserToName = true, EnableBatchMemoryUpserts = false }));
         var ana = new Entity { EntityId = "entity-ana", Name = "Ana", Type = "PERSON", Confidence = 1, CreatedAtUtc = DateTimeOffset.UnixEpoch };
 

@@ -21,7 +21,7 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
     private readonly IReasoningMemoryService _reasoning;
     private readonly IGraphRagContextSource? _graphRag;
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly MemoryOptions _options;
     private readonly IWritableMemoryRankingContext? _rankingContext;
     private readonly IReadOnlyList<IMemoryReranker> _rerankers;
@@ -42,7 +42,7 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         IReasoningMemoryService reasoning,
         IGraphRagContextSource? graphRag,
         IEmbeddingOrchestrator embeddingOrchestrator,
-        IClock clock,
+        TimeProvider clock,
         IOptions<MemoryOptions> options,
         ILogger<MemoryContextAssembler> logger,
         IMemoryIsolationPolicy isolationPolicy,
@@ -65,7 +65,7 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         IReasoningMemoryService reasoning,
         IGraphRagContextSource? graphRag,
         IEmbeddingOrchestrator embeddingOrchestrator,
-        IClock clock,
+        TimeProvider clock,
         IOptions<MemoryOptions> options,
         ILogger<MemoryContextAssembler> logger,
         IMemoryIsolationPolicy isolationPolicy,
@@ -258,8 +258,8 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         {
             var ids = entities.Select(entity => entity.EntityId).Distinct(StringComparer.Ordinal).ToList();
             return await TimedAsync("memory.recall.relationships", () => factNames.Count == 0
-                    ? _longTerm.GetRelationshipsAmongAsync(ids, limit, _clock.UtcNow, scope, cancellationToken)
-                    : _longTerm.GetRelationshipsAroundAsync(ids, factNames, limit, _clock.UtcNow, scope, cancellationToken))
+                    ? _longTerm.GetRelationshipsAmongAsync(ids, limit, _clock.GetUtcNow(), scope, cancellationToken)
+                    : _longTerm.GetRelationshipsAroundAsync(ids, factNames, limit, _clock.GetUtcNow(), scope, cancellationToken))
                 .ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
@@ -742,8 +742,8 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
             var dueTask = fireProspective
                 ? TimedAsync("memory.recall.due",
                     () => _longTerm.GetDueFactsAsync(
-                        _clock.UtcNow - recallOpts.DueLookback,
-                        _clock.UtcNow,
+                        _clock.GetUtcNow() - recallOpts.DueLookback,
+                        _clock.GetUtcNow(),
                         recallOpts.ExpiringWindow,
                         recallOpts.MaxDueItems,
                         scope,
@@ -899,7 +899,23 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         }
 
         // J-6 (b). A plan that has begun takes over from the value it was planned to replace (now).
-        (facts, factScores) = HandOver(facts, factScores, _clock.UtcNow);
+        (facts, factScores) = HandOver(facts, factScores, _clock.GetUtcNow());
+
+        // Look-ahead recall (RecallOptions.Upcoming, TimeWindows, OverlapExpansion): reads by date, after the scored
+        // sections resolve, because overlap starts from what they found. With every flag off nothing below is issued.
+        // A fact recalled by date renders in its own section only, never twice.
+        var lookAhead = includeMemory
+            ? await LookAheadAsync(request, recallOpts, facts, prospective, scope, cancellationToken).ConfigureAwait(false)
+            : LookAheadResult.None;
+        if (lookAhead.Ids.Count > 0 && facts.Count > 0)
+        {
+            var kept = facts.Where(f => !lookAhead.Ids.Contains(f.FactId)).ToArray();
+            if (kept.Length != facts.Count)
+            {
+                facts = kept;
+                factScores = factScores.Where(s => !lookAhead.Ids.Contains(s.Fact.FactId)).ToArray();
+            }
+        }
 
         // 30.8. Runs AFTER the fact section resolves, because its trigger is what that section came
         // back with. One extra query, only on a thin recall, only with the flag on -- a well-answered
@@ -943,7 +959,8 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
 
             fanOutReport = fanOut.Report;
             entities = fanOut.Entities;
-            facts = fanOut.Facts;
+            // A sub-query can bring back a fact the look-ahead sections already hold: it stays in its date section only.
+            facts = lookAhead.Ids.Count == 0 ? fanOut.Facts : fanOut.Facts.Where(f => !lookAhead.Ids.Contains(f.FactId)).ToArray();
             preferences = fanOut.Preferences;
             relevantMessages = fanOut.Messages;
             traces = fanOut.Traces;
@@ -956,8 +973,22 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
 
         if (budget.MaxTokens.HasValue || budget.MaxCharacters.HasValue)
         {
+            // The look-ahead sections keep their own item caps but count toward the total: they are charged first
+            // (trimmed, overlap first, only when they alone exceed it) and the other sections share what is left.
+            // With look-ahead off they are empty and nothing here changes.
+            // Under TruncationStrategy.Fail nothing is trimmed: an over-budget context reaches the failure the host chose.
+            var lookAheadTrimmed = false;
+            var reserved = 0;
+            if (lookAhead.Ids.Count > 0)
+            {
+                if (budget.TruncationStrategy != TruncationStrategy.Fail)
+                    (lookAhead, lookAheadTrimmed) = FitLookAhead(lookAhead, ResolveMaxChars(budget));
+                reserved = LookAheadChars(lookAhead);
+            }
+
             (recentMessages, relevantMessages, entities, preferences, facts, traces, graphRagContext, truncated) =
-                ApplyBudget(budget, recentMessages, relevantMessages, entities, preferences, facts, traces, graphRagContext);
+                ApplyBudget(budget, recentMessages, relevantMessages, entities, preferences, facts, traces, graphRagContext, reserved);
+            truncated |= lookAheadTrimmed;
         }
 
         // R4. SurvivedBudget is MEASURED here, after truncation, rather than predicted before it. The
@@ -1068,7 +1099,7 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         var context = new MemoryContext
         {
             SessionId = request.SessionId,
-            AssembledAtUtc = _clock.UtcNow,
+            AssembledAtUtc = _clock.GetUtcNow(),
             Projection = projection,
             SeparatesSharedKnowledge = SharedBudgetFor(scope, _options.SharedRecallBudget) is not null,
             RelevantRelationships = new MemoryContextSection<RecalledRelationship> { Items = relationships },
@@ -1149,6 +1180,28 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
                     ? Diagnose(fireProspective, recallOpts.MaxDueItems, prospective.Expiring, [], minScore)
                     : null
             },
+            UpcomingFacts = new MemoryContextSection<Fact>
+            {
+                Items = lookAhead.Upcoming,
+                Diagnostics = recallOpts.IncludeDiagnostics
+                    ? Diagnose(lookAhead.FiredUpcoming, recallOpts.MaxUpcomingItems, lookAhead.Upcoming, [], minScore)
+                    : null
+            },
+            WindowFacts = new MemoryContextSection<Fact>
+            {
+                Items = lookAhead.Window,
+                Diagnostics = recallOpts.IncludeDiagnostics
+                    ? Diagnose(lookAhead.FiredWindow, recallOpts.MaxWindowItems, lookAhead.Window, [], minScore)
+                    : null
+            },
+            OverlappingFacts = new MemoryContextSection<Fact>
+            {
+                Items = lookAhead.Overlapping,
+                Diagnostics = recallOpts.IncludeDiagnostics
+                    ? Diagnose(lookAhead.FiredOverlap, recallOpts.MaxOverlapItems, lookAhead.Overlapping, [], minScore)
+                    : null
+            },
+            ResolvedTimeWindow = lookAhead.ResolvedWindow,
             ForgottenTopics = forgottenTopics,
             GraphRagContext = graphRagContext,
             GraphRagItems = graphRagItems,
@@ -1427,7 +1480,7 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         // have read "indistinguishable" -- no harness set the flag, and this path ignored it.
         //
         // THE CLOCKS ARE THE WHOLE POINT. Firing asks "what came due", and on an as-of read that is
-        // due AS OF `validAsOf`, not as of the machine. `_clock.UtcNow` appears nowhere below: using
+        // due AS OF `validAsOf`, not as of the machine. `_clock.GetUtcNow()` appears nowhere below: using
         // it would answer today's question against a past instant's evidence and look entirely
         // correct doing so. `systemAsOf` bounds what was BELIEVED, so a reminder recorded after the
         // transaction instant cannot fire from a read of before it.
@@ -1506,7 +1559,7 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         var context = new MemoryContext
         {
             SessionId = request.SessionId,
-            AssembledAtUtc = _clock.UtcNow,
+            AssembledAtUtc = _clock.GetUtcNow(),
             Projection = projection,
             SeparatesSharedKnowledge = SharedBudgetFor(scope, _options.SharedRecallBudget) is not null,
             // Design §5.5: the as-of path does not fan out. A caller who asked for it anyway is told
@@ -1618,6 +1671,202 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         if (activity?.GetTagItem(MemoryTelemetry.MemoryType) is not null && ResultCount(result) is { } count)
             activity.SetTag(MemoryTelemetry.ResultsCount, count);
         return result;
+    }
+
+    /// <summary>What the look-ahead reads found; <see cref="None"/> when every flag is off.</summary>
+    internal sealed record LookAheadResult(
+        IReadOnlyList<Fact> Upcoming,
+        IReadOnlyList<Fact> Window,
+        IReadOnlyList<Fact> Overlapping,
+        TimeWindow? ResolvedWindow,
+        bool FiredUpcoming,
+        bool FiredWindow,
+        bool FiredOverlap,
+        IReadOnlySet<string> Ids)
+    {
+        public static LookAheadResult None { get; } = new(
+            Array.Empty<Fact>(), Array.Empty<Fact>(), Array.Empty<Fact>(), null, false, false, false,
+            new HashSet<string>(StringComparer.Ordinal));
+    }
+
+    /// <summary>
+    /// The three look-ahead reads, by date and never by similarity: the window the question names (or anchors on an
+    /// event), what starts soon for a question that looks ahead, and what overlaps in time with the dated facts found.
+    /// </summary>
+    private async Task<LookAheadResult> LookAheadAsync(
+        RecallRequest request,
+        RecallOptions recallOpts,
+        IReadOnlyList<Fact> relevant,
+        ProspectiveDueResult due,
+        MemoryScope scope,
+        CancellationToken cancellationToken)
+    {
+        if (!recallOpts.Upcoming && !recallOpts.TimeWindows && !recallOpts.OverlapExpansion) return LookAheadResult.None;
+
+        var now = _clock.GetUtcNow();
+        // The question's own "now" for reading it: a replayed "what do I have next week?" means the week after it was
+        // asked, as MemoryService.RecallAsync reads it when it chooses this path. Upcoming stays on the live clock, like
+        // prospective firing: it volunteers what starts after now.
+        var asOfQuestion = request.TemporalReferenceTime ?? now;
+        var question = request.Question ?? request.Query;
+
+        IReadOnlyList<Fact> window = Array.Empty<Fact>();
+        TimeWindow? resolved = null;
+        Fact? anchorInWindow = null;
+        var firedWindow = false;
+        if (recallOpts.TimeWindows && TemporalWindowParser.Resolve(question, asOfQuestion) is { } asked)
+        {
+            var start = asked.Start;
+            var end = asked.End;
+            string? anchorFactId = null;
+            if (asked.Anchor is { } anchor)
+            {
+                var anchorFact = await TimedAsync("memory.recall.window.anchor",
+                        () => _longTerm.FindAnchorFactAsync(anchor, asOfQuestion, scope, cancellationToken))
+                    .ConfigureAwait(false);
+                if (anchorFact is not null && (anchorFact.OccurredOn ?? anchorFact.ValidFrom) is { } date)
+                {
+                    (start, end) = asked.Around(date);
+                    anchorFactId = anchorFact.FactId;
+                    anchorInWindow = anchorFact;
+                }
+            }
+
+            if (start is { } from && end is { } until)
+            {
+                firedWindow = true;
+                resolved = new TimeWindow { StartUtc = from, EndUtc = until, Anchor = asked.Anchor, AnchorFactId = anchorFactId };
+                window = await TimedAsync("memory.recall.window",
+                        () => _longTerm.GetFactsInWindowAsync(from, until, recallOpts.MaxWindowItems, scope, cancellationToken))
+                    .ConfigureAwait(false);
+                window = WithAnchor(window, anchorInWindow, recallOpts.MaxWindowItems);
+            }
+        }
+
+        IReadOnlyList<Fact> upcoming = Array.Empty<Fact>();
+        var firedUpcoming = false;
+        if (recallOpts.Upcoming && (recallOpts.UpcomingOnEveryRecall || TemporalWindowParser.LooksAhead(question)))
+        {
+            firedUpcoming = true;
+            var inWindow = window.Select(f => f.FactId).ToHashSet(StringComparer.Ordinal);
+            var found = await TimedAsync("memory.recall.upcoming",
+                    () => _longTerm.GetUpcomingFactsAsync(now, now + recallOpts.UpcomingWindow, recallOpts.MaxUpcomingItems, scope, cancellationToken))
+                .ConfigureAwait(false);
+            upcoming = found.Where(f => !inWindow.Contains(f.FactId)).ToArray();
+        }
+
+        // A fact that is due or expiring now renders in that section, which comes first; never in a date section too.
+        if (due.Due.Count > 0 || due.Expiring.Count > 0)
+        {
+            var dueIds = due.Due.Concat(due.Expiring).Select(f => f.FactId).ToHashSet(StringComparer.Ordinal);
+            window = window.Where(f => !dueIds.Contains(f.FactId)).ToArray();
+            upcoming = upcoming.Where(f => !dueIds.Contains(f.FactId)).ToArray();
+        }
+
+        IReadOnlyList<Fact> overlapping = Array.Empty<Fact>();
+        var firedOverlap = false;
+        if (recallOpts.OverlapExpansion)
+        {
+            var windows = relevant.Concat(due.Due).Concat(window).Concat(upcoming)
+                .Select(f => WindowOf(f, now))
+                .OfType<TimeWindow>()
+                .DistinctBy(w => (w.StartUtc, w.EndUtc))
+                .Take(MaxOverlapWindows)
+                .ToArray();
+            if (windows.Length > 0)
+            {
+                firedOverlap = true;
+                var present = relevant.Concat(due.Due).Concat(due.Expiring).Concat(window).Concat(upcoming)
+                    .Select(f => f.FactId).ToHashSet(StringComparer.Ordinal);
+                overlapping = await TimedAsync("memory.recall.overlap",
+                        () => _longTerm.GetOverlappingFactsAsync(windows, present, recallOpts.MaxOverlapItems, scope, cancellationToken))
+                    .ConfigureAwait(false);
+            }
+        }
+
+        var ids = window.Concat(upcoming).Concat(overlapping).Select(f => f.FactId).ToHashSet(StringComparer.Ordinal);
+        return new LookAheadResult(upcoming, window, overlapping, resolved, firedUpcoming, firedWindow, firedOverlap, ids);
+    }
+
+    /// <summary>The characters the look-ahead sections spend, counted as the budget counts every fact section.</summary>
+    internal static int LookAheadChars(LookAheadResult lookAhead) =>
+        ContextBudgetEstimator.EstimateChars(lookAhead.Window)
+        + ContextBudgetEstimator.EstimateChars(lookAhead.Upcoming)
+        + ContextBudgetEstimator.EstimateChars(lookAhead.Overlapping);
+
+    /// <summary>
+    /// The look-ahead sections cut to <paramref name="maxChars"/> when they alone exceed it: the overlapping facts go
+    /// first, then the upcoming ones, then the window's, each from its last item. Whether anything was cut.
+    /// </summary>
+    internal static (LookAheadResult Fitted, bool Trimmed) FitLookAhead(LookAheadResult lookAhead, int maxChars)
+    {
+        if (LookAheadChars(lookAhead) <= maxChars) return (lookAhead, false);
+        var window = lookAhead.Window.ToList();
+        var upcoming = lookAhead.Upcoming.ToList();
+        var overlapping = lookAhead.Overlapping.ToList();
+        int Chars() => ContextBudgetEstimator.EstimateChars(window) + ContextBudgetEstimator.EstimateChars(upcoming)
+            + ContextBudgetEstimator.EstimateChars(overlapping);
+        foreach (var section in new[] { overlapping, upcoming, window })
+        {
+            while (section.Count > 0 && Chars() > maxChars) section.RemoveAt(section.Count - 1);
+        }
+
+        return (lookAhead with { Window = window, Upcoming = upcoming, Overlapping = overlapping }, true);
+    }
+
+    /// <summary>At most this many dated facts seed the overlap read, so one recall stays one bounded query.</summary>
+    private const int MaxOverlapWindows = 10;
+
+    /// <summary>
+    /// The span of time a fact occupies, when it has one worth overlapping: an event's day, a bounded stay, or the
+    /// day a fact still ahead starts. A fact merely valid since some past moment occupies no window: everything
+    /// still true would overlap it.
+    /// </summary>
+    internal static TimeWindow? WindowOf(Fact fact, DateTimeOffset now)
+    {
+        if (fact.OccurredOn is { } on)
+        {
+            var (start, end) = Span(on, fact.OccurredOnPrecision);
+            return new TimeWindow { StartUtc = start, EndUtc = end };
+        }
+
+        if (fact.ValidFrom is { } from && fact.ValidUntil is { } until && until > from)
+            return new TimeWindow { StartUtc = from, EndUtc = until };
+
+        if (fact.ValidFrom is { } begins && begins > now)
+        {
+            var (start, end) = Span(begins, fact.ValidFromPrecision);
+            return new TimeWindow { StartUtc = start, EndUtc = end };
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The span a stored date stands for: "in December" is stored at December 1 with month precision and occupies the
+    /// month, "in 2027" the year; a day, an instant or an unspecified precision occupies its day.
+    /// </summary>
+    internal static (DateTimeOffset Start, DateTimeOffset End) Span(DateTimeOffset at, DatePrecision precision) => precision switch
+    {
+        DatePrecision.Month => (new DateTimeOffset(at.Year, at.Month, 1, 0, 0, 0, at.Offset),
+            new DateTimeOffset(at.Year, at.Month, 1, 0, 0, 0, at.Offset).AddMonths(1).AddTicks(-1)),
+        DatePrecision.Year => (new DateTimeOffset(at.Year, 1, 1, 0, 0, 0, at.Offset),
+            new DateTimeOffset(at.Year, 1, 1, 0, 0, 0, at.Offset).AddYears(1).AddTicks(-1)),
+        _ => TemporalWindowParser.Day(at),
+    };
+
+    /// <summary>
+    /// The window's facts with the anchor that placed the window among them: an anchor dated only by its words has no
+    /// date field the window read can find, so without this "go-live week" would resolve and the go-live itself would
+    /// be missing. In date order, within <paramref name="max"/>; the anchor stays when the window is full.
+    /// </summary>
+    internal static IReadOnlyList<Fact> WithAnchor(IReadOnlyList<Fact> window, Fact? anchor, int max)
+    {
+        if (anchor is null || max <= 0 || window.Any(f => f.FactId == anchor.FactId)) return window;
+        var kept = window.ToList();
+        if (kept.Count >= max) kept.RemoveAt(kept.Count - 1);
+        kept.Add(anchor);
+        return kept.OrderBy(f => f.OccurredOn ?? f.ValidFrom ?? DateTimeOffset.MaxValue).ToArray();
     }
 
     /// <summary>How many items a recall leg returned, for every result shape the legs use.</summary>
@@ -1856,21 +2105,27 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         IReadOnlyList<Preference> preferences,
         IReadOnlyList<Fact> facts,
         IReadOnlyList<ReasoningTrace> traces,
-        string? graphRagContext)
+        string? graphRagContext,
+        int reservedChars = 0)
     {
+        // reservedChars: what sections outside the truncation strategy (look-ahead) already spend of the budget. Zero
+        // leaves this method exactly as it was.
         int maxChars = ResolveMaxChars(budget);
 
-        int totalChars = ContextBudgetEstimator.EstimateChars(recent) + ContextBudgetEstimator.EstimateChars(relevant)
+        int sectionChars = ContextBudgetEstimator.EstimateChars(recent) + ContextBudgetEstimator.EstimateChars(relevant)
             + ContextBudgetEstimator.EstimateChars(entities) + ContextBudgetEstimator.EstimateChars(preferences)
             + ContextBudgetEstimator.EstimateChars(facts) + ContextBudgetEstimator.EstimateChars(traces)
             + (graphRagContext?.Length ?? 0);
 
-        if (totalChars <= maxChars)
+        if (sectionChars + reservedChars <= maxChars)
             return new AssembledSections(recent, relevant, entities, preferences, facts, traces, graphRagContext, false);
 
         var strategy = ResolveStrategy(budget.TruncationStrategy);
-        var result = strategy.Truncate(new TruncationInput(
-            maxChars, totalChars, recent, relevant, entities, preferences, facts, traces, graphRagContext));
+        // The failure strategy reports the whole context against the whole limit, the reserved sections included.
+        var result = strategy.Truncate(budget.TruncationStrategy == TruncationStrategy.Fail
+            ? new TruncationInput(maxChars, sectionChars + reservedChars, recent, relevant, entities, preferences, facts, traces, graphRagContext)
+            : new TruncationInput(
+                Math.Max(0, maxChars - reservedChars), sectionChars, recent, relevant, entities, preferences, facts, traces, graphRagContext));
 
         return new AssembledSections(
             result.Recent, result.Relevant, result.Entities, result.Preferences,

@@ -37,14 +37,14 @@ public sealed class WriteTimeSupersessionTests
     private readonly IFactRepository _factRepo = Substitute.For<IFactRepository>();
     private readonly IPreferenceRepository _prefRepo = Substitute.For<IPreferenceRepository>();
     private readonly IRelationshipRepository _relRepo = Substitute.For<IRelationshipRepository>();
-    private readonly IClock _clock = Substitute.For<IClock>();
+    private readonly TimeProvider _clock = Substitute.For<TimeProvider>();
     private readonly IIdGenerator _idGen = Substitute.For<IIdGenerator>();
 
     private readonly List<(string Loser, string Winner)> _superseded = [];
 
     public WriteTimeSupersessionTests()
     {
-        _clock.UtcNow.Returns(DateTimeOffset.UtcNow);
+        _clock.GetUtcNow().Returns(DateTimeOffset.UtcNow);
         _idGen.GenerateId().Returns(_ => Guid.NewGuid().ToString("N"));
         _orchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new float[8]);
 
@@ -127,7 +127,7 @@ public sealed class WriteTimeSupersessionTests
         // J-6, one clock: the stage decides whether the winner holds by its clock; the store must judge whether each
         // candidate holds at that same instant, not by its own wall clock (a replayed or test clock disagreed).
         var then = new DateTimeOffset(2026, 3, 1, 12, 0, 0, TimeSpan.Zero);
-        _clock.UtcNow.Returns(then);
+        _clock.GetUtcNow().Returns(then);
 
         await CreateSut(supersede: true).PersistAsync(Incoming("lives in", "Zurich"), ownerId: "alice");
 

@@ -101,6 +101,45 @@ public class EntityFindLiveByNameIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Two_live_people_sharing_an_alias_are_ambiguous_and_neither_is_found()
+    {
+        // #251: "the doctor" for two different doctors. Before, the more mentioned one received the new fact.
+        await Person("Dr. Imre Novak", aliases: "the doctor");
+        await Person("Dr. Sofia Bauer", aliases: "the doctor");
+
+        (await _entities.FindLiveByNameAsync("the doctor", "PERSON", Alice)).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Two_live_people_with_the_same_name_are_ambiguous()
+    {
+        await Person("Alex");
+        await Person("Alex");
+
+        (await _entities.FindLiveByNameAsync("Alex", "PERSON", Alice)).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task One_exact_name_resolves_even_when_others_match_by_alias()
+    {
+        await Person("Dana Reyes", aliases: "Dana");
+        await Person("Dana Fuchs", aliases: "Dana");
+        var dana = await Person("Dana");
+
+        (await _entities.FindLiveByNameAsync("Dana", "PERSON", Alice))!.EntityId.Should().Be(dana.EntityId);
+    }
+
+    [Fact]
+    public async Task The_owners_own_entity_resolves_over_a_shared_one_with_the_same_name()
+    {
+        var mine = await Person("Ana");
+        await Person("Ana", owner: null!);
+
+        (await _entities.FindLiveByNameAsync("Ana", "PERSON", MemoryScope.For("alice", includeShared: true)))!.EntityId
+            .Should().Be(mine.EntityId);
+    }
+
+    [Fact]
     public async Task Another_owners_person_is_never_found()
     {
         await Person("Ana", owner: "bob");

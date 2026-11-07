@@ -26,7 +26,7 @@ public sealed class MemoryServiceDeltaOrchestrationTests
     private readonly IFactRepository _facts = Substitute.For<IFactRepository>();
     private readonly IPreferenceRepository _preferences = Substitute.For<IPreferenceRepository>();
     private readonly IEntityRepository _entities = Substitute.For<IEntityRepository>();
-    private readonly IClock _clock = Substitute.For<IClock>();
+    private readonly TimeProvider _clock = Substitute.For<TimeProvider>();
     private readonly IMemoryIsolationPolicy _isolation = Substitute.For<IMemoryIsolationPolicy>();
 
     private static readonly DateTimeOffset Now = new(2026, 8, 15, 12, 0, 0, TimeSpan.Zero);
@@ -57,7 +57,7 @@ public sealed class MemoryServiceDeltaOrchestrationTests
         // three times" -- every read would agree and the invariant these tests exist for would be
         // untestable while looking tested. Each successive read moves a second, so a second read
         // anywhere shows up as a window nobody agrees on.
-        _clock.UtcNow.Returns(Now, Now.AddSeconds(1), Now.AddSeconds(2), Now.AddSeconds(3));
+        _clock.GetUtcNow().Returns(Now, Now.AddSeconds(1), Now.AddSeconds(2), Now.AddSeconds(3));
         return new MemoryService(
             Substitute.For<IShortTermMemoryService>(),
             Substitute.For<IMemoryContextAssembler>(),
@@ -86,7 +86,7 @@ public sealed class MemoryServiceDeltaOrchestrationTests
 
         await sut.RecallChangedSinceAsync(Request());
 
-        _ = _clock.Received(1).UtcNow;
+        _ = _clock.Received(1).GetUtcNow();
     }
 
     [Fact]

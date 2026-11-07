@@ -35,7 +35,7 @@ public partial class Neo4jMemoryContextProvider : AIContextProvider
 {
     private readonly IMemoryService _memoryService;
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly IIdGenerator _idGenerator;
     private readonly RecallOptions _recallOptions;
     private readonly ContextFormatOptions _formatOptions;
@@ -92,7 +92,7 @@ public partial class Neo4jMemoryContextProvider : AIContextProvider
     {
         _memoryService = memoryService ?? throw new ArgumentNullException(nameof(memoryService));
         _embeddingOrchestrator = embeddingOrchestrator ?? throw new ArgumentNullException(nameof(embeddingOrchestrator));
-        _clock = clock ?? throw new ArgumentNullException(nameof(clock));
+        _clock = (clock ?? throw new ArgumentNullException(nameof(clock))).ToTimeProvider();
         _idGenerator = idGenerator ?? throw new ArgumentNullException(nameof(idGenerator));
         _recallOptions = memoryOptions?.Value.Recall ?? RecallOptions.Default;
         _formatOptions = formatOptions?.Value ?? new ContextFormatOptions();
@@ -388,7 +388,7 @@ public partial class Neo4jMemoryContextProvider : AIContextProvider
             // remove a key -- once promoted, it is no longer newer.
             var advanceTo = staged is not null && (current is null || staged > current)
                 ? staged.Value
-                : _clock.UtcNow;
+                : _clock.GetUtcNow();
 
             session.SetDeltaCheckpoint(advanceTo, _agentOptions);
         }
@@ -697,7 +697,7 @@ public partial class Neo4jMemoryContextProvider : AIContextProvider
     {
         if (!_agentOptions.InjectDeltaOnSessionResume || checkpoint is null) return null;
 
-        var age = _clock.UtcNow - checkpoint.Value;
+        var age = _clock.GetUtcNow() - checkpoint.Value;
         if (age < _agentOptions.MinimumDeltaGap) return null;
 
         try
@@ -874,7 +874,7 @@ public partial class Neo4jMemoryContextProvider : AIContextProvider
                 {
                     CoreWrite = coreWrite.Task,
                     SessionId = sessionId, ConversationId = conversationId, Owner = userId,
-                    ApplicationId = _storeContext?.ApplicationId, AtUtc = _clock.UtcNow,
+                    ApplicationId = _storeContext?.ApplicationId, AtUtc = _clock.GetUtcNow(),
                     Messages = turnMessages.Select(m => new PersistedTurnMessage
                     { Id = m.MessageId, Role = m.Role, Text = m.Content }).ToList().AsReadOnly()
                 };

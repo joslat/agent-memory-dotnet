@@ -15,13 +15,13 @@ namespace AgentMemory.Core.Extraction;
 internal sealed class PreferencePersistence
 {
     private readonly IPreferenceRepository _preferenceRepository;
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly IIdGenerator _idGenerator;
     private readonly ExtractionOptions _options;
     private readonly ILogger _logger;
     private readonly ClosingPipeline _closings;
 
-    public PreferencePersistence(IPreferenceRepository preferenceRepository, IClock clock,
+    public PreferencePersistence(IPreferenceRepository preferenceRepository, TimeProvider clock,
         IIdGenerator idGenerator, ExtractionOptions options, ILogger logger, ClosingPipeline closings)
     {
         _preferenceRepository = preferenceRepository;
@@ -92,9 +92,10 @@ internal sealed class PreferencePersistence
                 Embedding = preparedPreference.Embedding,
                 OwnerId = ownerId,
                 SourceMessageIds = SourceTurnProvenance.Resolve(extracted.SourceTurn, sourceMessageIds),
-                CreatedAtUtc = _clock.UtcNow,
-                Metadata = MemoryTrustMetadataExtensions.CreateWithTrustLevel(
-                    SourceRoleTrust.Refine(trustLevel, extracted.SourceRole))
+                CreatedAtUtc = _clock.GetUtcNow(),
+                Metadata = SourceQuoteMetadata.With(
+                    MemoryTrustMetadataExtensions.CreateWithTrustLevel(SourceRoleTrust.Refine(trustLevel, extracted.SourceRole)),
+                    extracted.SourceQuoteStart, extracted.SourceQuoteEnd)
             }, SourceKey: extracted.PreferenceText);
         }).ToList();
 

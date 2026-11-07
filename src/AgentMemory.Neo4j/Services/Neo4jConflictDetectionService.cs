@@ -15,12 +15,12 @@ namespace AgentMemory.Neo4j.Services;
 internal sealed class Neo4jConflictDetectionService : IConflictDetectionService
 {
     private readonly INeo4jTransactionRunner _tx;
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly ILogger<Neo4jConflictDetectionService> _logger;
 
     public Neo4jConflictDetectionService(
         INeo4jTransactionRunner tx,
-        IClock clock,
+        TimeProvider clock,
         ILogger<Neo4jConflictDetectionService> logger,
         IOptions<MemoryOptions>? memoryOptions = null)
     {
@@ -42,7 +42,7 @@ internal sealed class Neo4jConflictDetectionService : IConflictDetectionService
         CancellationToken cancellationToken = default)
     {
         var opts = options ?? new ConflictDetectionOptions();
-        var ranAt = _clock.UtcNow;
+        var ranAt = _clock.GetUtcNow();
 
         var factConflicts = opts.DetectFactContradictions
             ? await DetectFactContradictionsAsync(opts, cancellationToken).ConfigureAwait(false)
@@ -59,7 +59,7 @@ internal sealed class Neo4jConflictDetectionService : IConflictDetectionService
         CancellationToken cancellationToken = default)
     {
         var opts = options ?? new ConflictResolutionOptions();
-        var ranAt = _clock.UtcNow;
+        var ranAt = _clock.GetUtcNow();
 
         // Re-use the detection query, then act on each group. Resolution is the opt-in mutating path;
         // DetectConflictsAsync stays the non-mutating default.

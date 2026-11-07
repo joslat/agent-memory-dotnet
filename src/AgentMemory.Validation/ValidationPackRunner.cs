@@ -152,7 +152,7 @@ public sealed partial class ValidationPackRunner(
 
         var services = new ServiceCollection();
         services.AddLogging(builder => logging?.Invoke(builder));
-        services.AddSingleton<IClock>(clock);
+        services.AddSingleton<TimeProvider>(clock);
         services.AddSingleton<IEntityExtractor>(new ScriptedEntities(script));
         services.AddSingleton<IFactExtractor>(new ScriptedFacts(script));
         services.AddSingleton<IRelationshipExtractor>(new ScriptedRelationships(script));
@@ -269,7 +269,8 @@ public sealed partial class ValidationPackRunner(
     /// <summary>A recalled context, searched for a pack's items.</summary>
     internal sealed class Recalled(MemoryContext context)
     {
-        private IEnumerable<Fact> Facts => context.RelevantFacts.Items.Concat(context.DueFacts.Items).Concat(context.ExpiringFacts.Items);
+        private IEnumerable<Fact> Facts => context.RelevantFacts.Items.Concat(context.DueFacts.Items).Concat(context.ExpiringFacts.Items)
+            .Concat(context.WindowFacts.Items).Concat(context.UpcomingFacts.Items).Concat(context.OverlappingFacts.Items);
 
         private IEnumerable<Message> Messages => context.RecentMessages.Items.Concat(context.RelevantMessages.Items);
 

@@ -59,6 +59,10 @@ public sealed class DefaultProjectionTests
         item.Metadata!.Keys.Should().NotContain("id");
     }
 
+    [Fact]
+    public void TheItemIsIdentifiedByTheNodesApplicationKey() =>
+        RetrieverRecordMapper.FromNodeScore(FactRecord()).Id.Should().Be("fact-1");
+
     private static IRecord FactRecord(params (string Key, object Value)[] extraProperties)
     {
         var properties = new Dictionary<string, object>

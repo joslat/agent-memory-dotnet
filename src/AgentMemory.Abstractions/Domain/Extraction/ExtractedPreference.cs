@@ -38,6 +38,12 @@ public sealed record ExtractedPreference
     /// <inheritdoc cref="ExtractedFact.SourceTurn"/>
     public int? SourceTurn { get; init; }
 
+    /// <inheritdoc cref="ExtractedFact.SourceQuoteStart"/>
+    public int? SourceQuoteStart { get; init; }
+
+    /// <inheritdoc cref="ExtractedFact.SourceQuoteEnd"/>
+    public int? SourceQuoteEnd { get; init; }
+
     /// <summary>
     /// 36.4. The earlier value this statement corrects or replaces, as it was said ("Arcade Fire, not Radiohead"
     /// replaces <c>Radiohead</c>), or null. Written by the extractor only when asked

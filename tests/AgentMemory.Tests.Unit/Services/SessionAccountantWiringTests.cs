@@ -34,13 +34,13 @@ public sealed class SessionAccountantWiringTests
     private readonly IFactRepository _facts = Substitute.For<IFactRepository>();
     private readonly IEmbeddingOrchestrator _embeddings = Substitute.For<IEmbeddingOrchestrator>();
     private readonly IIdGenerator _ids = Substitute.For<IIdGenerator>();
-    private readonly IClock _clock = Substitute.For<IClock>();
+    private readonly TimeProvider _clock = Substitute.For<TimeProvider>();
 
     private static readonly DateTimeOffset Now = new(2026, 8, 15, 12, 0, 0, TimeSpan.Zero);
 
     public SessionAccountantWiringTests()
     {
-        _clock.UtcNow.Returns(Now);
+        _clock.GetUtcNow().Returns(Now);
         _ids.GenerateId().Returns(_ => Guid.NewGuid().ToString("N"));
         _embeddings.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new float[] { 0.1f });

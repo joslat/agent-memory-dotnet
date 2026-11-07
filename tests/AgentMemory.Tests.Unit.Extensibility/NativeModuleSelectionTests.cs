@@ -231,7 +231,7 @@ public sealed class NativeModuleSelectionTests
             var services = new ServiceCollection(); services.AddLogging();
             services.AddSingleton(Memory); services.AddSingleton(isolation);
             services.AddSingleton(Substitute.For<IEmbeddingOrchestrator>());
-            services.AddSingleton(Substitute.For<IClock>()); services.AddSingleton(Substitute.For<IIdGenerator>());
+            services.AddSingleton(Substitute.For<TimeProvider>()); services.AddSingleton(Substitute.For<IIdGenerator>());
             services.AddSingleton(Options.Create(new MemoryOptions()));
             services.AddSingleton(Options.Create(new ContextFormatOptions { SecurityMode = MemoryContextSecurityMode.Strict }));
             services.AddSingleton(Options.Create(new AgentFrameworkOptions()));

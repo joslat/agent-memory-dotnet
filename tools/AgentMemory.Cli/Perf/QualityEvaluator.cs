@@ -69,8 +69,8 @@ public sealed class QualityEvaluator
     public async Task SeedAsync(TextWriter log, CancellationToken cancellationToken)
     {
         var longTerm = _services.GetRequiredService<ILongTermMemoryService>();
-        var clock = _services.GetRequiredService<IClock>();
-        var now = clock.UtcNow;
+        var clock = _services.GetRequiredService<TimeProvider>();
+        var now = clock.GetUtcNow();
 
         foreach (var (topicName, topic) in _fixture.Topics)
         {

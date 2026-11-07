@@ -6,7 +6,7 @@ using Xunit;
 namespace AgentMemory.Tests.Unit.Infrastructure;
 
 /// <summary>
-/// G1 (40.45): the memory path reads time from <c>IClock</c> only, so a host, a test or a replay that sets the clock sets
+/// G1 (40.45): the memory path reads time from <c>TimeProvider</c> only (#164; <c>IClock</c> before 2.1), so a host, a test or a replay that sets the clock sets
 /// every stamp a recall or a closing compares: <c>created_at</c>, <c>invalidated_at</c>, the end of a change and when it
 /// was recorded, live recall's "now", recency. A wall-clock read there would split one moment into two. The few left are
 /// outside the memory path, each with its reason below.
@@ -15,7 +15,6 @@ public sealed class OneClockGuardTests
 {
     private static readonly Dictionary<string, string> Allowed = new(StringComparer.Ordinal)
     {
-        ["AgentMemory.Core/Stubs/SystemClock.cs"] = "the clock itself",
         ["AgentMemory.Core/Services/SessionIdGenerator.cs"] = "names a per-day session; not a time any memory is stamped with",
         ["AgentMemory.Neo4j/Infrastructure/MigrationRunner.cs"] = "the migration ledger records when a schema change ran",
         ["AgentMemory.Neo4j/Infrastructure/SchemaBootstrapper.cs"] = "a one-off backfill at bootstrap",
@@ -48,7 +47,7 @@ public sealed class OneClockGuardTests
             }
         }
 
-        offenders.Should().BeEmpty("time in the memory path comes from IClock (G1); a new exception needs its reason in Allowed");
+        offenders.Should().BeEmpty("time in the memory path comes from TimeProvider (G1); a new exception needs its reason in Allowed");
     }
 
     private static string SourceDirectory([CallerFilePath] string? path = null) => Path.GetDirectoryName(path)!;

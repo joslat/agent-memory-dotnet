@@ -6,6 +6,101 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-11-07
+
+Memory that looks at the calendar. A question such as "plan my prep for go-live week" does not resemble "I will be in
+Bariloche from December 9 to 13", so recall that only measures resemblance never puts the two side by side. 2.1.0 adds
+look-ahead recall, which reads by date. It also reads into date fields the dates the store-aware writer keeps in its
+words, and makes the Recommended preset the default (falling back to Conversational when no retrieval judge is
+configured). The release follows Pablo Piovano's experiment *Your agent doesn't forget with an error. It forgets with a
+tidy answer.* (LinkedIn, 3 November 2026). In it, file, vector and graph memories all missed the clash between Bruna's
+go-live and her sister's wedding, and none of them said so. His scenario is now in the repository
+(`tools/AgentMemory.Scenarios`), with his permission. Thank you, Pablo, for the test we should have written ourselves.
+
+The 2.0.0 tag's packages did not reach nuget.org (the publishing key had expired), so this is the first release on
+NuGet since 1.9.0. Its packages carry everything in 2.0.0 below, as well as this section.
+
+### Added
+
+- **Look-ahead recall**: three reads by date, never by similarity, each off by default and on in the Recommended preset.
+  A question such as "plan my prep for go-live week" does not resemble "I will be in Bariloche from December 9 to 13",
+  so similarity alone never puts the two side by side.
+  - `RecallOptions.Upcoming` brings the owner's live facts that start in the next `UpcomingWindow` (14 days).
+    - It fires for a question that looks ahead (planning, scheduling, "when is", a future tense) unless
+      `UpcomingOnEveryRecall` is set.
+    - The facts go in `MemoryContext.UpcomingFacts`, with a budget of `MaxUpcomingItems` (5).
+  - `RecallOptions.TimeWindows` brings the facts dated inside a period the question names or anchors on an event.
+    - Named periods include "between December 7 and December 13", "on December 11", "this week", "next week",
+      "the next 10 days" and "tomorrow".
+    - Anchored periods include "go-live week" and "launch day". The event's date comes from a dated fact that names it,
+      or from a date its words state, never from the day something was merely said.
+    - The facts go in `MemoryContext.WindowFacts` and the period in `MemoryContext.ResolvedTimeWindow`.
+    - A question that names a period is recalled live, not as of one instant.
+  - `RecallOptions.OverlapExpansion` brings the facts that overlap in time with the dated facts recalled.
+    - The facts go in `MemoryContext.OverlappingFacts`, with a budget of `MaxOverlapItems` (5).
+  - Each section renders with its dates on every surface:
+    - the Agent Framework mapper: "In go-live week (2026-12-07 to 2026-12-13): …", "Coming up: …",
+      "At the same time: …";
+    - the Markdown formatter;
+    - MCP: `windowFacts`, `upcomingFacts`, `overlappingFacts` and `resolvedTimeWindow`, left out when empty;
+    - validation packs.
+  - The retrieval gate does not judge these sections.
+  - New reads on `ILongTermMemoryService` and `IFactRepository`, each returning empty by default: `GetUpcomingFactsAsync`,
+    `GetFactsInWindowAsync`, `FindAnchorFactAsync` and `GetOverlappingFactsAsync`. No schema change.
+- **`LlmExtractionOptions.DatesFromText`** (off; on in Recommended).
+  - It reads the dates a writer fact's own words state ("on Friday, December 11", "from December 9 to December 13",
+    "starting December 4") into `occurred_on`, `valid_from` and `valid_until` as well, keeping the words as written.
+  - It is deterministic and makes no model call. It reads only explicit dates and ranges, and never overwrites a field
+    the writer set.
+  - Before it, the store-aware writer dated 1 of 46 facts in the Bruna scenario. Look-ahead recall needs dated facts.
+- **Choosing a preset from configuration.**
+  - `AgentMemoryPresets.Choose(IConfiguration)` (AgentMemory.Gate) reads `AgentMemory:Preset`: `Recommended`,
+    `Conversational` or `LowLevel`, with Recommended when it is absent.
+  - Recommended needs a retrieval judge. With none configured under `AgentMemory:RetrievalRouter:Judges`, the choice runs
+    the Conversational preset and says why.
+  - New APIs: `MemoryPreset`, `MemoryPresetChoice`, `AddNeo4jAgentMemory(MemoryPresetChoice, …)`,
+    `AddAgentMemoryGate(MemoryPresetChoice, IConfiguration)`, `LlmExtractionOptions.ApplyPreset` and
+    `AgentFrameworkOptions.ApplyPreset`.
+  - The memory tiers line gains a `preset` leg.
+  - Existing registrations are unchanged.
+- **`tools/AgentMemory.Scenarios`**: scripted scenarios, live and fully traced, with deterministic checks.
+  - It checks each needed fact in **one** prompt item, and each stored fact's words and date fields.
+  - It logs answers and never grades them.
+  - It keeps every model call, span and log line of a run beside the report.
+  - **Bruna's go-live** comes from Pablo Piovano's [three-memories-one-question](https://github.com/ppiova/three-memories-one-question)
+    (MIT), used with his permission and our thanks. It added the store checks and a busier variant.
+  - In the busier variant (130 statements, 119 live facts, GLM-5.3-Flash with the JEV judge, one run), Recommended with
+    look-ahead put both clashing facts in the prompt for "plan my prep for go-live week". Without look-ahead, the trip was
+    not among the judge's 50 candidates, and the vector baseline missed it too.
+
+### Changed
+
+- **The Recommended preset turns on look-ahead recall and `DatesFromText`.** Recommended shipped opt-in in 2.0.0; the
+  Conversational preset and the low-level defaults are unchanged.
+
+- **Time comes from .NET's `TimeProvider`** ([#164](https://github.com/joslat/agent-memory-dotnet/issues/164)).
+  Register a `TimeProvider` (for example `FakeTimeProvider` in tests) and every component reads it. A host's own
+  `IClock` registration is still honoured: the default `TimeProvider` reads it. `IClock` stays for the public
+  constructors that take it (`Neo4jMemoryContextProvider`, `Neo4jChatHistoryProvider`, `Neo4jChatMessageStore`,
+  `AgentTraceRecorder`, `ExtensibleMemoryContextProvider`, `GatedMemoryContextAssembler`). It is removed in 3.0.
+  `TimeProviderClock` and `IClock.ToTimeProvider()` bridge the two.
+
+### Fixed
+
+- **The store-aware writer checks the quote behind each operation** ([#249](https://github.com/joslat/agent-memory-dotnet/issues/249)).
+  An operation whose quote isn't in the message isn't stored. A quote that's found keeps its character offsets in the
+  memory's metadata (`source_quote_start`, `source_quote_end`).
+- **The writer records the operations it drops** ([#250](https://github.com/joslat/agent-memory-dotnet/issues/250)).
+  Each comes with a reason code, shown on the write span (`memory.write.dropped`, `memory.write.dropped_reasons`) and in
+  the debug log.
+- **Hybrid retrieval fuses results by the node they came from** ([#248](https://github.com/joslat/agent-memory-dotnet/issues/248)),
+  not by their text. Two nodes with the same text stay two results, and one node found by both routes counts once.
+  Only a custom retrieval query that returns no `id` column falls back to matching by text.
+- **Name resolution no longer picks one of several equal matches** ([#251](https://github.com/joslat/agent-memory-dotnet/issues/251)).
+  When two live entities match a name at the same rank (both by exact name, or both by alias), `FindLiveByNameAsync`
+  returns null and logs a warning. The fact or edge is then not attached to either; before, the more-mentioned entity
+  received it. An exact name still wins over aliases, and the owner's entity over a shared one.
+
 ## [2.0.0] - 2026-11-06
 
 Memory a host can trust before it switches it on. 2.0.0 adds the ampack memory-pack format (signed,

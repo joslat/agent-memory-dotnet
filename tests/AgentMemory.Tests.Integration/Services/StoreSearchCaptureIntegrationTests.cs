@@ -27,8 +27,8 @@ public sealed class StoreSearchCaptureIntegrationTests(Neo4jIntegrationFixture f
     {
         await fixture.CleanDatabaseAsync();
         var now = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
-        var clock = Substitute.For<IClock>();
-        clock.UtcNow.Returns(now);
+        var clock = Substitute.For<TimeProvider>();
+        clock.GetUtcNow().Returns(now);
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton(clock);

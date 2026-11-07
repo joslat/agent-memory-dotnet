@@ -108,7 +108,7 @@ internal static class McpHostProgram
         // the scalar options settable, no other body would have compiled.
         builder.Services.AddAgentMemoryCore(options.Memory);
         ConfigureRetrieval(builder.Services, builder.Configuration);
-        builder.Services.AddSingleton<IClock, SystemClock>();
+        builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddSingleton<IIdGenerator, GuidIdGenerator>();
         builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(
             AgentMemory.Inference.InferenceClientFactory.TryCreateEmbeddingGenerator(

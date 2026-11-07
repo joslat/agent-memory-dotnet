@@ -6,10 +6,10 @@ namespace AgentMemory.Tests.Unit.TestHelpers;
 
 public static class MockFactory
 {
-    public static IClock CreateFixedClock(DateTimeOffset? fixedTime = null)
+    public static TimeProvider CreateFixedClock(DateTimeOffset? fixedTime = null)
     {
-        var clock = Substitute.For<IClock>();
-        clock.UtcNow.Returns(fixedTime ?? new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        var clock = Substitute.For<TimeProvider>();
+        clock.GetUtcNow().Returns(fixedTime ?? new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero));
         return clock;
     }
 

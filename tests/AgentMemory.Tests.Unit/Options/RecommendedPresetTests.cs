@@ -23,8 +23,12 @@ public sealed class RecommendedPresetTests
         recommended.Extraction.BitemporalChanges.Should().BeTrue();
         recommended.Projection.ResolveSupersessions.Should().BeTrue();
         recommended.FanOut.Enabled.Should().BeFalse("the recommended gate judges the original query without automatic extra searches");
+        recommended.Recall.Upcoming.Should().BeTrue("look-ahead recall: what is coming up");
+        recommended.Recall.TimeWindows.Should().BeTrue("look-ahead recall: the period a question names");
+        recommended.Recall.OverlapExpansion.Should().BeTrue("look-ahead recall: what overlaps in time");
         recommended.Should().BeEquivalentTo(conversational, o => o.Excluding(x => x.Extraction.BitemporalChanges)
-                .Excluding(x => x.Projection.ResolveSupersessions).Excluding(x => x.FanOut.Enabled),
+                .Excluding(x => x.Projection.ResolveSupersessions).Excluding(x => x.FanOut.Enabled)
+                .Excluding(x => x.Recall.Upcoming).Excluding(x => x.Recall.TimeWindows).Excluding(x => x.Recall.OverlapExpansion),
             "all other Conversational settings remain compatible");
     }
 
@@ -40,6 +44,12 @@ public sealed class RecommendedPresetTests
         new MemoryOptions().Isolation.Mode.Should().Be(MemoryIsolationMode.SingleTenant);
         MemoryOptions.CreateRecommended().Extraction.Should().NotBeSameAs(MemoryOptions.CreateRecommended().Extraction);
         MemoryOptions.CreateConversational().FanOut.Enabled.Should().BeTrue("the existing preset remains frozen");
+        MemoryOptions.CreateConversational().Recall.Upcoming.Should().BeFalse("the Conversational preset is frozen");
+        MemoryOptions.CreateConversational().Recall.TimeWindows.Should().BeFalse("the Conversational preset is frozen");
+        MemoryOptions.CreateConversational().Recall.OverlapExpansion.Should().BeFalse("the Conversational preset is frozen");
+        new MemoryOptions().Recall.Upcoming.Should().BeFalse("new capabilities ship off");
+        new MemoryOptions().Recall.TimeWindows.Should().BeFalse();
+        new MemoryOptions().Recall.OverlapExpansion.Should().BeFalse();
         var customized = MemoryOptions.CreateRecommended();
         customized.FanOut.Enabled = true;
         customized.FanOut.Enabled.Should().BeTrue("hosts retain an explicit override");
@@ -54,8 +64,9 @@ public sealed class RecommendedPresetTests
         options.ApplyRecommended().Should().BeSameAs(options, "it composes inside a configure lambda");
         options.UseMemoryWriter.Should().BeTrue();
         options.ChatModelUpdateJudge.Should().BeTrue("the writer's closings are confirmed by the host's chat model when no outside judge answers (41.26 c)");
+        options.DatesFromText.Should().BeTrue("the writer keeps dates in the text; look-ahead recall reads them as date fields");
         options.Should().BeEquivalentTo(new LlmExtractionOptions().ApplyConversational(),
-            o => o.Excluding(x => x.UseMemoryWriter).Excluding(x => x.ChatModelUpdateJudge),
+            o => o.Excluding(x => x.UseMemoryWriter).Excluding(x => x.DatesFromText).Excluding(x => x.ChatModelUpdateJudge),
             "the windows the writer does not take go to the extractors as the Conversational preset configures them");
         new LlmExtractionOptions().ApplyConversational().UseMemoryWriter.Should().BeFalse();
         new LlmExtractionOptions().ApplyConversational().ChatModelUpdateJudge.Should().BeFalse();

@@ -140,9 +140,9 @@ public sealed class MemoryWriterTests
 
         ops.Should().BeEquivalentTo(new[]
         {
-            new MemoryWriterOps.Op("add", "fact", "Renate | broke | her left wrist on 12 January 2027", null),
-            new MemoryWriterOps.Op("replace", "fact", "Lukas | lives in | Leoben", "F1"),
-            new MemoryWriterOps.Op("add", "fact", "Mia (PERSON)", null),   // "person" is not an item kind: the harness made it a fact
+            new MemoryWriterOps.Op("add", "fact", "Renate | broke | her left wrist on 12 January 2027", null) { Quote = "broke her left wrist", Index = 0 },
+            new MemoryWriterOps.Op("replace", "fact", "Lukas | lives in | Leoben", "F1") { Index = 2 },
+            new MemoryWriterOps.Op("add", "fact", "Mia (PERSON)", null) { Index = 3 },   // "person" is not an item kind: the harness made it a fact
         }, o => o.WithStrictOrdering());
     }
 
@@ -314,7 +314,7 @@ public sealed class MemoryWriterTests
 
         MemoryWriterOps.TryParse(reply, 6, out var ops).Should().BeTrue();
 
-        ops.Should().ContainSingle().Which.Should().Be(new MemoryWriterOps.Op("confirm", "fact", "", "P1"));
+        ops.Should().ContainSingle().Which.Should().Be(new MemoryWriterOps.Op("confirm", "fact", "", "P1") { Quote = "I still take the train" });
     }
 
     [Theory]
@@ -536,7 +536,7 @@ public sealed class PersistenceStageMemoryWriterTests
     private readonly IFactRepository _factRepo = Substitute.For<IFactRepository>();
     private readonly IPreferenceRepository _prefRepo = Substitute.For<IPreferenceRepository>();
     private readonly IRelationshipRepository _relRepo = Substitute.For<IRelationshipRepository>();
-    private readonly IClock _clock = Substitute.For<IClock>();
+    private readonly TimeProvider _clock = Substitute.For<TimeProvider>();
     private readonly IIdGenerator _idGen = Substitute.For<IIdGenerator>();
     private readonly IMemoryUpdateJudge _judge = Substitute.For<IMemoryUpdateJudge>();
     private readonly IMemoryUpdateJudgeFallback _host = Substitute.For<IMemoryUpdateJudgeFallback>();
@@ -549,7 +549,7 @@ public sealed class PersistenceStageMemoryWriterTests
 
     public PersistenceStageMemoryWriterTests()
     {
-        _clock.UtcNow.Returns(new DateTimeOffset(2027, 3, 5, 19, 0, 0, TimeSpan.Zero));
+        _clock.GetUtcNow().Returns(new DateTimeOffset(2027, 3, 5, 19, 0, 0, TimeSpan.Zero));
         _orchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new float[8]);
         _factRepo.UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>()).Returns(ci => Task.FromResult(ci.Arg<Fact>()));
         _prefRepo.UpsertAsync(Arg.Any<Preference>(), Arg.Any<CancellationToken>()).Returns(ci => Task.FromResult(ci.Arg<Preference>()));
@@ -625,7 +625,7 @@ public sealed class PersistenceStageMemoryWriterTests
         await CreateSut(withHost: true).PersistAsync(turn, ownerId: "lukas");
 
         await _judge.Received(1).JudgeAsync(Arg.Is<MemoryUpdateRequest>(r => r.Named && r.Said == "We moved."
-            && r.Now == _clock.UtcNow && r.Pairs.Count == 2 && r.Pairs[0].Key == "p1" && r.Pairs[1].Key == "p2"
+            && r.Now == _clock.GetUtcNow() && r.Pairs.Count == 2 && r.Pairs[0].Key == "p1" && r.Pairs[1].Key == "p2"
             && r.Pairs[0].NewMemory == "Lukas | lives in | Leoben" && r.Pairs[1].NewMemory == "Iris | lives in | Vienna"),
             Arg.Any<CancellationToken>());
         await _factRepo.Received(1).SupersedeAsync("fact-graz", "fact-new", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());

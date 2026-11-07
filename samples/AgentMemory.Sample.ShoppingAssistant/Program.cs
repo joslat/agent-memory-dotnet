@@ -63,7 +63,7 @@ builder.Services.AddNeo4jAgentMemory(options =>
     options.EmbeddingDimensions = modelSettings.EmbeddingDimensions!.Value;
 });
 builder.Services.AddAgentMemoryCore(_ => { });
-builder.Services.AddSingleton<IClock, SystemClock>();
+builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IIdGenerator, GuidIdGenerator>();
 builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(
     embeddingGenerator);

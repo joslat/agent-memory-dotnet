@@ -19,13 +19,13 @@ public sealed class MemoryQueryFacadeTests
     private readonly ILongTermMemoryService _longTerm = Substitute.For<ILongTermMemoryService>();
     private readonly IReasoningMemoryService _reasoning = Substitute.For<IReasoningMemoryService>();
     private readonly IEmbeddingOrchestrator _embeddings = Substitute.For<IEmbeddingOrchestrator>();
-    private readonly IClock _clock = Substitute.For<IClock>();
+    private readonly TimeProvider _clock = Substitute.For<TimeProvider>();
     private readonly IIdGenerator _idGenerator = Substitute.For<IIdGenerator>();
 
     private MemoryQueryFacade CreateSut()
     {
         _embeddings.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new float[8]);
-        _clock.UtcNow.Returns(DateTimeOffset.UtcNow);
+        _clock.GetUtcNow().Returns(DateTimeOffset.UtcNow);
         _idGenerator.GenerateId().Returns("id-1");
         _longTerm.SearchEntitiesAsync(Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Entity>>(Array.Empty<Entity>()));
@@ -40,7 +40,7 @@ public sealed class MemoryQueryFacadeTests
     private MemoryQueryFacade CreateSutWithOwner(string? userId)
     {
         _embeddings.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new float[8]);
-        _clock.UtcNow.Returns(DateTimeOffset.UtcNow);
+        _clock.GetUtcNow().Returns(DateTimeOffset.UtcNow);
         _idGenerator.GenerateId().Returns("id-1");
         _longTerm.SearchEntitiesAsync(Arg.Any<float[]>(), Arg.Any<int>(), Arg.Any<double>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Entity>>(Array.Empty<Entity>()));

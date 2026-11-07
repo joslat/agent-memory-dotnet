@@ -20,7 +20,7 @@ public sealed class MemoryServiceAccessTrackingTests
     private readonly IPreferenceRepository _preferenceRepository;
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
     private readonly IMemoryDecayService _decayService;
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly IIdGenerator _idGenerator;
     private readonly DateTimeOffset _fixedTime = new(2025, 6, 15, 12, 0, 0, TimeSpan.Zero);
 
@@ -34,10 +34,10 @@ public sealed class MemoryServiceAccessTrackingTests
         _preferenceRepository = Substitute.For<IPreferenceRepository>();
         _embeddingOrchestrator = Substitute.For<IEmbeddingOrchestrator>();
         _decayService = Substitute.For<IMemoryDecayService>();
-        _clock = Substitute.For<IClock>();
+        _clock = Substitute.For<TimeProvider>();
         _idGenerator = Substitute.For<IIdGenerator>();
 
-        _clock.UtcNow.Returns(_fixedTime);
+        _clock.GetUtcNow().Returns(_fixedTime);
         _idGenerator.GenerateId().Returns("generated-msg-id");
 
         _decayService

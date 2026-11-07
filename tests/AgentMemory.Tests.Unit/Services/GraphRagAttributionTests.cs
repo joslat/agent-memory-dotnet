@@ -89,7 +89,7 @@ public sealed class GraphRagAttributionTests
             Substitute.For<IReasoningMemoryService>(),
             withGraphRag ? _graphRag : null,
             embeddings,
-            Substitute.For<IClock>(),
+            Substitute.For<TimeProvider>(),
             Options.Create(new MemoryOptions { EnableGraphRag = withGraphRag }),
             NullLogger<MemoryContextAssembler>.Instance,
             new DefaultMemoryIsolationPolicy(

@@ -19,7 +19,7 @@ public sealed class EntityToolsTests
     private readonly ILongTermMemoryService _longTermMemory = Substitute.For<ILongTermMemoryService>();
     private readonly IExtractorRepository _extractorRepo = Substitute.For<IExtractorRepository>();
     private readonly IIdGenerator _idGenerator = Substitute.For<IIdGenerator>();
-    private readonly IClock _clock = Substitute.For<IClock>();
+    private readonly TimeProvider _clock = Substitute.For<TimeProvider>();
     private readonly IOptions<AgentMemoryMcpOptions> _options = Options.Create(new AgentMemoryMcpOptions());
     private readonly IMemoryIsolationPolicy _isolationPolicy =
         new DefaultMemoryIsolationPolicy(Options.Create(new MemoryIsolationOptions()), NullLogger<DefaultMemoryIsolationPolicy>.Instance);
@@ -29,7 +29,7 @@ public sealed class EntityToolsTests
     public EntityToolsTests()
     {
         _idGenerator.GenerateId().Returns("rel-id-1");
-        _clock.UtcNow.Returns(FixedTime);
+        _clock.GetUtcNow().Returns(FixedTime);
     }
 
     // ── memory_get_entity ──

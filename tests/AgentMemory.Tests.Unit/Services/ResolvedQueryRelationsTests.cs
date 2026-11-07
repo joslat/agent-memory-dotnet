@@ -74,7 +74,7 @@ public sealed class ResolvedQueryRelationsTests
             Substitute.For<IReasoningMemoryService>(),
             null,
             embeddings,
-            Substitute.For<IClock>(),
+            Substitute.For<TimeProvider>(),
             Options.Create(new MemoryOptions()),
             NullLogger<MemoryContextAssembler>.Instance,
             new DefaultMemoryIsolationPolicy(

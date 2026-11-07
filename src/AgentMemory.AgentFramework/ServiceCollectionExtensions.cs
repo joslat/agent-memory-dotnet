@@ -1,3 +1,4 @@
+using AgentMemory.Core.Stubs;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
@@ -109,6 +110,9 @@ public static class ServiceCollectionExtensions
         // Memory-context admission policy (#92 Phase 2). TryAdd: same override semantics as above.
         services.TryAddScoped<IMemoryContextAdmissionPolicy, DefaultMemoryContextAdmissionPolicy>();
 
+        // The clock the providers' constructors take (#164): the default reads the registered TimeProvider, so a host
+        // that registers only a TimeProvider still resolves them. By type, as Core registers it, so either may run first.
+        services.TryAddSingleton<IClock, SystemClock>();
         services.TryAddScoped<Neo4jMemoryContextProvider>();
         services.TryAddScoped<Neo4jChatMessageStore>();
         services.TryAddScoped<Neo4jMicrosoftMemoryFacade>();

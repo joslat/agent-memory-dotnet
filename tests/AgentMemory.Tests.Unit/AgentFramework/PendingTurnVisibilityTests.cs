@@ -30,7 +30,7 @@ public sealed class PendingTurnVisibilityTests
             .Returns(new RecallResult { Context = new MemoryContext { SessionId = "s1", AssembledAtUtc = DateTimeOffset.UnixEpoch } });
         var options = new AgentFrameworkOptions { RecallWaitsForPendingExtraction = TimeSpan.Zero, IncludePendingTurns = true };
         var provider = new Neo4jMemoryContextProvider(memory, Substitute.For<IEmbeddingOrchestrator>(),
-            Substitute.For<IClock>(), Substitute.For<IIdGenerator>(), Options.Create(new MemoryOptions()),
+            new TimeProviderClock(Substitute.For<TimeProvider>()), Substitute.For<IIdGenerator>(), Options.Create(new MemoryOptions()),
             Options.Create(new ContextFormatOptions()), Options.Create(options),
             NullLogger<Neo4jMemoryContextProvider>.Instance, backgroundExtraction: queue);
         try
@@ -96,14 +96,14 @@ public sealed class PendingTurnVisibilityTests
             .Returns(new RecallResult { Context = new MemoryContext { SessionId = "s1", AssembledAtUtc = DateTimeOffset.UnixEpoch } });
         var store = Substitute.For<IMemoryStoreContext>();
         var options = new AgentFrameworkOptions { IncludePendingTurns = true };
-        var clock = Substitute.For<IClock>();
+        var clock = Substitute.For<TimeProvider>();
         var ids = Substitute.For<IIdGenerator>();
-        var context = new Neo4jMemoryContextProvider(memory, Substitute.For<IEmbeddingOrchestrator>(), clock, ids,
+        var context = new Neo4jMemoryContextProvider(memory, Substitute.For<IEmbeddingOrchestrator>(), new TimeProviderClock(clock), ids,
             Options.Create(new MemoryOptions()), Options.Create(options.ContextFormat), Options.Create(options),
             NullLogger<Neo4jMemoryContextProvider>.Instance, storeContext: store, backgroundExtraction: queue);
-        var history = new Neo4jChatHistoryProvider(memory, clock, ids, options,
+        var history = new Neo4jChatHistoryProvider(memory, new TimeProviderClock(clock), ids, options,
             NullLogger<Neo4jChatHistoryProvider>.Instance, storeContext: store, backgroundExtraction: queue);
-        var messageStore = new Neo4jChatMessageStore(memory, clock, ids, NullLogger<Neo4jChatMessageStore>.Instance);
+        var messageStore = new Neo4jChatMessageStore(memory, new TimeProviderClock(clock), ids, NullLogger<Neo4jChatMessageStore>.Instance);
         var facade = new Neo4jMicrosoftMemoryFacade(memory, messageStore, Options.Create(options),
             NullLogger<Neo4jMicrosoftMemoryFacade>.Instance, backgroundExtraction: queue, storeContext: store);
         async Task<string> Read(string app = "app-a", string owner = "alice", string session = "s1")

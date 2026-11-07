@@ -29,7 +29,7 @@ public sealed class EntitySummaryTests
 {
     private readonly IFactRepository _facts = Substitute.For<IFactRepository>();
     private readonly IEntitySummaryRepository _summaries = Substitute.For<IEntitySummaryRepository>();
-    private readonly IClock _clock = Substitute.For<IClock>();
+    private readonly TimeProvider _clock = Substitute.For<TimeProvider>();
 
     private static readonly Entity Alice = new()
     {
@@ -57,7 +57,7 @@ public sealed class EntitySummaryTests
         InvalidatedAtUtc = invalidatedAt,
     };
 
-    public EntitySummaryTests() => _clock.UtcNow.Returns(DateTimeOffset.UnixEpoch);
+    public EntitySummaryTests() => _clock.GetUtcNow().Returns(DateTimeOffset.UnixEpoch);
 
     private EntitySummaryService CreateSut()
     {

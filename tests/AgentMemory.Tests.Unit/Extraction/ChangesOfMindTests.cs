@@ -305,11 +305,11 @@ public sealed class ChangesOfMindTests
     private readonly IPreferenceRepository _preferences = Substitute.For<IPreferenceRepository>();
     private readonly List<(string Loser, string Winner)> _closedFacts = [];
     private readonly List<(string Loser, string Winner)> _closedPreferences = [];
-    private readonly IClock _clock = Substitute.For<IClock>();
+    private readonly TimeProvider _clock = Substitute.For<TimeProvider>();
 
     public ChangesOfMindTests()
     {
-        _clock.UtcNow.Returns(new DateTimeOffset(2026, 9, 27, 0, 0, 0, TimeSpan.Zero));
+        _clock.GetUtcNow().Returns(new DateTimeOffset(2026, 9, 27, 0, 0, 0, TimeSpan.Zero));
         _facts.UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>()).Returns(ci => Task.FromResult(ci.Arg<Fact>()));
         _facts.FindSupersededCandidatesAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
                 Arg.Any<DateTimeOffset>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())

@@ -39,7 +39,7 @@ internal sealed class SessionAccountant : IDerivedMemoryAccountant
     private readonly IFactRepository _facts;
     private readonly IEmbeddingOrchestrator _embeddings;
     private readonly IIdGenerator _ids;
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly ExtractionOptions _options;
     private readonly ILogger<SessionAccountant> _logger;
 
@@ -59,7 +59,7 @@ internal sealed class SessionAccountant : IDerivedMemoryAccountant
         IFactRepository facts,
         IEmbeddingOrchestrator embeddings,
         IIdGenerator ids,
-        IClock clock,
+        TimeProvider clock,
         IOptions<ExtractionOptions> options,
         ILogger<SessionAccountant> logger)
     {
@@ -199,7 +199,7 @@ internal sealed class SessionAccountant : IDerivedMemoryAccountant
             Predicate = candidate.Predicate,
             Object = candidate.Object,
             Confidence = derived.DerivedFactConfidence,
-            CreatedAtUtc = _clock.UtcNow,
+            CreatedAtUtc = _clock.GetUtcNow(),
             OwnerId = ownerId,
             Embedding = embedding,
             // Untrusted, deliberately. A derived fact is computed from extracted text and renders

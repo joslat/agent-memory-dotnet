@@ -14,13 +14,13 @@ internal sealed class EdgeEnding
     private readonly IEntityRepository _entityRepository;
     private readonly IFactRepository _factRepository;
     private readonly IRelationshipRepository _relationshipRepository;
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly ExtractionOptions _options;
     private readonly ILogger _logger;
     private readonly ClosingPipeline _closings;
 
     public EdgeEnding(IEntityRepository entityRepository, IFactRepository factRepository,
-        IRelationshipRepository relationshipRepository, IClock clock, ExtractionOptions options,
+        IRelationshipRepository relationshipRepository, TimeProvider clock, ExtractionOptions options,
         ILogger logger, ClosingPipeline closings)
     {
         _entityRepository = entityRepository;
@@ -37,7 +37,7 @@ internal sealed class EdgeEnding
         foreach (var item in withdrawn)
         {
             // 40.65. A change's edge ends when the change took effect, as its fact does; a correction's at once.
-            DateTimeOffset? endAt = _options.BitemporalChanges && !item.Correction ? ChangedAt(item.Winner, _clock.UtcNow) : null;
+            DateTimeOffset? endAt = _options.BitemporalChanges && !item.Correction ? ChangedAt(item.Winner, _clock.GetUtcNow()) : null;
             await EndMirroredEdgesAsync(item.Closed, item.StillLive, item.ReadScope, item.WriteScope, cancellationToken, endAt)
                 .ConfigureAwait(false);
             if (item.Correction)
@@ -61,7 +61,7 @@ internal sealed class EdgeEnding
         {
             var source = await SubjectEntityAsync(closed.Subject, readScope, cancellationToken).ConfigureAwait(false);
             if (source is null) return;
-            var now = _clock.UtcNow;
+            var now = _clock.GetUtcNow();
             var edges = await _relationshipRepository.GetBySourceEntityAsync(source.EntityId, readScope, cancellationToken)
                 .ConfigureAwait(false);
             foreach (var edge in edges.Where(edge => (edge.ValidUntil is not { } until || until > now) &&
@@ -113,7 +113,7 @@ internal sealed class EdgeEnding
             var theEvent = await _entityRepository.FindLiveByNameAsync(said, null, readScope, cancellationToken).ConfigureAwait(false);
             if (theEvent is not null)
             {
-                var now = _clock.UtcNow;
+                var now = _clock.GetUtcNow();
                 var goingStill = await _relationshipRepository.GetByTargetEntityAsync(theEvent.EntityId, readScope, cancellationToken)
                     .ConfigureAwait(false);
                 if (goingStill.Any(edge => edge.ValidUntil is not { } until || until > now))

@@ -15,7 +15,7 @@ public sealed class TemporalContextAssemblerTests
     private readonly ILongTermMemoryService _longTerm;
     private readonly IReasoningMemoryService _reasoning;
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly DateTimeOffset _fixedTime = new(2025, 6, 15, 12, 0, 0, TimeSpan.Zero);
     private readonly float[] _generatedEmbedding = new float[1536];
 
@@ -25,9 +25,9 @@ public sealed class TemporalContextAssemblerTests
         _longTerm = Substitute.For<ILongTermMemoryService>();
         _reasoning = Substitute.For<IReasoningMemoryService>();
         _embeddingOrchestrator = Substitute.For<IEmbeddingOrchestrator>();
-        _clock = Substitute.For<IClock>();
+        _clock = Substitute.For<TimeProvider>();
 
-        _clock.UtcNow.Returns(_fixedTime);
+        _clock.GetUtcNow().Returns(_fixedTime);
 
         _embeddingOrchestrator
             .EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())

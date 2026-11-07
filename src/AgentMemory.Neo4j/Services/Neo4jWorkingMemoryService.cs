@@ -30,7 +30,7 @@ namespace AgentMemory.Neo4j.Services;
 internal sealed class Neo4jWorkingMemoryService : IWorkingMemoryService
 {
     private readonly INeo4jTransactionRunner _tx;
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly IIdGenerator _ids;
     private readonly WorkingMemoryOptions _options;
     private readonly ILogger<Neo4jWorkingMemoryService> _logger;
@@ -38,7 +38,7 @@ internal sealed class Neo4jWorkingMemoryService : IWorkingMemoryService
 
     public Neo4jWorkingMemoryService(
         INeo4jTransactionRunner tx,
-        IClock clock,
+        TimeProvider clock,
         IIdGenerator ids,
         IOptions<MemoryOptions> options,
         ILogger<Neo4jWorkingMemoryService> logger,
@@ -59,7 +59,7 @@ internal sealed class Neo4jWorkingMemoryService : IWorkingMemoryService
         // The null-owner skip is guard G3 and it is TCK-load-bearing. See ShouldSkip.
         if (ShouldSkip(ownerId)) return;
 
-        var now = _clock.UtcNow;
+        var now = _clock.GetUtcNow();
         var text = await ComposeAsync(ownerId, now, cancellationToken).ConfigureAwait(false);
         var validUntil = await NextValidityBoundaryAsync(ownerId, now, cancellationToken).ConfigureAwait(false);
         // 37.5. A block with a "Lately" line is a view of a sliding window: it is rebuilt at least daily, writes or not.
@@ -112,11 +112,11 @@ internal sealed class Neo4jWorkingMemoryService : IWorkingMemoryService
         var block = await ReadBlockAsync(ownerId, cancellationToken).ConfigureAwait(false);
         // A fact in the block expired (or a future one became valid) since it was built, or the block was
         // cleared: rebuild once and serve the rebuilt block. Rare by construction: at most once per boundary.
-        if (block.ValidUntil is { } boundary && boundary <= _clock.UtcNow)
+        if (block.ValidUntil is { } boundary && boundary <= _clock.GetUtcNow())
         {
             // A rebuild that just failed for this owner is not retried on every recall: that would be a
             // failing write and a warning per turn, forever, for as long as the cause lasts.
-            if (_backoff?.IsWaiting(ownerId, _clock.UtcNow) == true)
+            if (_backoff?.IsWaiting(ownerId, _clock.GetUtcNow()) == true)
                 return _options.ClearOnRebuildFailure ? null : block.Block;
             try
             {
@@ -137,7 +137,7 @@ internal sealed class Neo4jWorkingMemoryService : IWorkingMemoryService
                 _logger.LogWarning(exception,
                     "Working-memory rebuild on read failed for owner {Owner}; recall continues without a rebuilt block.",
                     ownerId);
-                _backoff?.Failed(ownerId, _clock.UtcNow);
+                _backoff?.Failed(ownerId, _clock.GetUtcNow());
                 return _options.ClearOnRebuildFailure ? null : block.Block;
             }
         }
@@ -182,7 +182,7 @@ internal sealed class Neo4jWorkingMemoryService : IWorkingMemoryService
                 OwnerId = ownerId,
                 Text = text,
                 BuiltAtUtc = Neo4jDateTimeHelper.ReadNullableDateTimeOffset(records[0]["builtAt"])
-                             ?? _clock.UtcNow,
+                             ?? _clock.GetUtcNow(),
                 ContentHash = records[0]["hash"].As<string?>() ?? Hash(text),
             }, validUntil);
         }, cancellationToken).ConfigureAwait(false);
@@ -197,7 +197,7 @@ internal sealed class Neo4jWorkingMemoryService : IWorkingMemoryService
             await runner.RunAsync(WorkingMemoryQueries.ClearBlock, new
             {
                 ownerId,
-                now = _clock.UtcNow.ToString("O", CultureInfo.InvariantCulture),
+                now = _clock.GetUtcNow().ToString("O", CultureInfo.InvariantCulture),
             }).ConfigureAwait(false);
         }, cancellationToken).ConfigureAwait(false);
     }

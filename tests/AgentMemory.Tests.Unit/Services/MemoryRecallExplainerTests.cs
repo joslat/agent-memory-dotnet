@@ -26,8 +26,8 @@ public sealed class MemoryRecallExplainerTests
     {
         var facts = Substitute.For<IFactRepository>();
         facts.GetByIdAsync("f1", Arg.Any<CancellationToken>()).Returns(fact);
-        var clock = Substitute.For<IClock>();
-        clock.UtcNow.Returns(Now);
+        var clock = Substitute.For<TimeProvider>();
+        clock.GetUtcNow().Returns(Now);
         return new MemoryRecallExplainer(Substitute.For<IMemoryService>(), facts, Substitute.For<IEmbeddingOrchestrator>(),
             Options.Create(options), clock, new RuleBasedMemoryRouter(options.Routing));
     }

@@ -25,7 +25,7 @@ internal static class DecisionKernelHost
         services.AddLogging(logging => logging.SetMinimumLevel(LogLevel.Warning));
         services.AddSingleton(chat);
         services.AddSingleton(embedder);
-        services.AddSingleton<IClock, SystemClock>();
+        services.AddSingleton(TimeProvider.System);
         services.AddSingleton<IIdGenerator, GuidIdGenerator>();
         services.AddNeo4jAgentMemory(
             MemoryOptions.CreateConversational(),

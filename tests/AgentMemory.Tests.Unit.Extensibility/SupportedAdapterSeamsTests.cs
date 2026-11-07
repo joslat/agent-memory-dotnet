@@ -143,7 +143,7 @@ public sealed class SupportedAdapterSeamsTests
     private static Neo4jMemoryContextProvider Create(MemoryContextSecurityMode mode,
         IMemoryContextAdmissionPolicy? policy = null) => new(
             Substitute.For<IMemoryService>(), Substitute.For<IEmbeddingOrchestrator>(),
-            Substitute.For<IClock>(), Substitute.For<IIdGenerator>(),
+            new TimeProviderClock(Substitute.For<TimeProvider>()), Substitute.For<IIdGenerator>(),
             Options.Create(new MemoryOptions()),
             Options.Create(new ContextFormatOptions { SecurityMode = mode }),
             Options.Create(new AgentFrameworkOptions()),

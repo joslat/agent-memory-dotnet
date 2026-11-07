@@ -42,8 +42,8 @@ public sealed class SamePersistOrderTests
             embeddings = Substitute.For<IEmbeddingOrchestrator>();
             embeddings.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new float[4]);
         }
-        var clock = Substitute.For<IClock>();
-        clock.UtcNow.Returns(T0);
+        var clock = Substitute.For<TimeProvider>();
+        clock.GetUtcNow().Returns(T0);
         var ids = Substitute.For<IIdGenerator>();
         ids.GenerateId().Returns(_ => Guid.NewGuid().ToString("N"));
         return new PersistenceStage(embeddings, entities, facts, preferences, relationships ?? Substitute.For<IRelationshipRepository>(), clock, ids,

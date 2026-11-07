@@ -17,7 +17,7 @@ internal sealed class MemoryRecallExplainer(
     IFactRepository facts,
     IEmbeddingOrchestrator embeddings,
     IOptions<MemoryOptions> options,
-    IClock clock,
+    TimeProvider clock,
     IMemoryRouter? router = null,
     IMemoryHistoryService? history = null,
     IEntityRepository? entities = null,
@@ -86,7 +86,20 @@ internal sealed class MemoryRecallExplainer(
         }
 
         var recall = MemoryContextAssembler.EffectiveRecall(request.Options, settings.Recall);
-        var now = request.TemporalReferenceTime ?? clock.UtcNow;
+        var now = request.TemporalReferenceTime ?? clock.GetUtcNow();
+
+        // A fact the look-ahead sections recall is found by its date, not by similarity or its valid time: it can have no
+        // embedding, score below the floor or start after now and still reach the prompt. With those sections on, the
+        // recall runs first, so such a fact is reported as recalled before any vector or valid-time exclusion.
+        MemoryContext? context = null;
+        if (kind == MemoryItemKind.Fact && (recall.Upcoming || recall.TimeWindows || recall.OverlapExpansion))
+        {
+            context = (await memory.RecallAsync(request, cancellationToken).ConfigureAwait(false)).Context;
+            if (context.WindowFacts.Items.Concat(context.UpcomingFacts.Items).Concat(context.OverlappingFacts.Items)
+                .Concat(context.DueFacts.Items).Concat(context.ExpiringFacts.Items).Any(f => f.FactId == itemId))
+                return Gate(MemoryWhyNot.Recalled, "It was recalled by its date.");
+        }
+
         if (recall.ValidTime == ValidTimeMode.Current &&
             ((candidate.ValidFrom is { } from && from > now) || (candidate.ValidUntil is { } until && until <= now)))
             return Gate(MemoryWhyNot.Validity, "Outside its valid time at the recall's instant.");
@@ -109,10 +122,11 @@ internal sealed class MemoryRecallExplainer(
             }
         }
 
-        var context = (await memory.RecallAsync(request, cancellationToken).ConfigureAwait(false)).Context;
+        context ??= (await memory.RecallAsync(request, cancellationToken).ConfigureAwait(false)).Context;
         var (recalled, cap) = kind switch
         {
             MemoryItemKind.Fact => (context.RelevantFacts.Items.Concat(context.DueFacts.Items).Concat(context.ExpiringFacts.Items)
+                .Concat(context.WindowFacts.Items).Concat(context.UpcomingFacts.Items).Concat(context.OverlappingFacts.Items)
                 .Any(f => f.FactId == itemId), recall.MaxFacts),
             MemoryItemKind.Preference => (context.RelevantPreferences.Items.Any(p => p.PreferenceId == itemId), recall.MaxPreferences),
             _ => (context.RelevantEntities.Items.Any(e => e.EntityId == itemId), recall.MaxEntities),

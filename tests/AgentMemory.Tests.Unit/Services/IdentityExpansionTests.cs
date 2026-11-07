@@ -223,8 +223,8 @@ public sealed class IdentityExpansionTests
             embeddings.EmbedQueryAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
                 .Returns(new float[8]);
 
-            var clock = Substitute.For<IClock>();
-            clock.UtcNow.Returns(AsOf);
+            var clock = Substitute.For<TimeProvider>();
+            clock.GetUtcNow().Returns(AsOf);
 
             var options = new MemoryOptions();
             var assembler = new MemoryContextAssembler(

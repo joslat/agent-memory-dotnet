@@ -58,6 +58,29 @@ public sealed record MemoryContext
         MemoryContextSection<Fact>.Empty;
 
     /// <summary>
+    /// Facts that start soon, volunteered for a question that looks ahead (<c>RecallOptions.Upcoming</c>).
+    /// </summary>
+    /// <remarks>
+    /// Its own section and budget, like <see cref="DueFacts"/>: selected by date, never by similarity. A fact that
+    /// appears here is dropped from <see cref="RelevantFacts"/> so it is never rendered twice.
+    /// </remarks>
+    public MemoryContextSection<Fact> UpcomingFacts { get; init; } =
+        MemoryContextSection<Fact>.Empty;
+
+    /// <summary>
+    /// Facts dated inside the period the question names (<c>RecallOptions.TimeWindows</c>); the period is
+    /// <see cref="ResolvedTimeWindow"/>.
+    /// </summary>
+    public MemoryContextSection<Fact> WindowFacts { get; init; } =
+        MemoryContextSection<Fact>.Empty;
+
+    /// <summary>
+    /// Facts that overlap in time with the dated facts recalled for the question (<c>RecallOptions.OverlapExpansion</c>).
+    /// </summary>
+    public MemoryContextSection<Fact> OverlappingFacts { get; init; } =
+        MemoryContextSection<Fact>.Empty;
+
+    /// <summary>
     /// Topics the system used to know about and has let go of (30.8) — a stated absence, not the
     /// forgotten content.
     /// </summary>
@@ -172,6 +195,16 @@ public sealed record MemoryContext
     /// </para>
     /// </remarks>
     public DateTimeOffset? ResolvedTemporalAsOf { get; init; }
+
+    /// <summary>
+    /// The period the question named, when <c>RecallOptions.TimeWindows</c> resolved one; null otherwise.
+    /// </summary>
+    /// <remarks>
+    /// The witness for <see cref="WindowFacts"/>, as <see cref="ResolvedTemporalAsOf"/> is for the as-of path: an empty
+    /// window section with a window here means "nothing is dated in that period", and without one it means the
+    /// question named no period the parser recognised.
+    /// </remarks>
+    public TimeWindow? ResolvedTimeWindow { get; init; }
 
     /// <summary>
     /// What the projection layer computed about this context, or <see langword="null"/> when no

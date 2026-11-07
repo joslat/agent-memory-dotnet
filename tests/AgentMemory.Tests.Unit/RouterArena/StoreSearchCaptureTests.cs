@@ -14,8 +14,8 @@ public sealed class StoreSearchCaptureTests
     public async Task Capture_uses_the_library_wide_pool_and_preserves_item_mapping_and_ungated_context()
     {
         var now = DateTimeOffset.UnixEpoch;
-        var clock = Substitute.For<IClock>();
-        clock.UtcNow.Returns(now);
+        var clock = Substitute.For<TimeProvider>();
+        clock.GetUtcNow().Returns(now);
         var inner = Substitute.For<IMemoryContextAssembler>();
         var context = new MemoryContext
         {
@@ -45,8 +45,8 @@ public sealed class StoreSearchCaptureTests
     [Fact]
     public async Task Historical_capture_uses_the_actual_as_of_path_and_has_no_gate_request()
     {
-        var clock = Substitute.For<IClock>();
-        clock.UtcNow.Returns(DateTimeOffset.UnixEpoch);
+        var clock = Substitute.For<TimeProvider>();
+        clock.GetUtcNow().Returns(DateTimeOffset.UnixEpoch);
         var inner = Substitute.For<IMemoryContextAssembler>();
         inner.AssembleContextAsOfAsync(Arg.Any<RecallRequest>(), DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, Arg.Any<CancellationToken>())
             .Returns(new MemoryContext { SessionId = "session", AssembledAtUtc = DateTimeOffset.UnixEpoch });
@@ -61,7 +61,7 @@ public sealed class StoreSearchCaptureTests
     [Fact]
     public async Task Failed_search_stays_failed_and_does_not_become_an_empty_pool()
     {
-        var clock = Substitute.For<IClock>();
+        var clock = Substitute.For<TimeProvider>();
         var inner = Substitute.For<IMemoryContextAssembler>();
         inner.AssembleContextAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
             .Returns<Task<MemoryContext>>(_ => throw new InvalidOperationException("private detail"));
@@ -77,7 +77,7 @@ public sealed class StoreSearchCaptureTests
     {
         var services = new ServiceCollection();
         var inner = Substitute.For<IMemoryContextAssembler>();
-        var clock = Substitute.For<IClock>();
+        var clock = Substitute.For<TimeProvider>();
         services.AddSingleton(clock);
         services.AddScoped<IMemoryContextAssembler>(_ => inner);
         StoreSearchCapture.Register(services, new MemoryOptions());
@@ -99,7 +99,7 @@ public sealed class StoreSearchCaptureTests
             LatencyBudgetExceeded = globalTimeout,
             RelevantFacts = new() { Diagnostics = new(true, 50, 0, null, null, 0, TimedOut: !globalTimeout) },
         });
-        var result = await new StoreSearchCapture(inner, new MemoryOptions(), Substitute.For<IClock>()).CaptureAsync(
+        var result = await new StoreSearchCapture(inner, new MemoryOptions(), Substitute.For<TimeProvider>()).CaptureAsync(
             new SearchCaptureQuery { Id = "case", Session = 1, Question = "Question" }, "session", "owner", 50);
 
         result.Error.Should().Be("PartialSearchLatencyBudgetExceeded");

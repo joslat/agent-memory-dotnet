@@ -31,12 +31,12 @@ public sealed class ProviderEmbeddingElisionTests
 {
     private readonly IMemoryService _memoryService = Substitute.For<IMemoryService>();
     private readonly IEmbeddingOrchestrator _embeddings = Substitute.For<IEmbeddingOrchestrator>();
-    private readonly IClock _clock = Substitute.For<IClock>();
+    private readonly TimeProvider _clock = Substitute.For<TimeProvider>();
     private readonly IIdGenerator _idGenerator = Substitute.For<IIdGenerator>();
 
     public ProviderEmbeddingElisionTests()
     {
-        _clock.UtcNow.Returns(DateTimeOffset.UtcNow);
+        _clock.GetUtcNow().Returns(DateTimeOffset.UtcNow);
         _idGenerator.GenerateId().Returns(_ => Guid.NewGuid().ToString("N"));
         _embeddings.EmbedQueryAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new float[] { 0.1f }));
@@ -62,7 +62,7 @@ public sealed class ProviderEmbeddingElisionTests
     private Neo4jMemoryContextProvider CreateSut(IAutomaticRecallPolicy? policy = null) =>
         new(_memoryService,
             _embeddings,
-            _clock,
+            new TimeProviderClock(_clock),
             _idGenerator,
             Options.Create(new MemoryOptions()),
             Options.Create(new ContextFormatOptions()),

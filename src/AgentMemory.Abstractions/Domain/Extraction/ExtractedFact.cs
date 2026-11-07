@@ -116,4 +116,14 @@ public sealed record ExtractedFact
     /// </para>
     /// </remarks>
     public int? SourceTurn { get; init; }
+
+    /// <summary>
+    /// Where the words this item rests on stand in its source message: the start offset (inclusive), in the message's
+    /// characters. Set by the store-aware writer when it located the operation's quote (#249); null otherwise. Stored in the
+    /// memory's metadata as <c>source_quote_start</c>.
+    /// </summary>
+    public int? SourceQuoteStart { get; init; }
+
+    /// <summary>The end offset (exclusive) of <see cref="SourceQuoteStart"/>'s quote; stored as <c>source_quote_end</c>.</summary>
+    public int? SourceQuoteEnd { get; init; }
 }

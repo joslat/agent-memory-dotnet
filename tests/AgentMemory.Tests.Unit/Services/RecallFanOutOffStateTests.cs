@@ -35,7 +35,7 @@ public sealed class RecallFanOutOffStateTests
     private readonly ILongTermMemoryService _longTerm = Substitute.For<ILongTermMemoryService>();
     private readonly IReasoningMemoryService _reasoning = Substitute.For<IReasoningMemoryService>();
     private readonly IEmbeddingOrchestrator _embeddings = Substitute.For<IEmbeddingOrchestrator>();
-    private readonly IClock _clock = Substitute.For<IClock>();
+    private readonly TimeProvider _clock = Substitute.For<TimeProvider>();
 
     private static readonly IMemoryIsolationPolicy SingleTenantPolicy =
         new DefaultMemoryIsolationPolicy(
@@ -44,7 +44,7 @@ public sealed class RecallFanOutOffStateTests
 
     public RecallFanOutOffStateTests()
     {
-        _clock.UtcNow.Returns(FixedNow);
+        _clock.GetUtcNow().Returns(FixedNow);
         _shortTerm.GetRecentMessagesAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<Message>());
         _embeddings.EmbedQueryAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())

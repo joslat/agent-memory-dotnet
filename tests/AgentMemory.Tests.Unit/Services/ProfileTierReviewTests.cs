@@ -88,7 +88,7 @@ public sealed class ProfileTierReviewTests
         options.EntityResolution.IndexedCandidates = true;
         var ids = Substitute.For<IIdGenerator>();
         ids.GenerateId().Returns(_ => Guid.NewGuid().ToString("N"));
-        return (new CompositeEntityResolver(entities, embeddings, Options.Create(options), Substitute.For<IClock>(), ids,
+        return (new CompositeEntityResolver(entities, embeddings, Options.Create(options), Substitute.For<TimeProvider>(), ids,
             NullLogger<CompositeEntityResolver>.Instance), entities);
     }
 

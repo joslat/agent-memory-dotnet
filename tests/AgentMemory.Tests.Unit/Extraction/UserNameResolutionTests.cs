@@ -33,8 +33,8 @@ public sealed class UserNameResolutionTests
             .Returns(Task.FromResult<string?>(null));
         var embeddings = Substitute.For<IEmbeddingOrchestrator>();
         embeddings.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new float[4]);
-        var clock = Substitute.For<IClock>();
-        clock.UtcNow.Returns(DateTimeOffset.Parse("2026-09-27T00:00:00Z"));
+        var clock = Substitute.For<TimeProvider>();
+        clock.GetUtcNow().Returns(DateTimeOffset.Parse("2026-09-27T00:00:00Z"));
         var ids = Substitute.For<IIdGenerator>();
         ids.GenerateId().Returns(_ => Guid.NewGuid().ToString("N"));
 
@@ -140,7 +140,7 @@ public sealed class UserNameResolutionTests
             .Returns(Task.FromResult<IReadOnlyList<Fact>>([]));
 
         await new PersistenceStage(Substitute.For<IEmbeddingOrchestrator>(), Substitute.For<IEntityRepository>(), _facts,
-                Substitute.For<IPreferenceRepository>(), Substitute.For<IRelationshipRepository>(), Substitute.For<IClock>(),
+                Substitute.For<IPreferenceRepository>(), Substitute.For<IRelationshipRepository>(), Substitute.For<TimeProvider>(),
                 new SequentialIds(), NullLogger<PersistenceStage>.Instance, new PassThroughMemoryPersistenceTransaction(),
                 Options.Create(new ExtractionOptions { ResolveUserToName = true, SupersedeReplacedFacts = true, EnableBatchMemoryUpserts = false }))
             .PersistAsync(Extraction(F("user", "lives_in", "Porto")), ownerId: "owner-1", cancellationToken: CancellationToken.None);
@@ -257,7 +257,7 @@ public sealed class UserNameResolutionTests
         var ids = Substitute.For<IIdGenerator>();
         ids.GenerateId().Returns(_ => Guid.NewGuid().ToString("N"));
         var sut = new PersistenceStage(embeddings, entities, _facts, Substitute.For<IPreferenceRepository>(), relationships,
-            Substitute.For<IClock>(), ids, NullLogger<PersistenceStage>.Instance, new PassThroughMemoryPersistenceTransaction(),
+            Substitute.For<TimeProvider>(), ids, NullLogger<PersistenceStage>.Instance, new PassThroughMemoryPersistenceTransaction(),
             Options.Create(new ExtractionOptions { ResolveUserToName = resolve, EnableBatchMemoryUpserts = false }));
         return (sut, relationships, entities);
     }

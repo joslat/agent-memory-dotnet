@@ -26,7 +26,7 @@ public sealed class LlmMemoryWriterTests
     private readonly IEntityRepository _entities = Substitute.For<IEntityRepository>();
     private readonly IRelationshipRepository _relationships = Substitute.For<IRelationshipRepository>();
     private readonly IEmbeddingOrchestrator _embeddings = Substitute.For<IEmbeddingOrchestrator>();
-    private readonly IClock _clock = Substitute.For<IClock>();
+    private readonly TimeProvider _clock = Substitute.For<TimeProvider>();
     private readonly IChatClient _chat = Substitute.For<IChatClient>();
     private readonly List<(string System, string User, int? Room)> _asked = [];
     private readonly Queue<string> _replies = new();
@@ -35,7 +35,7 @@ public sealed class LlmMemoryWriterTests
 
     public LlmMemoryWriterTests()
     {
-        _clock.UtcNow.Returns(Now);
+        _clock.GetUtcNow().Returns(Now);
         _embeddings.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new float[4]);
         _facts.FindLatestObjectAsync(default!, default!, default!, default).ReturnsForAnyArgs((string?)null);
         _facts.FindMentioningAsync(default!, default!, default, default).ReturnsForAnyArgs([]);
@@ -230,5 +230,62 @@ public sealed class LlmMemoryWriterTests
 
         result.Facts.Should().BeEmpty();
         _asked.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_date_in_a_replayed_turn_is_read_against_when_it_was_said()
+    {
+        // Written on 5 March 2027 (the clock), said on 9 November 2025: "December 3" is December 2025.
+        _replies.Enqueue("{\"ops\": [{\"op\": \"add\", \"kind\": \"fact\", \"text\": \"Bruna | scheduled the training session for | December 3\"}]}");
+        var said = new DateTimeOffset(2025, 11, 9, 10, 0, 0, TimeSpan.Zero);
+        var request = new MemoryWriteRequest(new ExtractionWindow
+        {
+            Targets = [new Message { MessageId = "m", ConversationId = "c", SessionId = "s", Role = "user", Content = "I scheduled the training session for December 3.", TimestampUtc = said }],
+        }, MemoryScope.For("bruna"));
+        var writer = new LlmMemoryWriter(_chat, Options.Create(new LlmExtractionOptions { UseMemoryWriter = true, DatesFromText = true }),
+            new ServiceCollection().AddSingleton(_facts).AddSingleton(_preferences).AddSingleton(_entities).AddSingleton(_relationships)
+                .AddSingleton(_embeddings).AddSingleton(_clock).BuildServiceProvider(),
+            NullLogger<LlmMemoryWriter>.Instance);
+
+        var result = await writer.WriteAsync(request);
+
+        result.Facts.Should().ContainSingle().Which.OccurredOn.Should().Be(new DateTimeOffset(2025, 12, 3, 0, 0, 0, TimeSpan.Zero));
+    }
+
+    [Fact]
+    public async Task Without_DatesFromText_the_writers_facts_stay_as_written()
+    {
+        _replies.Enqueue("{\"ops\": [{\"op\": \"add\", \"kind\": \"fact\", \"text\": \"Bruna | scheduled the training session for | December 3\"}]}");
+
+        var result = await Writer().WriteAsync(Turn("I scheduled the training session for December 3.", MemoryScope.For("bruna")));
+
+        result.Facts.Should().ContainSingle().Which.OccurredOn.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task An_operation_whose_quote_is_not_in_the_message_is_not_stored_and_a_located_one_keeps_its_offsets()
+    {
+        _replies.Enqueue("""
+            {"ops": [
+              {"op": "add", "kind": "fact", "text": "Lukas | lives in | Leoben", "quote": "We moved to Leoben"},
+              {"op": "add", "kind": "fact", "text": "Lukas | works in | Graz", "quote": "I work in Graz"}
+            ]}
+            """);
+
+        var result = await Writer().WriteAsync(Turn("We moved to Leoben last spring.", MemoryScope.For("lukas")));
+
+        var fact = result.Facts.Should().ContainSingle().Which;
+        fact.Object.Should().Be("Leoben");
+        (fact.SourceQuoteStart, fact.SourceQuoteEnd).Should().Be((0, 18));
+    }
+
+    [Fact]
+    public async Task An_operation_without_a_quote_is_kept_without_offsets()
+    {
+        _replies.Enqueue("{\"ops\": [{\"op\": \"add\", \"kind\": \"fact\", \"text\": \"Lukas | lives in | Leoben\"}]}");
+
+        var result = await Writer().WriteAsync(Turn("We moved to Leoben.", MemoryScope.For("lukas")));
+
+        result.Facts.Should().ContainSingle().Which.SourceQuoteStart.Should().BeNull();
     }
 }

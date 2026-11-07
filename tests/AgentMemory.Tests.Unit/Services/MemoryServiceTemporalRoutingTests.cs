@@ -29,13 +29,13 @@ namespace AgentMemory.Tests.Unit.Services;
 public sealed class MemoryServiceTemporalRoutingTests
 {
     private readonly IMemoryContextAssembler _assembler = Substitute.For<IMemoryContextAssembler>();
-    private readonly IClock _clock = Substitute.For<IClock>();
+    private readonly TimeProvider _clock = Substitute.For<TimeProvider>();
 
     private static readonly DateTimeOffset Now = new(2026, 8, 12, 12, 0, 0, TimeSpan.Zero);
 
     public MemoryServiceTemporalRoutingTests()
     {
-        _clock.UtcNow.Returns(Now);
+        _clock.GetUtcNow().Returns(Now);
 
         var empty = new MemoryContext { SessionId = "s-1", AssembledAtUtc = Now };
         _assembler.AssembleContextAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>())
@@ -165,9 +165,9 @@ public sealed class MemoryServiceTemporalRoutingTests
     public async Task TheParserResolvesAgainstTheInjectedClock()
     {
         // Not DateTimeOffset.UtcNow. "Last week" is meaningless without a reference instant, and a
-        // parser reading the wall clock while the rest of the service reads IClock would drift in
+        // parser reading the wall clock while the rest of the service reads TimeProvider would drift in
         // exactly the tests written to pin temporal behaviour down.
-        _clock.UtcNow.Returns(new DateTimeOffset(2020, 6, 15, 0, 0, 0, TimeSpan.Zero));
+        _clock.GetUtcNow().Returns(new DateTimeOffset(2020, 6, 15, 0, 0, 0, TimeSpan.Zero));
 
         var result = await RecallAsync("what did I think last week");
 
@@ -273,7 +273,7 @@ public sealed class MemoryServiceTemporalRoutingTests
     public async Task TheTransactionClockFollowsTheRequestsReferenceTimeNotTheWallClock()
     {
         // Composed with the replay case: a host replaying a transcript wants "everything known as of
-        // the turn", not as of today. Taking _clock.UtcNow here would leak wall-clock back into the
+        // the turn", not as of today. Taking _clock.GetUtcNow() here would leak wall-clock back into the
         // one path that exists precisely because wall-clock is wrong.
         var spoken = new DateTimeOffset(2023, 5, 20, 0, 0, 0, TimeSpan.Zero);
 

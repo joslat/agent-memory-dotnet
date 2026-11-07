@@ -33,7 +33,7 @@ public class ClearSessionIntegrationTests : IAsyncLifetime
             new Neo4jMessageRepository(fixture.TransactionRunner, NullLogger<Neo4jMessageRepository>.Instance),
             new Neo4jReasoningTraceRepository(fixture.TransactionRunner, NullLogger<Neo4jReasoningTraceRepository>.Instance),
             Substitute.For<IEmbeddingOrchestrator>(),
-            Substitute.For<IClock>(),
+            Substitute.For<TimeProvider>(),
             Substitute.For<IIdGenerator>(),
             Options.Create(new ShortTermMemoryOptions()),
             NullLogger<ShortTermMemoryService>.Instance);

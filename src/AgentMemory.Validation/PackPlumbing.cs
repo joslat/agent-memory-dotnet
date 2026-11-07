@@ -6,11 +6,11 @@ using AgentMemory.Abstractions.Services;
 namespace AgentMemory.Validation;
 
 /// <summary>The store's clock during a pack run: moved to each message's and question's time (V4).</summary>
-internal sealed class ReplayClock(DateTimeOffset start) : IClock
+internal sealed class ReplayClock(DateTimeOffset start) : TimeProvider
 {
     public DateTimeOffset Now { get; set; } = start;
 
-    public DateTimeOffset UtcNow => Now;
+    public override DateTimeOffset GetUtcNow() => Now;
 }
 
 /// <summary>What each message yields, keyed by message id: the pack plays the model (V1).</summary>

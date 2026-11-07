@@ -312,8 +312,8 @@ public class GraphRagAdapterIntegrationTests : IAsyncLifetime
             .Returns(Task.FromResult<IReadOnlyList<ReasoningTrace>>(Array.Empty<ReasoningTrace>()));
 
         var embedding = Substitute.For<IEmbeddingOrchestrator>();
-        var clock = Substitute.For<IClock>();
-        clock.UtcNow.Returns(new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        var clock = Substitute.For<TimeProvider>();
+        clock.GetUtcNow().Returns(new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero));
 
         var options = Options.Create(new MemoryOptions { EnableGraphRag = true });
 

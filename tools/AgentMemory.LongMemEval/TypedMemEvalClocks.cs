@@ -72,8 +72,9 @@ internal static class TypedMemEvalClocks
 /// 40.66: a clock the harness moves, so the store stamps each replayed session at its own date (G1 makes every stamp
 /// read it) and recall runs at the question's date.
 /// </summary>
-internal sealed class ReplayClock : IClock
+internal sealed class ReplayClock : TimeProvider
 {
+        public override DateTimeOffset GetUtcNow() => UtcNow;
     /// <summary>The instant the clock reads; set before each session and before each question.</summary>
     public DateTimeOffset Now { get; set; } = DateTimeOffset.UnixEpoch;
 

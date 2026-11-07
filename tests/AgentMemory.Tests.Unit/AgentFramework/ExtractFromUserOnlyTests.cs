@@ -50,7 +50,7 @@ public sealed class ExtractFromUserOnlyTests
         var ids = Substitute.For<IIdGenerator>();
         ids.GenerateId().Returns(_ => Guid.NewGuid().ToString("N"));
         var provider = new Neo4jMemoryContextProvider(
-            memory, Substitute.For<IEmbeddingOrchestrator>(), Substitute.For<IClock>(), ids,
+            memory, Substitute.For<IEmbeddingOrchestrator>(), new TimeProviderClock(Substitute.For<TimeProvider>()), ids,
             Options.Create(new MemoryOptions()), Options.Create(new ContextFormatOptions()),
             Options.Create(new AgentFrameworkOptions { ExtractFromUserMessagesOnly = userOnly }),
             NullLogger<Neo4jMemoryContextProvider>.Instance);

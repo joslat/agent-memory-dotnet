@@ -15,7 +15,7 @@ internal sealed class JudgedMemoryClosings
     private readonly IFactRepository _factRepository;
     private readonly IPreferenceRepository _preferenceRepository;
     private readonly IRelationshipRepository _relationshipRepository;
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly ExtractionOptions _options;
     private readonly ILogger _logger;
     private readonly ClosingPolicy _policy;
@@ -23,7 +23,7 @@ internal sealed class JudgedMemoryClosings
 
     public JudgedMemoryClosings(IEmbeddingOrchestrator embeddingOrchestrator, IEntityRepository entityRepository,
         IFactRepository factRepository, IPreferenceRepository preferenceRepository,
-        IRelationshipRepository relationshipRepository, IClock clock, ExtractionOptions options, ILogger logger,
+        IRelationshipRepository relationshipRepository, TimeProvider clock, ExtractionOptions options, ILogger logger,
         ClosingPolicy policy, ClosingPipeline closings)
     {
         _embeddingOrchestrator = embeddingOrchestrator;
@@ -100,7 +100,7 @@ internal sealed class JudgedMemoryClosings
                 return;
             }
             var verdicts = await _policy.EvaluateAsync(
-                new MemoryUpdateRequest(extraction.SourceText.Length > 0 ? extraction.SourceText : null, _clock.UtcNow, pairs),
+                new MemoryUpdateRequest(extraction.SourceText.Length > 0 ? extraction.SourceText : null, _clock.GetUtcNow(), pairs),
                 cancellationToken).ConfigureAwait(false);
             var closedOnce = new HashSet<string>(StringComparer.Ordinal);
             var closings = 0;
@@ -115,7 +115,7 @@ internal sealed class JudgedMemoryClosings
                 if (!_policy.Approves(probability, named: false) || !closedOnce.Add(loser))
                     continue;
                 ClosingProposal proposal = newFact is not null
-                    ? ClosingProposal.Fact(loser, winner, FactClosureReason.Change, ChangedAt(newFact, _clock.UtcNow), scope, ClosingSource.SimilarityJudge)
+                    ? ClosingProposal.Fact(loser, winner, FactClosureReason.Change, ChangedAt(newFact, _clock.GetUtcNow()), scope, ClosingSource.SimilarityJudge)
                     : ClosingProposal.Preference(loser, winner, scope, ClosingSource.SimilarityJudge);
                 var closed = await _closings.ApplyAsync(proposal, cancellationToken).ConfigureAwait(false);
                 if (closed)
@@ -253,7 +253,7 @@ internal sealed class JudgedMemoryClosings
             }
             if (pairs.Count == 0) return;
             var verdicts = await _policy.EvaluateAsync(
-                new MemoryUpdateRequest(extraction.SourceText.Length > 0 ? extraction.SourceText : null, _clock.UtcNow, pairs) { Named = true },
+                new MemoryUpdateRequest(extraction.SourceText.Length > 0 ? extraction.SourceText : null, _clock.GetUtcNow(), pairs) { Named = true },
                 cancellationToken).ConfigureAwait(false);
             var closings = 0;
             var closedOnce = new HashSet<string>(StringComparer.Ordinal);
@@ -277,7 +277,7 @@ internal sealed class JudgedMemoryClosings
                     ? ClosingProposal.Relationship(loser, EdgeEnd(newFact, correction), scope, ClosingSource.WriterNamed, winner)
                     : newFact is not null
                     ? ClosingProposal.Fact(loser, winner, correction ? FactClosureReason.Correction : FactClosureReason.Change,
-                        correction ? null : ChangedAt(newFact, _clock.UtcNow), scope, ClosingSource.WriterNamed)
+                        correction ? null : ChangedAt(newFact, _clock.GetUtcNow()), scope, ClosingSource.WriterNamed)
                     : ClosingProposal.Preference(loser, winner, scope, ClosingSource.WriterNamed);
                 var closed = await _closings.ApplyAsync(proposal, cancellationToken).ConfigureAwait(false);
                 if (closed)
@@ -311,7 +311,7 @@ internal sealed class JudgedMemoryClosings
         async Task<(string Id, string Text)?> LiveEdgeAsync(string id)
         {
             var stored = await _relationshipRepository.GetByIdAsync(id, cancellationToken).ConfigureAwait(false);
-            if (stored is null || stored.ValidUntil is { } until && until <= _clock.UtcNow || !Closable(stored.OwnerId)) return null;
+            if (stored is null || stored.ValidUntil is { } until && until <= _clock.GetUtcNow() || !Closable(stored.OwnerId)) return null;
             var source = await _entityRepository.GetByIdAsync(stored.SourceEntityId, cancellationToken).ConfigureAwait(false);
             var target = await _entityRepository.GetByIdAsync(stored.TargetEntityId, cancellationToken).ConfigureAwait(false);
             return source is null || target is null ? null : (stored.RelationshipId, EdgeText(source.Name, stored.RelationshipType, target.Name));
@@ -321,7 +321,7 @@ internal sealed class JudgedMemoryClosings
         // a correction's, and a connection's, at once.
         DateTimeOffset EdgeEnd(Fact? winner, bool correction)
         {
-            var now = _clock.UtcNow;
+            var now = _clock.GetUtcNow();
             return winner is not null && !correction && _options.BitemporalChanges && ChangedAt(winner, now) is var at && at <= now ? at : now;
         }
     }

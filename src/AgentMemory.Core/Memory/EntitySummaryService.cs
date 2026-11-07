@@ -33,7 +33,7 @@ internal sealed class EntitySummaryService : IEntitySummaryService
     private readonly IFactRepository _facts;
     private readonly IEntitySummaryRepository _summaries;
     private readonly IEntitySummarySynthesizer _synthesizer;
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly IIdGenerator _ids;
     private readonly ILogger<EntitySummaryService> _logger;
 
@@ -42,7 +42,7 @@ internal sealed class EntitySummaryService : IEntitySummaryService
         IFactRepository facts,
         IEntitySummaryRepository summaries,
         IEntitySummarySynthesizer synthesizer,
-        IClock clock,
+        TimeProvider clock,
         IIdGenerator ids,
         ILogger<EntitySummaryService> logger)
     {
@@ -87,7 +87,7 @@ internal sealed class EntitySummaryService : IEntitySummaryService
             SourceFactIds = live.Select(f => f.FactId).ToList(),
             SourceFingerprint = EntitySummary.ComputeFingerprint(Sources(live)),
             OwnerId = entity.OwnerId,
-            GeneratedAtUtc = _clock.UtcNow,
+            GeneratedAtUtc = _clock.GetUtcNow(),
         };
 
         await _summaries.UpsertAsync(summary, cancellationToken).ConfigureAwait(false);

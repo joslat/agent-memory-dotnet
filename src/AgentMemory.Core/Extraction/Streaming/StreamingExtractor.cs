@@ -20,15 +20,15 @@ internal sealed class StreamingExtractor : IStreamingExtractor
     private static readonly Regex TokenPattern = new(@"\S+", RegexOptions.Compiled);
 
     private readonly ILogger<StreamingExtractor> _logger;
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
 
     /// <summary>Initialises a new <see cref="StreamingExtractor"/>.</summary>
     /// <param name="logger">The logger.</param>
     /// <param name="clock">G1 (40.45): the time a chunk is said at, which relative dates in it are read against. The system clock without DI.</param>
-    public StreamingExtractor(ILogger<StreamingExtractor> logger, IClock? clock = null)
+    public StreamingExtractor(ILogger<StreamingExtractor> logger, TimeProvider? clock = null)
     {
         _logger = logger;
-        _clock = clock ?? new SystemClock();
+        _clock = clock ?? TimeProvider.System;
     }
 
     /// <inheritdoc/>
@@ -180,6 +180,6 @@ internal sealed class StreamingExtractor : IStreamingExtractor
         SessionId = "streaming",
         Role = "user",
         Content = content,
-        TimestampUtc = _clock.UtcNow
+        TimestampUtc = _clock.GetUtcNow()
     };
 }

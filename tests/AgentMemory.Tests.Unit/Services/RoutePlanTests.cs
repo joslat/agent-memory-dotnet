@@ -24,8 +24,8 @@ public sealed class RoutePlanTests
 
     private MemoryService Sut(MemoryOptions options)
     {
-        var clock = Substitute.For<IClock>();
-        clock.UtcNow.Returns(Now);
+        var clock = Substitute.For<TimeProvider>();
+        clock.GetUtcNow().Returns(Now);
         return new MemoryService(
             Substitute.For<IShortTermMemoryService>(), _assembler, Substitute.For<IMemoryExtractionPipeline>(),
             Substitute.For<IEntityRepository>(), Substitute.For<IFactRepository>(), Substitute.For<IPreferenceRepository>(),

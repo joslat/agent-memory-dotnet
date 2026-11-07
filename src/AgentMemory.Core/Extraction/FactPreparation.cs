@@ -15,10 +15,10 @@ internal sealed class FactPreparation
 {
     private readonly IFactRepository _factRepository;
     private readonly IIdGenerator _idGenerator;
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly ILogger _logger;
 
-    public FactPreparation(IFactRepository factRepository, IIdGenerator idGenerator, IClock clock, ILogger logger)
+    public FactPreparation(IFactRepository factRepository, IIdGenerator idGenerator, TimeProvider clock, ILogger logger)
     {
         _factRepository = factRepository;
         _idGenerator = idGenerator;
@@ -87,6 +87,8 @@ internal sealed class FactPreparation
                 factMetadata = surfaces;
             }
 
+            factMetadata = SourceQuoteMetadata.With(factMetadata, extracted.SourceQuoteStart, extracted.SourceQuoteEnd);
+
             return (new Fact
             {
                 FactId = _idGenerator.GenerateId(),
@@ -103,7 +105,7 @@ internal sealed class FactPreparation
                 Embedding = preparedFact.Embedding,
                 OwnerId = ownerId,
                 SourceMessageIds = factMessageIds,
-                CreatedAtUtc = _clock.UtcNow,
+                CreatedAtUtc = _clock.GetUtcNow(),
                 Metadata = factMetadata
             }, factSourceKey);
         }

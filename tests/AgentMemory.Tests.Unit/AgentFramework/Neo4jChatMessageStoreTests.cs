@@ -14,7 +14,7 @@ namespace AgentMemory.Tests.Unit.AgentFramework;
 public sealed class Neo4jChatMessageStoreTests
 {
     private readonly IMemoryService _memoryService = Substitute.For<IMemoryService>();
-    private readonly IClock _clock = Substitute.For<IClock>();
+    private readonly TimeProvider _clock = Substitute.For<TimeProvider>();
     private readonly IIdGenerator _idGen = Substitute.For<IIdGenerator>();
     private readonly Neo4jChatMessageStore _sut;
 
@@ -22,11 +22,11 @@ public sealed class Neo4jChatMessageStoreTests
 
     public Neo4jChatMessageStoreTests()
     {
-        _clock.UtcNow.Returns(_now);
+        _clock.GetUtcNow().Returns(_now);
         _idGen.GenerateId().Returns("test-id");
         _sut = new Neo4jChatMessageStore(
             _memoryService,
-            _clock,
+            new TimeProviderClock(_clock),
             _idGen,
             NullLogger<Neo4jChatMessageStore>.Instance);
     }
@@ -232,7 +232,7 @@ public sealed class Neo4jChatMessageStoreTests
                 }
             });
         var sut = new Neo4jChatMessageStore(
-            _memoryService, _clock, _idGen, NullLogger<Neo4jChatMessageStore>.Instance,
+            _memoryService, new TimeProviderClock(_clock), _idGen, NullLogger<Neo4jChatMessageStore>.Instance,
             Options.Create(new ContextFormatOptions { MinimumTrustForSystemRole = MemoryTrustLevel.ApplicationTrusted }));
 
         var result = await sut.GetMessagesAsync("s1");
@@ -260,7 +260,7 @@ public sealed class Neo4jChatMessageStoreTests
                 }
             });
         var sut = new Neo4jChatMessageStore(
-            _memoryService, _clock, _idGen, NullLogger<Neo4jChatMessageStore>.Instance,
+            _memoryService, new TimeProviderClock(_clock), _idGen, NullLogger<Neo4jChatMessageStore>.Instance,
             Options.Create(new ContextFormatOptions { SecurityMode = MemoryContextSecurityMode.Strict }));
 
         var result = await sut.GetMessagesAsync("s1");

@@ -66,7 +66,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         // 40.65/40.66. The bitemporal option under test, and a replayed clock: with one, every time the store
         // stamps (when a fact was learned, closed, recorded) is the replayed session's date, not the run's.
         bool bitemporalChanges = false,
-        IClock? clock = null)
+        TimeProvider? clock = null)
     {
         ArgumentNullException.ThrowIfNull(embeddingGenerator);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(embeddingDimensions);
@@ -152,7 +152,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         bool annotateMatchQuality,
         LongMemEvalPreset preset,
         bool bitemporalChanges,
-        IClock? clock,
+        TimeProvider? clock,
         CancellationToken cancellationToken)
     {
         log.WriteLine($"longmemeval: starting {Image}...");
@@ -242,7 +242,7 @@ internal sealed class LongMemEvalMemoryProfile : IAsyncDisposable
         bool annotateMatchQuality = false,
         LongMemEvalPreset preset = LongMemEvalPreset.Sealed,
         bool bitemporalChanges = false,
-        IClock? clock = null)
+        TimeProvider? clock = null)
     {
         var services = new ServiceCollection();
         services.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Warning));

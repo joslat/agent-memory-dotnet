@@ -35,8 +35,10 @@ read exactly as before (retractions). Turning the option on changes only the clo
   live 6 years ago?" is recalled as of that time, with today's belief (`TemporalQueryClocks` chooses).
 - **An owner's memory as known at a moment** (`MemoryHistoryQuery.AsOf`, `agentmemory history --as-of`): every row with
   its window, why it closed and what replaced it.
-- **One clock for everything** (`IClock`): every time the memory path writes or compares comes from it, so a host or a
-  replay sets "now" once.
+- **One clock for everything** (`TimeProvider`, since 2.1): every time the memory path writes or compares comes from
+  it, so a host or a replay sets "now" once by registering a `TimeProvider` (for example `FakeTimeProvider`). Before
+  2.1 this was `IClock`. A host that registers its own `IClock` is still honoured: the default `TimeProvider` reads it.
+  `IClock` stays only for the public constructors that take it, and is removed in 3.0.
 
 ## What reads valid time today
 

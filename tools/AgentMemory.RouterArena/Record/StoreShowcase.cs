@@ -75,7 +75,7 @@ public sealed class StoreShowcase(TextWriter output)
             var clock = new MovableClock(WrittenAt);
             var services = new ServiceCollection();
             services.AddLogging(ArenaLogging.Console);
-            services.AddSingleton<IClock>(clock);
+            services.AddSingleton<TimeProvider>(clock);
             services.AddNeo4jAgentMemory(store.Options, Neo4j, _ => { });
             services.AddSingleton(chat);
             services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(embeddings);
@@ -171,8 +171,9 @@ public sealed class StoreShowcase(TextWriter output)
             return (await cursor.SingleAsync().ConfigureAwait(false))["n"].As<long>() > 0;
         }, cancellationToken);
 
-    private sealed class MovableClock(DateTimeOffset now) : IClock
+    private sealed class MovableClock(DateTimeOffset now) : TimeProvider
     {
+            public override DateTimeOffset GetUtcNow() => UtcNow;
         public DateTimeOffset Now { get; set; } = now;
 
         public DateTimeOffset UtcNow => Now;

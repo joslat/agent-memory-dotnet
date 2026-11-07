@@ -29,8 +29,8 @@ public class Neo4jMemoryDecayServiceIntegrationTests : IAsyncLifetime
     public Neo4jMemoryDecayServiceIntegrationTests(Neo4jIntegrationFixture fixture)
     {
         _fixture = fixture;
-        var clock = Substitute.For<IClock>();
-        clock.UtcNow.Returns(_now);
+        var clock = Substitute.For<TimeProvider>();
+        clock.GetUtcNow().Returns(_now);
         _service = new Neo4jMemoryDecayService(
             _fixture.TransactionRunner,
             clock,
@@ -89,8 +89,8 @@ public class Neo4jMemoryDecayServiceIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task PruneExpiredMemoriesAsync_Destructive_HardDeletes_WhenOptedIn()
     {
-        var clock = Substitute.For<IClock>();
-        clock.UtcNow.Returns(_now);
+        var clock = Substitute.For<TimeProvider>();
+        clock.GetUtcNow().Returns(_now);
         var destructive = new Neo4jMemoryDecayService(
             _fixture.TransactionRunner, clock,
             Options.Create(new MemoryDecayOptions { NonDestructive = false }), // explicit hard purge

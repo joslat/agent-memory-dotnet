@@ -96,8 +96,8 @@ builder.Services.AddNeo4jAgentMemory(options =>
 // 2. Core memory services
 builder.Services.AddAgentMemoryCore(_ => { });
 
-// 3. Infrastructure helpers
-builder.Services.AddSingleton<IClock, SystemClock>();
+// 3. Infrastructure helpers (AddAgentMemoryCore registers these defaults too; shown here to replace them)
+builder.Services.AddSingleton(TimeProvider.System);   // a test or a replay registers a FakeTimeProvider instead
 builder.Services.AddSingleton<IIdGenerator, GuidIdGenerator>();
 
 // 4. Embedding provider — swap StubEmbeddingGenerator for a real provider in production
@@ -466,7 +466,22 @@ frozen for a major version.
 ### 4.6 The Recommended preset
 
 The Recommended preset combines the selected storage and retrieval behavior. It starts from
-Conversational, disables automatic query splitting, and applies the changes below:
+Conversational, disables automatic query splitting, and applies the changes below.
+
+**The default, chosen from configuration.** A host that does not want to wire the four halves by hand chooses the
+preset once and hands the choice to each half. `AgentMemory:Preset` names it (`Recommended`, `Conversational` or
+`LowLevel`; Recommended when absent). Recommended needs a retrieval judge: with none configured under
+`AgentMemory:RetrievalRouter:Judges`, the choice runs the Conversational preset instead, and the memory tiers line says
+why (`preset: Conversational (Recommended needs a retrieval judge … so the Conversational preset runs)`).
+
+```csharp
+var preset = AgentMemoryPresets.Choose(builder.Configuration);            // AgentMemory.Gate
+builder.Services.AddNeo4jAgentMemory(preset, neo4j => { /* ... */ });      // memory + extraction halves
+builder.Services.AddAgentMemoryGate(preset, builder.Configuration);       // only when the preset runs a judge
+builder.Services.AddAgentMemoryFramework(options => options.ApplyPreset(preset.Effective));
+```
+
+The explicit form below is unchanged and still supported:
 
 ```csharp
 builder.Services.AddNeo4jAgentMemory(
@@ -495,8 +510,23 @@ What it adds to the Conversational preset:
   JSON after the bounded attempts), the extractors write that turn instead, and the warning, the extraction span (`memory.write.fallback`)
   and `ExtractionStageResult.WriterFallbackReason` say so; `Extraction.FallBackToExtractorsWhenWriterFails = false`
   stores nothing for such a turn and records the error instead.
+  Each operation quotes the words of the message it rests on. A quote the message doesn't contain is a claim the
+  message doesn't make, so that operation isn't stored. A quote that is found puts its character offsets in the stored
+  memory's metadata (`source_quote_start`, `source_quote_end`). Only whitespace, typographic quotes and dashes are
+  forgiven, plus a case-folded match. On the Bruna scenario, 166 of 166 quotes were found exactly. Operations the writer
+  doesn't keep are recorded with a reason: `UnknownAction`, `MissingText`, `MissingId`, `OverLimit`, `NotAnObject` or
+  `QuoteNotFound`. They appear on the write span (`memory.write.dropped`, `memory.write.dropped_reasons`) and in the
+  debug log.
 - **Bitemporal changes** (`Extraction.BitemporalChanges`): a question about the past keeps the value that was true then.
   The writer was measured with it on.
+- **Dates read from the writer's words** (`LlmExtractionOptions.DatesFromText`): the writer keeps a date as it was said
+  ("…the go-live … on Friday, December 11"); this reads an explicit date or range into the fact's date fields too, so
+  recall can select by date. Deterministic, no model call; a field the writer set is never overwritten.
+- **Look-ahead recall** (`RecallOptions.Upcoming`, `TimeWindows`, `OverlapExpansion`): what starts in the next two weeks,
+  for a question that looks ahead; the facts dated inside a period the question names ("between December 7 and 13") or
+  anchors on an event ("go-live week"); and the facts that overlap in time with the dated facts recalled. Each reads by
+  date, so a trip that clashes with a go-live reaches the prompt although nothing about it resembles "plan my prep for
+  go-live week". Each has its own section and budget; the gate does not judge them.
 - **The host's chat model as the update judge's second tier** (`LlmExtractionOptions.ChatModelUpdateJudge`):
   when no outside judge answers (no endpoint, or the endpoint down or left out after failures), the writer's closings are
   confirmed by the same chat model, asked the gate's question. Measured on world 6: as good as JEV (0.33 stale values a

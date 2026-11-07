@@ -114,7 +114,7 @@ app.MapPost("/add_message", async (
     IConversationRepository conversationRepo,
     IShortTermMemoryService shortTerm,
     IIdGenerator idGenerator,
-    IClock clock,
+    TimeProvider clock,
     IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
     CancellationToken cancellationToken) =>
 {
@@ -142,7 +142,7 @@ app.MapPost("/add_message", async (
         SessionId = req.SessionId,
         Role = req.Role,
         Content = req.Content,
-        TimestampUtc = clock.UtcNow,
+        TimestampUtc = clock.GetUtcNow(),
         Embedding = embedding,
         Metadata = req.Metadata ?? new Dictionary<string, object>(),
     };
@@ -241,7 +241,7 @@ app.MapPost("/add_entity", async (
     AddEntityRequest req,
     ILongTermMemoryService longTerm,
     IIdGenerator idGenerator,
-    IClock clock,
+    TimeProvider clock,
     IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
     CancellationToken cancellationToken) =>
 {
@@ -254,7 +254,7 @@ app.MapPost("/add_entity", async (
         Description = req.Description,
         Confidence = 1.0,
         Embedding = embedding,
-        CreatedAtUtc = clock.UtcNow,
+        CreatedAtUtc = clock.GetUtcNow(),
     }, cancellationToken).ConfigureAwait(false);
     return Results.Ok(new TckEntity(
         entity.EntityId, entity.Name, entity.Type, entity.Subtype, entity.Description,
@@ -265,7 +265,7 @@ app.MapPost("/add_preference", async (
     AddPreferenceRequest req,
     ILongTermMemoryService longTerm,
     IIdGenerator idGenerator,
-    IClock clock,
+    TimeProvider clock,
     IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
     CancellationToken cancellationToken) =>
 {
@@ -278,7 +278,7 @@ app.MapPost("/add_preference", async (
         Context = req.Context,
         Confidence = 1.0,
         Embedding = embedding,
-        CreatedAtUtc = clock.UtcNow,
+        CreatedAtUtc = clock.GetUtcNow(),
     }, cancellationToken).ConfigureAwait(false);
     return Results.Ok(new TckPreference(
         preference.PreferenceId, preference.Category, preference.PreferenceText,
@@ -289,7 +289,7 @@ app.MapPost("/add_fact", async (
     AddFactRequest req,
     ILongTermMemoryService longTerm,
     IIdGenerator idGenerator,
-    IClock clock,
+    TimeProvider clock,
     IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
     CancellationToken cancellationToken) =>
 {
@@ -302,7 +302,7 @@ app.MapPost("/add_fact", async (
         Object = req.Obj,
         Confidence = 1.0,
         Embedding = embedding,
-        CreatedAtUtc = clock.UtcNow,
+        CreatedAtUtc = clock.GetUtcNow(),
     }, cancellationToken).ConfigureAwait(false);
     return Results.Ok(new TckFact(fact.FactId, fact.Subject, fact.Predicate, fact.Object, fact.Embedding));
 });
@@ -422,7 +422,7 @@ app.MapPost("/add_relationship", async (
     ILongTermMemoryService longTerm,
     IEntityRepository entityRepo,
     IIdGenerator idGenerator,
-    IClock clock,
+    TimeProvider clock,
     CancellationToken cancellationToken) =>
 {
     var sourceId = NormalizeId(req.SourceId);
@@ -444,7 +444,7 @@ app.MapPost("/add_relationship", async (
         RelationshipType = req.RelationshipType,
         Confidence = 1.0,
         Attributes = req.Properties ?? new Dictionary<string, object>(),
-        CreatedAtUtc = clock.UtcNow,
+        CreatedAtUtc = clock.GetUtcNow(),
     }, cancellationToken).ConfigureAwait(false);
     return Results.Ok(new TckRelationship(
         relationship.RelationshipId, relationship.SourceEntityId, relationship.TargetEntityId,

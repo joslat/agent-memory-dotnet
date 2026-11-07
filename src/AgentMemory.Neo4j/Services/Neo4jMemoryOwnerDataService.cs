@@ -19,7 +19,7 @@ internal sealed class Neo4jMemoryOwnerDataService(
     IRelationshipRepository relationships,
     IEmbeddingOrchestrator embeddings,
     IIdGenerator ids,
-    IClock clock) : IMemoryOwnerDataService
+    TimeProvider clock) : IMemoryOwnerDataService
 {
     public async Task<OwnerErasure> EraseAsync(string ownerId, CancellationToken cancellationToken = default)
     {
@@ -58,7 +58,7 @@ internal sealed class Neo4jMemoryOwnerDataService(
             return new OwnerMemoryExport
             {
                 OwnerId = ownerId,
-                ExportedAtUtc = clock.UtcNow,
+                ExportedAtUtc = clock.GetUtcNow(),
                 // Embeddings are left out: an import embeds again with its own model.
                 Entities = [.. (await All(OwnerDataQueries.ExportEntities).ConfigureAwait(false)).Select(r => Neo4jEntityRepository.MapToEntity(r["n"].As<INode>(), null))],
                 Facts = [.. (await All(OwnerDataQueries.ExportFacts).ConfigureAwait(false)).Select(r => Neo4jFactRepository.MapToFact(r["n"].As<INode>(), null))],

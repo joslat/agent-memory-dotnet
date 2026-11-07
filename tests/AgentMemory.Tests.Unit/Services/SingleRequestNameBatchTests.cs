@@ -42,8 +42,8 @@ public sealed class SingleRequestNameBatchTests
 
     private MemoryExtractionPipeline Pipeline(IEntityExtractor extractor)
     {
-        var clock = Substitute.For<IClock>();
-        clock.UtcNow.Returns(T0);
+        var clock = Substitute.For<TimeProvider>();
+        clock.GetUtcNow().Returns(T0);
         var ids = Substitute.For<IIdGenerator>();
         ids.GenerateId().Returns(_ => Guid.NewGuid().ToString("N"));
         var options = Options.Create(new ExtractionOptions());
@@ -94,8 +94,8 @@ public sealed class SingleRequestNameBatchTests
     [Fact]
     public async Task A_single_request_inside_an_open_batch_joins_it_instead_of_failing()
     {
-        var clock = Substitute.For<IClock>();
-        clock.UtcNow.Returns(T0);
+        var clock = Substitute.For<TimeProvider>();
+        clock.GetUtcNow().Returns(T0);
         var resolver = new CompositeEntityResolver(
             _entities, _embeddings, Options.Create(new ExtractionOptions()), clock, Substitute.For<IIdGenerator>(),
             NullLogger<CompositeEntityResolver>.Instance);

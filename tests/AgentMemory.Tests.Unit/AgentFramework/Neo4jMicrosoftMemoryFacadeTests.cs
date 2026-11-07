@@ -15,7 +15,7 @@ public sealed class Neo4jMicrosoftMemoryFacadeTests
 {
     private readonly IMemoryService _memoryService = Substitute.For<IMemoryService>();
     private readonly Neo4jChatMessageStore _messageStore;
-    private readonly IClock _clock = Substitute.For<IClock>();
+    private readonly TimeProvider _clock = Substitute.For<TimeProvider>();
     private readonly IIdGenerator _idGen = Substitute.For<IIdGenerator>();
     private readonly Neo4jMicrosoftMemoryFacade _sut;
 
@@ -23,11 +23,11 @@ public sealed class Neo4jMicrosoftMemoryFacadeTests
 
     public Neo4jMicrosoftMemoryFacadeTests()
     {
-        _clock.UtcNow.Returns(_now);
+        _clock.GetUtcNow().Returns(_now);
         _idGen.GenerateId().Returns("id-001");
 
         _messageStore = new Neo4jChatMessageStore(
-            _memoryService, _clock, _idGen, NullLogger<Neo4jChatMessageStore>.Instance);
+            _memoryService, new TimeProviderClock(_clock), _idGen, NullLogger<Neo4jChatMessageStore>.Instance);
 
         _sut = new Neo4jMicrosoftMemoryFacade(
             _memoryService,

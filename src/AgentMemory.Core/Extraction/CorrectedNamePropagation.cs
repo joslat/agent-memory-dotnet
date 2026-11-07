@@ -12,14 +12,14 @@ internal sealed class CorrectedNamePropagation
     private readonly IEntityRepository _entityRepository;
     private readonly IFactRepository _factRepository;
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly IIdGenerator _idGenerator;
     private readonly ExtractionOptions _options;
     private readonly ILogger _logger;
     private readonly ClosingPipeline _closings;
 
     public CorrectedNamePropagation(IEntityRepository entityRepository, IFactRepository factRepository,
-        IEmbeddingOrchestrator embeddingOrchestrator, IClock clock, IIdGenerator idGenerator,
+        IEmbeddingOrchestrator embeddingOrchestrator, TimeProvider clock, IIdGenerator idGenerator,
         ExtractionOptions options, ILogger logger, ClosingPipeline closings)
     {
         _entityRepository = entityRepository;
@@ -88,7 +88,7 @@ internal sealed class CorrectedNamePropagation
                     Subtype = source.Subtype,
                     Confidence = source.Confidence,
                     OwnerId = scope.OwnerId,
-                    CreatedAtUtc = _clock.UtcNow,
+                    CreatedAtUtc = _clock.GetUtcNow(),
                     SourceMessageIds = source.SourceMessageIds,
                     Embedding = await _embeddingOrchestrator.EmbedAsync(name, cancellationToken).ConfigureAwait(false),
                 }, cancellationToken).ConfigureAwait(false);
@@ -144,7 +144,7 @@ internal sealed class CorrectedNamePropagation
                 FactId = _idGenerator.GenerateId(),
                 Subject = subject,
                 Object = @object,
-                CreatedAtUtc = _clock.UtcNow,
+                CreatedAtUtc = _clock.GetUtcNow(),
                 Metadata = metadata,
                 Embedding = await _embeddingOrchestrator.EmbedFactAsync(subject, fact.Predicate, @object, cancellationToken)
                     .ConfigureAwait(false),

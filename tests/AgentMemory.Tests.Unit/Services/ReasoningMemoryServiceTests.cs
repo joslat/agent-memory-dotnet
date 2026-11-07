@@ -15,7 +15,7 @@ public sealed class ReasoningMemoryServiceTests
     private readonly IReasoningStepRepository _stepRepo;
     private readonly IToolCallRepository _toolCallRepo;
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly IIdGenerator _idGenerator;
     private readonly DateTimeOffset _fixedTime = new(2025, 1, 15, 12, 0, 0, TimeSpan.Zero);
 
@@ -25,10 +25,10 @@ public sealed class ReasoningMemoryServiceTests
         _stepRepo = Substitute.For<IReasoningStepRepository>();
         _toolCallRepo = Substitute.For<IToolCallRepository>();
         _embeddingOrchestrator = Substitute.For<IEmbeddingOrchestrator>();
-        _clock = Substitute.For<IClock>();
+        _clock = Substitute.For<TimeProvider>();
         _idGenerator = Substitute.For<IIdGenerator>();
 
-        _clock.UtcNow.Returns(_fixedTime);
+        _clock.GetUtcNow().Returns(_fixedTime);
         _idGenerator.GenerateId().Returns("generated-id-1", "generated-id-2", "generated-id-3");
         _embeddingOrchestrator.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new float[8]));

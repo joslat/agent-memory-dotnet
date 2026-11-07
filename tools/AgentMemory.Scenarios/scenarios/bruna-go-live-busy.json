@@ -1,0 +1,434 @@
+{
+  "name": "bruna-go-live-busy",
+  "title": "Bruna's go-live, busier: the same history and questions, with 81 more ordinary statements",
+  "source": "Pablo Piovano, three-memories-one-question (MIT), scenarios/go-live.json at commit 485fff9; the 81 statements in the sessions of Sep 14, Sep 28, Oct 12, Oct 19, Nov 2, Nov 16, Nov 23, Nov 30 and Dec 2 were added for AgentMemory, so the store outgrows the judge's 50 candidates",
+  "owner": "bruna",
+  "ownerName": "Bruna",
+  "assistantBrief": "You are the personal assistant of Bruna, a tech lead.",
+  "askedOn": "2026-12-04",
+  "sessions": [
+    {
+      "date": "2026-09-07",
+      "topic": "Kickoff",
+      "messages": [
+        "Hi! I'm Bruna, tech lead at Nexo, a small software studio in Buenos Aires.",
+        "We just signed with Acme Logistics. I'm leading the go-live of their new billing system on Friday, December 11.",
+        "The cutover happens on-site at Acme's office in Córdoba, and I have to be there in person to run it.",
+        "My manager is Martín. He wants a status update every Monday morning.",
+        "Acme's project sponsor is Carolina, their CFO.",
+        "The contract says the old billing system gets switched off the same day as the go-live.",
+        "I prefer short meetings: 25 minutes at most, and never on Friday afternoons."
+      ]
+    },
+    {
+      "date": "2026-09-14",
+      "topic": "Billing deep-dive",
+      "messages": [
+        "The billing system uses PostgreSQL 16 for the invoice ledger.",
+        "We picked Hangfire for the nightly invoice batch jobs.",
+        "Acme's invoices need a QR code for the tax authority.",
+        "Carolina wants a one-page summary of the project every week.",
+        "The tax rules module has to support three provinces at launch.",
+        "We plan two-week sprints, starting on Mondays.",
+        "I'm preparing a risk register for the project.",
+        "The first sprint planning went smoothly.",
+        "I bought a new standing desk for the home office."
+      ]
+    },
+    {
+      "date": "2026-09-21",
+      "topic": "The team",
+      "messages": [
+        "Priya joined my team as our database engineer.",
+        "Priya will run the data migration the night before the go-live.",
+        "Tomás is our QA lead. He owns the regression test suite for the billing system.",
+        "Valentina is our frontend developer; she is building the invoice review screen.",
+        "For documentation I like checklists better than long documents.",
+        "We do our daily standup at 9:30, on video, fifteen minutes.",
+        "I drink mate all day, so please never schedule me a coffee chat."
+      ]
+    },
+    {
+      "date": "2026-09-28",
+      "topic": "Planning",
+      "messages": [
+        "Our planning meetings happen every second Monday.",
+        "I want the release plan to have a freeze window before every deploy.",
+        "Tomás proposed adding contract tests for the invoice API.",
+        "Valentina prefers Figma for the UI mockups.",
+        "Priya wants a dry run of the data migration on a copy of production.",
+        "We will prepare a demo for Acme at the end of October.",
+        "The project wiki lives in Confluence.",
+        "I started running three times a week before work.",
+        "My favourite series right now is a Spanish crime drama."
+      ]
+    },
+    {
+      "date": "2026-10-05",
+      "topic": "The plan",
+      "messages": [
+        "The go-live checklist has three gates: load test passed, rollback rehearsed, and finance sign-off.",
+        "The finance sign-off comes from Carolina.",
+        "The load test for the billing system is scheduled for November 18.",
+        "We will rehearse the rollback on November 25 with Priya and Tomás.",
+        "The staging environment for the billing system runs on Azure, in the Brazil South region.",
+        "Acme wants the invoices in Spanish and in English.",
+        "The billing system has to import about 40,000 historical invoices."
+      ]
+    },
+    {
+      "date": "2026-10-12",
+      "topic": "Preparation",
+      "messages": [
+        "The migration dry run took nine hours; Priya wants to bring it under six.",
+        "We need to prepare user guides for the billing clerks.",
+        "Acme's IT team asked for the go-live plan in writing.",
+        "Carolina asked for a weekly status email on Fridays.",
+        "I prefer to review pull requests in the morning.",
+        "We added feature flags for the new invoice screens.",
+        "Martín wants the go-live plan reviewed by the architecture board.",
+        "I need to book a room for the go-live retrospective.",
+        "Nico and I are thinking about adopting a cat."
+      ]
+    },
+    {
+      "date": "2026-10-19",
+      "topic": "Tooling",
+      "messages": [
+        "We moved the backlog from Trello to Azure Boards.",
+        "Diego will give us VPN access to Acme's network.",
+        "The invoice PDFs are generated with QuestPDF.",
+        "Tomás set up nightly regression runs at 2 am.",
+        "I want a short checklist for every deploy.",
+        "We need a plan B if the tax rules module slips.",
+        "Acme's accountants work until 6 pm, so deploys happen after that.",
+        "The weekly team lunch is on Wednesdays.",
+        "I finished the book about Patagonia."
+      ]
+    },
+    {
+      "date": "2026-10-26",
+      "topic": "Day to day",
+      "messages": [
+        "The invoice import module is done; the tax rules module is still in progress.",
+        "Valentina finished the invoice review screen and Acme liked the demo.",
+        "We use GitHub Actions for CI and we deploy to Azure Container Apps.",
+        "Martín asked me to mentor Valentina on system design.",
+        "I'd like to give a talk about billing migrations at a meetup next year.",
+        "Our sprint reviews are every other Thursday at 4 pm."
+      ]
+    },
+    {
+      "date": "2026-11-02",
+      "topic": "Week planning",
+      "messages": [
+        "Next sprint focuses on the tax rules module.",
+        "I want each week's priorities written down on Monday morning.",
+        "We need a war room at Acme during the go-live week.",
+        "Priya will prepare SQL scripts to verify the migrated totals.",
+        "Valentina will prepare a short video tutorial for the clerks.",
+        "Acme wants a hotline for invoice questions in the first week after the go-live.",
+        "The load test plan covers 1,000 invoices per minute.",
+        "I'm prepping a talk outline about billing migrations.",
+        "We celebrated Valentina's birthday with cake."
+      ]
+    },
+    {
+      "date": "2026-11-09",
+      "topic": "Go-live prep",
+      "messages": [
+        "Acme asked for a training session for their billing clerks before the go-live.",
+        "I scheduled the training session for December 3: remote, two hours.",
+        "The go-live runbook needs a communication plan for Acme's customers.",
+        "Priya estimates the data migration will take about six hours.",
+        "We agreed on a code freeze for the billing system starting December 4.",
+        "Tomás wants one more full regression run after the code freeze.",
+        "The go-live support rota needs two people on call for the weekend after the cutover."
+      ]
+    },
+    {
+      "date": "2026-11-12",
+      "topic": "Personal news",
+      "messages": [
+        "Some personal news: my sister Lucía is getting married!",
+        "The wedding is in Bariloche on Saturday, December 12. I already booked my flights: I will be in Bariloche from December 9 to December 13.",
+        "I'm reading a book about the history of Patagonia.",
+        "My partner Nico is vegetarian, keep that in mind for restaurant ideas.",
+        "I want to learn to make a proper chocolate fondue."
+      ]
+    },
+    {
+      "date": "2026-11-16",
+      "topic": "Readiness",
+      "messages": [
+        "The readiness review checklist has twelve items.",
+        "Tomás wants to freeze the test data before the go-live.",
+        "We need printed runbooks for the cutover night.",
+        "Carolina will approve the go-live after the finance sign-off.",
+        "I prefer to plan the week on Sunday evenings.",
+        "Diego asked for the list of people who need building access.",
+        "The rollback plan needs Martín's sign-off.",
+        "Priya's migration scripts are now idempotent.",
+        "I signed up for a pottery class on Thursdays."
+      ]
+    },
+    {
+      "date": "2026-11-19",
+      "topic": "Status",
+      "messages": [
+        "The load test passed: 1,200 invoices per minute, above the 1,000 target.",
+        "Tomás found two bugs in the tax rounding; both are fixed now.",
+        "Martín approved the go-live budget, including weekend support.",
+        "I still need to write the go-live runbook and the rollback checklist.",
+        "The billing system's monitoring dashboards are ready in Grafana."
+      ]
+    },
+    {
+      "date": "2026-11-23",
+      "topic": "Final prep",
+      "messages": [
+        "We prepared a FAQ for Acme's billing clerks.",
+        "The go-live communication email is drafted.",
+        "Tomás will run a final smoke test after the cutover.",
+        "Valentina fixed the last accessibility issues on the review screen.",
+        "We need snacks for the cutover night.",
+        "The support rota spreadsheet is in the shared drive.",
+        "I want a 15-minute check-in every day of the go-live week.",
+        "Martín will join the go-live kickoff call remotely.",
+        "Nico is cooking empanadas this weekend."
+      ]
+    },
+    {
+      "date": "2026-11-26",
+      "topic": "Last details",
+      "messages": [
+        "The rollback rehearsal went well: 40 minutes to restore the old billing system.",
+        "Acme's IT contact for the cutover is Diego; he will open the office for us on go-live day.",
+        "I want the go-live day to start at 7 am with a short kickoff call.",
+        "Valentina will be on call with Tomás the weekend after the go-live.",
+        "After the go-live I want to take a few days off."
+      ]
+    },
+    {
+      "date": "2026-11-30",
+      "topic": "Last week",
+      "messages": [
+        "The monitoring alerts are routed to the on-call phone.",
+        "Acme confirmed the cutover window starts at 6 pm.",
+        "I need to print the go-live checklist.",
+        "Priya will be on site for the migration night.",
+        "We dropped the PDF batch job from the first release.",
+        "Carolina wants a summary after the first week of live invoicing.",
+        "Tomás finished the final regression run.",
+        "I renewed my passport.",
+        "The team voted for a celebration dinner after the go-live."
+      ]
+    },
+    {
+      "date": "2026-12-02",
+      "topic": "Logistics",
+      "messages": [
+        "I booked a hotel in Córdoba near Acme's office.",
+        "The rental car pickup is at Córdoba airport.",
+        "Valentina will monitor the invoice queue remotely.",
+        "We need a backup laptop for the cutover.",
+        "Diego sent the building access badges.",
+        "The go-live readiness review passed.",
+        "I want the kickoff call agenda to fit on one page.",
+        "Acme's CFO will visit the war room.",
+        "Nico gave me a new thermos for mate."
+      ]
+    }
+  ],
+  "questions": [
+    {
+      "id": "similar",
+      "kind": "The answer looks like the question",
+      "text": "When is the Acme go-live, and where does it happen?",
+      "needs": [
+        {
+          "fact": "the go-live is on December 11",
+          "mentions": [
+            [
+              "go-live",
+              "go live",
+              "cutover"
+            ],
+            [
+              "December 11",
+              "Dec 11",
+              "2026-12-11",
+              "11 December"
+            ]
+          ]
+        },
+        {
+          "fact": "it happens in Córdoba",
+          "mentions": [
+            [
+              "go-live",
+              "go live",
+              "cutover"
+            ],
+            [
+              "Córdoba"
+            ]
+          ]
+        }
+      ],
+      "rightAnswer": "The go-live is on December 11 and it happens in Córdoba."
+    },
+    {
+      "id": "time",
+      "kind": "The question is about a period of time",
+      "text": "What do I have on my calendar between December 7 and December 13?",
+      "needs": [
+        {
+          "fact": "the go-live is on December 11",
+          "mentions": [
+            [
+              "go-live",
+              "go live",
+              "cutover"
+            ],
+            [
+              "December 11",
+              "Dec 11",
+              "2026-12-11",
+              "11 December"
+            ]
+          ]
+        },
+        {
+          "fact": "she is in Bariloche from December 9 to 13",
+          "mentions": [
+            [
+              "Bariloche"
+            ],
+            [
+              "December 9",
+              "Dec 9",
+              "2026-12-09",
+              "9 December"
+            ],
+            [
+              "December 13",
+              "Dec 13",
+              "2026-12-13",
+              "13 December"
+            ]
+          ]
+        }
+      ],
+      "rightAnswer": "In that period there is both the go-live on December 11 and a trip to Bariloche."
+    },
+    {
+      "id": "conflict",
+      "kind": "Two facts that do not look alike collide",
+      "text": "Plan my prep for go-live week.",
+      "needs": [
+        {
+          "fact": "the go-live is on December 11",
+          "mentions": [
+            [
+              "go-live",
+              "go live",
+              "cutover"
+            ],
+            [
+              "December 11",
+              "Dec 11",
+              "2026-12-11",
+              "11 December"
+            ]
+          ]
+        },
+        {
+          "fact": "she is in Bariloche from December 9 to 13",
+          "mentions": [
+            [
+              "Bariloche"
+            ],
+            [
+              "December 9",
+              "Dec 9",
+              "2026-12-09",
+              "9 December"
+            ],
+            [
+              "December 13",
+              "Dec 13",
+              "2026-12-13",
+              "13 December"
+            ]
+          ]
+        }
+      ],
+      "rightAnswer": "The trip to Bariloche overlaps with the go-live, so she cannot be in both places."
+    }
+  ],
+  "store": [
+    {
+      "fact": "the go-live is on December 11",
+      "mentions": [
+        [
+          "go-live",
+          "go live",
+          "cutover"
+        ]
+      ],
+      "date": "2026-12-11"
+    },
+    {
+      "fact": "the go-live happens in Córdoba",
+      "mentions": [
+        [
+          "go-live",
+          "go live",
+          "cutover"
+        ],
+        [
+          "Córdoba"
+        ]
+      ]
+    },
+    {
+      "fact": "she is in Bariloche from December 9 to 13",
+      "mentions": [
+        [
+          "Bariloche"
+        ]
+      ],
+      "from": "2026-12-09",
+      "until": "2026-12-13"
+    },
+    {
+      "fact": "the wedding is on December 12",
+      "mentions": [
+        [
+          "wedding",
+          "married"
+        ]
+      ],
+      "date": "2026-12-12"
+    },
+    {
+      "fact": "the training session is on December 3",
+      "mentions": [
+        [
+          "training"
+        ]
+      ],
+      "date": "2026-12-03"
+    },
+    {
+      "fact": "the code freeze starts on December 4",
+      "mentions": [
+        [
+          "freeze"
+        ]
+      ],
+      "date": "2026-12-04"
+    }
+  ]
+}

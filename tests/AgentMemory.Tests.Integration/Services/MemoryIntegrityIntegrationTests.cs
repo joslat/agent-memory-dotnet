@@ -25,8 +25,8 @@ public sealed class MemoryIntegrityIntegrationTests : IAsyncLifetime
 
     private IMemoryIntegrityService Sut()
     {
-        var clock = Substitute.For<IClock>();
-        clock.UtcNow.Returns(DateTimeOffset.UnixEpoch);
+        var clock = Substitute.For<TimeProvider>();
+        clock.GetUtcNow().Returns(DateTimeOffset.UnixEpoch);
         return new Neo4jMemoryIntegrityService(_fixture.TransactionRunner, clock);
     }
 

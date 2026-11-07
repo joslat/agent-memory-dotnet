@@ -33,14 +33,14 @@ public sealed class TraceTrustStampingTests
     private readonly IReasoningStepRepository _stepRepo = Substitute.For<IReasoningStepRepository>();
     private readonly IToolCallRepository _toolRepo = Substitute.For<IToolCallRepository>();
     private readonly IEmbeddingOrchestrator _embeddings = Substitute.For<IEmbeddingOrchestrator>();
-    private readonly IClock _clock = Substitute.For<IClock>();
+    private readonly TimeProvider _clock = Substitute.For<TimeProvider>();
     private readonly IIdGenerator _idGen = Substitute.For<IIdGenerator>();
 
     private readonly List<ReasoningTrace> _written = [];
 
     public TraceTrustStampingTests()
     {
-        _clock.UtcNow.Returns(DateTimeOffset.UtcNow);
+        _clock.GetUtcNow().Returns(DateTimeOffset.UtcNow);
         _idGen.GenerateId().Returns(_ => Guid.NewGuid().ToString("N"));
         _embeddings.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new float[8]);
         _traceRepo.AddAsync(Arg.Any<ReasoningTrace>(), Arg.Any<CancellationToken>())

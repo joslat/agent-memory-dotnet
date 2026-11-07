@@ -17,17 +17,17 @@ public sealed class CompositeEntityResolverTests
 
     private readonly IEntityRepository _entityRepo;
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
-    private readonly IClock _clock;
+    private readonly TimeProvider _clock;
     private readonly IIdGenerator _idGenerator;
 
     public CompositeEntityResolverTests()
     {
         _entityRepo = Substitute.For<IEntityRepository>();
         _embeddingOrchestrator = Substitute.For<IEmbeddingOrchestrator>();
-        _clock = Substitute.For<IClock>();
+        _clock = Substitute.For<TimeProvider>();
         _idGenerator = Substitute.For<IIdGenerator>();
 
-        _clock.UtcNow.Returns(FixedTime);
+        _clock.GetUtcNow().Returns(FixedTime);
         _idGenerator.GenerateId().Returns(NewEntityId);
 
         // Default: zero vector (orthogonal to any unit vector, no semantic match above threshold)
