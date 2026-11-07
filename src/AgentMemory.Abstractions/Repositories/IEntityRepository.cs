@@ -84,7 +84,9 @@ public interface IEntityRepository
         var named = await GetByNameAsync(name, includeAliases: true, scope, cancellationToken).ConfigureAwait(false);
         var ranked = named
             .Where(e => type is null || string.Equals(e.Type, type, StringComparison.OrdinalIgnoreCase))
-            .Select(e => (Entity: e, Tier: string.Equals(e.Name, name, StringComparison.OrdinalIgnoreCase) ? 0 : 1))
+            // The owner's own before a shared one, then an exact name before an alias: a tie only within one tier.
+            .Select(e => (Entity: e, Tier: (string.Equals(e.OwnerId, scope.OwnerId, StringComparison.Ordinal) ? 0 : 2)
+                + (string.Equals(e.Name, name, StringComparison.OrdinalIgnoreCase) ? 0 : 1)))
             .OrderBy(c => c.Tier)
             .ThenBy(c => c.Entity.EntityId, StringComparer.Ordinal)
             .Take(2)
