@@ -13,6 +13,17 @@ Give your .NET agents a memory that actually lasts. Agent Memory for .NET is a p
 conversation is still there, structured and queryable, in the next one. Built for the Microsoft Agent
 Framework, Semantic Kernel, direct .NET usage, and MCP clients.
 
+## Research paper
+
+**ampack: signed, declaratively traversable memory packs for AI agents,
+with trial-gated activation**  
+José Luis Latorre Millas, 2026.
+
+[Read the preprint on Zenodo](https://doi.org/10.5281/zenodo.24012989)
+
+The paper is licensed under CC BY 4.0.
+Software licensing is described in [LICENSING.md](LICENSING.md).
+
 ## Project Status
 
 This is an early-stage, actively-developed open-source project, not a mature commercial product with an

@@ -10,7 +10,12 @@ name: Release
 # preview-v0.x.y-<prerelease>: they pack only that line, at the tag's version through -p:PreviewVersion,
 # after the core release its packages depend on is on NuGet.
 #
-# Requires a NUGET_API_KEY repo secret (a nuget.org API key scoped to push the AgentMemory.* packages).
+# Publishes through nuget.org Trusted Publishing: the publish job trades its GitHub OIDC token for a
+# one-hour nuget.org key (NuGet/login), against a policy on the joslat account for this repository and
+# this workflow file. No long-lived NuGet key is stored. The publish job runs in the 'nuget' environment,
+# as GraphBridge's does: a policy that names that environment matches, and so does one that names none
+# (nuget.org checks the environment only when the policy sets it). Not the 'release' environment, which
+# admits v* tags only, while the preview line publishes from preview-v0.* tags.
 
 on:
   push:
@@ -167,9 +172,10 @@ jobs:
     name: Publish
     needs: package
     runs-on: ubuntu-latest
+    environment: nuget
     permissions:
       contents: write     # create the GitHub release
-      id-token: write     # OIDC for attestation signing (Sigstore)
+      id-token: write     # OIDC: nuget.org Trusted Publishing and attestation signing (Sigstore)
       attestations: write # generate build provenance attestations
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -180,10 +186,18 @@ jobs:
           name: nuget-packages
           path: artifacts
 
+      - name: Exchange the GitHub OIDC token for a one-hour nuget.org key
+        id: nuget-login
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
+        with:
+          user: joslat # the nuget.org profile that owns the AgentMemory.* packages (public)
+
       - name: Push to NuGet
+        env:
+          NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
         run: >
           dotnet nuget push "artifacts/*.nupkg"
-          --api-key ${{ secrets.NUGET_API_KEY }}
+          --api-key "$NUGET_API_KEY"
           --source https://api.nuget.org/v3/index.json
           --skip-duplicate
 
@@ -192,12 +206,15 @@ jobs:
         with:
           subject-path: "artifacts/*.nupkg"
 
-      - name: Create GitHub release
+      # A release drafted before the tag, with notes written by hand, keeps its notes and its draft state:
+      # the packages are attached and the owner publishes it. Otherwise the release is created here.
+      - name: Create the GitHub release, or attach the packages to a drafted one
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: >
-          gh release create "$GITHUB_REF_NAME"
-          --title "$GITHUB_REF_NAME"
-          --generate-notes
-          --prerelease=${{ contains(github.ref_name, '-') }}
-          artifacts/*.nupkg
+          PRERELEASE: ${{ contains(github.ref_name, '-') }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" artifacts/*.nupkg --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes --prerelease="$PRERELEASE" artifacts/*.nupkg
+          fi
