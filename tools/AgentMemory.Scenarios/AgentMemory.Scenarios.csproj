@@ -3,8 +3,9 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <RootNamespace>AgentMemory.Scenarios</RootNamespace>
-    <AssemblyName>scenarios</AssemblyName>
-    <!-- Operator tooling, not a published library. The release packs src/*/*.csproj only. -->
+    <AssemblyName>agentmemory-scenarios</AssemblyName>
+    <!-- Operator tooling, not a published library. The release packs src/*/*.csproj only. Not "scenarios": on Linux the
+         apphost has no extension and would collide with the scenarios/ folder copied beside it. -->
     <IsPackable>false</IsPackable>
     <!-- The Recommended arms run the gate (AgentMemory.Gate, experimental). -->
     <NoWarn>$(NoWarn);AMGATE001</NoWarn>
