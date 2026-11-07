@@ -269,11 +269,24 @@ internal static class TemporalWindowParser
         if (month1 == 0 || month2 == 0) return null;
         var day1 = int.Parse(match.Groups["d1"].Value, CultureInfo.InvariantCulture);
         var day2 = int.Parse(match.Groups["d2"].Value, CultureInfo.InvariantCulture);
-        var start = Date(match, month1, day1, now);
+        var crossesNewYear = month2 < month1 ? 1 : 0;
+
+        // A year written after the range is its END's: "from December 28 to January 3, 2027" starts in December 2026.
+        DateTimeOffset? start;
+        if (match.Groups["year"].Success)
+        {
+            var startYear = int.Parse(match.Groups["year"].Value, CultureInfo.InvariantCulture) - crossesNewYear;
+            start = Valid(startYear, month1, day1) ? new DateTimeOffset(startYear, month1, day1, 0, 0, 0, now.Offset) : null;
+        }
+        else
+        {
+            start = Date(match, month1, day1, now);
+        }
+
         if (start is null) return null;
 
         // The second date is the first one on or after the start: "December 28 to January 3" crosses the year.
-        var year = start.Value.Year + (month2 < month1 ? 1 : 0);
+        var year = start.Value.Year + crossesNewYear;
         if (!Valid(year, month2, day2)) return null;
         var end = new DateTimeOffset(year, month2, day2, 0, 0, 0, now.Offset);
         if (end < start.Value) return null;

@@ -99,8 +99,9 @@ internal sealed class VectorMemory(IEmbeddingGenerator<string, Embedding<float>>
 
     public override async Task RememberAsync(Turn turn, CancellationToken cancellationToken = default)
     {
-        await base.RememberAsync(turn, cancellationToken).ConfigureAwait(false);
+        // The vector first: a failed embedding then leaves the lines and the vectors as they were, still aligned.
         var embedded = await embeddings.GenerateAsync([turn.Text], cancellationToken: cancellationToken).ConfigureAwait(false);
+        await base.RememberAsync(turn, cancellationToken).ConfigureAwait(false);
         _vectors.Add(embedded[0].Vector);
     }
 

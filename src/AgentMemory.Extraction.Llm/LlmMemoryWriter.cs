@@ -80,8 +80,11 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
         var result = MemoryWriterOps.ToResult(ops, stored, owner);
         if (_options.DatesFromText)
         {
-            // The dates the facts' own words state, as date fields too (the words stay as written).
-            result = result with { Facts = [.. result.Facts.Select(fact => AgentMemory.Core.Memory.FactDateReader.Apply(fact, now))] };
+            // The dates the facts' own words state, as date fields too (the words stay as written). A yearless date is
+            // read against when the message was said, not when it is written: a replayed November 2025 turn saying
+            // "December 3" means December 2025. One user message is the writer's turn; with several, the last one.
+            var saidAt = said.Select(m => m.TimestampUtc).DefaultIfEmpty(now).Max();
+            result = result with { Facts = [.. result.Facts.Select(fact => AgentMemory.Core.Memory.FactDateReader.Apply(fact, saidAt))] };
         }
         activity?.SetTag("memory.write.operations", ops.Count);
         if (_logger.IsEnabled(LogLevel.Debug))

@@ -231,4 +231,34 @@ public sealed class LlmMemoryWriterTests
         result.Facts.Should().BeEmpty();
         _asked.Should().BeEmpty();
     }
+
+    [Fact]
+    public async Task A_date_in_a_replayed_turn_is_read_against_when_it_was_said()
+    {
+        // Written on 5 March 2027 (the clock), said on 9 November 2025: "December 3" is December 2025.
+        _replies.Enqueue("{\"ops\": [{\"op\": \"add\", \"kind\": \"fact\", \"text\": \"Bruna | scheduled the training session for | December 3\"}]}");
+        var said = new DateTimeOffset(2025, 11, 9, 10, 0, 0, TimeSpan.Zero);
+        var request = new MemoryWriteRequest(new ExtractionWindow
+        {
+            Targets = [new Message { MessageId = "m", ConversationId = "c", SessionId = "s", Role = "user", Content = "I scheduled the training session for December 3.", TimestampUtc = said }],
+        }, MemoryScope.For("bruna"));
+        var writer = new LlmMemoryWriter(_chat, Options.Create(new LlmExtractionOptions { UseMemoryWriter = true, DatesFromText = true }),
+            new ServiceCollection().AddSingleton(_facts).AddSingleton(_preferences).AddSingleton(_entities).AddSingleton(_relationships)
+                .AddSingleton(_embeddings).AddSingleton(_clock).BuildServiceProvider(),
+            NullLogger<LlmMemoryWriter>.Instance);
+
+        var result = await writer.WriteAsync(request);
+
+        result.Facts.Should().ContainSingle().Which.OccurredOn.Should().Be(new DateTimeOffset(2025, 12, 3, 0, 0, 0, TimeSpan.Zero));
+    }
+
+    [Fact]
+    public async Task Without_DatesFromText_the_writers_facts_stay_as_written()
+    {
+        _replies.Enqueue("{\"ops\": [{\"op\": \"add\", \"kind\": \"fact\", \"text\": \"Bruna | scheduled the training session for | December 3\"}]}");
+
+        var result = await Writer().WriteAsync(Turn("I scheduled the training session for December 3.", MemoryScope.For("bruna")));
+
+        result.Facts.Should().ContainSingle().Which.OccurredOn.Should().BeNull();
+    }
 }

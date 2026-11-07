@@ -116,4 +116,35 @@ public sealed class FactDateReaderTests
 
         FactDateReader.Apply(dated, said: On(2026, 11, 9)).Should().BeSameAs(dated);
     }
+
+    // ── review round 1 ───────────────────────────────────────────────
+
+    [Fact]
+    public void ARangeNextToAnotherDateIsTwoThingsAndStaysUndated()
+    {
+        var fact = FactDateReader.Apply(
+            Fact("Bruna", "has", "the wedding on December 12, and the trip from December 9 to December 13"), said: On(2026, 11, 12));
+
+        fact.ValidFrom.Should().BeNull();
+        fact.ValidUntil.Should().BeNull();
+        fact.OccurredOn.Should().BeNull();
+    }
+
+    [Fact]
+    public void AYearAfterARangeIsItsEndsYear()
+    {
+        var fact = FactDateReader.Apply(Fact("Bruna", "is away", "from December 28 to January 3, 2027"), said: On(2026, 11, 9));
+
+        fact.ValidFrom.Should().Be(On(2026, 12, 28));
+        fact.ValidUntil.Should().Be(EndOf(2027, 1, 3));
+    }
+
+    [Fact]
+    public void AnIsoRangeIsAStay()
+    {
+        var fact = FactDateReader.Apply(Fact("Bruna", "will be in Bariloche", "from 2026-12-09 to 2026-12-13"), said: On(2026, 11, 12));
+
+        fact.ValidFrom.Should().Be(On(2026, 12, 9));
+        fact.ValidUntil.Should().Be(EndOf(2026, 12, 13));
+    }
 }

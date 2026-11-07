@@ -35,9 +35,12 @@ public static class AgentMemoryPresets
             throw new InvalidOperationException(
                 $"{PresetKey} is '{named}', which is not a preset: use Recommended, Conversational or LowLevel.");
 
-        var judges = configuration.GetSection(GateServiceCollectionExtensions.SectionName).GetSection("Judges").GetChildren()
-            .Count(judge => !string.IsNullOrWhiteSpace(judge["Endpoint"]));
-        return MemoryPresetChoice.Decide(requested, judges);
+        // The judges the gate would actually use: bound as the gate binds them, counted by its own rule (an endpoint and
+        // a weight above zero). A judge the gate would skip is not a judge here either, or Recommended would be chosen
+        // and then recall on the similarity floor.
+        var gate = new MemoryGateOptions();
+        configuration.GetSection(GateServiceCollectionExtensions.SectionName).Bind(gate);
+        return MemoryPresetChoice.Decide(requested, SystemOneMemoryGate.UsableJudges(gate).Count());
     }
 
     /// <summary>

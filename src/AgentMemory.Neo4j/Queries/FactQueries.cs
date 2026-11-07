@@ -831,14 +831,18 @@ internal static class FactQueries
     /// predicate or object, newest first: the candidates an anchored window ("go-live week") takes its date from.
     /// </summary>
     /// <remarks>
-    /// Dated or not: a date can be in the fact's words only ("the go-live is scheduled for 2026-12-11"), and which one
+    /// Only facts that can carry a date: a date field, or words shaped like a date (<c>$datedWords</c>: an ISO date, a
+    /// month name and a day, a day and a month name; a number alone is not a date). The
+    /// limit then bounds candidates that may date the event, so newer mentions without a date cannot crowd out an older
+    /// dated one. Dated or not: a date can be in the fact's words only ("the go-live is scheduled for 2026-12-11"), and which one
     /// states the anchor's own date is decided in code, where the words can be read
     /// (<c>Neo4jFactRepository.FindAnchorFactAsync</c>).
     /// </remarks>
     public static string FindAnchorCandidates(bool hasOwnerFilter, bool includeShared) => @"
             MATCH (f:Fact)
             WHERE f.invalidated_at IS NULL
-              AND any(a IN $anchors WHERE replace(toLower(f.subject + ' ' + f.predicate + ' ' + f.object), '-', ' ') CONTAINS a)"
+              AND any(a IN $anchors WHERE replace(toLower(f.subject + ' ' + f.predicate + ' ' + f.object), '-', ' ') CONTAINS a)
+              AND (" + FactStart + @" IS NOT NULL OR (f.subject + ' ' + f.predicate + ' ' + f.object) =~ $datedWords)"
         + DeltaOwner(hasOwnerFilter, includeShared) + @"
             RETURN f ORDER BY f.created_at DESC LIMIT $limit";
 

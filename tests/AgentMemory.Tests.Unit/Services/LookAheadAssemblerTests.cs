@@ -2,6 +2,7 @@ using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Core.Services;
+using AgentMemory.Core.Services.Budgeting;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -79,9 +80,9 @@ public sealed class LookAheadAssemblerTests
             .Returns(Task.FromResult<IReadOnlyList<Fact>>([Bariloche]));
     }
 
-    private MemoryContextAssembler Sut() =>
+    private MemoryContextAssembler Sut(MemoryOptions? options = null) =>
         new(_shortTerm, _longTerm, _reasoning, null, _embeddings, _clock,
-            Options.Create(new MemoryOptions()),
+            Options.Create(options ?? new MemoryOptions()),
             NullLogger<MemoryContextAssembler>.Instance, Policy,
             rankingContext: null, truncationStrategies: null, rerankers: null,
             projectionFeatures: null);
@@ -234,5 +235,73 @@ public sealed class LookAheadAssemblerTests
         MemoryContextAssembler.WindowOf(since, Now).Should().BeNull();
         MemoryContextAssembler.WindowOf(Bariloche, Now)!.StartUtc.Should().Be(Bariloche.ValidFrom!.Value);
         MemoryContextAssembler.WindowOf(Mate with { ValidFrom = Now.AddDays(3) }, Now).Should().NotBeNull("a start still ahead is a day");
+    }
+
+    // ── review round 1 ───────────────────────────────────────────────
+
+    [Fact]
+    public async Task AReplayedQuestionReadsItsWindowAgainstWhenItWasAsked()
+    {
+        // Asked on Friday 6 November, replayed on 4 December: "next week" is 9 to 15 November.
+        var askedOn = new DateTimeOffset(2026, 11, 6, 9, 0, 0, TimeSpan.Zero);
+        await Sut().AssembleContextAsync(new RecallRequest
+        {
+            SessionId = "s1", Query = "what is planned next week?", QueryEmbedding = new float[8], TemporalReferenceTime = askedOn,
+            Options = RecallOptions.Default with { TimeWindows = true },
+        }, CancellationToken.None);
+
+        await _longTerm.Received(1).GetFactsInWindowAsync(
+            new DateTimeOffset(2026, 11, 9, 0, 0, 0, TimeSpan.Zero), new DateTimeOffset(2026, 11, 16, 0, 0, 0, TimeSpan.Zero).AddTicks(-1),
+            10, Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task TheLookAheadSectionsSpendTheContextBudgetFirst()
+    {
+        // Room for the window's two facts and nothing more: the relevant fact is cut, and the recall says so.
+        _relevant = [Mate];
+        var room = ContextBudgetEstimator.EstimateChars(new[] { Bariloche, GoLive });
+        var options = new MemoryOptions { ContextBudget = new ContextBudget { MaxCharacters = room } };
+
+        var context = await Sut(options).AssembleContextAsync(new RecallRequest
+        {
+            SessionId = "s1", Query = "What do I have on my calendar between December 7 and December 13?", QueryEmbedding = new float[8],
+            Options = RecallOptions.Default with { TimeWindows = true },
+        }, CancellationToken.None);
+
+        context.WindowFacts.Items.Should().HaveCount(2);
+        context.RelevantFacts.Items.Should().BeEmpty();
+        context.Truncated.Should().BeTrue();
+    }
+
+    [Fact]
+    public void WhenTheLookAheadSectionsAloneExceedTheBudgetOverlapGoesFirst()
+    {
+        var lookAhead = new MemoryContextAssembler.LookAheadResult(
+            Upcoming: [GoLive], Window: [Bariloche], Overlapping: [Mate], ResolvedWindow: null,
+            FiredUpcoming: true, FiredWindow: true, FiredOverlap: true, Ids: new HashSet<string>(StringComparer.Ordinal));
+        var room = ContextBudgetEstimator.EstimateChars(new[] { GoLive, Bariloche });
+
+        var (fitted, trimmed) = MemoryContextAssembler.FitLookAhead(lookAhead, room);
+
+        trimmed.Should().BeTrue();
+        fitted.Overlapping.Should().BeEmpty();
+        fitted.Upcoming.Should().ContainSingle();
+        fitted.Window.Should().ContainSingle();
+    }
+
+    [Fact]
+    public void AFactRecalledByDateCountsAsAccessedOnce()
+    {
+        var context = new MemoryContext
+        {
+            SessionId = "s1", AssembledAtUtc = Now,
+            RelevantFacts = new MemoryContextSection<Fact> { Items = [Mate] },
+            WindowFacts = new MemoryContextSection<Fact> { Items = [GoLive, Bariloche] },
+            UpcomingFacts = new MemoryContextSection<Fact> { Items = [Bariloche] },
+        };
+
+        MemoryService.CollectAccessedNodes(context).Where(n => n.NodeKind == MemoryNodeKind.Fact).Select(n => n.NodeId)
+            .Should().BeEquivalentTo(["mate", "go-live", "bariloche"]);
     }
 }

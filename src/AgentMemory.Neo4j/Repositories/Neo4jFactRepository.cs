@@ -1138,7 +1138,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
             .Distinct(StringComparer.Ordinal).ToArray();
         var candidates = await ReadDatedFactsAsync(
             FactQueries.FindAnchorCandidates(scope?.OwnerId is not null, scope?.IncludeShared ?? false),
-            new Dictionary<string, object?> { ["anchors"] = anchors, ["limit"] = MaxAnchorCandidates },
+            new Dictionary<string, object?> { ["anchors"] = anchors, ["limit"] = MaxAnchorCandidates, ["datedWords"] = DatedWords },
             scope, cancellationToken).ConfigureAwait(false);
         return ChooseAnchor(candidates, now);
     }
@@ -1166,6 +1166,13 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
             },
             scope, cancellationToken);
     }
+
+    /// <summary>
+    /// Words shaped like a date, as Cypher reads them (Java regex, no backslashes): an ISO date, a month name and a day,
+    /// a day and a month name. A candidate anchor without a date field must match it.
+    /// </summary>
+    private const string DatedWords =
+        "(?i).*([0-9]{4}-[0-9]{2}-[0-9]{2}|(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[.]?[ ]+[0-9]|[0-9]+(st|nd|rd|th)?[ ]+(of[ ]+)?(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)).*";
 
     /// <summary>How many facts naming an anchor are weighed for its date.</summary>
     private const int MaxAnchorCandidates = 25;

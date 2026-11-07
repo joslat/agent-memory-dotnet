@@ -55,13 +55,22 @@ internal sealed class CallLedger(string path, int maxCalls) : IDisposable
 
     public int Calls => _calls;
 
+    /// <summary>Whether a call was refused for the cap. Read by the runner, because the library may catch the refusal.</summary>
+    public bool Exhausted => Volatile.Read(ref _exhausted) == 1;
+
+    private int _exhausted;
+
     public IReadOnlyDictionary<string, int> ByPurpose => _byPurpose;
 
     public int Take(string purpose)
     {
         var number = Interlocked.Increment(ref _calls);
         if (number > maxCalls)
+        {
+            Interlocked.Exchange(ref _exhausted, 1);
             throw new InvalidOperationException($"The run reached its cap of {maxCalls} model calls; it stops rather than finishing unmeasured.");
+        }
+
         _byPurpose.AddOrUpdate(purpose, 1, (_, n) => n + 1);
         return number;
     }

@@ -220,6 +220,9 @@ internal sealed class MemoryService : IMemoryService
             + context.RelevantEntities.Items.Sum(e => (e.Name?.Length ?? 0) + (e.Description?.Length ?? 0))
             + context.RelevantPreferences.Items.Sum(p => p.PreferenceText.Length)
             + context.RelevantFacts.Items.Sum(f => f.Subject.Length + f.Predicate.Length + f.Object.Length)
+            // The look-ahead sections render too, so they count (empty unless their flags ran).
+            + context.WindowFacts.Items.Concat(context.UpcomingFacts.Items).Concat(context.OverlappingFacts.Items)
+                .Sum(f => f.Subject.Length + f.Predicate.Length + f.Object.Length)
             + context.SimilarTraces.Items.Sum(t => t.Task.Length)
             + (context.GraphRagContext?.Length ?? 0);
 
@@ -813,7 +816,7 @@ internal sealed class MemoryService : IMemoryService
     /// counting a section the other still counts, and the symptom would be a decay curve that differs by
     /// which flag a host set.
     /// </remarks>
-    private static List<(string NodeId, MemoryNodeKind NodeKind)> CollectAccessedNodes(MemoryContext context)
+    internal static List<(string NodeId, MemoryNodeKind NodeKind)> CollectAccessedNodes(MemoryContext context)
     {
         var nodes = new List<(string NodeId, MemoryNodeKind NodeKind)>(
             context.RelevantEntities.Items.Count
@@ -825,6 +828,14 @@ internal sealed class MemoryService : IMemoryService
 
         foreach (var fact in context.RelevantFacts.Items)
             nodes.Add((fact.FactId, MemoryNodeKind.Fact));
+
+        // A fact recalled in a look-ahead section was recalled: it is moved out of RelevantFacts, so without this it would
+        // stop counting as accessed and decay as if never read. Each fact once. Empty sections add nothing.
+        var seen = context.RelevantFacts.Items.Select(f => f.FactId).ToHashSet(StringComparer.Ordinal);
+        foreach (var fact in context.WindowFacts.Items.Concat(context.UpcomingFacts.Items).Concat(context.OverlappingFacts.Items))
+        {
+            if (seen.Add(fact.FactId)) nodes.Add((fact.FactId, MemoryNodeKind.Fact));
+        }
 
         foreach (var pref in context.RelevantPreferences.Items)
             nodes.Add((pref.PreferenceId, MemoryNodeKind.Preference));

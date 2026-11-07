@@ -187,4 +187,13 @@ public sealed class TemporalWindowParserTests
     [InlineData(null)]
     public void AQuestionAboutThePastOrAboutSomeoneDoesNot(string? query) =>
         TemporalWindowParser.LooksAhead(query).Should().BeFalse();
+
+    [Fact]
+    public void AYearAfterARangeIsItsEndsYear()
+    {
+        var window = Resolve("what do I have from December 28 to January 3, 2027?");
+
+        window!.Start.Should().Be(Day(12, 28, 2026));
+        window.End.Should().Be(EndOf(1, 3, 2027));
+    }
 }

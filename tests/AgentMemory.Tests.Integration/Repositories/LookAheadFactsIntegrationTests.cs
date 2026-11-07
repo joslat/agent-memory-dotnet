@@ -125,6 +125,19 @@ public class LookAheadFactsIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task NewerUndatedMentionsDoNotHideAnOlderDatedAnchor()
+    {
+        // The dated go-live, then 30 later mentions with numbers but no date ("needs 7 more testers"): the date is still found.
+        await _facts.UpsertAsync(Make("Bruna", "is leading the go-live of", "Acme's billing system", occurredOn: On(12, 11)));
+        for (var i = 0; i < 30; i++)
+            await _facts.UpsertAsync(Make("go-live", $"needs {i + 2} more testers", "before the cutover", createdAt: On(11, 1).AddHours(i)));
+
+        var anchor = await _facts.FindAnchorFactAsync("go-live", Now, Bruna);
+
+        anchor!.OccurredOn.Should().Be(On(12, 11));
+    }
+
+    [Fact]
     public async Task AnAnchorWithOnlyTheDaysItWasMentionedHasNoDate()
     {
         // "Martín approved the go-live budget", stamped the day it was said: no date of the go-live's. No window is

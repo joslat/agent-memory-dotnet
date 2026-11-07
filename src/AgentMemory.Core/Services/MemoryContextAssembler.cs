@@ -972,8 +972,20 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
 
         if (budget.MaxTokens.HasValue || budget.MaxCharacters.HasValue)
         {
+            // The look-ahead sections keep their own item caps but count toward the total: they are charged first
+            // (trimmed, overlap first, only when they alone exceed it) and the other sections share what is left.
+            // With look-ahead off they are empty and nothing here changes.
+            var lookAheadTrimmed = false;
+            var reserved = 0;
+            if (lookAhead.Ids.Count > 0)
+            {
+                (lookAhead, lookAheadTrimmed) = FitLookAhead(lookAhead, ResolveMaxChars(budget));
+                reserved = LookAheadChars(lookAhead);
+            }
+
             (recentMessages, relevantMessages, entities, preferences, facts, traces, graphRagContext, truncated) =
-                ApplyBudget(budget, recentMessages, relevantMessages, entities, preferences, facts, traces, graphRagContext);
+                ApplyBudget(budget, recentMessages, relevantMessages, entities, preferences, facts, traces, graphRagContext, reserved);
+            truncated |= lookAheadTrimmed;
         }
 
         // R4. SurvivedBudget is MEASURED here, after truncation, rather than predicted before it. The
@@ -1689,12 +1701,16 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         if (!recallOpts.Upcoming && !recallOpts.TimeWindows && !recallOpts.OverlapExpansion) return LookAheadResult.None;
 
         var now = _clock.UtcNow;
+        // The question's own "now" for reading it: a replayed "what do I have next week?" means the week after it was
+        // asked, as MemoryService.RecallAsync reads it when it chooses this path. Upcoming stays on the live clock, like
+        // prospective firing: it volunteers what starts after now.
+        var asOfQuestion = request.TemporalReferenceTime ?? now;
         var question = request.Question ?? request.Query;
 
         IReadOnlyList<Fact> window = Array.Empty<Fact>();
         TimeWindow? resolved = null;
         var firedWindow = false;
-        if (recallOpts.TimeWindows && TemporalWindowParser.Resolve(question, now) is { } asked)
+        if (recallOpts.TimeWindows && TemporalWindowParser.Resolve(question, asOfQuestion) is { } asked)
         {
             var start = asked.Start;
             var end = asked.End;
@@ -1702,7 +1718,7 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
             if (asked.Anchor is { } anchor)
             {
                 var anchorFact = await TimedAsync("memory.recall.window.anchor",
-                        () => _longTerm.FindAnchorFactAsync(anchor, now, scope, cancellationToken))
+                        () => _longTerm.FindAnchorFactAsync(anchor, asOfQuestion, scope, cancellationToken))
                     .ConfigureAwait(false);
                 if (anchorFact is not null && (anchorFact.OccurredOn ?? anchorFact.ValidFrom) is { } date)
                 {
@@ -1756,6 +1772,32 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
 
         var ids = window.Concat(upcoming).Concat(overlapping).Select(f => f.FactId).ToHashSet(StringComparer.Ordinal);
         return new LookAheadResult(upcoming, window, overlapping, resolved, firedUpcoming, firedWindow, firedOverlap, ids);
+    }
+
+    /// <summary>The characters the look-ahead sections spend, counted as the budget counts every fact section.</summary>
+    internal static int LookAheadChars(LookAheadResult lookAhead) =>
+        ContextBudgetEstimator.EstimateChars(lookAhead.Window)
+        + ContextBudgetEstimator.EstimateChars(lookAhead.Upcoming)
+        + ContextBudgetEstimator.EstimateChars(lookAhead.Overlapping);
+
+    /// <summary>
+    /// The look-ahead sections cut to <paramref name="maxChars"/> when they alone exceed it: the overlapping facts go
+    /// first, then the upcoming ones, then the window's, each from its last item. Whether anything was cut.
+    /// </summary>
+    internal static (LookAheadResult Fitted, bool Trimmed) FitLookAhead(LookAheadResult lookAhead, int maxChars)
+    {
+        if (LookAheadChars(lookAhead) <= maxChars) return (lookAhead, false);
+        var window = lookAhead.Window.ToList();
+        var upcoming = lookAhead.Upcoming.ToList();
+        var overlapping = lookAhead.Overlapping.ToList();
+        int Chars() => ContextBudgetEstimator.EstimateChars(window) + ContextBudgetEstimator.EstimateChars(upcoming)
+            + ContextBudgetEstimator.EstimateChars(overlapping);
+        foreach (var section in new[] { overlapping, upcoming, window })
+        {
+            while (section.Count > 0 && Chars() > maxChars) section.RemoveAt(section.Count - 1);
+        }
+
+        return (lookAhead with { Window = window, Upcoming = upcoming, Overlapping = overlapping }, true);
     }
 
     /// <summary>At most this many dated facts seed the overlap read, so one recall stays one bounded query.</summary>
@@ -2022,21 +2064,24 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         IReadOnlyList<Preference> preferences,
         IReadOnlyList<Fact> facts,
         IReadOnlyList<ReasoningTrace> traces,
-        string? graphRagContext)
+        string? graphRagContext,
+        int reservedChars = 0)
     {
+        // reservedChars: what sections outside the truncation strategy (look-ahead) already spend of the budget. Zero
+        // leaves this method exactly as it was.
         int maxChars = ResolveMaxChars(budget);
 
-        int totalChars = ContextBudgetEstimator.EstimateChars(recent) + ContextBudgetEstimator.EstimateChars(relevant)
+        int sectionChars = ContextBudgetEstimator.EstimateChars(recent) + ContextBudgetEstimator.EstimateChars(relevant)
             + ContextBudgetEstimator.EstimateChars(entities) + ContextBudgetEstimator.EstimateChars(preferences)
             + ContextBudgetEstimator.EstimateChars(facts) + ContextBudgetEstimator.EstimateChars(traces)
             + (graphRagContext?.Length ?? 0);
 
-        if (totalChars <= maxChars)
+        if (sectionChars + reservedChars <= maxChars)
             return new AssembledSections(recent, relevant, entities, preferences, facts, traces, graphRagContext, false);
 
         var strategy = ResolveStrategy(budget.TruncationStrategy);
         var result = strategy.Truncate(new TruncationInput(
-            maxChars, totalChars, recent, relevant, entities, preferences, facts, traces, graphRagContext));
+            Math.Max(0, maxChars - reservedChars), sectionChars, recent, relevant, entities, preferences, facts, traces, graphRagContext));
 
         return new AssembledSections(
             result.Recent, result.Relevant, result.Entities, result.Preferences,

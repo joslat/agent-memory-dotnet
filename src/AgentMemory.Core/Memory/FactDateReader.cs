@@ -49,6 +49,12 @@ internal static class FactDateReader
         + @"(?<d2>[0-3]?\d)(?:st|nd|rd|th)?(?![\d:])(?:,?\s+(?<y>(?:19|20)\d{2}))?\b",
         Options, Timeout);
 
+    /// <summary>An ISO range: "2026-12-09 to 2026-12-13", "from 2026-12-09 until 2026-12-13", "2026-12-09 – 2026-12-13".</summary>
+    private static readonly Regex IsoRange = new(
+        @"\b(?:from\s+|(?<between>between)\s+)?(?<y1>(?:19|20)\d{2})-(?<m1>[01]\d)-(?<d1>[0-3]\d)"
+        + @"\s*(?<sep>to|until|till|through|thru|and|–|\s-\s)\s*(?<y2>(?:19|20)\d{2})-(?<m2>[01]\d)-(?<d2>[0-3]\d)\b",
+        Options, Timeout);
+
     /// <summary>"starting December 4", "from December 4" (with no end), "as of", "since", "beginning".</summary>
     private static readonly Regex Starts = new(
         @"\b(?:starting|starts|start|from|as\s+of|since|beginning|begins)\s+(?:on\s+)?$", Options, Timeout);
@@ -87,24 +93,16 @@ internal static class FactDateReader
     {
         if (string.IsNullOrWhiteSpace(text)) return null;
 
-        // "and" joins a range only after "between": "the training on December 3 and the freeze on December 4" is two dates.
-        if (Range.Match(text) is { Success: true } range
-            && (!range.Groups["sep"].Value.Equals("and", StringComparison.OrdinalIgnoreCase) || range.Groups["between"].Success))
+        var dates = OneDate.Matches(text);
+        if (ReadRange(text, said) is { } stay)
         {
-            var m1 = MonthNumber(range.Groups["m1"].Value);
-            var m2 = range.Groups["m2"].Success ? MonthNumber(range.Groups["m2"].Value) : m1;
-            var d1 = int.Parse(range.Groups["d1"].Value, CultureInfo.InvariantCulture);
-            var d2 = int.Parse(range.Groups["d2"].Value, CultureInfo.InvariantCulture);
-            int? year = range.Groups["y"].Success ? int.Parse(range.Groups["y"].Value, CultureInfo.InvariantCulture) : null;
-            var start = Resolve(m1, d1, year, range.Groups["wd"].Success ? range.Groups["wd"].Value : null, said);
-            if (start is not null && Valid(start.Value.Year + (m2 < m1 ? 1 : 0), m2, d2))
-            {
-                var end = new DateTimeOffset(start.Value.Year + (m2 < m1 ? 1 : 0), m2, d2, 23, 59, 59, TimeSpan.Zero);
-                if (end > start.Value) return (null, start, end);
-            }
+            // A range is the fact's date only when no other date stands outside it: "the wedding is on December 12, and
+            // the trip is from December 9 to December 13" names two things, and is left undated.
+            var outside = dates.Any(d => d.Index < stay.Index || d.Index + d.Length > stay.Index + stay.Length);
+            return outside ? null : (null, stay.Start, stay.End);
         }
 
-        var dates = OneDate.Matches(text);
+        if (dates.Count != 1) return null;
         if (dates.Count != 1) return null;
         var match = dates[0];
         DateTimeOffset? day;
@@ -127,6 +125,55 @@ internal static class FactDateReader
         if (Starts.IsMatch(before)) return (null, day, null);
         if (Ends.IsMatch(before)) return (null, null, day.Value.AddDays(1).AddSeconds(-1));
         return (day, null, null);
+    }
+
+    /// <summary>
+    /// A stated range and where it stands in the text: month first ("from December 9 to December 13", "December 9 to 13")
+    /// or ISO ("from 2026-12-09 to 2026-12-13"). A year written after the range belongs to its end, so "from December 28
+    /// to January 3, 2027" starts on 28 December 2026.
+    /// </summary>
+    private static (DateTimeOffset Start, DateTimeOffset End, int Index, int Length)? ReadRange(string text, DateTimeOffset said)
+    {
+        if (IsoRange.Match(text) is { Success: true } iso && JoinsARange(iso))
+        {
+            var start = IsoDay(iso, "1");
+            var end = IsoDay(iso, "2");
+            if (start is not null && end is not null && end.Value >= start.Value)
+                return (start.Value, end.Value.AddDays(1).AddSeconds(-1), iso.Index, iso.Length);
+        }
+
+        if (Range.Match(text) is not { Success: true } range || !JoinsARange(range)) return null;
+        var m1 = MonthNumber(range.Groups["m1"].Value);
+        var m2 = range.Groups["m2"].Success ? MonthNumber(range.Groups["m2"].Value) : m1;
+        var d1 = int.Parse(range.Groups["d1"].Value, CultureInfo.InvariantCulture);
+        var d2 = int.Parse(range.Groups["d2"].Value, CultureInfo.InvariantCulture);
+        var crossesNewYear = m2 < m1 ? 1 : 0;
+        DateTimeOffset? first;
+        if (range.Groups["y"].Success)
+        {
+            var endYear = int.Parse(range.Groups["y"].Value, CultureInfo.InvariantCulture);
+            first = Valid(endYear - crossesNewYear, m1, d1) ? new DateTimeOffset(endYear - crossesNewYear, m1, d1, 0, 0, 0, TimeSpan.Zero) : null;
+        }
+        else
+        {
+            first = Resolve(m1, d1, null, range.Groups["wd"].Success ? range.Groups["wd"].Value : null, said);
+        }
+
+        if (first is null || !Valid(first.Value.Year + crossesNewYear, m2, d2)) return null;
+        var last = new DateTimeOffset(first.Value.Year + crossesNewYear, m2, d2, 23, 59, 59, TimeSpan.Zero);
+        return last > first.Value ? (first.Value, last, range.Index, range.Length) : null;
+    }
+
+    /// <summary>"and" joins a range only after "between": "on December 3 and on December 4" is two dates.</summary>
+    private static bool JoinsARange(Match range) =>
+        !range.Groups["sep"].Value.Equals("and", StringComparison.OrdinalIgnoreCase) || range.Groups["between"].Success;
+
+    private static DateTimeOffset? IsoDay(Match match, string n)
+    {
+        var y = int.Parse(match.Groups["y" + n].Value, CultureInfo.InvariantCulture);
+        var m = int.Parse(match.Groups["m" + n].Value, CultureInfo.InvariantCulture);
+        var d = int.Parse(match.Groups["d" + n].Value, CultureInfo.InvariantCulture);
+        return Valid(y, m, d) ? new DateTimeOffset(y, m, d, 0, 0, 0, TimeSpan.Zero) : null;
     }
 
     /// <summary>A month and day in the year given, or the one nearest to <paramref name="said"/> (matching a named weekday).</summary>

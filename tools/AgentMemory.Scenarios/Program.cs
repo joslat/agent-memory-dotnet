@@ -140,13 +140,20 @@ try
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
                 failures.Add($"write {memory.Name} turn {i + 1}: {exception.Message}");
-                if (exception.Message.Contains("cap of", StringComparison.Ordinal)) throw;
             }
 
             took[memory.Name] += watch.Elapsed;
         }
 
         Console.Write($"\r  {i + 1}/{turns.Count}  {turns[i].At:yyyy-MM-dd}  model calls so far: {ledger.Calls}   ");
+
+        // The library catches a refused call and writes on (a writer failure falls back to the extractors), so the cap
+        // is read from the ledger, not from an exception: past it, nothing more is written or asked.
+        if (ledger.Exhausted)
+        {
+            failures.Add($"the run reached its cap of {maxCalls} model calls at statement {i + 1} of {turns.Count}, and stopped");
+            break;
+        }
     }
 
     Console.WriteLine();
@@ -175,6 +182,13 @@ try
     var scoreboard = new Dictionary<string, List<string>>();
     foreach (var question in scenario.Questions)
     {
+        if (ledger.Exhausted)
+        {
+            if (!failures.Any(f => f.Contains("cap of", StringComparison.Ordinal)))
+                failures.Add($"the run reached its cap of {maxCalls} model calls before question {question.Id}, and stopped");
+            break;
+        }
+
         var prompts = new Dictionary<string, string>();
         var explained = new Dictionary<string, object>();
         foreach (var graph in memories.OfType<GraphMemory>())

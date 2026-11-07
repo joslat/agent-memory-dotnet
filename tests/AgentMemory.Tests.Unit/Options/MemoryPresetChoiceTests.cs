@@ -120,4 +120,11 @@ public sealed class MemoryPresetChoiceTests
         tiers.Should().ContainSingle(t => t.Leg == "preset")
             .Which.Should().Match<MemoryTier>(t => t.Tier == "Conversational" && t.Note!.Contains("retrieval judge"));
     }
+
+    [Fact]
+    public void AJudgeWeightedZeroIsSkippedAsTheGateSkipsIt() =>
+        // The gate uses only judges with an endpoint and a weight above zero; with none, Recommended would recall on the
+        // similarity floor, so the choice falls back as for no judge at all.
+        AgentMemoryPresets.Choose(Configuration(Judge, ("AgentMemory:RetrievalRouter:Judges:0:Weight", "0")))
+            .Effective.Should().Be(MemoryPreset.Conversational);
 }
