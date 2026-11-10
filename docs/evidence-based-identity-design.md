@@ -18,7 +18,7 @@ flowchart TB
     C -->|persona / organización / evento| E[Candidatos acotados y dentro del scope]
     E --> F[Decisión con política del tipo y evidencia]
     F -->|identidad respaldada| G[Vincular a identidad existente]
-    F -->|posible identidad| H[Identidad separada + SAME_AS pendiente]
+    F -->|posible identidad| H[Identidad separada + POSSIBLE_SAME_AS pendiente]
     F -->|sin respaldo o contradicción| I[Identidad separada sin vínculo]
     F -->|incierto y habilitado| J[Adjudicación contextual con LLM]
     J --> F
@@ -39,7 +39,7 @@ El fallback del LLM tiene un solo paso, no un bucle: sólo se consulta una vez p
 | Fact, Entity y ABOUT | Hechos y entidades siguen siendo registros distintos |
 | OccurredOn, ValidFrom, ValidUntil y precisiones | Representación temporal; no se añade otro sistema de fechas |
 | Exact, fuzzy, partial y semantic matchers | Señales de candidatos; se retira su autoridad automática en el modo nuevo |
-| SAME_AS y DuplicateStatus | Candidatos pendientes, confirmados, rechazados o fusionados |
+| SAME_AS y DuplicateStatus legados | Referencia de compatibilidad y revisión; los pendientes nuevos usan una representación distinta de la equivalencia confirmada |
 | Transacciones de PersistenceStage | Escritura de entidad, decisión y vínculos dentro del mismo límite de persistencia |
 | IChatClient | Adaptador opcional de adjudicación; Core no incorpora un cliente ni una dependencia de proveedor |
 | Scope del propietario y datos compartidos | Una ontología no concede acceso a datos fuera del scope |
@@ -52,6 +52,8 @@ No se añaden dependencias de Graphiti, Mem0, Letta o Neo4j Agent Memory. Se ado
 La clasificación POLE+O actual no distingue referencias de valores: una fecha puede llegar como OBJECT. No basta con añadir un tipo DATE al prompt y confiar en él. Hace falta el discriminante de valor en Core y una representación que permita conservar fechas incompletas.
 
 El método AddSameAsRelationshipAsync existe en Neo4jEntityRepository, pero no forma parte del contrato IEntityRepository. Core necesita un contrato de persistencia de decisiones/pending explícito, compatible con backends externos. Un backend sin esa capacidad debe rechazar el modo solicitado en configuración; no se debe descartar el pending silenciosamente ni introducir una dependencia de Core a Neo4j.
+
+El lector legado EntityQueries.GetSameAsEntities recorre SAME_AS sin filtrar status y no devuelve ese estado. Esto obliga a aislar las hipótesis nuevas en una relación o registro distinto; no basta con confiar en que todos los lectores futuros recuerden un filtro. El nuevo modo no escribirá sus pendientes como SAME_AS. Este hallazgo no demuestra por sí solo una respuesta incorrecta en los consumidores actuales.
 
 El recorrido actual precarga entidades por tipo y el resultado del resolver sólo entrega una Entity. El diseño necesita consultas de candidatos acotadas y un resultado adicional con estado y evidencia. Estas son entregas reales, no detalles que ya estén implementados por reutilizar los nombres existentes.
 
@@ -128,12 +130,14 @@ El DTO de extracción LLM actual tampoco expone Attributes. Las claves confiable
 | Decisión | Entidad de destino | Efecto |
 |---|---|---|
 | Confirmada | Existente | Se registra la decisión y se vinculan observaciones; no se reescriben valores originales |
-| Pendiente | Nueva y separada | SAME_AS con estado pending hacia candidatos admisibles; no hereda sus hechos como identidad confirmada |
+| Pendiente | Nueva y separada | POSSIBLE_SAME_AS hacia candidatos admisibles; no hereda sus hechos como identidad confirmada |
 | Nueva | Nueva y separada | Sin SAME_AS cuando no hay candidato admisible o existe contradicción |
 
 Una coincidencia exacta de nombre es una señal. El dominio puede declarar un nombre único dentro de un namespace concreto, pero no se presupone globalmente.
 
-Una sugerencia rechazada no reaparece silenciosamente en la siguiente ingestión con la misma evidencia. Confirmaciones y rechazos tienen revisión, motivo, fuente y versión de política. SAME_AS pending no participa como igualdad, no es transitivo y no autoriza fusiones físicas.
+POSSIBLE_SAME_AS es el nombre propuesto para el vínculo candidato del modo nuevo. Nunca se interpreta como igualdad, tampoco después de revisar la propuesta: la confirmación registra y aplica los vínculos de identidad autorizados por esa decisión. La forma exacta y su propiedad de esquema deben aprobarse en IDER-03. No se modifica ni reclasifica automáticamente el SAME_AS legado.
+
+Una sugerencia rechazada no reaparece silenciosamente en la siguiente ingestión con la misma evidencia. Confirmaciones y rechazos tienen revisión, motivo, fuente y versión de política. POSSIBLE_SAME_AS pending no participa como igualdad, no es transitivo y no autoriza fusiones físicas.
 
 En el modo nuevo, el resultado público actual que sólo entrega una Entity se mantiene por compatibilidad; un contrato adicional lleva la decisión. El resultado detallado alimenta persistencia y observabilidad. Las implementaciones externas existentes de IEntityResolver no se reclasifican automáticamente como verificadores de identidad.
 
@@ -215,7 +219,7 @@ Modo shadow opcional: calcular decisiones sin cambiar persistencia, con límites
 | IDER-00 | Diseño y contrato de calidad | Revisión contra código, límites y dependencias identificadas; no cuenta como feature |
 | IDER-01 | Integridad temporal | Regresión roja antes del arreglo; 3/4/12 separados, representaciones equivalentes, años/precisión/intervalos y todas las rutas de matching |
 | IDER-02 | Candidatos y decisión por política | Señales separadas, claves confiables, conflictos, ambigüedad, orden estable, límites y scopes; legacy off sin coste |
-| IDER-03 | Persistencia pendiente y evidencia | Neo4j real: entidad separada + SAME_AS pending atómicos; rollback y reinicio; texto original y links correctos |
+| IDER-03 | Persistencia pendiente y evidencia | Neo4j real: entidad separada + POSSIBLE_SAME_AS pending atómicos; rollback y reinicio; texto original y links correctos |
 | IDER-04 | Adjudicador contextual opcional | Mocks y errores; timeout/cancelación, citas/IDs inválidos, veto no eludible; smoke real con presupuesto explícito |
 | IDER-05 | Revisión y revocación | Confirmar/rechazar/revocar con escrituras posteriores, aislamiento y concurrencia; sin pérdida de evidencia |
 | IDER-06 | Evento y recuperación completa | Fecha, lugar y obligación presencial en Q3; límites, pending no tratado como identidad, aislamiento; replays y paquetes |
@@ -241,6 +245,21 @@ El conjunto incluye Bruna original y busy, cambios de orden, 3/4/12, misma fecha
 
 Una subida de precisión con una caída grande de recall no se presenta como victoria global. La aceptación exige preservar los casos legítimos de alias y continuidad, además de impedir el falso merge de fechas. El caso de Pablito es una reproducción necesaria, no un benchmark general.
 
+## 11. Ajustes tras comparar otros sistemas
+
+La [revisión de proveedores](evidence-based-identity-provider-review.md) separa código inspeccionado, comportamiento documentado y propuestas propias. Supermemory aporta patrones de evolución y revisión; su servidor no es código público. Graphiti, Neo4j Agent Memory, Hindsight, Cognee, Mem0 OSS y Honcho ofrecen implementaciones abiertas con licencias y alcances diferentes. No se han ejecutado contra Bruna.
+
+Se incorporan estas precisiones al diseño:
+
+1. **Contexto independiente.** El embedding del nombre y su fuzzy son dos mediciones de la misma señal, no dos pruebas independientes. Repetir la frase en un resumen tampoco añade una fuente. Se conservan orígenes y se evita contar derivados de una misma fuente como corroboración independiente.
+2. **Vecinos selectivos.** Compartir un vecino muy común, como user, aporta poco contexto discriminante. La selectividad puede ordenar candidatos y revisión; no autoriza identidad por sí sola. Se evalúa con un caso de dos personas distintas que comparten organización y conversación.
+3. **Autoridad del host.** Las referencias con ID, namespace y tipo verificados por la aplicación tienen un recorrido determinista. Una corrección explícita marcada por el host no se vuelve a aproximar contra otro nombre. El LLM no puede atribuirse esa autoridad.
+4. **Contexto de evento completo.** Fecha, lugar y obligación presencial se recuperan como evidencia del evento confirmado, con límites y fuentes. Los hechos que tienen una identidad pendiente siguen siendo recuperables por sus propios textos y fuentes; sólo se excluye tratarlos como hechos heredados de otra identidad.
+5. **Reutilizar la fusión de rankings.** HybridRetriever ya combina vector y full-text con RRF. La fase de evento amplía relaciones admitidas y presupuesto de evidencia; no necesita crear otro motor híbrido ni sumar scores de identidad a relevancia.
+6. **Separar revisión de identidad y revisión de inferencias.** Aprobar una conclusión derivada no prueba que dos entidades sean iguales. Una futura cola de inferencias podría reutilizar el patrón approve/decline/undo, con contratos y aceptación propios. La consolidación de creencias en background queda fuera de IDER-01..07.
+
+El cambio más visible respecto al primer diseño es POSSIBLE_SAME_AS para pendientes, con compatibilidad explícita para SAME_AS legado. Se exige probar que ni lectores antiguos, expansiones, exportadores ni razonadores interpretan ese candidato como equivalencia. La ontología puede orientar tipos y políticas sin importar ni materializar automáticamente equivalencias OWL sobre hipótesis.
+
 ## Fuentes de la decisión
 
 - FuzzyMatchEntityMatcher, CompositeEntityResolver y FactNames actuales: el parecido puede devolver una entidad existente y cambiar nombres de hechos.
@@ -248,3 +267,7 @@ Una subida de precisión con una caída grande de recall no se presenta como vic
 - Graphiti: propiedades de identidad, atajos exact/fuzzy y adjudicación contextual. https://github.com/getzep/graphiti/blob/main/graphiti_core/utils/maintenance/node_operations.py
 - Mem0 Platform: entidades enlazando nodos de memoria y recuperación combinada. Es documentación de producto, no una prueba de igualdad temporal. https://docs.mem0.ai/platform/features/graph-memory
 - Letta: memoria versionada y revisión de cambios. No se añade una segunda autoridad de almacenamiento a AgentMemory. https://docs.letta.com/concepts/memfs
+
+- Supermemory: [relaciones entre memorias](https://supermemory.ai/docs/concepts/graph-memory), [revisión](https://supermemory.ai/docs/recall/memory-review) y [límite del código público](https://supermemory.ai/docs/self-hosting/overview).
+- Hindsight: [resolver y contexto selectivo](https://github.com/vectorize-io/hindsight/blob/289fb421bdb438861480720e947874551ac42ff7/hindsight-api-slim/hindsight_api/engine/memories/pg/entity_resolver.py).
+- Cognee: [alineamiento con una ontología](https://github.com/topoteretes/cognee/blob/8853378eae5366addb064e758e560a456146ae1a/cognee/modules/ontology/rdf_xml/RDFLibOntologyResolver.py).
