@@ -6,8 +6,8 @@ authors:
   - family-names: "Latorre Millas"
     given-names: "José Luis"
     orcid: "https://orcid.org/0009-0009-9880-8879"
-version: "2.1.0"
-date-released: "2026-11-07"
+version: "2.2.0"
+date-released: "2026-11-13"
 repository-code: "https://github.com/joslat/agent-memory-dotnet"
 license:
   - MIT

@@ -6,7 +6,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- **Evidence-based identity is on by default (planned 2.2.0).** `IdentityResolutionOptions.Enabled` is now `bool?` and
+## [2.2.0] - 2026-11-13
+
+**The Pablo Piovano release.** Memory that knows who is who.
+
+Pablo Piovano's experiment, *Your agent doesn't forget with an error. It forgets with a tidy answer.* (LinkedIn, 3
+November 2026), found the calendar gap that 2.1.0 fixed. Running his scenario again found a second, quieter problem: the
+entity resolver decided identity by name. Two different colleagues called Alex Kim became one, silently and for good,
+and events were not recorded at all, so Bruna's go-live and "the cutover" could never be followed as one thing. Neither
+raised an error; the answers just got quietly worse.
+
+2.2.0 replaces that with evidence-based identity, on by default wherever the store-aware writer runs on Neo4j. The writer
+names the stored entity a mention refers to and quotes the words that show it; the quote is checked; an uncertain match
+gets a bounded second opinion from the extraction model; and when it is still uncertain, nothing is merged and a proposal
+is left for review. On his scenario's busier history (130 statements, no retrieval judge) the previous resolver answered
+2 of 3 questions in both runs and evidence-based identity 3 of 3; no measured run made a wrong merge; and on news
+articles labelled by others (ECB+) it kept two similar real events, the 81st and 86th Oscars, apart in every run.
+
+Thank you, Pablo, for building the test we should have written ourselves, for publishing everything it produced, and
+for letting us run it again. Both of the things it found are fixed, and this release carries your name.
+
+### Upgrading
+
+- **Identity changes only where the store-aware writer runs** (the Recommended preset, or `UseMemoryWriter`) on Neo4j.
+  The memory tiers line logged on the first write says which resolver runs and why. To keep the previous resolver:
+  `services.Configure<IdentityResolutionOptions>(o => o.Enabled = false);`.
+- **NuGet consumers of 2.1.0: apply migrations after upgrading.** The 2.1.0 package left its Cypher migrations out of a
+  consumer's build, so every migration was skipped; 2.2.0 copies them. Run `IMigrationRunner` as usual.
+- `LlmExtractionOptions.MemoryWriterEventIdentities` and `RecallOptions.EventDetails` are now `bool?`: null follows
+  identity; an explicit value wins.
+
+### Changed
+
+- **Evidence-based identity is on by default.** `IdentityResolutionOptions.Enabled` is now `bool?` and
   null by default: identity runs wherever the store-aware writer runs on a backend with identity storage (Neo4j), and the
   previous resolver runs everywhere else. The previous resolver matches by name, so it can merge different things that
   share a name (two different "Alex Kim"s become one); that is the bug this default fixes. `Enabled = false` restores the
@@ -94,7 +126,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add opt-in event-aware writer instructions and bounded live event-detail retrieval. Default
   prompt bytes remain unchanged; Pending proposals never authorize a join. Real physical-event
   validation retrieves location/presence; uncertain identity can omit details, as the remote control shows.
-- Refuse legacy owner export/import before I/O whenever identity-evidence is enabled, including
+- (Superseded in this release: export and import now work with identity; see the owner import entry above.) Refuse
+  legacy owner export/import before I/O whenever identity-evidence is enabled, including
   empty owners. Full identity portability is separate; owner erasure remains supported.
 - Add bounded synthetic validation with persistent cost reservations, pre-dispatch sanitized
   traces and separate storage/prompt/native-hop/answer review. Structured probe checks prevent
