@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Diagnostics;
@@ -34,6 +34,7 @@ internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner, INeo4jAt
     private readonly ILogger<Neo4jTransactionRunner> _logger;
 
     private readonly AsyncLocal<IAsyncQueryRunner?> _ambientWriteTransaction = new();
+    public bool HasActiveWriteTransaction => _ambientWriteTransaction.Value is not null;
 
     /// <summary>
     /// Applies the configured server-side deadline, or null when none is configured.

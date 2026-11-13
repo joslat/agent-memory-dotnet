@@ -101,7 +101,7 @@ public sealed partial class ModuleRecordWriteIntegrationTests
         await using var session = fixture.Driver.AsyncSession();
         var cursor = await session.RunAsync("PROFILE " + query, parameters);
         var summary = await cursor.ConsumeAsync();
-        static long Most(IProfiledPlan plan) => Math.Max(plan.Records, plan.Children.Select(Most).DefaultIfEmpty(0).Max());
-        return Most(summary.Profile);
+        static long Most(IQueryProfile plan) => Math.Max(plan.Rows ?? 0, plan.Children.Select(Most).DefaultIfEmpty(0).Max());
+        return Most(summary.QueryProfile);
     }
 }

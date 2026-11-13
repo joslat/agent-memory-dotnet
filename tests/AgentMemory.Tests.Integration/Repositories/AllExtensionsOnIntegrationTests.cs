@@ -109,13 +109,13 @@ public class AllExtensionsOnIntegrationTests : IAsyncLifetime
         // `procedural` declares no script of its own — 0011 is base-resident and stays there, because
         // re-declaring an already-applied base migration under an extension key would replay one index
         // creation under two version keys and make the same physical index appear twice in history. So
-        // three of the four contribute rows.
+        // four of the five contribute rows (identity-evidence joined with its own versioned scripts).
         //
         // Asserted by OWNER, not by count: an extension that gains its first script must fail here
         // loudly rather than shift a number nobody re-reads. (It did — this expectation named two
         // owners on its first draft and `working-memory` was the third.)
         applied.Select(row => row.ExtensionId).Distinct().Should().BeEquivalentTo(
-            ["arithmetic", "delta-recall", "working-memory"]);
+            ["arithmetic", "delta-recall", "identity-evidence", "working-memory"]);
     }
 
     [Fact]

@@ -109,4 +109,11 @@ public static class MemoryErrorCodes
     /// ("Rosa | is named | Rosa"; 40.51).
     /// </summary>
     public const string FactTautology                 = "MEMORY_FACT_TAUTOLOGY";
+
+    /// <summary>
+    /// A store-aware writer proposed an operation (or a stored-entity reference) that failed its contract and its one
+    /// bounded correction: unknown action, missing text or id, a quote not in the message, a reference to an item it was
+    /// not shown, or an event fact without its event observation. The rest of the turn is kept.
+    /// </summary>
+    public const string WriterOperationRejected       = "MEMORY_WRITER_OPERATION_REJECTED";
 }

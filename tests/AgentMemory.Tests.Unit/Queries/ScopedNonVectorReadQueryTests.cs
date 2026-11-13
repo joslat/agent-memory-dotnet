@@ -23,9 +23,9 @@ public sealed class ScopedNonVectorReadQueryTests
     [Fact]
     public void GetByType_ScopedIncludeShared_MatchesOwnerOrNull()
     {
-        // 36.9 (G-17): the shared half by the indexed owner_key = '*' (owner_id IS NULL cannot be sought).
+        // Seek shared rows by key, then verify the authoritative owner so historical private '*' rows stay private.
         EntityQueries.GetByType(hasOwnerFilter: true, includeShared: true)
-            .Should().Contain("(e.owner_id = $ownerId OR e.owner_key = '*')");
+            .Should().Contain("(e.owner_id = $ownerId OR (e.owner_key = '*' AND e.owner_id IS NULL))");
     }
 
     [Fact]
@@ -96,20 +96,18 @@ public sealed class ScopedNonVectorReadQueryTests
     [Fact]
     public void FindByTriple_ScopedIncludeShared_MatchesOwnerOrNull()
     {
-        // Same admission set, expressed on the indexed column. A shared fact is written with
-        // owner_id = null AND owner_key = the shared marker, so "owner_key IN [mine, shared]" admits
-        // exactly what "owner_id = mine OR owner_id IS NULL" did - and unlike the old form it can be
-        // seeked, because owner_key is part of fact_merge_key_idx and owner_id is not.
-        FactQueries.FindByTriple(hasOwnerFilter: true, includeShared: true)
-            .Should().Contain("f.owner_key IN [$ownerKey, $sharedOwnerKey]");
+        // Storage keys retain the seek; raw nullable owner IDs authorize both branches independently.
+        var cypher = FactQueries.FindByTriple(hasOwnerFilter: true, includeShared: true);
+        cypher.Should().Contain("f.owner_key = $ownerKey AND f.owner_id = $ownerId")
+            .And.Contain("f.owner_key = $sharedOwnerKey AND f.owner_id IS NULL")
+            .And.NotContain("f.owner_key IN [$ownerKey, $sharedOwnerKey]");
     }
 
     [Fact]
     public void FindByTriple_ScopedExcludeShared_MatchesOwnerOnly()
     {
         var cypher = FactQueries.FindByTriple(hasOwnerFilter: true, includeShared: false);
-        // owner_key, not owner_id: only owner_key belongs to fact_merge_key_idx, and the
-        // isolation guarantee is identical because an owned fact stores the same value in both.
-        cypher.Should().Contain("f.owner_key = $ownerKey").And.NotContain("IS NULL");
+        // The encoded key supports the seek; raw owner_id separately authorizes the selected row.
+        cypher.Should().Contain("f.owner_key = $ownerKey AND f.owner_id = $ownerId").And.NotContain("IS NULL");
     }
 }

@@ -13,6 +13,7 @@ namespace AgentMemory.Core.Extraction;
 /// <summary>Resolves relationship endpoints, persists edges and ends replaced single-valued edges.</summary>
 internal sealed class RelationshipPersistence
 {
+    private readonly bool _requireResolvedIdentity;
     private readonly IEntityRepository _entityRepository;
     private readonly IRelationshipRepository _relationshipRepository;
     private readonly TimeProvider _clock;
@@ -22,8 +23,9 @@ internal sealed class RelationshipPersistence
     private readonly ClosingPipeline _closings;
 
     public RelationshipPersistence(IEntityRepository entityRepository, IRelationshipRepository relationshipRepository,
-        TimeProvider clock, IIdGenerator idGenerator, ExtractionOptions options, ILogger logger, ClosingPipeline closings)
+        TimeProvider clock, IIdGenerator idGenerator, ExtractionOptions options, ILogger logger, ClosingPipeline closings, bool requireResolvedIdentity = false)
     {
+        _requireResolvedIdentity = requireResolvedIdentity;
         _entityRepository = entityRepository;
         _relationshipRepository = relationshipRepository;
         _clock = clock;
@@ -78,7 +80,7 @@ internal sealed class RelationshipPersistence
         var knownEntities = new Dictionary<string, Entity?>(StringComparer.OrdinalIgnoreCase);
         async Task<Entity?> KnownEntityAsync(string name)
         {
-            if (ownerId is null || string.IsNullOrWhiteSpace(name)) return null;
+            if (_requireResolvedIdentity || ownerId is null || string.IsNullOrWhiteSpace(name)) return null;
             if (knownEntities.TryGetValue(name, out var known)) return known;
             try
             {

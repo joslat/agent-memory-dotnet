@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 ﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Diagnostics;
@@ -27,6 +27,7 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
     private readonly IReadOnlyList<IMemoryReranker> _rerankers;
     private readonly Projection.MemoryContextProjector _projector;
     private readonly ISubQueryDeriver? _subQueryDeriver;
+    private readonly Resolution.IdentityActivation? _identity;
     private readonly IWorkingMemoryService? _workingMemory;
     private readonly IReadOnlyDictionary<TruncationStrategy, ITruncationStrategy> _truncationStrategies;
     private readonly ILogger<MemoryContextAssembler> _logger;
@@ -76,7 +77,9 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         IWorkingMemoryService? workingMemory = null,
         // 30.10. Optional and last, the same shape as every other feature seam here: a host that has
         // not registered a deriver keeps the exact previous construction, and the planner never runs.
-        ISubQueryDeriver? subQueryDeriver = null)
+        ISubQueryDeriver? subQueryDeriver = null,
+        // ILC-25: event details follow identity unless a caller chose; absent, only an explicit true reads them.
+        Resolution.IdentityActivation? identity = null)
     {
         _shortTerm = shortTerm;
         _longTerm = longTerm;
@@ -94,6 +97,7 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         // projection is possible at all, which is the byte-identical path.
         _projector = new Projection.MemoryContextProjector(projectionFeatures ?? []);
         _subQueryDeriver = subQueryDeriver;
+        _identity = identity;
         _workingMemory = workingMemory;
         _truncationStrategies = BuildStrategyMap(truncationStrategies);
         _logger = logger;
@@ -563,6 +567,7 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         // memory was excluded by blend mode, or when no embedding was available to search with.
         bool vectorSearchRan = false;
 
+        Stopwatch? budgetClock = null;
         if (includeMemory)
         {
             // Generate embedding if not provided, and ONLY if some retrieval will actually consume it.
@@ -786,7 +791,7 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
             // cannot be one of the sections raced above -- it does not exist until they return. Left
             // unmeasured it would spend the caller's budget twice over, so the time already spent is
             // measured here and the hop gets only what is left.
-            var budgetClock = recallOpts.LatencyBudget is null ? null : Stopwatch.StartNew();
+            budgetClock = recallOpts.LatencyBudget is null ? null : Stopwatch.StartNew();
 
             // Rank 13. With no budget this is the original unconditional wait, byte for byte.
             if (recallOpts.LatencyBudget is { } latencyBudget
@@ -916,6 +921,10 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
                 factScores = factScores.Where(s => !lookAhead.Ids.Contains(s.Fact.FactId)).ToArray();
             }
         }
+
+        if (includeMemory && EventDetailsOn(recallOpts))
+            facts = await ExpandEventDetailsAsync(facts, lookAhead, prospective, recallOpts, scope,
+                cancellationToken, Remaining(recallOpts.LatencyBudget, budgetClock)).ConfigureAwait(false);
 
         // 30.8. Runs AFTER the fact section resolves, because its trigger is what that section came
         // back with. One extra query, only on a thin recall, only with the flag on -- a well-answered
@@ -1251,6 +1260,8 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         // has not configured anything, because MemoryOptions.Recall itself defaults to that same
         // instance -- so the unconfigured path stays byte-identical.
         var recallOpts = EffectiveRecall(request.Options, _options.Recall);
+        if (recallOpts.EventDetails == true)
+            throw new NotSupportedException("EventDetails currently supports live recall only; historical identity expansion is not available.");
         var projectionOpts = ResolveProjectionOptions(recallOpts.Projection);
         // 30.3. Traces get their own floor. At the shared 0.7 default procedure retrieval NEVER
         // abstains -- every threshold from 0.00 to 0.86 behaves identically, a measured dead zone --

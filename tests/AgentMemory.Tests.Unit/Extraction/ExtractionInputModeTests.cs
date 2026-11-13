@@ -159,6 +159,24 @@ public sealed class ExtractionInputModeTests
     }
 
     [Fact]
+    public async Task Writer_rejections_reach_the_turn_outcomes_without_routing_around_a_working_writer()
+    {
+        var rejected = new IngestionItemOutcome
+        {
+            Kind = MemoryItemKind.Fact, Stage = IngestionStage.Extraction, Status = IngestionItemStatus.Skipped,
+            SourceKey = "writer:#0", ErrorCode = AgentMemory.Abstractions.Exceptions.MemoryErrorCodes.WriterOperationRejected,
+            ErrorMessage = "QuoteNotFound: user | wrote | checklist",
+        };
+        _writer.WriteAsync(Arg.Any<MemoryWriteRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new UnifiedExtractionResult { Outcomes = [rejected] });
+        var result = await Pipeline(fallback: true).ExtractAsync(Request(ExtractionInputMode.ConversationTurn));
+        result.Path.Should().Be(ExtractionPath.Writer);
+        await _extractor.DidNotReceive().ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>());
+        await _persistence.Received(1).PersistAsync(Arg.Is<ExtractionStageResult>(s => s.WrittenByWriter && s.Outcomes.Contains(rejected)),
+            "owner", Arg.Any<MemoryTrustLevel>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task Conversation_failure_without_an_extractor_retains_the_failure()
     {
         _extractor.IsEnabled.Returns(false);

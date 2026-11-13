@@ -6,6 +6,7 @@ using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Core.Memory;
+using AgentMemory.Core.Resolution;
 using Microsoft.Extensions.Logging;
 
 namespace AgentMemory.Core.Extraction;
@@ -13,6 +14,7 @@ namespace AgentMemory.Core.Extraction;
 /// <summary>Persists facts with the existing batch/replay order, provenance and entity links.</summary>
 internal sealed class FactPersistence
 {
+    private readonly bool _preserveIdentity;
     private readonly IFactRepository _factRepository;
     private readonly TimeProvider _clock;
     private readonly ExtractionOptions _options;
@@ -21,8 +23,9 @@ internal sealed class FactPersistence
     private readonly FactReplacementResolver _replacements;
 
     public FactPersistence(IFactRepository factRepository, TimeProvider clock, ExtractionOptions options,
-        ILogger logger, FactPreparation factPreparation, ClosingPipeline closings)
+        ILogger logger, FactPreparation factPreparation, ClosingPipeline closings, bool preserveIdentity = false)
     {
+        _preserveIdentity = preserveIdentity;
         _factRepository = factRepository;
         _clock = clock;
         _options = options;
@@ -36,9 +39,9 @@ internal sealed class FactPersistence
         MemoryTrustLevel trustLevel, IReadOnlyList<string> sourceMessageIds, List<IngestionItemOutcome> outcomes,
         bool failFast, bool writtenByWriter, CancellationToken cancellationToken = default)
     {
-        var factNames = new FactNames(_options, persistedEntityMap, userName);
+        var factNames = new FactNames(_options, persistedEntityMap, userName, _preserveIdentity);
         var persistedFactCount = 0;
-        var state = new FactWriteSet(facts, factNames, _options, writtenByWriter, _clock);
+        var state = new FactWriteSet(facts, factNames, _options, writtenByWriter, _clock, allowInferredReplacements: !_preserveIdentity);
         var createdHere = state.CreatedIds;
         var extractedByKey = state.ExtractedByKey;
         var writtenFacts = state.WrittenFacts;
@@ -59,6 +62,12 @@ internal sealed class FactPersistence
             foreach (var name in names)
             {
                 if (!persistedEntityMap.TryGetValue(name, out var entity)) continue;
+                if (!CalendarValues.CanLinkSurface(name, entity))
+                {
+                    _logger.LogWarning("Skipped incompatible calendar ABOUT link for fact {FactId} and entity {EntityId}.",
+                        persisted.FactId, entity.EntityId);
+                    continue;
+                }
 
                 try
                 {
@@ -90,7 +99,7 @@ internal sealed class FactPersistence
 
             // Use this extraction's entity lookup, including captured aliases, for subject/object links.
             // This does not issue another entity-resolution search. A failed link does not fail the stored fact.
-            if (_options.LinkFactsToEntities)
+            if (!_preserveIdentity && _options.LinkFactsToEntities)
             {
                 await LinkFactToNamedEntitiesAsync(persisted).ConfigureAwait(false);
             }
@@ -233,12 +242,13 @@ internal sealed class FactPersistence
                     await PersistFactIndividuallyAsync(input.Item, input.SourceKey).ConfigureAwait(false);
             }
         }
-        var replacements = _options.SupersedeReplacedFacts && !writtenByWriter
+        var replacements = !_preserveIdentity && _options.SupersedeReplacedFacts && !writtenByWriter
             ? await _replacements.ApplyAsync(state, ownerId, writtenByWriter, cancellationToken).ConfigureAwait(false)
             : FactReplacementResult.Empty;
         return new FactPersistenceResult
         {
             BySourceKey = state.ByKey,
+            WrittenFacts = [.. state.WrittenFacts.Select(item => item.Fact)],
             CreatedIds = state.CreatedIds,
             Count = persistedFactCount,
             Replacements = replacements,
@@ -249,6 +259,7 @@ internal sealed class FactPersistence
 internal sealed record FactPersistenceResult
 {
     public required IReadOnlyDictionary<string, Fact> BySourceKey { get; init; }
+    public IReadOnlyList<Fact> WrittenFacts { get; init; } = Array.Empty<Fact>();
     public required IReadOnlySet<string> CreatedIds { get; init; }
     public required int Count { get; init; }
     public required FactReplacementResult Replacements { get; init; }

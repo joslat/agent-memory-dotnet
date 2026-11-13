@@ -94,6 +94,74 @@ public sealed class LookAheadAssemblerTests
             SessionId = "s1", Query = question, Question = question, QueryEmbedding = new float[8], Options = options,
         }, CancellationToken.None);
 
+    [Fact]
+    public async Task Event_details_are_not_called_while_off_even_with_dated_facts()
+    {
+        _relevant = [GoLive];
+        await AskAsync("Plan my prep for go-live week.", AllOn);
+        await _longTerm.DidNotReceiveWithAnyArgs().GetEventDetailsAsync(default!, default!, default, default, default);
+    }
+
+    [Fact]
+    public async Task Dated_window_reaches_undated_details_once_without_duplicate_dates_or_fake_scores()
+    {
+        var location = Mate with { FactId = "location", Subject = "Acme go-live", Predicate = "happens at", Object = "Córdoba" };
+        var presence = Mate with { FactId = "presence", Subject = "Acme go-live", Predicate = "requires", Object = "in person" };
+        _longTerm.GetEventDetailsAsync(Arg.Any<IReadOnlyList<string>>(), Arg.Any<IReadOnlyCollection<string>>(),
+            Arg.Any<int>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>()).Returns(Task.FromResult<IReadOnlyList<Fact>>([location, presence, GoLive]));
+        var context = await AskAsync("Plan my prep for go-live week.", AllOn with { EventDetails = true, MaxFacts = 8, MaxEventDetailFacts = 8 });
+        context.RelevantFacts.Items.Select(f => f.FactId).Should().Equal("location", "presence");
+        context.WindowFacts.Items.Should().Contain(f => f.FactId == GoLive.FactId);
+        await _longTerm.Received(1).GetEventDetailsAsync(
+            Arg.Is<IReadOnlyList<string>>(ids => ids.Contains("go-live")),
+            Arg.Is<IReadOnlyCollection<string>>(ids => ids.Contains("go-live") && ids.Contains("bariloche")),
+            8, Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Event_details_need_a_dated_seed_and_respect_zero_fact_budget()
+    {
+        _relevant = [Mate];
+        await AskAsync("What do I drink?", RecallOptions.Default with { EventDetails = true });
+        await AskAsync("Plan my prep for go-live week.", AllOn with { EventDetails = true, MaxFacts = 0 });
+        await _longTerm.DidNotReceiveWithAnyArgs().GetEventDetailsAsync(default!, default!, default, default, default);
+    }
+
+    [Fact]
+    public async Task Event_details_share_the_existing_context_budget()
+    {
+        var detail = Mate with { FactId = "long-detail", Subject = "Acme go-live", Object = new string('x', 4000) };
+        _longTerm.GetEventDetailsAsync(Arg.Any<IReadOnlyList<string>>(), Arg.Any<IReadOnlyCollection<string>>(),
+            Arg.Any<int>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>()).Returns(Task.FromResult<IReadOnlyList<Fact>>([detail]));
+        var room = ContextBudgetEstimator.EstimateChars(new[] { Bariloche, GoLive });
+        var context = await Sut(new MemoryOptions { ContextBudget = new ContextBudget { MaxCharacters = room } })
+            .AssembleContextAsync(new() { SessionId = "s1", Query = "Plan my prep for go-live week.",
+                QueryEmbedding = new float[8], Options = AllOn with { EventDetails = true } });
+        context.RelevantFacts.Items.Should().NotContain(f => f.FactId == detail.FactId);
+        context.Truncated.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Point_in_time_recall_refuses_live_identity_details_before_any_service_read()
+    {
+        Func<Task> action = async () => { await Sut().AssembleContextAsOfAsync(new() { SessionId = "s1", Query = "go-live",
+            QueryEmbedding = new float[8], Options = RecallOptions.Default with { EventDetails = true } }, Now); };
+        await action.Should().ThrowAsync<NotSupportedException>().WithMessage("*live recall only*");
+        _longTerm.ReceivedCalls().Should().BeEmpty(); _shortTerm.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task The_asked_event_anchor_survives_a_full_dated_seed_budget()
+    {
+        _relevant = Enumerable.Range(0, 12).Select(i => GoLive with { FactId = "unrelated-dated-" + i }).ToArray();
+        _longTerm.GetEventDetailsAsync(Arg.Any<IReadOnlyList<string>>(), Arg.Any<IReadOnlyCollection<string>>(),
+            Arg.Any<int>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>()).Returns(Task.FromResult<IReadOnlyList<Fact>>([]));
+        await AskAsync("Plan my prep for go-live week.", AllOn with { EventDetails = true, MaxFacts = 20 });
+        await _longTerm.Received(1).GetEventDetailsAsync(Arg.Is<IReadOnlyList<string>>(ids =>
+            ids.Count == 10 && ids[0] == "go-live"), Arg.Any<IReadOnlyCollection<string>>(), 8,
+            Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
     private static RecallOptions AllOn => RecallOptions.Default with { Upcoming = true, TimeWindows = true, OverlapExpansion = true };
 
     // ── off issues nothing ────────────────────────────────────────────

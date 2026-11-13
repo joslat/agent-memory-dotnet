@@ -38,6 +38,26 @@ internal static class Checks
         return question.Needs.Select(need => new NeedResult(need.Fact, ItemWith(items, need.Mentions))).ToList();
     }
 
+    /// <summary>Both independently frozen store and prompt assertions must hold for bounded acceptance.</summary>
+    public static IReadOnlyList<string> ValidationFailures(IEnumerable<StoreResult> store,IEnumerable<NeedResult> prompt) =>
+        store.Where(result=>!result.Held).Select(result=>"store: "+result.Fact)
+            .Concat(prompt.Where(result=>!result.Found).Select(result=>"prompt: "+result.Fact)).ToArray();
+
+    /// <summary>Actual model-written data must support the native event hop, independently of a full prompt.</summary>
+    public static IReadOnlyList<string> EventDetailFailures(IReadOnlyList<string> datedSeeds,
+        IReadOnlyList<EventDetailFact> undatedDetails, IReadOnlyList<Need> required)
+    {
+        var failures = new List<string>();
+        if (datedSeeds.Count == 0) failures.Add("event-details: no dated seed facts");
+        // A word in an event's display name is not a claim about its location or participation.
+        // Each frozen need puts event spellings first; remaining groups must occur in the claim.
+        failures.AddRange(required.Where(need => !undatedDetails.Any(detail =>
+            need.Mentions.Count > 0 && need.Mentions[0].Any(spelling => Mentions(detail.Subject, spelling)) &&
+            need.Mentions.Skip(1).All(group => group.Any(spelling => Mentions(detail.Predicate + " " + detail.Object, spelling)))))
+            .Select(need => "event-details: " + need.Fact));
+        return failures;
+    }
+
     /// <summary>Each store check, with the live facts that satisfy it (empty when none does).</summary>
     public static IReadOnlyList<StoreResult> Store(IEnumerable<StoreCheck> checks, IReadOnlyList<StoredFact> facts) =>
         checks.Select(check =>
@@ -69,7 +89,7 @@ internal sealed record StoreResult(string Fact, IReadOnlyList<string> Matching, 
 
 /// <summary>A live fact as the store holds it, read straight from Neo4j.</summary>
 internal sealed record StoredFact(
-    string Subject, string Predicate, string Object, DateOnly? OccurredOn, DateOnly? ValidFrom, DateOnly? ValidUntil, string? Category)
+    string Subject, string Predicate, string Object, DateOnly? OccurredOn, DateOnly? ValidFrom, DateOnly? ValidUntil, string? Category, string? FactId = null)
 {
     public string Text => $"{Subject} {Predicate} {Object}";
 
@@ -84,3 +104,5 @@ internal sealed record StoredFact(
         return $"{Subject} · {Predicate} · {Object}{when}";
     }
 }
+
+internal sealed record EventDetailFact(string Subject, string Predicate, string Object, string? FactId = null);

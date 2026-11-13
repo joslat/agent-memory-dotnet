@@ -24,6 +24,9 @@ internal sealed class FuzzyMatchEntityMatcher : IEntityMatcher
         IReadOnlyList<Entity> existingEntities,
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (CalendarValues.IsCalendar(candidate)) return Task.FromResult<EntityResolutionResult?>(null);
+        existingEntities = CalendarValues.NameCandidates(existingEntities);
         var thresholdScore = (int)(_options.FuzzyMatchThreshold * 100);
         var candidateName = candidate.Name;
 
@@ -52,7 +55,7 @@ internal sealed class FuzzyMatchEntityMatcher : IEntityMatcher
         return Task.FromResult<EntityResolutionResult?>(result);
     }
 
-    private static int BestScoreAgainst(string candidateName, Entity existing)
+    internal static int BestScoreAgainst(string candidateName, Entity existing)
     {
         var best = Fuzz.TokenSortRatio(candidateName, existing.Name);
 

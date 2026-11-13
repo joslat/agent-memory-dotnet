@@ -18,17 +18,35 @@ internal static class WithinExtractionFactDeduplication
     /// the span records how many were merged (<c>memory.persist.facts_merged</c>).
     /// </summary>
     internal static (IReadOnlyList<PreparedFact> Kept, IReadOnlyList<IngestionItemOutcome> Merged) Merge(
-        IReadOnlyList<PreparedFact> facts, double threshold)
+        IReadOnlyList<PreparedFact> facts, double threshold) =>
+        Merge(facts, (kept, fact) => fact.Embedding is { Length: > 0 } && kept.Embedding is { Length: > 0 } &&
+                                     kept.Embedding.Length == fact.Embedding.Length && MayBeOneStatement(kept.Item, fact.Item) &&
+                                     Resolution.SemanticMatchEntityMatcher.CosineSimilarity(kept.Embedding, fact.Embedding) >= threshold);
+
+    /// <summary>
+    /// ILC-29: evidence-based identity's form of <see cref="Merge(IReadOnlyList{PreparedFact}, double)"/>: only exact copies
+    /// (the same canonical subject, predicate and object, and <see cref="MayBeOneStatement"/>) are one statement. A copy has
+    /// the same words, so identity ties it to the same people (within one extraction a fact's bindings follow its words);
+    /// other wording stays, because identity keeps each original phrasing. A writer that states one fact twice to close
+    /// two older facts stores it once, with both closings.
+    /// </summary>
+    internal static (IReadOnlyList<PreparedFact> Kept, IReadOnlyList<IngestionItemOutcome> Merged) MergeExact(
+        IReadOnlyList<PreparedFact> facts) =>
+        Merge(facts, (kept, fact) => SameWords(kept.Item, fact.Item) && MayBeOneStatement(kept.Item, fact.Item));
+
+    private static bool SameWords(ExtractedFact left, ExtractedFact right) =>
+        MemoryTripleCanonicalizer.CanonicalValue(left.Subject) == MemoryTripleCanonicalizer.CanonicalValue(right.Subject) &&
+        MemoryTripleCanonicalizer.CanonicalValue(left.Predicate) == MemoryTripleCanonicalizer.CanonicalValue(right.Predicate) &&
+        MemoryTripleCanonicalizer.CanonicalValue(left.Object) == MemoryTripleCanonicalizer.CanonicalValue(right.Object);
+
+    private static (IReadOnlyList<PreparedFact> Kept, IReadOnlyList<IngestionItemOutcome> Merged) Merge(
+        IReadOnlyList<PreparedFact> facts, Func<PreparedFact, PreparedFact, bool> sameStatement)
     {
         var kept = new List<PreparedFact>(facts.Count);
         var merged = new List<IngestionItemOutcome>();
         foreach (var fact in facts)
         {
-            var twin = fact.Embedding is { Length: > 0 }
-                ? kept.FindIndex(k => k.Embedding is { Length: > 0 } && k.Embedding.Length == fact.Embedding.Length &&
-                                      MayBeOneStatement(k.Item, fact.Item) &&
-                                      Resolution.SemanticMatchEntityMatcher.CosineSimilarity(k.Embedding, fact.Embedding) >= threshold)
-                : -1;
+            var twin = kept.FindIndex(k => sameStatement(k, fact));
             if (twin < 0)
             {
                 kept.Add(fact);

@@ -46,10 +46,11 @@ internal sealed class Neo4jEntitySummaryRepository : IEntitySummaryRepository
                 sourceFactIds = summary.SourceFactIds.ToArray(),
                 sourceFingerprint = summary.SourceFingerprint,
                 ownerId = summary.OwnerId,
-                ownerKey = summary.OwnerId ?? Neo4jFactRepository.OwnerKeyShared,
+                ownerKey = OwnerStorageKey.Encode(summary.OwnerId),
                 generatedAt = summary.GeneratedAtUtc.ToString("o"),
             }).ConfigureAwait(false);
-            await cursor.ConsumeAsync().ConfigureAwait(false);
+            var rows = await cursor.ToListAsync().ConfigureAwait(false);
+            if (rows.Count == 0) throw new InvalidOperationException("Summary scope-key collision; migrate reserved owner keys before writing.");
             return true;
         }, cancellationToken).ConfigureAwait(false);
 

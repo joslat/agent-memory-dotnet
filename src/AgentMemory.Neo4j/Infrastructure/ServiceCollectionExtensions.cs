@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using AgentMemory.Neo4j.Schema.Extensions;
@@ -49,6 +49,15 @@ public static class ServiceCollectionExtensions
                 neo4j.Extensions.Add(WorkingMemorySchemaExtension.ExtensionId);
         });
 
+        // ILC-25: the identity schema follows the one decision on whether evidence-based identity runs (Core's
+        // IdentityActivation), for the same reason: identity without its schema fails, and a schema without identity
+        // changes what export and import accept.
+        services.AddOptions<Neo4jOptions>().PostConfigure<IServiceProvider>((neo4j, provider) =>
+        {
+            if (provider.GetService<AgentMemory.Core.Resolution.IdentityActivation>()?.Active == true)
+                neo4j.Extensions.Add(IdentityEvidenceSchemaExtension.ExtensionId);
+        });
+
         // Infrastructure
         services.TryAddSingleton<INeo4jDriverFactory, Neo4jDriverFactory>();
         // Raw IDriver, for components (e.g. Neo4jGraphRagContextSource) that need direct driver access
@@ -84,6 +93,12 @@ public static class ServiceCollectionExtensions
 
         // Long-term memory repositories
         services.TryAddTransient<IEntityRepository, Neo4jEntityRepository>();
+        // Explicit capability, available for opt-in hosts; default extraction never calls it.
+        services.TryAddScoped<Neo4jIdentityEvidenceRepository>();
+        services.TryAddScoped<IIdentityCandidateProvider>(sp => sp.GetRequiredService<Neo4jIdentityEvidenceRepository>());
+        services.TryAddScoped<IIdentityEvidenceRepository>(sp => sp.GetRequiredService<Neo4jIdentityEvidenceRepository>());
+        services.TryAddScoped<IIdentitySourceProvider>(sp => sp.GetRequiredService<Neo4jIdentityEvidenceRepository>());
+        services.TryAddScoped<IIdentityDecisionRepository, Neo4jIdentityDecisionRepository>();
         services.TryAddTransient<IFactRepository, Neo4jFactRepository>();
         // G-14: owner row counts for owner-first recall, shared across the transient repositories.
         services.TryAddSingleton<OwnerRowCounts>();

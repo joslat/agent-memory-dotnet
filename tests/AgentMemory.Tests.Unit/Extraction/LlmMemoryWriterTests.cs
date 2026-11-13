@@ -54,14 +54,60 @@ public sealed class LlmMemoryWriterTests
             });
     }
 
-    private LlmMemoryWriter Writer()
+    private LlmMemoryWriter Writer(bool eventIdentities = false)
     {
         var services = new ServiceCollection()
             .AddSingleton(_facts).AddSingleton(_preferences).AddSingleton(_entities).AddSingleton(_relationships)
             .AddSingleton(_embeddings).AddSingleton(_clock)
             .BuildServiceProvider();
-        return new LlmMemoryWriter(_chat, Options.Create(new LlmExtractionOptions { UseMemoryWriter = true }), services,
+        return new LlmMemoryWriter(_chat, Options.Create(new LlmExtractionOptions { UseMemoryWriter = true, MemoryWriterEventIdentities = eventIdentities }), services,
             NullLogger<LlmMemoryWriter>.Instance);
+    }
+
+    [Fact]
+    public async Task Event_identity_mode_off_keeps_the_exact_existing_system_prompt()
+    {
+        await Writer().WriteAsync(Turn("Acme go-live is on December 11, 2026.", MemoryScope.For("lukas")));
+        _asked.Should().ContainSingle();
+        _asked[0].System.Should().Be(MemoryWriterPrompt.System(null, new LlmExtractionOptions().MemoryWriterMaxOperations));
+    }
+
+    [Fact]
+    public async Task Event_identity_mode_can_emit_an_event_with_separate_dated_and_undated_facts()
+    {
+        _replies.Enqueue("""
+            {"ops":[
+              {"op":"add","kind":"entity","text":"Acme go-live (EVENT)","quote":"Acme go-live"},
+              {"op":"add","kind":"fact","text":"Acme go-live | is scheduled for | December 11, 2026","quote":"December 11, 2026"},
+              {"op":"add","kind":"fact","text":"Acme go-live | takes place at | Acme's office in Córdoba","quote":"Acme's office in Córdoba"}
+            ]}
+            """);
+        var result = await Writer(true).WriteAsync(Turn(
+            "Acme go-live is on December 11, 2026 at Acme's office in Córdoba.", MemoryScope.For("lukas")));
+        _asked.Should().ContainSingle();
+        _asked[0].System.Should().EndWith(MemoryWriterPrompt.EventIdentityInstructions);
+        result.Entities.Should().ContainSingle().Which.Type.Should().Be("EVENT");
+        result.Entities[0].Name.Should().Be("Acme go-live");
+        result.Facts.Should().HaveCount(2).And.OnlyContain(f => f.Subject == "Acme go-live");
+        result.Facts.Should().Contain(f => f.Object == "December 11, 2026");
+        result.Facts.Should().Contain(f => f.Object == "Acme's office in Córdoba");
+    }
+
+    [Fact]
+    public async Task Event_identity_mode_removes_conflicting_owner_subject_and_known_mention_instructions()
+    {
+        await Writer(true).WriteAsync(Turn("I must attend the named event in person.", MemoryScope.For("lukas")));
+        var prompt=_asked.Single().System;
+        prompt.Should().NotContain("with user as the subject when it is about")
+            .And.NotContain("a mere mention of someone already stored needs nothing");
+        prompt.Should().Contain("participation").And.Contain("EVENT");
+    }
+
+    [Fact]
+    public void Event_instructions_do_not_embed_the_validation_answers()
+    {
+        MemoryWriterPrompt.EventIdentityInstructions.Should().NotContain("Acme")
+            .And.NotContain("Córdoba").And.NotContain("December 11").And.NotContain("2026");
     }
 
     private static MemoryWriteRequest Turn(string text, MemoryScope? scope) =>

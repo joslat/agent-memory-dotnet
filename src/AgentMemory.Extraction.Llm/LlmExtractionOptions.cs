@@ -1,4 +1,4 @@
-﻿using AgentMemory.Abstractions.Options;
+using AgentMemory.Abstractions.Options;
 
 namespace AgentMemory.Extraction.Llm;
 
@@ -98,7 +98,7 @@ public sealed class LlmExtractionOptions
     /// </para>
     /// <para>
     /// Off by default: it changes what ingestion records, and every measurement on record was taken
-    /// without it.
+    /// without it. Evidence-based identity turns it on wherever it runs (it was measured with it on).
     /// </para>
     /// </remarks>
     public bool CaptureIdentityAliases { get; set; }
@@ -175,6 +175,20 @@ public sealed class LlmExtractionOptions
     /// user's message only (assistant content is not written), and the multi-session batch path does not use it.
     /// </summary>
     public bool UseMemoryWriter { get; set; }
+
+    /// <summary>
+    /// The identity-aware writer: explicit EVENT observations and atomic event-subject facts; a checked stored-entity
+    /// reference ("ref": the label of a stored entity it was shown) on entity operations; and an operation contract (a
+    /// JSON-schema reply, deterministic checks of actions, quotes, references and event observations, at most one
+    /// targeted correction call when a check fails, and a reported <see cref="AgentMemory.Abstractions.Domain.UnifiedExtractionResult.Outcomes"/>
+    /// entry for whatever still fails). <c>null</c> (the default) follows identity: on where evidence-based identity runs
+    /// (<c>IdentityResolutionOptions.Enabled</c>), off where the previous resolver runs. Off is byte-identical: the prompt,
+    /// the request (no response format) and the single call are unchanged and a reference in a reply is ignored. Requires
+    /// UseMemoryWriter to run. It confirms nothing by itself: evidence-based identity re-checks each reference and its type
+    /// policy decides. On, a turn costs one extra writer call only when a check fails.
+    /// </summary>
+    public bool? MemoryWriterEventIdentities { get; set; }
+
 
     /// <summary>
     /// The writer's closings confirmed by this chat model when no outside update judge answers (none registered or enabled,

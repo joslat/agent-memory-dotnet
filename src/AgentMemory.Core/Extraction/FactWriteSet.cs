@@ -22,7 +22,7 @@ internal sealed class FactWriteSet
     public HashSet<string> CreatedIds { get; }
 
     public FactWriteSet(IReadOnlyList<PreparedFact> facts, FactNames names, ExtractionOptions options,
-        bool writtenByWriter, TimeProvider clock)
+        bool writtenByWriter, TimeProvider clock, bool allowInferredReplacements = true)
     {
         Names = names;
         // 36.4. What each marked correction replaces, by the words it was extracted as (the source key every
@@ -43,7 +43,7 @@ internal sealed class FactWriteSet
         // A value that has ended, or not begun, states no current value ("lived in Berlin until 2019", "moving to Oslo
         // next month") and joins no group: one rule (ReplacementShapes.HoldsNow) with the supersession query's.
         Now = clock.GetUtcNow();
-        Decision = !(options.SupersedeReplacedFacts && !writtenByWriter)
+        Decision = !(allowInferredReplacements && options.SupersedeReplacedFacts && !writtenByWriter)
             ? new CurrentValues.Decision(new Dictionary<string, string>(), new HashSet<string>())
             : CurrentValues.Decide(
                 facts.Select(f => f.Item).ToList(),

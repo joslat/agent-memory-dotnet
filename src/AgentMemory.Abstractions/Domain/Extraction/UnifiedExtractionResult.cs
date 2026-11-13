@@ -20,4 +20,11 @@ public sealed record UnifiedExtractionResult
 
     /// <summary>Stored preferences, by id, the turn says again: reinforced, never stored twice.</summary>
     public IReadOnlyList<string> ConfirmedPreferenceIds { get; init; } = Array.Empty<string>();
+
+    /// <summary>
+    /// Proposed items the extractor could not keep, reported instead of lost (for example a writer operation whose quote is
+    /// not in the message after its bounded correction). Empty unless the extractor reports them; the extraction stage
+    /// adds them to the ingestion outcomes.
+    /// </summary>
+    public IReadOnlyList<IngestionItemOutcome> Outcomes { get; init; } = Array.Empty<IngestionItemOutcome>();
 }

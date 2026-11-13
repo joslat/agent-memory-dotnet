@@ -208,3 +208,54 @@ claims. Version records use the SDK-reserved `id`, `key_id`, `key`, `owner_id`, 
 `invalidated_at`, `superseded_by`, `source_session_id`, `source_message_ids` and `source_excerpt` fields,
 and the existing `SUPERSEDED_BY` relationship between versions. No core record is relabeled.
 See [module writes and limits](extensions/modules.md#transactional-neo4j-module-writes).
+
+The opt-in [identity-evidence extension](extensions/identity-evidence.md) owns host assertions and bounded candidate lookup. It does not activate the new extraction resolver; durable decisions and review remain under implementation.
+
+Reserved owner storage keys escape a leading `*` by adding one `*`; shared remains `*`, ordinary
+owner keys remain unchanged. Owner IDs themselves are unchanged. Apply migration
+`0012_reserved_owner_storage_keys` before using existing reserved-owner data. Shared reads also
+require null owner_id, and writes fail closed on foreign pre-upgrade key collisions. The migration
+does not reconstruct provenance already mixed by an earlier collision. Source and integration
+qualification of this correction remain in progress.
+
+
+Evidence-based ingestion wiring (implementation in progress): configure
+`services.Configure<IdentityResolutionOptions>(o => o.Enabled = true)` and enable the
+`identity-evidence` Neo4j schema extension before ingesting. Pipeline construction rejects a
+backend without bounded candidates, the enabled schema or atomic scoped ingestion. Defaults
+remain off and do not resolve identity backends or issue identity queries. In the enabled mode,
+model/candidate/embedding work precedes the transaction; owner/shared identity locks precede
+fact writes. Original subject/object words remain stored, confirmed targets are not upserted,
+and decision-owned bindings use the repository-returned final Fact ID. A failure rolls back
+the whole enabled ingestion; there is no best-effort replay. Same-surface ambiguous observations
+remain separate and receive no guessed fact or relationship endpoint binding. Source context
+and mentions are bounded (MaxContextUtf8Bytes, MaxMentionsPerIngestion). Review/revocation,
+contextual activation, event evidence and final acceptance remain tracked as unfinished work.
+
+The enabled ingestion owns its outer transaction boundary: starting it inside a caller-owned
+write transaction is rejected before extraction, embedding or contextual model work. Idempotent
+identity scope-lock rows are infrastructure and may remain after an unsuccessful attempt. New
+facts, observations, decisions and fact-role support commit together. Optional writer-named
+closings are a separate best-effort follow-up after that commit, like other post-write consequences:
+model failure or cancellation can leave the new facts committed and the older facts still live.
+A missing commit acknowledgement does not start that follow-up; retry uses stable source keys.
+This composition and the split lock-acquisition correction are currently awaiting compilation
+and their dedicated regression runs; no final delivery claim is made here.
+
+
+### Original relationship assertion ownership (under implementation)
+
+The opt-in identity-evidence extension version 4 declares IdentityRelationshipObservation with
+SOURCE_IDENTITY/TARGET_IDENTITY links to its own scoped IdentityDecision records. The original
+assertion is retained separately from current endpoint identity; decision RESOLVES_TO links select
+current anchors. The ordinary RELATED_TO shape is unchanged. The original-record contract/payload
+and native ingestion/read/review/erasure are qualified; full identity portability remains separate. See the
+[owned extension contract](extensions/identity-evidence.md#version-4-original-relationship-observations-under-implementation).
+
+### Event-detail retrieval and portability compatibility
+
+The opt-in event-detail read reuses the identity-evidence v4 fact-binding shapes; it adds no labels,
+properties, relationship types or migrations. Full identity portability is separate. The legacy owner
+export/import service refuses use before I/O while identity-evidence is enabled, so the old format
+cannot silently stand in for a representation of decisions, revisions and owned support. These new
+source paths compile and pass current unit and actual Neo4j controls; full identity portability remains separate.

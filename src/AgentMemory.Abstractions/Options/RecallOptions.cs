@@ -1,4 +1,4 @@
-﻿namespace AgentMemory.Abstractions.Options;
+namespace AgentMemory.Abstractions.Options;
 
 /// <summary>
 /// Configuration for memory recall operations.
@@ -10,7 +10,7 @@ public sealed record RecallOptions
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <see langword="null"/> — the default — waits for every section, which is exactly today's
+    /// <see langword="null"/> â€” the default â€” waits for every section, which is exactly today's
     /// behaviour. When set, sections still running when the budget expires are dropped and the
     /// context comes back without them.
     /// </para>
@@ -22,7 +22,7 @@ public sealed record RecallOptions
     /// waited.
     /// </para>
     /// <para>
-    /// Abandoned work is not cancelled mid-flight — the queries are already in the driver, and
+    /// Abandoned work is not cancelled mid-flight â€” the queries are already in the driver, and
     /// tearing them down buys nothing the caller is waiting for. Their results are simply not used.
     /// </para>
     /// </remarks>
@@ -56,7 +56,7 @@ public sealed record RecallOptions
 
     /// <summary>
     /// How derived facts (the session accountant's counts and sums) are treated at recall.
-    /// <c>null</c> — the default — is today's behaviour: they compete for the ordinary fact budget.
+    /// <c>null</c> â€” the default â€” is today's behaviour: they compete for the ordinary fact budget.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -64,25 +64,25 @@ public sealed record RecallOptions
     /// </para>
     /// <list type="bullet">
     /// <item><description>
-    /// <c>null</c> — derived facts sit in the same similarity pool as everything else and consume
+    /// <c>null</c> â€” derived facts sit in the same similarity pool as everything else and consume
     /// <see cref="MaxFacts"/> slots. **Measured cost: enabling the accountant on the arithmetic
-    /// vertical moved 30% → 14%**, because ~2,560 derived facts displaced the source values they
+    /// vertical moved 30% â†’ 14%**, because ~2,560 derived facts displaced the source values they
     /// were derived from and facts-per-question FELL from 35.4 to 27.6. This remains the default
     /// only because changing it would alter every sealed measurement taken under it.
     /// </description></item>
     /// <item><description>
-    /// <c>0</c> — derived facts are excluded from recall. Strictly better than <c>null</c> whenever
+    /// <c>0</c> â€” derived facts are excluded from recall. Strictly better than <c>null</c> whenever
     /// the accountant is enabled: an unread derived fact is pure dilution.
     /// </description></item>
     /// <item><description>
-    /// <c>&gt; 0</c> — derived facts get their OWN budget, retrieved separately and appended, so a
+    /// <c>&gt; 0</c> â€” derived facts get their OWN budget, retrieved separately and appended, so a
     /// count or sum can reach the prompt <i>without</i> costing a source fact its slot. This is the
     /// state in which the accountant can finally be shown to help or not.
     /// </description></item>
     /// </list>
     /// <para>
     /// Derived facts are identified by <c>derivation_key</c>, which the derived-fact upsert writes
-    /// and no ordinary fact carries — so the filter is a property test, not a heuristic.
+    /// and no ordinary fact carries â€” so the filter is a property test, not a heuristic.
     /// </para>
     /// </remarks>
     public int? MaxDerivedFacts { get; init; }
@@ -106,8 +106,8 @@ public sealed record RecallOptions
     /// <remarks>
     /// <para>
     /// <b>Why traces need their own floor.</b> At the shared 0.7 default, procedure retrieval
-    /// <i>never abstains</i>: a sweep found every threshold from 0.00 to 0.86 behaves identically —
-    /// a dead zone — and the measured knee is <b>0.92</b>. So the one setting that looks like it
+    /// <i>never abstains</i>: a sweep found every threshold from 0.00 to 0.86 behaves identically â€”
+    /// a dead zone â€” and the measured knee is <b>0.92</b>. So the one setting that looks like it
     /// controls procedure precision controls nothing across the whole range anyone would plausibly
     /// set it to.
     /// </para>
@@ -130,7 +130,7 @@ public sealed record RecallOptions
     /// otherwise <see cref="MinSimilarityScore"/>.
     /// </summary>
     /// <remarks>
-    /// Resolved here rather than at each call site so the two recall paths cannot disagree — the exact
+    /// Resolved here rather than at each call site so the two recall paths cannot disagree â€” the exact
     /// way <c>SuccessfulTracesOnly</c> came to be passed live and hardcoded null on the as-of path.
     /// </remarks>
     public double EffectiveTraceMinScore => MinTraceSimilarityScore ?? MinSimilarityScore;
@@ -148,7 +148,7 @@ public sealed record RecallOptions
     /// Per-request ranking intent (D3): <see cref="RankingIntent.Latest"/> favours fresh memories,
     /// <see cref="RankingIntent.Analog"/> favours structurally/semantically similar memories regardless of
     /// age (precedent retrieval). Applied over the configured <see cref="MemoryRankingOptions"/> for this
-    /// recall only. Default ⇒ the configured weights unchanged.
+    /// recall only. Default â‡’ the configured weights unchanged.
     /// </summary>
     public RankingIntent Intent { get; init; } = RankingIntent.Default;
 
@@ -161,7 +161,7 @@ public sealed record RecallOptions
 
     /// <summary>
     /// Whether live recall honours a fact's valid-time window. Defaults to
-    /// <see cref="ValidTimeMode.Ignore"/> — today's behaviour.
+    /// <see cref="ValidTimeMode.Ignore"/> â€” today's behaviour.
     /// </summary>
     /// <remarks>
     /// The default, <see cref="ValidTimeMode.Ignore"/>, is also what parity with upstream Python means: upstream
@@ -176,7 +176,7 @@ public sealed record RecallOptions
     /// <remarks>
     /// <para>
     /// Everything else in recall is <i>reactive</i>: it answers the question in front of it. A reminder
-    /// is by definition off-topic — nobody asks "is there anything I should know?" — so a
+    /// is by definition off-topic â€” nobody asks "is there anything I should know?" â€” so a
     /// similarity-scored channel can never surface one. This is a <b>time-predicate</b> selection with
     /// no embedding and no similarity floor, and that absence is the specification rather than an
     /// optimisation.
@@ -193,7 +193,7 @@ public sealed record RecallOptions
     public bool ProspectiveFiring { get; init; }
 
     /// <summary>
-    /// Budget for the DUE section — its own claimant, never competing with <see cref="MaxFacts"/>.
+    /// Budget for the DUE section â€” its own claimant, never competing with <see cref="MaxFacts"/>.
     /// </summary>
     /// <remarks>
     /// A separate budget because a volunteered reminder that loses a budget contest to a
@@ -210,7 +210,7 @@ public sealed record RecallOptions
     /// <remarks>
     /// Also the <b>clamp</b> on a checkpoint that is available: a caller returning after months away
     /// would otherwise flood the DUE section with everything that became true in the interim. Bounded
-    /// three ways — this clamp, <see cref="MaxDueItems"/>, and visible truncation in section
+    /// three ways â€” this clamp, <see cref="MaxDueItems"/>, and visible truncation in section
     /// diagnostics.
     /// </remarks>
     public TimeSpan DueLookback { get; init; } = TimeSpan.FromDays(7);
@@ -289,18 +289,31 @@ public sealed record RecallOptions
     public int MaxOverlapItems { get; init; } = 5;
 
     /// <summary>
+    /// Add details of a recalled dated EVENT through its current decision-owned fact bindings.
+    /// <c>null</c> (the default) follows identity: on where evidence-based identity runs, off where the previous resolver
+    /// runs (no extra service call, query, model call or prompt bytes). <c>true</c> requires an identity-capable backend.
+    /// One live read from at most 10 dated facts and 20 event identities; pending proposals are not followed. Extra facts
+    /// have no invented similarity score and share the existing total context budget. Point-in-time recall rejects an
+    /// explicit <c>true</c> rather than reading future identity state, and leaves the default off.
+    /// </summary>
+    public bool? EventDetails { get; init; }
+
+    /// <summary>Maximum appended event details, 0 disables the read; supported range 0..64. Default 8.</summary>
+    public int MaxEventDetailFacts { get; init; } = 8;
+
+    /// <summary>
     /// Reports aged-out memory as a stated absence when a fact section comes back thin. Default off,
     /// and off is byte-identical.
     /// </summary>
     /// <remarks>
     /// <para>
     /// Forgetting already works and is <b>invisible</b>: decay prunes, recall returns less, and the
-    /// agent answers as though it had never known — indistinguishable, to the person asking, from never
+    /// agent answers as though it had never known â€” indistinguishable, to the person asking, from never
     /// having been told. This makes the gap sayable.
     /// </para>
     /// <para>
     /// The probe runs <b>only on thin recalls</b> and only when a query embedding exists, so a
-    /// well-answered turn pays nothing. What surfaces is a summary — topic, count, dates — never the
+    /// well-answered turn pays nothing. What surfaces is a summary â€” topic, count, dates â€” never the
     /// forgotten content itself, because rendering that would undo the forgetting.
     /// </para>
     /// </remarks>
@@ -315,7 +328,7 @@ public sealed record RecallOptions
     /// </summary>
     /// <remarks>
     /// Left at <see cref="MemoryProjectionOptions.Default"/>, a request inherits the application-level
-    /// value configured on <c>MemoryOptions</c> — the same reference-equality inheritance
+    /// value configured on <c>MemoryOptions</c> â€” the same reference-equality inheritance
     /// <c>MemoryOptions.Recall</c> uses, so "the caller did not ask" stays distinguishable from "the
     /// caller asked for the defaults".
     /// </remarks>
@@ -345,7 +358,7 @@ public sealed record RecallOptions
     /// </summary>
     /// <remarks>
     /// The repository and its Cypher have always supported this, and automatic recall passed a
-    /// hardcoded <c>null</c>, so nothing could ever reach it — a built, plumbed, unreachable option.
+    /// hardcoded <c>null</c>, so nothing could ever reach it â€” a built, plumbed, unreachable option.
     /// It is now honoured on both recall paths: live and point-in-time (<c>AssembleContextAsOfAsync</c>,
     /// which forwarded a hardcoded <c>null</c> of its own for longer than the live path did).
     /// <para>
@@ -354,7 +367,7 @@ public sealed record RecallOptions
     /// nothing. Upstream <c>neo4j-labs/agent-memory</c> treats this as correctness rather than tuning
     /// and defaults its equivalent to successful-only. The default here stays at today's behaviour
     /// because nothing becomes a default before it is measured, and the trace surface has never been
-    /// measured at all — it has carried a recall budget of zero in every quality run to date.
+    /// measured at all â€” it has carried a recall budget of zero in every quality run to date.
     /// </para>
     /// </remarks>
     public bool? SuccessfulTracesOnly { get; init; }
@@ -379,7 +392,7 @@ public sealed record RecallOptions
     /// <para>
     /// Similarity cannot cross an alias. "How many deliveries were taken at the new flat" does not
     /// retrieve "took a delivery at the place on Ferrow Row", because as strings those have nothing
-    /// in common — and no embedding, threshold or re-ranker fixes that, since there is no similarity
+    /// in common â€” and no embedding, threshold or re-ranker fixes that, since there is no similarity
     /// to find. Three measured interventions confirmed it: the write-side edge left the census
     /// exactly flat, and a hop re-ranker over the same edges made the vertical worse, because
     /// re-ranking can only reorder candidates retrieval already returned.
@@ -387,8 +400,8 @@ public sealed record RecallOptions
     /// <para>
     /// <b>What makes this tractable is that the bridge is itself retrievable.</b> The declaration
     /// ("the new flat is the place on Ferrow Row") contains the asked-about name, so similarity finds
-    /// THAT even when it cannot find the deliveries. One hop from it — out to the entity, back to the
-    /// entity's other facts — reaches everything filed under either name.
+    /// THAT even when it cannot find the deliveries. One hop from it â€” out to the entity, back to the
+    /// entity's other facts â€” reaches everything filed under either name.
     /// </para>
     /// <para>
     /// <b>Only entities carrying a declared alias are traversed</b>, which is the difference between

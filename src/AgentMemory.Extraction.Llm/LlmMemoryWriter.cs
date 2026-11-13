@@ -42,6 +42,7 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
     private readonly LlmExtractionRunner _runner;
     private readonly IServiceProvider _services;
     private readonly ILogger<LlmMemoryWriter> _logger;
+    private readonly ChatResponseFormat? _operationFormat;
 
     public LlmMemoryWriter(
         IChatClient chatClient,
@@ -53,6 +54,8 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
         _runner = new LlmExtractionRunner(chatClient, _options, logger);
         _services = services;
         _logger = logger;
+        // Event-identity mode only: the default writer's request carries no response format, as measured.
+        _operationFormat = _options.MemoryWriterEventIdentities == true ? MemoryWriterContract.Format(_options.MemoryWriterMaxOperations) : null;
     }
 
     public bool IsEnabled => _options.UseMemoryWriter;
@@ -74,22 +77,20 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
         var stored = await StoredAsync(text, owner, scope, now, cancellationToken).ConfigureAwait(false);
         activity?.SetTag("memory.write.candidates", stored.Count);
 
-        var system = MemoryWriterPrompt.System(owner, _options.MemoryWriterMaxOperations);
+        var system = MemoryWriterPrompt.System(owner, _options.MemoryWriterMaxOperations, _options.MemoryWriterEventIdentities == true);
+        if (_options.MemoryWriterEventIdentities == true) system += MemoryWriterPrompt.EventIdentityInstructions;
         var context = MemoryWriterPrompt.Context(now, request.Window, owner, stored);
-        var (answered, dropped) = await AskAsync(system, context, cancellationToken).ConfigureAwait(false);
+        var (answered, dropped, reply) = await AskAsync(system, context, cancellationToken).ConfigureAwait(false);
 
         // #249. Every operation that writes must quote the words it rests on, and the quote must be in the message: one
         // that is not is a claim the message does not make, and is dropped (and recorded, #250). A located quote's offsets
         // go to the stored memory's provenance. An operation without a quote is kept as it was, without offsets.
         var message = said[^1].Content;
-        var ops = new List<MemoryWriterOps.Op>(answered.Count);
-        var drops = new List<MemoryWriterOps.DroppedOp>(dropped);
-        foreach (var op in answered)
-        {
-            if (op.Action == "confirm" || op.Quote is null) { ops.Add(op); continue; }
-            if (MemoryWriterQuotes.Locate(message, op.Quote) is { } span) ops.Add(op with { QuoteStart = span.Start, QuoteEnd = span.End });
-            else drops.Add(new MemoryWriterOps.DroppedOp(op.Index, MemoryWriterOps.DropReason.QuoteNotFound, op.Text));
-        }
+        var (ops, drops) = Locate(answered, dropped, message);
+        IReadOnlyList<IngestionItemOutcome> rejected = [];
+        if (_operationFormat is not null)
+            (ops, drops, rejected) = await EnforceAsync(system, context, reply, ops, drops, stored, owner, message, activity, cancellationToken)
+                .ConfigureAwait(false);
 
         if (drops.Count > 0)
         {
@@ -100,7 +101,7 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
                     string.Join(" ; ", drops.Select(d => $"#{d.Index} {d.Reason}{(d.Text is null ? "" : ": " + d.Text)}")));
         }
 
-        var result = MemoryWriterOps.ToResult(ops, stored, owner);
+        var result = MemoryWriterOps.ToResult(ops, stored, owner, _operationFormat is null ? null : message);
         if (_options.DatesFromText)
         {
             // The dates the facts' own words state, as date fields too (the words stay as written). A yearless date is
@@ -109,6 +110,7 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
             var saidAt = said.Select(m => m.TimestampUtc).DefaultIfEmpty(now).Max();
             result = result with { Facts = [.. result.Facts.Select(fact => AgentMemory.Core.Memory.FactDateReader.Apply(fact, saidAt))] };
         }
+        if (rejected.Count > 0) result = result with { Outcomes = rejected };
         activity?.SetTag("memory.write.operations", ops.Count);
         if (_logger.IsEnabled(LogLevel.Debug))
             _logger.LogDebug("Memory writer: shown [{Stored}]; answered [{Ops}].",
@@ -130,25 +132,94 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
     /// "nothing to keep". The third try (2026-10-10): over 3,634 turns of the Dreaming jar's store runs the first answer held
     /// no JSON 104 times and the second 10, each a model that reasoned through its whole room and answered nothing (12,000
     /// output tokens over the two): a runaway the next call rarely repeats, so one more call saves most of the lost turns.
+    /// The identity writer's schema-constrained first call is retried without the schema, at the same room (ILC-31): at the
+    /// same room and reasoning effort GLM-5.3-Flash answered nothing to about 1 in 30 schema calls and never to the default
+    /// writer's (six recorded runs each), so the schema, not the room, is what fails; and a constrained runaway that filled
+    /// its room is not cured by more. The contract still checks whatever comes back, and its correction call keeps the schema.
     /// </summary>
-    private async Task<(IReadOnlyList<MemoryWriterOps.Op> Ops, IReadOnlyList<MemoryWriterOps.DroppedOp> Dropped)> AskAsync(
+    private async Task<(IReadOnlyList<MemoryWriterOps.Op> Ops, IReadOnlyList<MemoryWriterOps.DroppedOp> Dropped, string Reply)> AskAsync(
         string system, string context, CancellationToken cancellationToken)
     {
         const int Attempts = 3;
         var room = _options.MemoryWriterMaxOutputTokens;
+        var format = _operationFormat;
         string? reply = null;
         for (var attempt = 1; attempt <= Attempts; attempt++)
         {
-            var response = await _runner.CompleteAsync(
-                [new ChatMessage(ChatRole.System, system), new ChatMessage(ChatRole.User, context)], room, json: false, cancellationToken)
-                .ConfigureAwait(false);
+            ChatMessage[] messages = [new ChatMessage(ChatRole.System, system), new ChatMessage(ChatRole.User, context)];
+            var response = format is null
+                ? await _runner.CompleteAsync(messages, room, json: false, cancellationToken).ConfigureAwait(false)
+                : await _runner.CompleteAsync(messages, room, format, cancellationToken).ConfigureAwait(false);
             reply = response.Text;
             if (MemoryWriterOps.TryParse(reply, _options.MemoryWriterMaxOperations, out var ops, out var dropped))
-                return (ops, dropped);
+                return (ops, dropped, reply);
             _logger.LogWarning("Memory writer: the reply held no JSON (attempt {Attempt} of {Attempts}, {Room} tokens of room).", attempt, Attempts, room);
-            if (attempt == 1) room *= 2;
+            // The default writer doubles its room once; the identity writer's retries drop the schema and keep the room.
+            if (attempt == 1)
+            {
+                if (format is null) room *= 2;
+                format = null;
+            }
         }
         throw new FormatException($"The memory writer's model gave no JSON: {(reply is null ? "" : reply[..Math.Min(160, reply.Length)])}");
+    }
+
+    /// <summary>Locates each quote in the message (#249); an operation whose quote is not there is dropped and recorded.</summary>
+    private static (List<MemoryWriterOps.Op> Ops, List<MemoryWriterOps.DroppedOp> Drops) Locate(
+        IReadOnlyList<MemoryWriterOps.Op> answered, IReadOnlyList<MemoryWriterOps.DroppedOp> dropped, string message)
+    {
+        var ops = new List<MemoryWriterOps.Op>(answered.Count);
+        var drops = new List<MemoryWriterOps.DroppedOp>(dropped);
+        foreach (var op in answered)
+        {
+            if (op.Action == "confirm" || op.Quote is null) { ops.Add(op); continue; }
+            if (MemoryWriterQuotes.Locate(message, op.Quote) is { } span) ops.Add(op with { QuoteStart = span.Start, QuoteEnd = span.End });
+            else drops.Add(new MemoryWriterOps.DroppedOp(op.Index, MemoryWriterOps.DropReason.QuoteNotFound, op.Text) { Kind = op.Kind });
+        }
+        return (ops, drops);
+    }
+
+    /// <summary>
+    /// The event-identity contract (ILC-07): checks the reply, asks one targeted correction when something failed, and
+    /// returns what is still wrong as ingestion outcomes. A correction that cannot be read or reached fixes nothing; it
+    /// never costs the turn the operations that were already valid. Never a third call.
+    /// </summary>
+    private async Task<(List<MemoryWriterOps.Op> Ops, List<MemoryWriterOps.DroppedOp> Drops, IReadOnlyList<IngestionItemOutcome> Rejected)> EnforceAsync(
+        string system, string context, string reply, List<MemoryWriterOps.Op> ops, List<MemoryWriterOps.DroppedOp> drops,
+        IReadOnlyList<MemoryWriterOps.Stored> stored, string? owner, string message, System.Diagnostics.Activity? activity,
+        CancellationToken cancellationToken)
+    {
+        var issues = MemoryWriterContract.Check(ops, drops, stored, owner);
+        if (issues.Count == 0) return (ops, [], []);
+        var correctable = issues.Where(issue => issue.Reason != MemoryWriterOps.DropReason.OverLimit).ToList();
+        IReadOnlyList<MemoryWriterOps.Op> corrected = [];
+        if (correctable.Count > 0)
+        {
+            activity?.SetTag("memory.write.correction_requested", correctable.Count);
+            try
+            {
+                var response = await _runner.CompleteAsync(
+                    [new ChatMessage(ChatRole.System, system), new ChatMessage(ChatRole.User, context),
+                     new ChatMessage(ChatRole.Assistant, reply), new ChatMessage(ChatRole.User, MemoryWriterContract.Request(correctable))],
+                    _options.MemoryWriterMaxOutputTokens, _operationFormat!, cancellationToken).ConfigureAwait(false);
+                if (MemoryWriterOps.TryParse(response.Text, _options.MemoryWriterMaxOperations, out var fixes, out _))
+                    corrected = Locate(fixes, [], message).Ops;
+                else _logger.LogWarning("Memory writer: the correction reply held no JSON; {Count} problem(s) stay rejected.", correctable.Count);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Memory writer: the correction call failed; {Count} problem(s) stay rejected.", correctable.Count);
+            }
+        }
+        var (merged, unfixed) = MemoryWriterContract.Merge(ops, issues, corrected, stored, _options.MemoryWriterMaxOperations);
+        if (unfixed.Count > 0)
+        {
+            activity?.SetTag("memory.write.rejected", unfixed.Count);
+            _logger.LogWarning("Memory writer: {Count} problem(s) remain after one correction: {Problems}.", unfixed.Count,
+                string.Join(" ; ", unfixed.Select(issue => $"#{issue.Index} {issue.Reason}{(issue.Text is null ? "" : ": " + issue.Text)}")));
+        }
+        return (merged, [], [.. unfixed.Select(MemoryWriterContract.Outcome)]);
     }
 
     /// <summary>
@@ -309,6 +380,54 @@ internal static class MemoryWriterPrompt
         {"op": "confirm", "id": "P3", "quote": "..."}]} or {"ops": []}.
         """;
 
+    private const string EventEntityWhat =
+        "a named entity or a connection explicitly stated in the message; do not infer connections. "
+        + "Emit a current EVENT observation with each new fact about its date, place or participation, even for an already stored event. "
+        + "A person's own event participation is still a fact about that event. Other already stored entity mentions need no duplicate.";
+
+    private const string EventEntityFormat =
+        "an entity as \"Name (PERSON|PLACE|ORGANIZATION|THING|EVENT)\"; a connection as \"Name -[RELATION]-> Name\"";
+
+    private const string EventFactFormat =
+        "\"subject | predicate | object\"; use the exact named event as subject for its date, location or participation "
+        + "requirement/permission, including first-person statements about attending or running it. "
+        + "For other facts about {p}, use {s} as subject. Keep stated names, dates and negation.";
+
+    internal const string EventIdentityInstructions = """
+
+        Explicit event references:
+        - A named event is an entity operation with kind "entity" and text "Exact event name (EVENT)".
+        - Whenever you add facts about a named event, also emit its EVENT observation, even if a stored entity has that name.
+          This records the current mention; it does not assert that two observations are the same identity.
+        - Put explicitly stated date, place and participation requirements in separate atomic facts whose subject is the
+          exact event name. Use shapes such as "<event name> | is scheduled for | <stated date>",
+          "<event name> | takes place at | <stated location>", and
+          "<event name> | participation | <stated requirement or permission>". Replace the placeholders only with supported
+          words from the message; never output the placeholders or invent a date, location or presence requirement.
+        - Keep the owner's involvement separately, for example "user | leads | <event name>". Do not bury the only event
+          reference inside a longer object sentence. Keep date words in the dated fact; do not copy that date onto place
+          or presence facts unless the current statement explicitly dates them too.
+        - Use an existing event name only when the current statement and visible context unambiguously refer to it.
+          Similar names, dates, shared people or places alone never establish identity. If the reference is ambiguous,
+          preserve the stated words and uncertainty rather than inventing a connection or transferring another event's facts.
+        - Event date, location and participation facts are the explicit exception to the general owner-subject and
+          already-stored-mention rules. Before returning JSON, check that each such new fact has its current EVENT
+          observation and the event as subject. A first-person attendance requirement/permission is an event participation
+          fact; keep the participant and any negation in its object. Do not replace it solely with a user-subject sentence.
+          If context cannot resolve the event reference unambiguously, preserve uncertainty instead of guessing a link.
+        - Every emitted item must remain supported by the current message. Keep its source quote rules and operation cap.
+
+        Stored entity references:
+        - Every operation has a "ref" field; on facts, preferences and connections it is always null. An entity's "text" is
+          exactly "Name (TYPE)", nothing before or after. When an entity operation is about a person, organisation, place, thing or event
+          already listed in STORED as an E item, and the current statement and visible context unambiguously refer to that
+          stored entity, set "ref" to its E label and use that stored entity's exact name and kind in "text". Its quote is
+          the words of the last message that refer to it, even when they name it differently.
+        - Otherwise set "ref" to null: for a similar name, the same date, a shared person or place alone, or when two stored
+          entities could match. A "ref" only says which stored entity this mention is about; it never replaces or corrects
+          a stored memory, and facts about that entity use the same exact name as their subject.
+        """;
+
     private static readonly (string Kind, string What, string Format)[] Kinds =
     [
         ("fact", "a fact, plan, event, change or correction about {p} or {p}'s world (people, pets, places, work, health, money, "
@@ -324,13 +443,13 @@ internal static class MemoryWriterPrompt
     ];
 
     /// <summary>The system prompt for an owner known by <paramref name="owner"/> (null: "the user", stored as "user").</summary>
-    internal static string System(string? owner, int maxOperations)
+    internal static string System(string? owner, int maxOperations, bool eventIdentities = false)
     {
         var p = owner ?? "the user";
         var s = owner ?? "user";
         string Fill(string template) => template.Replace("{p}", p, StringComparison.Ordinal).Replace("{s}", s, StringComparison.Ordinal);
-        var what = "\n" + string.Join("\n", Kinds.Select(k => $"- {k.Kind}: {Fill(k.What)}"));
-        var formats = string.Join("; ", Kinds.Select(k => $"{k.Kind}: {Fill(k.Format)}"));
+        var what = "\n" + string.Join("\n", Kinds.Select(k => $"- {k.Kind}: {Fill(eventIdentities && k.Kind == "person" ? EventEntityWhat : k.What)}"));
+        var formats = string.Join("; ", Kinds.Select(k => $"{k.Kind}: {Fill(eventIdentities && k.Kind == "fact" ? EventFactFormat : eventIdentities && k.Kind == "person" ? EventEntityFormat : k.Format)}"));
         // "\n" whatever line endings this file was checked out with: the measured prompt's.
         return Writer.ReplaceLineEndings("\n")
             .Replace("{kind_name}", "every kind", StringComparison.Ordinal)
@@ -411,6 +530,12 @@ internal static class MemoryWriterOps
 
         /// <summary>The operation's position in the reply's "ops" list, from 0.</summary>
         public int Index { get; init; }
+
+        /// <summary>
+        /// The label of a stored entity the writer was shown (E2) that an entity operation says it is about, as the model
+        /// gave it. Read only in event-identity mode, and kept only after it is checked against the labels shown.
+        /// </summary>
+        public string? Ref { get; init; }
     }
 
     /// <summary>Why an operation in a reply was not kept (#250).</summary>
@@ -433,10 +558,32 @@ internal static class MemoryWriterOps
 
         /// <summary>A quote the message does not contain (#249).</summary>
         QuoteNotFound,
+
+        /// <summary>A "ref" that is not the label of a stored entity shown in this call, or on an operation other than an entity add (the entity is kept without it).</summary>
+        ReferenceInvalid,
+
+        /// <summary>A "ref" on an operation with no located quote to rest on (the entity is kept without it).</summary>
+        ReferenceWithoutQuote,
+
+        /// <summary>A "ref" whose operation names the entity differently from the stored entity it refers to (the entity is kept without it).</summary>
+        ReferenceNameMismatch,
+
+        /// <summary>A fact about a named event with no entity operation observing that event in the same reply.</summary>
+        EventObservationMissing,
+
+        /// <summary>An entity whose text is not exactly "Name (TYPE)" (a fact, a list or JSON debris): never coerced into an OBJECT.</summary>
+        EntityFormatInvalid,
+
+        /// <summary>A fact, preference or connection whose text holds a line break, a code fence or embedded operation JSON.</summary>
+        TextFormatInvalid,
     }
 
     /// <summary>An operation the writer did not keep, where it was in the reply, why, and its text when it had one.</summary>
-    internal sealed record DroppedOp(int Index, DropReason Reason, string? Text);
+    internal sealed record DroppedOp(int Index, DropReason Reason, string? Text)
+    {
+        /// <summary>The kind the operation said it was (fact, preference, entity, relationship), when it said one.</summary>
+        public string? Kind { get; init; }
+    }
 
     /// <summary>A stored memory shown to the writer: its short label (F3, P1, E2, R4), its text, and what it really is.</summary>
     internal sealed record Stored(string Id, char Letter, string Text)
@@ -497,20 +644,23 @@ internal static class MemoryWriterOps
             foreach (var o in list.EnumerateArray())
             {
                 index++;
-                if (index >= max) { lost.Add(new DroppedOp(index, DropReason.OverLimit, o.ValueKind == JsonValueKind.Object ? Str(o, "text") : null)); continue; }
+                var kind = o.ValueKind == JsonValueKind.Object ? Str(o, "kind")?.Trim().ToLowerInvariant() : null;
+                kind = kind is not null && ItemKinds.Contains(kind) ? kind : null;
+                if (index >= max) { lost.Add(new DroppedOp(index, DropReason.OverLimit, o.ValueKind == JsonValueKind.Object ? Str(o, "text") : null) { Kind = kind }); continue; }
                 if (o.ValueKind != JsonValueKind.Object) { lost.Add(new DroppedOp(index, DropReason.NotAnObject, null)); continue; }
                 var action = Str(o, "op")?.Trim().ToLowerInvariant();
                 var text = Str(o, "text")?.Trim();
                 var id = Str(o, "id")?.Trim();
-                if (action is null || !Actions.Contains(action)) { lost.Add(new DroppedOp(index, DropReason.UnknownAction, text)); continue; }
-                if (action == "confirm" && string.IsNullOrEmpty(id)) { lost.Add(new DroppedOp(index, DropReason.MissingId, text)); continue; }
-                if (action != "confirm" && string.IsNullOrEmpty(text)) { lost.Add(new DroppedOp(index, DropReason.MissingText, null)); continue; }
-                var kind = Str(o, "kind")?.Trim().ToLowerInvariant();
+                if (action is null || !Actions.Contains(action)) { lost.Add(new DroppedOp(index, DropReason.UnknownAction, text) { Kind = kind }); continue; }
+                if (action == "confirm" && string.IsNullOrEmpty(id)) { lost.Add(new DroppedOp(index, DropReason.MissingId, text) { Kind = kind }); continue; }
+                if (action != "confirm" && string.IsNullOrEmpty(text)) { lost.Add(new DroppedOp(index, DropReason.MissingText, null) { Kind = kind }); continue; }
                 var quote = Str(o, "quote");
-                kept.Add(new Op(action, kind is not null && ItemKinds.Contains(kind) ? kind : "fact", text ?? "", id, Str(o, "until")?.Trim())
+                var reference = Str(o, "ref")?.Trim();
+                kept.Add(new Op(action, kind ?? "fact", text ?? "", id, Str(o, "until")?.Trim())
                 {
                     Quote = string.IsNullOrWhiteSpace(quote) ? null : quote,
                     Index = index,
+                    Ref = string.IsNullOrEmpty(reference) ? null : reference,
                 });
             }
             ops = kept;
@@ -542,7 +692,7 @@ internal static class MemoryWriterOps
     /// preference, a stored connection for a connection; a connection-shaped replacement of a fact remains a fact so its
     /// target is preserved without requiring separately persisted entity endpoints. Anything else is simply added.
     /// </summary>
-    internal static UnifiedExtractionResult ToResult(IReadOnlyList<Op> ops, IReadOnlyList<Stored> stored, string? owner)
+    internal static UnifiedExtractionResult ToResult(IReadOnlyList<Op> ops, IReadOnlyList<Stored> stored, string? owner, string? referenceMessage = null)
     {
         var byLabel = stored.ToDictionary(s => s.Label, StringComparer.OrdinalIgnoreCase);
         var facts = new List<ExtractedFact>();
@@ -595,6 +745,8 @@ internal static class MemoryWriterOps
                     {
                         Name = entity.Success ? entity.Groups["n"].Value : op.Text.Trim(),
                         Type = entity.Success ? EntityType(entity.Groups["t"].Value) : "OBJECT",
+                        // Event-identity mode only (the message is passed): a checked label shown in this call, never a guess.
+                        Reference = referenceMessage is null ? null : MemoryWriterContract.Reference(op, byLabel, referenceMessage),
                     });
                     break;
                 case "relationship":

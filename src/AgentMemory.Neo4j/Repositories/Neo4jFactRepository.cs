@@ -1,4 +1,4 @@
-﻿﻿using AgentMemory.Core.Stubs;
+using AgentMemory.Core.Stubs;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Diagnostics;
@@ -46,6 +46,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
     private readonly OwnerRowCounts? _ownerRowCounts;
     private readonly ISharedCorpusProbe? _sharedCorpus;
     private readonly bool _filteredOwnerIndex;
+    private readonly bool _identityEventDetailsEnabled;
 
     /// <summary>37.1b: a shared (owner-less) fact is being written, so recall's shared search must not be skipped.</summary>
     private void NoteShared(IEnumerable<Fact> facts)
@@ -66,6 +67,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         TimeProvider? clock = null)
     {
         _filteredOwnerIndex = neo4jOptions?.Value.FilteredVectorIndexes ?? false;
+        _identityEventDetailsEnabled = neo4jOptions?.Value.Extensions.Contains("identity-evidence") ?? false;
         _ownerFirstThreshold = memoryOptions?.Value.OwnerFirstVectorThreshold ?? 0;
         _ownerRowCounts = ownerRowCounts;
         _sharedCorpus = sharedCorpus;
@@ -99,7 +101,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
                 ("subject_key", subjectKey),
                 ("predicate_key", predicateKey),
                 ("object_key", objectKey),
-                ("owner_key", fact.OwnerId ?? OwnerKeyShared)
+                ("owner_key", OwnerStorageKey.Encode(fact.OwnerId))
             ],
             fact.FactId);
 
@@ -116,7 +118,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
                 ["objectKey"] = objectKey,
                 ["object"] = fact.Object,
                 ["ownerId"] = fact.OwnerId,
-                ["ownerKey"] = fact.OwnerId ?? OwnerKeyShared,
+                ["ownerKey"] = OwnerStorageKey.Encode(fact.OwnerId),
                 ["category"] = fact.Category,
                 ["confidence"] = fact.Confidence,
                 ["reinforceAlpha"] = _reinforceAlpha,
@@ -176,7 +178,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         // loser id naming nothing and silently dropping its embedding/EXTRACTED_FROM. After dedup the
         // returned list is 1:1 with distinct triples and provenance is deterministic (R5 #10).
         var deduped = facts
-            .GroupBy(f => TripleKey(f.Subject, f.Predicate, f.Object, f.OwnerId ?? OwnerKeyShared))
+            .GroupBy(f => TripleKey(f.Subject, f.Predicate, f.Object, OwnerStorageKey.Encode(f.OwnerId)))
             .Select(g => g.Last())
             .ToList();
 
@@ -193,7 +195,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
                     ("subject_key", MemoryTripleCanonicalizer.CanonicalValue(f.Subject)),
                     ("predicate_key", MemoryTripleCanonicalizer.Canonical(f.Predicate)),
                     ("object_key", MemoryTripleCanonicalizer.CanonicalValue(f.Object)),
-                    ("owner_key", f.OwnerId ?? OwnerKeyShared)
+                    ("owner_key", OwnerStorageKey.Encode(f.OwnerId))
                 ],
                 f.FactId);
         }
@@ -208,7 +210,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
             ["object_key"] = MemoryTripleCanonicalizer.CanonicalValue(f.Object),
             ["object"] = f.Object,
             ["owner_id"] = f.OwnerId,
-            ["owner_key"] = f.OwnerId ?? OwnerKeyShared,
+            ["owner_key"] = OwnerStorageKey.Encode(f.OwnerId),
             ["category"] = f.Category,
             ["confidence"] = f.Confidence,
             ["valid_from"] = (object?)(f.ValidFrom?.ToString("O")),
@@ -229,6 +231,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
                 FactQueries.UpsertBatch,
                 new { items, reinforceAlpha = _reinforceAlpha }).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
+            if (records.Count == 0) throw new InvalidOperationException("Fact scope-key collision; migrate reserved owner keys before writing.");
 
             // The MERGE returns the SURVIVING node per triple; for a pre-existing triple that id is the
             // ORIGINAL node id, not the caller's fresh FactId. Resolve the embedding/provenance sub-writes
@@ -244,7 +247,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
 
             string? NodeIdFor(Fact f) =>
                 nodeIdByTriple.TryGetValue(
-                    TripleKey(f.Subject, f.Predicate, f.Object, f.OwnerId ?? OwnerKeyShared), out var nodeId)
+                    TripleKey(f.Subject, f.Predicate, f.Object, OwnerStorageKey.Encode(f.OwnerId)), out var nodeId)
                     ? nodeId : null;
 
             // Set embeddings individually — only for nodes with a real (non-empty) vector.
@@ -266,7 +269,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
             }
 
             var embeddingByTriple = deduped.ToDictionary(
-                f => TripleKey(f.Subject, f.Predicate, f.Object, f.OwnerId ?? OwnerKeyShared),
+                f => TripleKey(f.Subject, f.Predicate, f.Object, OwnerStorageKey.Encode(f.OwnerId)),
                 f => f.Embedding);
             return records.Select(r =>
             {
@@ -585,7 +588,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         // crowded out: the owner's rows, then (shared included) the shared rows, merged by score. No widening, no scan.
         if (hasOwner && _filteredOwnerIndex)
         {
-            var own = await QueryAsync(topK, cancellationToken, filteredKey: scope!.OwnerId).ConfigureAwait(false);
+            var own = await QueryAsync(topK, cancellationToken, filteredKey: OwnerStorageKey.Encode(scope!.OwnerId)).ConfigureAwait(false);
             var filtered = includeShared
                 ? MergeByScore(own, await QueryAsync(topK, cancellationToken, filteredKey: OwnerKeyShared).ConfigureAwait(false), limit)
                 : own;
@@ -712,7 +715,8 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
             ["threshold"] = threshold,
             ["subject"] = subject,
             ["predicate"] = predicate,
-            ["ownerKey"] = ownerId ?? OwnerKeyShared,
+            ["ownerKey"] = OwnerStorageKey.Encode(ownerId),
+            ["ownerId"] = ownerId,
         };
 
         return await _tx.ReadAsync(async runner =>
@@ -1554,7 +1558,8 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         };
         if (hasOwner)
         {
-            parameters["ownerKey"] = scope!.OwnerId!;
+            parameters["ownerKey"] = OwnerStorageKey.Encode(scope!.OwnerId);
+            parameters["ownerId"] = scope.OwnerId!;
             if (includeShared) parameters["sharedOwnerKey"] = OwnerKeyShared;
         }
 

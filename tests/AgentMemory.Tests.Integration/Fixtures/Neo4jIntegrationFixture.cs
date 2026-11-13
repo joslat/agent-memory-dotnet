@@ -55,10 +55,31 @@ public sealed class Neo4jIntegrationFixture : IAsyncLifetime
         var image = Environment.GetEnvironmentVariable("AGENTMEMORY_TEST_NEO4J_IMAGE") is { Length: > 0 } configured
             ? configured
             : "neo4j:5.26";
-        _container = new Neo4jBuilder(image)
+        var builder = new Neo4jBuilder(image)
+            .WithLabel("com.agentmemory.repository", "agent-memory-dotnet")
+            .WithLabel("com.agentmemory.fixture", "Neo4jIntegrationFixture")
             .WithEnvironment("NEO4J_AUTH", $"{ContainerUsername}/{ContainerPassword}")
-            .WithEnvironment("NEO4J_ACCEPT_LICENSE_AGREEMENT", "yes")
-            .Build();
+            .WithEnvironment("NEO4J_ACCEPT_LICENSE_AGREEMENT", "yes");
+        var memoryProfile = Environment.GetEnvironmentVariable("AGENTMEMORY_TEST_NEO4J_MEMORY_PROFILE");
+        if (!string.IsNullOrEmpty(memoryProfile))
+        {
+            if (memoryProfile != "identity-small")
+                throw new InvalidOperationException("Unknown test Neo4j memory profile: " + memoryProfile);
+            // Same real server/schema/transactions; only the explicitly selected test JVM is sized.
+            // This profile is for bounded identity scenarios, not latency/performance acceptance.
+            builder = builder.WithEnvironment("NEO4J_server_memory_heap_initial__size", "128m")
+                .WithEnvironment("NEO4J_server_memory_heap_max__size", "256m")
+                .WithEnvironment("NEO4J_server_memory_pagecache_size", "64m")
+                .WithEnvironment("JAVA_TOOL_OPTIONS", "-XX:ActiveProcessorCount=2")
+                .WithCreateParameterModifier(parameters =>
+                {
+                    // Bound the complete owned workload, including native memory and charged cache.
+                    parameters.HostConfig ??= new();
+                    parameters.HostConfig.Memory = 1024L * 1024 * 1024;
+                    parameters.HostConfig.MemorySwap = 1024L * 1024 * 1024;
+                });
+        }
+        _container = builder.Build();
 
         await _container.StartAsync();
 

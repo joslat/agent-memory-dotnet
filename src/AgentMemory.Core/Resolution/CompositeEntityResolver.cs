@@ -77,8 +77,25 @@ internal sealed partial class CompositeEntityResolver : IEntityResolver, IExtrac
         bool persistResolution,
         CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        var calendar = CalendarValues.TryRead(extractedEntity.Name, extractedEntity.Type, out var calendarValue);
+        if (calendar && calendarValue?.IsComplete != true)
+            return (await CreateNewEntityAsync(extractedEntity, sourceMessageIds, scope, persistResolution,
+                null, cancellationToken).ConfigureAwait(false), true);
         var candidates = await GetCandidatesAsync(extractedEntity, scope, cancellationToken)
             .ConfigureAwait(false);
+
+        if (calendar)
+        {
+            var equal = CalendarValues.EqualValues(calendarValue!, candidates, scope);
+            if (equal.Count == 1)
+            {
+                var existing = await InFullAsync(equal[0], cancellationToken).ConfigureAwait(false);
+                if (CalendarValues.HasValue(existing, calendarValue!)) return (existing, false);
+            }
+            return (await CreateNewEntityAsync(extractedEntity, sourceMessageIds, scope, persistResolution,
+                null, cancellationToken).ConfigureAwait(false), true);
+        }
 
         // The semantic matcher embeds the mention to compare it; when nothing matches, persistence used
         // to embed the SAME name again for the new entity (one remote round trip each, measured ~1 s).
@@ -187,12 +204,16 @@ internal sealed partial class CompositeEntityResolver : IEntityResolver, IExtrac
         MemoryScope? scope = null,
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        var calendar = CalendarValues.TryRead(name, type, out var calendarValue);
+        if (calendar && calendarValue?.IsComplete != true) return [];
         // The probe is built first so duplicate-finding sees the same candidate set resolution does --
         // including the non-strict widening, which is if anything more wanted here: a cross-type
         // duplicate is exactly the kind this surface exists to surface.
         var probe = new ExtractedEntity { Name = name, Type = type };
 
         var candidates = await GetCandidatesAsync(probe, scope, cancellationToken).ConfigureAwait(false);
+        if (calendar) return CalendarValues.EqualValues(calendarValue!, candidates, scope);
         // One memo for the matchers and the index lookup: the mention is embedded once.
         var embeddings = new EmbeddingMemo(_embeddingOrchestrator, null);
         var matchers = BuildMatchers(embeddings);

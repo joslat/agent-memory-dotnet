@@ -89,3 +89,25 @@ were closed by `ExtractionOwnerStampIntegrationTests` and the `ContextResource_*
 
 The isolation design and full per-finding history are recorded in the maintainers' internal project archive
 (not part of the published docs).
+
+## Bounded identity fixture profile
+
+`AGENTMEMORY_TEST_NEO4J_MEMORY_PROFILE=identity-small` explicitly sizes the shared integration
+fixture to a 128 MiB initial/256 MiB maximum heap, 64 MiB page cache and two JVM processors.
+The owned container also has a 1 GiB memory limit with no additional swap allowance, bounding native
+memory and charged filesystem cache as well as the JVM heap. It runs the same real Neo4j image,
+indexes and transactions. The default fixture is unchanged. Unknown
+profile names fail before starting a container. Use this profile for bounded identity correctness
+scenarios on a shared machine; record it with results. It is not a latency/performance measurement
+profile and does not waive host RAM reserves or ownership checks. Profile startup/behavior still
+needs an actual live run; setting an environment variable is not acceptance evidence.
+
+### Identity core completion: prepared, not yet executed
+
+New `EventDetailBoundaryTests`, event cases in `LookAheadAssemblerTests`,
+`IdentityOwnerCompatibilityTests` and the added `IdentityIngestionIntegrationTests` cover bounded
+event detail retrieval, shared context budgeting, off-mode, explicit historical/schema limits,
+owner isolation, retired events, pending candidates and refusal of lossy legacy portability. The
+three earlier current-schema owner-erasure controls are also pending. Per the owner's revised
+execution order, source and tests are prepared together; compilation and focused/live/model
+verification follow implementation. Earlier green counts do not qualify these new paths.

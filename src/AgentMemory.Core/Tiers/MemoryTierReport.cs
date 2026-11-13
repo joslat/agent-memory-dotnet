@@ -45,7 +45,7 @@ internal sealed class DreamingTierSource : IMemoryTierSource
 /// </summary>
 internal sealed class MemoryTierReport(IEnumerable<IMemoryTierSource> sources) : IMemoryTiers
 {
-    private static readonly string[] Order = [MemoryTiers.Storage, MemoryTiers.Retrieval, MemoryTiers.Dreaming];
+    private static readonly string[] Order = [MemoryTiers.Storage, MemoryTiers.Identity, MemoryTiers.Retrieval, MemoryTiers.Dreaming];
     private int _logged;
 
     public IReadOnlyList<MemoryTier> Describe()

@@ -1,4 +1,4 @@
-﻿using AgentMemory.Neo4j.Infrastructure;
+using AgentMemory.Neo4j.Infrastructure;
 
 namespace AgentMemory.Neo4j.Queries;
 
@@ -16,7 +16,7 @@ internal static class EntityQueries
             MERGE (e:Entity {id: $id})
             ON CREATE SET
                 e.owner_id           = $ownerId,
-                e.owner_key          = coalesce($ownerId, '*'),
+                e.owner_key          = CASE WHEN $ownerId STARTS WITH '*' THEN '*' + $ownerId ELSE coalesce($ownerId, '*') END,
                 e.name               = $name,
                 e.canonical_name     = $canonicalName,
                 e.type               = $type,
@@ -29,7 +29,7 @@ internal static class EntityQueries
                 e.created_at         = datetime($createdAtUtc),
                 e.metadata           = $metadata
             ON MATCH SET
-                e.owner_key          = coalesce(e.owner_key, coalesce(e.owner_id, '*')),
+                e.owner_key          = CASE WHEN e.owner_id STARTS WITH '*' THEN '*' + e.owner_id ELSE coalesce(e.owner_id, '*') END,
                 e.name               = $name,
                 e.canonical_name     = $canonicalName,
                 e.type               = $type,
@@ -107,7 +107,8 @@ internal static class EntityQueries
                 : new CypherBuilder().WithVectorSearch("entity_embedding_idx", "$embedding", "node", topK))
                 .Where("score >= $minScore")
                 .And("node.invalidated_at IS NULL")
-                .And(includeShared ? "(node.owner_id = $ownerId OR node.owner_id IS NULL)" : "node.owner_id = $ownerId", when: hasOwnerFilter && !filteredOwner),
+                .And(includeShared ? "(node.owner_id = $ownerId OR node.owner_id IS NULL)" : "node.owner_id = $ownerId", when: hasOwnerFilter && !filteredOwner)
+                .And("(($ownerKey = '*' AND node.owner_id IS NULL) OR ($ownerKey <> '*' AND node.owner_id = $ownerId))", when: filteredOwner),
             recencyRerank, omitEmbedding);
 
     // ── Owner key backfill (36.9) ──────────────────────────────────────
@@ -115,9 +116,9 @@ internal static class EntityQueries
     /// <summary>Sets the owner key on up to <c>$limit</c> entities written before it existed; returns how many.</summary>
     public const string BackfillOwnerKeys = @"
             MATCH (e:Entity)
-            WHERE e.owner_key IS NULL
+            WHERE e.owner_key IS NULL OR (e.owner_id STARTS WITH '*' AND e.owner_key = e.owner_id)
             WITH e LIMIT $limit
-            SET e.owner_key = coalesce(e.owner_id, '*')
+            SET e.owner_key = CASE WHEN e.owner_id STARTS WITH '*' THEN '*' + e.owner_id ELSE coalesce(e.owner_id, '*') END
             RETURN count(e) AS updated";
 
     // ── GetByTypeAsync ─────────────────────────────────────────────────
@@ -132,7 +133,7 @@ internal static class EntityQueries
     {
         // 36.9 (G-17). The shared half by owner_key = '*', a seek: owner_id IS NULL read every entity of the type.
         var owner = !hasOwnerFilter ? string.Empty
-            : includeShared ? " AND (e.owner_id = $ownerId OR e.owner_key = '*')"
+            : includeShared ? " AND (e.owner_id = $ownerId OR (e.owner_key = '*' AND e.owner_id IS NULL))"
                             : " AND e.owner_id = $ownerId";
         // Exclude soft-invalidated/superseded entities (R6-B): this is the entity-resolution candidate set,
         // so a re-extracted entity must not resolve onto (and merge into) a tombstoned node — which would
@@ -170,7 +171,7 @@ internal static class EntityQueries
             CALL {
                 MATCH (e:Entity {owner_id: $ownerId}) RETURN e
                 UNION
-                MATCH (e:Entity {owner_key: '*'}) RETURN e
+                MATCH (e:Entity {owner_key: '*'}) WHERE e.owner_id IS NULL RETURN e
             }
             WITH e
             WHERE e.merged_into IS NULL AND e.invalidated_at IS NULL
@@ -185,7 +186,7 @@ internal static class EntityQueries
     {
         // 36.9 (G-17). Same shared half as GetByType: the two back the same resolution and must agree.
         var owner = !hasOwnerFilter ? string.Empty
-            : includeShared ? " AND (e.owner_id = $ownerId OR e.owner_key = '*')"
+            : includeShared ? " AND (e.owner_id = $ownerId OR (e.owner_key = '*' AND e.owner_id IS NULL))"
                             : " AND e.owner_id = $ownerId";
         return $"MATCH (e:Entity {{type: $type}}) WHERE e.invalidated_at IS NULL{owner} "
             + "RETURN e {.id, .owner_id, .name, .canonical_name, .type, .subtype, .description, .confidence, "
@@ -253,7 +254,7 @@ internal static class EntityQueries
             MERGE (e:Entity {id: item.id})
             ON CREATE SET
                 e.owner_id           = item.owner_id,
-                e.owner_key          = coalesce(item.owner_id, '*'),
+                e.owner_key          = CASE WHEN item.owner_id STARTS WITH '*' THEN '*' + item.owner_id ELSE coalesce(item.owner_id, '*') END,
                 e.name               = item.name,
                 e.canonical_name     = item.canonical_name,
                 e.type               = item.type,
@@ -266,7 +267,7 @@ internal static class EntityQueries
                 e.created_at         = datetime(item.created_at),
                 e.metadata           = item.metadata
             ON MATCH SET
-                e.owner_key          = coalesce(e.owner_key, coalesce(e.owner_id, '*')),
+                e.owner_key          = CASE WHEN e.owner_id STARTS WITH '*' THEN '*' + e.owner_id ELSE coalesce(e.owner_id, '*') END,
                 e.name               = item.name,
                 e.canonical_name     = item.canonical_name,
                 e.type               = item.type,

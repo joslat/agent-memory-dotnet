@@ -8,6 +8,7 @@ using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Core.Extraction.MergeStrategies;
 using AgentMemory.Core.Resolution;
+using AgentMemory.Core.Memory;
 using AgentMemory.Core.Validation;
 
 namespace AgentMemory.Core.Extraction;
@@ -19,6 +20,7 @@ namespace AgentMemory.Core.Extraction;
 /// </summary>
 internal sealed class ExtractionStage : IExtractionStage
 {
+    private readonly IdentityIngestion? _identity;
     private readonly IReadOnlyList<IEntityExtractor> _entityExtractors;
     private readonly IReadOnlyList<IFactExtractor> _factExtractors;
     private readonly IReadOnlyList<IPreferenceExtractor> _preferenceExtractors;
@@ -42,8 +44,10 @@ internal sealed class ExtractionStage : IExtractionStage
         // Optional and last: without an enabled writer the stage is exactly what it was.
         IEnumerable<IMemoryWriter>? writers = null,
         // Optional: each leg's tier, logged once on the first write.
-        IMemoryTiers? tiers = null)
+        IMemoryTiers? tiers = null,
+        IdentityIngestion? identity = null)
     {
+        _identity = identity;
         _writers = (writers ?? []).ToList().AsReadOnly();
         _tiers = tiers as Tiers.MemoryTierReport;
         _entityExtractors = entityExtractors.ToList().AsReadOnly();
@@ -57,13 +61,15 @@ internal sealed class ExtractionStage : IExtractionStage
     }
 
     public IDisposable? BeginResolutionBatch() =>
-        (_entityResolver as IExtractionEntityResolver)?.BeginBatch();
+        _identity?.Enabled == true ? null : (_entityResolver as IExtractionEntityResolver)?.BeginBatch();
 
     public IDisposable? BeginOrJoinResolutionBatch() =>
-        (_entityResolver as IExtractionEntityResolver)?.BeginOrJoinBatch();
+        _identity?.Enabled == true ? null : (_entityResolver as IExtractionEntityResolver)?.BeginOrJoinBatch();
 
-    public void InvalidateResolutionBatch() =>
-        (_entityResolver as IExtractionEntityResolver)?.InvalidateBatch();
+    public void InvalidateResolutionBatch()
+    {
+        if (_identity?.Enabled != true) (_entityResolver as IExtractionEntityResolver)?.InvalidateBatch();
+    }
 
     public Task<ExtractionStageResult> ExtractForInputAsync(
         ExtractionWindow window,
@@ -128,6 +134,7 @@ internal sealed class ExtractionStage : IExtractionStage
     {
         _tiers?.LogOnce(_logger);
         var messages = window.Targets;
+        if (_identity?.Enabled == true) _identity.AssertOwnsTransactionBoundary();
 
         // Targets only, never the context (E2). A context turn in here would become an EXTRACTED_FROM
         // edge asserting the memory was stated in a turn the extractors were told not to extract from
@@ -150,7 +157,7 @@ internal sealed class ExtractionStage : IExtractionStage
         }
 
         var strategy = _options.MergeStrategy;
-        var failFast = _options.FailureMode == IngestionFailureMode.FailFast;
+        var failFast = _identity?.Enabled == true || _options.FailureMode == IngestionFailureMode.FailFast;
 
         _logger.LogDebug(
             "ExtractionStage starting. Extractors: {E} entity, {F} fact, {P} preference, {R} relationship. Strategy: {Strategy}.",
@@ -213,7 +220,8 @@ internal sealed class ExtractionStage : IExtractionStage
         }
         else if (written is { } w)
         {
-            unifiedOutcomes = w.Outcomes;
+            // A working writer's reported rejections (empty unless it reports any) join the turn's outcomes.
+            unifiedOutcomes = w.Result.Outcomes.Count == 0 ? w.Outcomes : [.. w.Outcomes, .. w.Result.Outcomes];
             entityRun = CompletedRun(typesToExtract.HasFlag(ExtractionTypes.Entities) ? w.Result.Entities : []);
             factRun = CompletedRun(typesToExtract.HasFlag(ExtractionTypes.Facts) ? w.Result.Facts : []);
             prefRun = CompletedRun(typesToExtract.HasFlag(ExtractionTypes.Preferences) ? w.Result.Preferences : []);
@@ -286,7 +294,14 @@ internal sealed class ExtractionStage : IExtractionStage
                 "Ingestion failed fast: one or more extractors threw.", outcomes);
         }
 
-        if (_entityResolver is IExtractionEntityResolver batchResolver)
+        // Freeze relationship data and reject unsupported storage before identity candidate/model awaits.
+        var identityRelationships = _identity?.Enabled == true
+            ? _identity.PrepareRelationshipObservations(rawRelationships
+                .Where(relationship => !(relationship.Confidence < _options.MinConfidenceThreshold)).ToArray(),
+                sourceMessageIds, AgentMemory.Core.Services.SharedScopes.WriteOwner(scope))
+            : Array.Empty<IdentityRelationshipObservation>();
+
+        if (_identity?.Enabled != true && _entityResolver is IExtractionEntityResolver batchResolver)
         {
             var resolvable = rawEntities
                 .Where(entity =>
@@ -309,6 +324,9 @@ internal sealed class ExtractionStage : IExtractionStage
         resolutionActivity?.SetTag("memory.extract.candidate_entities", rawEntities.Count);
         resolutionActivity?.SetTag("memory.extract.source_messages", sourceMessageIds.Count);
 
+        var identityPlans = new List<IdentityDecisionWrite>();
+        var identityBudget = _identity?.Enabled == true ? _identity.CreateAdjudicationBudget() : null;
+        var identityOccurrences = new Dictionary<string, int>(StringComparer.Ordinal);
         var resolvedEntityMap = new Dictionary<string, Entity>(StringComparer.OrdinalIgnoreCase);
         foreach (var extracted in rawEntities)
         {
@@ -323,7 +341,7 @@ internal sealed class ExtractionStage : IExtractionStage
                 continue;
             }
 
-            if (!EntityValidator.IsValid(extracted, _options.Validation))
+            if (!EntityValidator.IsValid(extracted, _options.Validation) && !KeepsCalendarValue(extracted))
             {
                 _logger.LogWarning("Skipping entity '{Name}' — failed validation.", extracted.Name);
                 outcomes.Add(new IngestionItemOutcome
@@ -344,6 +362,18 @@ internal sealed class ExtractionStage : IExtractionStage
                 // that stage owns a coalesced transaction, an eager resolver upsert would write the
                 // same entity twice and sit outside the logical commit boundary. Direct resolver callers
                 // retain their historical persist-on-resolve behavior through ResolveEntityAsync.
+                if (_identity?.Enabled == true)
+                {
+                    if (identityPlans.Count >= _identity.MaxMentions)
+                        throw new InvalidOperationException("Identity ingestion exceeds MaxMentionsPerIngestion.");
+                    var plan = await _identity.PlanAsync(extracted, window, scope, cancellationToken, identityBudget).ConfigureAwait(false);
+                    var baseKey = plan.Decision.ObservationKey;
+                    var occurrence = identityOccurrences.GetValueOrDefault(baseKey);
+                    identityOccurrences[baseKey] = occurrence + 1;
+                    if (occurrence > 0) plan = IdentityIngestion.WithOccurrence(plan, occurrence);
+                    identityPlans.Add(plan);
+                    continue;
+                }
                 var deferPersistence = failFast || _options.UseCoalescedPersistenceTransactions;
                 var entity = deferPersistence && _entityResolver is IExtractionEntityResolver deferredResolver
                     ? await deferredResolver.ResolveForPersistenceAsync(
@@ -379,6 +409,12 @@ internal sealed class ExtractionStage : IExtractionStage
             }
         }
 
+        if (_identity?.Enabled == true)
+            foreach (var group in identityPlans.DistinctBy(plan => plan.Decision.ObservationKey)
+                .GroupBy(plan => MemoryTripleCanonicalizer.CanonicalValue(plan.Decision.Observation.Name), StringComparer.Ordinal))
+                if (group.Count() == 1)
+                    resolvedEntityMap.Add(group.Single().Decision.Observation.Name, group.Single().Decision.Observation);
+
         // 3. Confidence-filter facts.
         var filteredFacts = rawFacts
             .Where(f =>
@@ -404,8 +440,10 @@ internal sealed class ExtractionStage : IExtractionStage
             .ToList();
 
         // 5. Confidence-filter relationships AND verify both endpoints are resolved.
-        var filteredRels = new List<ExtractedRelationship>();
-        foreach (var extracted in rawRelationships)
+        var filteredRels = _identity?.Enabled == true
+            ? identityRelationships.Select(observation => observation.Observation).ToList()
+            : new List<ExtractedRelationship>();
+        foreach (var extracted in _identity?.Enabled == true ? Array.Empty<ExtractedRelationship>() : rawRelationships)
         {
             if (extracted.Confidence < _options.MinConfidenceThreshold)
             {
@@ -418,12 +456,12 @@ internal sealed class ExtractionStage : IExtractionStage
             // I-7: an endpoint that is the user ("user -WORKS_AT-> Fabrikam") is not an extracted entity; with
             // ResolveUserToName, persistence maps it to the user's person entity, so it is not dropped here.
             bool IsUserEndpoint(string endpoint, bool source) =>
-                _options.ResolveUserToName && MemoryUserNames.MeansUserEndpoint(endpoint, source);
+                _identity?.Enabled != true && _options.ResolveUserToName && MemoryUserNames.MeansUserEndpoint(endpoint, source);
 
             // 40.91. An endpoint this extraction did not see may be someone the owner's memory already holds (met in an
             // earlier message): with an owner, persistence resolves it against the owner's stored entities, and skips it
             // there, with this same outcome, when none is found. Without an owner there is nothing to look in.
-            bool Deferred(string endpoint) => scope?.OwnerId is not null && !string.IsNullOrWhiteSpace(endpoint);
+            bool Deferred(string endpoint) => _identity?.Enabled != true && scope?.OwnerId is not null && !string.IsNullOrWhiteSpace(endpoint);
 
             if (!resolvedEntityMap.ContainsKey(extracted.SourceEntity) && !IsUserEndpoint(extracted.SourceEntity, source: true)
                 && !Deferred(extracted.SourceEntity))
@@ -475,6 +513,10 @@ internal sealed class ExtractionStage : IExtractionStage
             RawPreferences = rawPreferences,
             RawRelationships = rawRelationships,
             ResolvedEntityMap = resolvedEntityMap,
+            IdentityPlans = identityPlans,
+            IdentityRelationships = _identity?.Enabled == true
+                ? IdentityIngestion.WithRelationshipEndpoints(identityRelationships, identityPlans) : [],
+            IdentityIncludeSharedSources = _identity?.Enabled == true && scope?.IncludeShared == true,
             FilteredFacts = filteredFacts.AsReadOnly(),
             FilteredPreferences = filteredPrefs.AsReadOnly(),
             FilteredRelationships = filteredRels.AsReadOnly(),
@@ -545,6 +587,15 @@ internal sealed class ExtractionStage : IExtractionStage
     }
 
     /// <summary>
+    /// Evidence-based identity compares complete calendar values ("2026-12-12" is "12 December 2026"); the numeric-only
+    /// name filter would drop the ISO spelling of an explicitly temporal entity before that comparison (ILCS DATE-01..03,
+    /// native). Only with identity enabled; off, validation is unchanged.
+    /// </summary>
+    private bool KeepsCalendarValue(ExtractedEntity extracted) => _identity?.Enabled == true &&
+        CalendarValues.IsExplicitTemporalType(extracted.Type) &&
+        CalendarValues.TryRead(extracted.Name, extracted.Type, out var value) && value?.IsComplete == true;
+
+    /// <summary>
     /// The writer's call, failing as the unified extractor's does: a writer that throws stores nothing for the turn and
     /// records why, never a half-written turn.
     /// </summary>
@@ -557,6 +608,8 @@ internal sealed class ExtractionStage : IExtractionStage
     {
         try
         {
+            // Outcomes here mean the writer failed (the caller may fall back); what a working writer could not keep travels
+            // in the result's own Outcomes and is reported with the turn's other outcomes.
             return (await writer.WriteAsync(new MemoryWriteRequest(window, scope), cancellationToken).ConfigureAwait(false),
                 Array.Empty<IngestionItemOutcome>());
         }

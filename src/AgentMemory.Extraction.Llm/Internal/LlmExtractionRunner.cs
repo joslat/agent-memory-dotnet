@@ -290,6 +290,20 @@ internal sealed class LlmExtractionRunner
         return GetResponseWithTransportRetryAsync([.. messages], chatOptions, cancellationToken);
     }
 
+    /// <summary>
+    /// As <see cref="CompleteAsync(IReadOnlyList{ChatMessage}, int, bool, CancellationToken)"/>, with exactly the given reply
+    /// format (a JSON schema for the event-identity writer); the runner's own JSON setting does not replace it.
+    /// </summary>
+    internal Task<ChatResponse> CompleteAsync(
+        IReadOnlyList<ChatMessage> messages, int maxOutputTokens, ChatResponseFormat responseFormat, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(responseFormat);
+        var chatOptions = BuildChatOptions(responseFormat: null);
+        chatOptions.ResponseFormat = responseFormat;
+        chatOptions.MaxOutputTokens = Math.Min(MaxOutputTokenCeiling, maxOutputTokens);
+        return GetResponseWithTransportRetryAsync([.. messages], chatOptions, cancellationToken);
+    }
+
     private ChatOptions BuildChatOptions(ChatResponseFormat? responseFormat)
     {
         var opts = new ChatOptions { Temperature = _options.Temperature };

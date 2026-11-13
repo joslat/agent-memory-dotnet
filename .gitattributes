@@ -15,3 +15,6 @@ eng/release-packages.txt text eol=lf
 packs/**/agentmemory/**/*.json text eol=lf
 packs/**/agentmemory/**/*.jsonl text eol=lf
 packs/**/*.png binary
+
+# Canonical licence hashes must be identical on Windows and Unix checkouts.
+**/LICENSE text eol=lf

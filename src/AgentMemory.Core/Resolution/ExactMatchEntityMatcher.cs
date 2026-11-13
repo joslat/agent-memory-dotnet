@@ -15,6 +15,9 @@ internal sealed class ExactMatchEntityMatcher : IEntityMatcher
         IReadOnlyList<Entity> existingEntities,
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (CalendarValues.IsCalendar(candidate)) return Task.FromResult<EntityResolutionResult?>(null);
+        existingEntities = CalendarValues.NameCandidates(existingEntities);
         var candidateName = candidate.Name;
 
         foreach (var existing in existingEntities)

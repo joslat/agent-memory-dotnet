@@ -10,6 +10,7 @@ namespace AgentMemory.Core.Extraction;
 /// <summary>Discovers named and similarity candidates, asks the closing policy, and applies approved proposals.</summary>
 internal sealed class JudgedMemoryClosings
 {
+    private readonly bool _structuredFactKeys;
     private readonly IEmbeddingOrchestrator _embeddingOrchestrator;
     private readonly IEntityRepository _entityRepository;
     private readonly IFactRepository _factRepository;
@@ -24,8 +25,9 @@ internal sealed class JudgedMemoryClosings
     public JudgedMemoryClosings(IEmbeddingOrchestrator embeddingOrchestrator, IEntityRepository entityRepository,
         IFactRepository factRepository, IPreferenceRepository preferenceRepository,
         IRelationshipRepository relationshipRepository, TimeProvider clock, ExtractionOptions options, ILogger logger,
-        ClosingPolicy policy, ClosingPipeline closings)
+        ClosingPolicy policy, ClosingPipeline closings, bool structuredFactKeys = false)
     {
+        _structuredFactKeys = structuredFactKeys;
         _embeddingOrchestrator = embeddingOrchestrator;
         _entityRepository = entityRepository;
         _factRepository = factRepository;
@@ -186,7 +188,10 @@ internal sealed class JudgedMemoryClosings
         {
             foreach (var item in namedFacts)
             {
-                if (!factsByKey.TryGetValue($"{item.Subject} {item.Predicate} {item.Object}", out var written))
+                var winnerKey = _structuredFactKeys
+                    ? FactNames.CanonicalTripleKey(item.Subject, item.Predicate, item.Object)
+                    : $"{item.Subject} {item.Predicate} {item.Object}";
+                if (!factsByKey.TryGetValue(winnerKey, out var written))
                 {
                     _logger.LogWarning("Memory writer: '{Subject} | {Predicate} | {Object}' named '{Id}' as replaced but was not written; nothing is closed.",
                         item.Subject, item.Predicate, item.Object, item.ReplacesId);

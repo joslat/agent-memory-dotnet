@@ -3,10 +3,10 @@ using System.Diagnostics.CodeAnalysis;
 namespace AgentMemory.Abstractions.Services;
 
 /// <summary>
-/// One leg of memory (storage, retrieval, dreaming) and the tier it runs at now: what the configuration and the judges'
+/// One leg of memory (storage, identity, retrieval, dreaming) and the tier it runs at now: what the configuration and the judges'
 /// health let it do, with why when it runs below what was asked.
 /// </summary>
-/// <param name="Leg"><see cref="MemoryTiers.Storage"/>, <see cref="MemoryTiers.Retrieval"/> or <see cref="MemoryTiers.Dreaming"/>.</param>
+/// <param name="Leg"><see cref="MemoryTiers.Storage"/>, <see cref="MemoryTiers.Identity"/>, <see cref="MemoryTiers.Retrieval"/> or <see cref="MemoryTiers.Dreaming"/>.</param>
 /// <param name="Tier">What runs, e.g. <c>writer + update judge</c>, <c>judge (jev)</c>, <c>similarity floor</c>, <c>off</c>.</param>
 /// <param name="Note">Why it runs at this tier, or what it falls back to; null when there is nothing to add.</param>
 
@@ -28,14 +28,14 @@ public interface IMemoryTierSource
 /// Every leg's tier, in one place: what a host shows at startup or in a health check. The library logs <see cref="Line"/>
 /// once, on its first write.
 /// </summary>
-/// <example><c>storage: writer + update judge; retrieval: judge (jev); dreaming: off</c></example>
+/// <example><c>storage: writer + update judge; identity: evidence-based; retrieval: judge (jev); dreaming: off</c></example>
 
 public interface IMemoryTiers
 {
-    /// <summary>Storage, retrieval and dreaming, in that order.</summary>
+    /// <summary>Storage, identity, retrieval and dreaming, in that order.</summary>
     IReadOnlyList<MemoryTier> Describe();
 
-    /// <summary>The three on one line.</summary>
+    /// <summary>All of them on one line.</summary>
     string Line();
 }
 
@@ -45,6 +45,9 @@ public static class MemoryTiers
 {
     /// <summary>How long-term memory is written.</summary>
     public const string Storage = "storage";
+
+    /// <summary>How a mention is matched to what is already stored: evidence-based identity or the previous resolver.</summary>
+    public const string Identity = "identity";
 
     /// <summary>How recall fills the prompt.</summary>
     public const string Retrieval = "retrieval";

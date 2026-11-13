@@ -54,7 +54,7 @@ public sealed class SupersedeQueryTests
         cypher.Should().NotContain("owner_id = $ownerId",
             $"{label} unscoped supersession must not bind a specific owner");
         // …but it must STILL refuse to link across owners, even on the unscoped (admin) path.
-        cypher.Should().Contain("coalesce(loser.owner_id, '*') = coalesce(winner.owner_id, '*')",
+        cypher.Should().Contain("(loser.owner_id = winner.owner_id OR (loser.owner_id IS NULL AND winner.owner_id IS NULL))",
             $"{label} supersession must never create a cross-owner :SUPERSEDED_BY edge");
     }
 
@@ -74,9 +74,9 @@ public sealed class SupersedeQueryTests
     public void Supersede_AlwaysGuardsSameOwner(string label, Func<bool, string> build)
     {
         // The same-owner guard is unconditional — present in BOTH the scoped and unscoped query shapes.
-        build(true).Should().Contain("coalesce(loser.owner_id, '*') = coalesce(winner.owner_id, '*')",
+        build(true).Should().Contain("(loser.owner_id = winner.owner_id OR (loser.owner_id IS NULL AND winner.owner_id IS NULL))",
             $"{label} scoped supersession must guard against crossing owners");
-        build(false).Should().Contain("coalesce(loser.owner_id, '*') = coalesce(winner.owner_id, '*')",
+        build(false).Should().Contain("(loser.owner_id = winner.owner_id OR (loser.owner_id IS NULL AND winner.owner_id IS NULL))",
             $"{label} unscoped supersession must still guard against crossing owners");
     }
 

@@ -1,4 +1,4 @@
-﻿﻿using AgentMemory.Neo4j.Infrastructure;
+using AgentMemory.Neo4j.Infrastructure;
 
 namespace AgentMemory.Neo4j.Queries;
 
@@ -146,7 +146,7 @@ internal static class FactQueries
     // ── UpsertAsync ────────────────────────────────────────────────────
 
     /// <summary>Merge a fact by subject/predicate/object triple, setting all properties.</summary>
-    public const string Upsert = @"
+    public const string Upsert = OwnerScopeGuards.FactSingle + @"
             MERGE (f:Fact {subject_key: $subjectKey, predicate_key: $predicateKey, object_key: $objectKey, owner_key: $ownerKey, period_key: ''})
             ON CREATE SET
                 f.subject            = $subject,
@@ -207,7 +207,7 @@ internal static class FactQueries
     /// existing when incoming is null, so re-extraction never clears a supersession window); and
     /// invalidated_at is reset on re-assert (a present-time positive assertion restores live recall).
     /// </summary>
-    public const string UpsertBatch = @"
+    public const string UpsertBatch = OwnerScopeGuards.FactBatch + @"
             UNWIND $items AS item
             MERGE (f:Fact {subject_key: item.subject_key, predicate_key: item.predicate_key, object_key: item.object_key, owner_key: item.owner_key, period_key: ''})
             ON CREATE SET
@@ -372,6 +372,7 @@ internal static class FactQueries
             MATCH (node:Fact)
             WHERE node.invalidated_at IS NULL
               AND node.owner_key = $ownerKey
+              AND (($ownerId IS NULL AND node.owner_id IS NULL) OR ($ownerId IS NOT NULL AND node.owner_id = $ownerId))
               AND toLower(node.subject) = toLower($subject)
               AND toLower(node.predicate) = toLower($predicate)
               AND node.embedding IS NOT NULL
@@ -451,7 +452,8 @@ internal static class FactQueries
                 .And("node.derivation_key IS NULL", when: excludeDerived)
                 .And("node.derivation_key IS NOT NULL", when: onlyDerived)
                 // The scan head already confined the rows to the owner (and shared, when included).
-                .And(includeShared ? "(node.owner_id = $ownerId OR node.owner_id IS NULL)" : "node.owner_id = $ownerId", when: hasOwnerFilter && !ownerScan && !filteredOwner),
+                .And(includeShared ? "(node.owner_id = $ownerId OR node.owner_id IS NULL)" : "node.owner_id = $ownerId", when: hasOwnerFilter && !ownerScan && !filteredOwner)
+                .And("(($ownerKey = '*' AND node.owner_id IS NULL) OR ($ownerKey <> '*' AND node.owner_id = $ownerId))", when: filteredOwner),
             recencyRerank, omitEmbedding);
 
     /// <summary>
@@ -470,6 +472,7 @@ internal static class FactQueries
     /// </summary>
     public const string CountSharedFactsCapped = @"
             MATCH (f:Fact {owner_key: '*'})
+            WHERE f.owner_id IS NULL
             WITH f LIMIT $cap
             RETURN count(f) AS n";
 
@@ -498,7 +501,7 @@ internal static class FactQueries
         // (Neo4j indexes no nulls), so with shared included this "owner-bounded" scan planned a NodeByLabelScan
         // of EVERY fact in the store (profiled: 1,119 of 1,119 rows for a 306-fact owner); now two seeks.
         var owner = includeShared
-            ? "(f.owner_id = $ownerId OR f.owner_key = '*')"
+            ? "(f.owner_id = $ownerId OR (f.owner_key = '*' AND f.owner_id IS NULL))"
             : "f.owner_id = $ownerId";
         // The SECOND live fact path, and the one every prior analysis of this gap predates -- it did not
         // exist before 1.4.1. Gating only the indexed query above would leave valid time silently
@@ -619,7 +622,7 @@ internal static class FactQueries
             WHERE true" + loserOwner + @"
             MATCH (winner:Fact {id: $winnerId})
             WHERE true" + winnerOwner + @"
-              AND coalesce(loser.owner_id, '*') = coalesce(winner.owner_id, '*')
+              AND (loser.owner_id = winner.owner_id OR (loser.owner_id IS NULL AND winner.owner_id IS NULL))
               AND loser <> winner
             SET loser.invalidated_at = coalesce(loser.invalidated_at, datetime($now)),
                 // J-6. A replaced value is a closed period: its period_key leaves the open one (''), so the same
@@ -664,7 +667,7 @@ internal static class FactQueries
             WHERE true" + loserOwner + @"
             MATCH (winner:Fact {id: $winnerId})
             WHERE true" + winnerOwner + @"
-              AND coalesce(loser.owner_id, '*') = coalesce(winner.owner_id, '*')
+              AND (loser.owner_id = winner.owner_id OR (loser.owner_id IS NULL AND winner.owner_id IS NULL))
               AND loser <> winner
             WITH loser, winner,
                  // B-13: a correction of a value a change had made history withdraws it from now on.
@@ -1111,14 +1114,14 @@ internal static class FactQueries
     /// </summary>
     public const string FindLatestObjectOrShared = @"
             MATCH (f:Fact)
-            WHERE f.owner_key IN [$ownerId, '*']
+            WHERE (f.owner_id = $ownerId OR (f.owner_key = '*' AND f.owner_id IS NULL))
               AND f.subject_key IN $subjectKeys
               AND f.predicate_key IN $predicateKeys
               AND f.invalidated_at IS NULL
               AND (f.valid_until IS NULL OR f.valid_until > datetime($now))
               AND f.object IS NOT NULL
             RETURN f.object AS object
-            ORDER BY CASE WHEN f.owner_key = $ownerId THEN 0 ELSE 1 END, coalesce(f.updated_at, f.created_at) DESC
+            ORDER BY CASE WHEN f.owner_id = $ownerId THEN 0 ELSE 1 END, coalesce(f.updated_at, f.created_at) DESC
             LIMIT 1";
 
     public static string FindByTriple(bool hasOwnerFilter, bool includeShared)
@@ -1127,8 +1130,8 @@ internal static class FactQueries
         // on every one of its columns produces a seek. Shared facts carry the shared marker as their
         // owner_key, so include-shared admits both rather than testing for a null owner.
         var owner = !hasOwnerFilter ? string.Empty
-            : includeShared ? " AND f.owner_key IN [$ownerKey, $sharedOwnerKey]"
-                            : " AND f.owner_key = $ownerKey";
+            : includeShared ? " AND ((f.owner_key = $ownerKey AND f.owner_id = $ownerId) OR (f.owner_key = $sharedOwnerKey AND f.owner_id IS NULL))"
+                            : " AND f.owner_key = $ownerKey AND f.owner_id = $ownerId";
         return $@"
             MATCH (f:Fact)
             WHERE f.subject_key = $subjectKey

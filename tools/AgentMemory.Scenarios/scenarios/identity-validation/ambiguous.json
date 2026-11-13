@@ -1,0 +1,54 @@
+{
+  "source": null,
+  "owner": "bruna-validation",
+  "ownerName": "Bruna",
+  "assistantBrief": "You are Bruna's planning assistant. Use only supported memory. State uncertainty explicitly.",
+  "askedOn": "2026-12-04",
+  "name": "identity-ambiguous",
+  "title": "Bounded identity validation: ambiguous",
+  "sessions": [
+    {
+      "date": "2026-11-09",
+      "topic": "ambiguous",
+      "messages": [
+        "I am Bruna. My Acme coworker Alex Kim lives in Córdoba, Argentina.",
+        "My cousin is also named Alex Kim. My cousin lives in Bariloche and is a different person from my Acme coworker.",
+        "My Acme coworker Alex Kim also goes by AK. My cousin does not use that nickname."
+      ]
+    }
+  ],
+  "questions": [
+    {
+      "id": "alex",
+      "kind": "identity-validation",
+      "text": "Where does my coworker Alex live, and where does my cousin Alex live?",
+      "needs": [
+        {
+          "fact": "Alex and Córdoba",
+          "mentions": [
+            [
+              "Alex"
+            ],
+            [
+              "Córdoba",
+              "Cordoba"
+            ]
+          ]
+        },
+        {
+          "fact": "Alex and Bariloche",
+          "mentions": [
+            [
+              "Alex"
+            ],
+            [
+              "Bariloche"
+            ]
+          ]
+        }
+      ],
+      "rightAnswer": "Coworker: Córdoba. Cousin: Bariloche. They are different people; do not inherit one person's facts as the other's."
+    }
+  ],
+  "store": []
+}

@@ -162,7 +162,7 @@ internal sealed class Neo4jConflictDetectionService : IConflictDetectionService
                 return new FactConflict(
                     r["subject"].As<string>(),
                     r["predicate"].As<string>(),
-                    ownerKey == "*" ? null : ownerKey,
+                    ownerKey,
                     members);
             }).ToList();
         }, cancellationToken);

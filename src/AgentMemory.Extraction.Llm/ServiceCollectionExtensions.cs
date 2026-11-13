@@ -1,6 +1,8 @@
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using AgentMemory.Abstractions.Services;
+using AgentMemory.Core.Resolution;
 
 namespace AgentMemory.Extraction.Llm;
 
@@ -9,6 +11,28 @@ namespace AgentMemory.Extraction.Llm;
 /// </summary>
 public static class ServiceCollectionExtensions
 {
+    /// <summary>
+    /// Registers one optional contextual adapter with a dedicated host-owned singleton client.
+    /// The factory stays lazy; this does not enable identity or alter extraction's client.
+    /// The host keeps the client alive until this adapter has drained its in-flight calls.
+    /// </summary>
+    public static IServiceCollection AddIdentityAdjudication(this IServiceCollection services,
+        Func<IServiceProvider, IChatClient> clientFactory, int maxInFlight = 8)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(clientFactory);
+        if (maxInFlight is < 1 or > 64) throw new ArgumentOutOfRangeException(nameof(maxInFlight));
+        // A dedicated client replaces the extraction model's default (AddLlmExtraction), whichever was registered first.
+        var defaults = services.Where(d => d.ServiceType == typeof(IIdentityAdjudicator) && d.ImplementationFactory == ExtractionModelAdjudicator).ToList();
+        foreach (var descriptor in defaults) services.Remove(descriptor);
+        services.TryAddSingleton<IIdentityAdjudicator>(provider => new ChatIdentityAdjudicator(
+            clientFactory(provider) ?? throw new InvalidOperationException("The identity client factory returned null."), maxInFlight));
+        return services;
+    }
+
+    private static readonly Func<IServiceProvider, object> ExtractionModelAdjudicator =
+        provider => new ChatIdentityAdjudicator(provider.GetRequiredService<IChatClient>(), 8);
+
     /// <summary>
     /// Registers LLM-backed extractors and their options.
     /// </summary>
@@ -70,6 +94,18 @@ public static class ServiceCollectionExtensions
         services.TryAddScoped<IMultiSessionUnifiedMemoryExtractor, LlmMultiSessionUnifiedMemoryExtractor>();
         // Registered always, asked only when UseMemoryWriter is on: it reads the store only when asked.
         services.TryAddEnumerable(ServiceDescriptor.Scoped<IMemoryWriter, LlmMemoryWriter>());
+        // ILC-25: what evidence-based identity was measured with follows it, decided once by Core (IdentityActivation):
+        // the writer's event identities (unless the host chose) and alias capture where it runs, nothing where it does not.
+        llmOptions.PostConfigure<IServiceProvider>((options, provider) =>
+        {
+            var identity = provider.GetService<IdentityActivation>()?.ActiveWith(options.UseMemoryWriter) == true;
+            options.MemoryWriterEventIdentities ??= identity;
+            if (identity) options.CaptureIdentityAliases = true;
+        });
+        // The second opinion on an uncertain identity asks the extraction model unless the host gives it its own client
+        // (AddIdentityAdjudication). Asked only where identity runs and only for a mention it cannot settle.
+        if (!services.Any(d => d.ServiceType == typeof(IIdentityAdjudicator)))
+            services.Add(ServiceDescriptor.Singleton(typeof(IIdentityAdjudicator), ExtractionModelAdjudicator));
         // The update judge's second tier, asked only when ChatModelUpdateJudge is on and no outside judge answers.
         services.TryAddScoped<IMemoryUpdateJudgeFallback, ChatModelUpdateJudge>();
         // AMDREAM001. Asked only by a consolidation run with CloseUnsaidPreferences on (one chat call per source message).

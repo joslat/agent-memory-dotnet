@@ -24,9 +24,11 @@ public sealed class WriterClosingTargetsIntegrationTests(Neo4jIntegrationFixture
     public Task DisposeAsync() => Task.CompletedTask;
 
     [Theory]
-    [InlineData(0.95, true)]
-    [InlineData(0.10, false)]
-    public async Task One_persisted_replacement_keeps_both_closing_proposals_and_obeys_the_judge(double score, bool closes)
+    [InlineData(0.95, true, false)]
+    [InlineData(0.10, false, false)]
+    [InlineData(0.95, true, true)]
+    [InlineData(0.10, false, true)]
+    public async Task One_persisted_replacement_keeps_both_closing_proposals_and_obeys_the_judge(double score, bool closes, bool identity)
     {
         const string owner = "writer-targets";
         var writer = Substitute.For<IMemoryWriter>();
@@ -47,6 +49,9 @@ public sealed class WriterClosingTargetsIntegrationTests(Neo4jIntegrationFixture
         services.AddLogging();
         services.AddSingleton(writer);
         services.AddSingleton(judge);
+        // Both resolvers (ILC-29): evidence-based identity, on by default where the writer runs, merges the exact copies a
+        // writer states to close two older facts, as the previous resolver does.
+        services.Configure<IdentityResolutionOptions>(o => o.Enabled = identity ? null : false);
         services.AddNeo4jAgentMemory(new MemoryOptions { Extraction = new() { DeduplicateWithinExtraction = true } }, n =>
         {
             n.Uri = fixture.ConnectionString; n.Username = fixture.User; n.Password = fixture.Password;

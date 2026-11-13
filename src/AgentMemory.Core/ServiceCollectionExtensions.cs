@@ -359,7 +359,8 @@ public static class ServiceCollectionExtensions
             workingMemory: sp.GetService<IWorkingMemoryService>(),
             // 30.10. Optional for the same reason as every seam above it: a host that has not
             // registered a deriver resolves null and the planner never runs.
-            subQueryDeriver: sp.GetService<Services.ISubQueryDeriver>()));
+            subQueryDeriver: sp.GetService<Services.ISubQueryDeriver>(),
+            identity: sp.GetService<IdentityActivation>()));
         // 40.56. The core memory router, asked only when MemoryOptions.Routing.Enabled; built from the options so a host's
         // added rules (or a module's) are part of it.
         services.TryAddSingleton<IMemoryRouter>(sp =>
@@ -463,6 +464,25 @@ public static class ServiceCollectionExtensions
         // Extraction pipeline stages.
         // IExtractionStage receives IEnumerable<IExtractor> — all registered extractor implementations.
         services.TryAddSingleton<IMemoryPersistenceTransaction, PassThroughMemoryPersistenceTransaction>();
+        // ILC-25: one decision on whether evidence-based identity runs, read by everything that follows it, and said on the
+        // tiers line (the previous resolver, and why, where it does not run).
+        services.TryAddSingleton<IdentityActivation>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IMemoryTierSource, IdentityActivation>(sp => sp.GetRequiredService<IdentityActivation>()));
+        services.TryAddScoped<IdentityIngestion>(sp =>
+        {
+            var active = sp.GetRequiredService<IdentityActivation>().Active;
+            var candidates = active ? sp.GetService<IIdentityCandidateProvider>() : null;
+            var configuration = IdentityConfiguration.Capture(sp.GetRequiredService<IOptions<IdentityResolutionOptions>>().Value,
+                active, contextRootedLookup: candidates?.Capabilities?.ContextRootedLookup == true);
+            var clock = sp.GetRequiredService<TimeProvider>();
+            if (!configuration.Enabled) return new IdentityIngestion(configuration, clock);
+            return new IdentityIngestion(configuration, clock,
+                candidates, sp.GetService<Abstractions.Repositories.IIdentityDecisionRepository>(),
+                sp.GetRequiredService<IEmbeddingOrchestrator>(), sp.GetRequiredService<IIdGenerator>(),
+                sp.GetService<IIdentityContextProvider>(),
+                configuration.MaxAdjudicationsPerIngestion > 0 ? sp.GetService<IIdentityAdjudicator>() : null,
+                configuration.MaxAdjudicationsPerIngestion > 0 ? sp.GetService<IIdentitySourceProvider>() : null);
+        });
         services.TryAddScoped<IExtractionStage, ExtractionStage>();
 
         // each leg's tier, said once on the first write (and to a host that asks, IMemoryTiers). The gate adds

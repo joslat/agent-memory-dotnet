@@ -17,7 +17,7 @@ using Xunit;
 namespace AgentMemory.Tests.Unit.Infrastructure;
 
 /// <summary>
-/// 41.26 (d): each leg of memory says which tier it runs at (storage, retrieval, dreaming), on one line the library logs
+/// 41.26 (d): each leg of memory says which tier it runs at (storage, identity, retrieval, dreaming), on one line the library logs
 /// once on its first write and a host can ask for (IMemoryTiers).
 /// </summary>
 public sealed class MemoryTiersTests
@@ -48,18 +48,19 @@ public sealed class MemoryTiersTests
 
     [Fact]
     public void Without_the_winners_it_is_the_extractors_and_the_similarity_floor() =>
-        Tiers().Line().Should().Be("storage: extractors; retrieval: similarity floor (no gate added); dreaming: off");
+        Tiers().Line().Should().Be("storage: extractors; identity: previous resolver (this backend has no identity storage; it can merge different things that share a name); retrieval: similarity floor (no gate added); dreaming: off");
 
     [Fact]
     public void With_the_writer_the_update_judge_and_the_gate_each_leg_says_so() =>
         Tiers(s => { Writer(s); Gate(s, g => { g.UpdateJudge = true; g.Judges.Add(Jev); }); }).Line().Should().Be(
-            "storage: writer + update judge (a failed writer call falls back to the extractors); retrieval: judge (jev); dreaming: off");
+            "storage: writer + update judge (a failed writer call falls back to the extractors); "
+            + "identity: previous resolver (this backend has no identity storage; it can merge different things that share a name); retrieval: judge (jev); dreaming: off");
 
     [Fact]
     public void A_writer_without_a_judge_and_judge_mode_without_a_judge_say_what_they_lose() =>
         Tiers(s => { Writer(s); Gate(s, _ => { }); }).Line().Should().Be(
             "storage: writer (no update judge, so the writer's closings are not applied; a failed writer call falls back to the extractors); "
-            + "retrieval: similarity floor (Judge mode has no judge configured); dreaming: off");
+            + "identity: previous resolver (this backend has no identity storage; it can merge different things that share a name); retrieval: similarity floor (Judge mode has no judge configured); dreaming: off");
 
     [Fact]
     public void Without_an_outside_judge_the_host_model_judges_and_storage_s_tier_says_so() =>

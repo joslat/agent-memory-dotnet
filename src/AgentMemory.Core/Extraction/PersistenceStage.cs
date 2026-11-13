@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Diagnostics;
 using AgentMemory.Abstractions.Domain;
@@ -17,6 +17,7 @@ namespace AgentMemory.Core.Extraction;
 /// </summary>
 internal sealed class PersistenceStage : IPersistenceStage
 {
+    private readonly IdentityIngestion? _identity;
     private readonly TimeProvider _clock;
     private readonly ExtractionOptions _options;
     private readonly IMemoryPersistenceTransaction _persistenceTransaction;
@@ -51,8 +52,10 @@ internal sealed class PersistenceStage : IPersistenceStage
         IMemoryUpdateJudge? updateJudge = null,
         // Optional and last: asked for the writer's named closings only when the judge above is
         // missing, off or fails.
-        IMemoryUpdateJudgeFallback? fallbackJudge = null)
+        IMemoryUpdateJudgeFallback? fallbackJudge = null,
+        IdentityIngestion? identity = null)
     {
+        _identity = identity;
         _reinforcement = new ConfirmedMemoryReinforcement(factRepository, preferenceRepository,
             memoryOptions?.Value.ConfidenceReinforcementAlpha ?? 0.0, logger);
         _clock = clock;
@@ -62,13 +65,13 @@ internal sealed class PersistenceStage : IPersistenceStage
         _embeddingPreparation = new MemoryEmbeddingPreparation(embeddingOrchestrator, _options, logger);
         _entityPersistence = new EntityPersistence(entityRepository, factRepository, embeddingOrchestrator, _options, logger);
         var closings = new ClosingPipeline(factRepository, preferenceRepository, relationshipRepository, entityRepository, _options);
-        _relationshipPersistence = new RelationshipPersistence(entityRepository, relationshipRepository, clock, idGenerator, _options, logger, closings);
+        _relationshipPersistence = new RelationshipPersistence(entityRepository, relationshipRepository, clock, idGenerator, _options, logger, closings, requireResolvedIdentity: _identity?.Enabled == true);
         _preferencePersistence = new PreferencePersistence(preferenceRepository, clock, idGenerator, _options, logger, closings);
         var factPreparation = new FactPreparation(factRepository, idGenerator, clock, logger);
-        _factPersistence = new FactPersistence(factRepository, clock, _options, logger, factPreparation, closings);
+        _factPersistence = new FactPersistence(factRepository, clock, _options, logger, factPreparation, closings, preserveIdentity: _identity?.Enabled == true);
         _judgedClosings = new JudgedMemoryClosings(embeddingOrchestrator, entityRepository, factRepository,
             preferenceRepository, relationshipRepository, clock, _options, logger,
-            new ClosingPolicy(_options, updateJudge, fallbackJudge, logger), closings);
+            new ClosingPolicy(_options, updateJudge, fallbackJudge, logger), closings, structuredFactKeys: _identity?.Enabled == true);
         _namePropagation = new CorrectedNamePropagation(entityRepository, factRepository, embeddingOrchestrator,
             clock, idGenerator, _options, logger, closings);
         _edgeEnding = new EdgeEnding(entityRepository, factRepository, relationshipRepository, clock, _options, logger, closings);
@@ -95,9 +98,25 @@ internal sealed class PersistenceStage : IPersistenceStage
         var result = await PersistCoreAsync(extraction, ownerId, trustLevel, cancellationToken)
             .ConfigureAwait(false);
 
+        if (result.DeferredNamedClosings is { } followup)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var closed = await followup(cancellationToken).ConfigureAwait(false);
+            var byWinner = closed.GroupBy(item => item.Winner, StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group => group.Select(item => item.Loser).Distinct(StringComparer.Ordinal).ToArray(), StringComparer.Ordinal);
+            result = result with
+            {
+                DeferredNamedClosings = null,
+                Outcomes = result.Outcomes.Select(outcome => outcome.PersistedId is { } id &&
+                    outcome.Kind is MemoryItemKind.Fact or MemoryItemKind.Preference && byWinner.TryGetValue(id, out var losers)
+                    ? outcome with { Closed = outcome.Closed.Concat(losers).Distinct(StringComparer.Ordinal).ToArray() } : outcome).ToArray()
+            };
+        }
+
         // J-11. After the write (whichever path produced it), outside its transaction: a name that replaced another
         // renames what it named. Before the rebuild below, so the working-memory block is compiled from the result.
-        await _namePropagation.ApplyAsync(extraction, ownerId, started, cancellationToken).ConfigureAwait(false);
+        if (_identity?.Enabled != true)
+            await _namePropagation.ApplyAsync(extraction, ownerId, started, cancellationToken).ConfigureAwait(false);
 
         // What the writer said the turn says again is counted again, as a repeated write is; nothing is rewritten.
         await _reinforcement.ApplyAsync(extraction, ownerId, cancellationToken).ConfigureAwait(false);
@@ -151,7 +170,7 @@ internal sealed class PersistenceStage : IPersistenceStage
 
         // 36.4. A change of mind in the shape supersession can act on: ages as the single-valued `age`, and the
         // state an event entails ("moved to" -> "lives in") beside it. Only with supersession, the feature it serves.
-        if (_options.SupersedeReplacedFacts && !extraction.WrittenByWriter && extraction.FilteredFacts.Count > 0)
+        if (_identity?.Enabled != true && _options.SupersedeReplacedFacts && !extraction.WrittenByWriter && extraction.FilteredFacts.Count > 0)
             extraction = extraction with
             {
                 FilteredFacts = ReplacementShapes.Prepare(
@@ -160,11 +179,47 @@ internal sealed class PersistenceStage : IPersistenceStage
                     _clock.GetUtcNow()),
             };
 
-        var prepared = await _embeddingPreparation.PrepareAsync(extraction, cancellationToken).ConfigureAwait(false);
+        if (_identity?.Enabled == true) _identity.AssertOwnsTransactionBoundary();
+        if (_identity?.Enabled == true && extraction.FilteredRelationships.Count > 0 && extraction.IdentityRelationships.Count == 0)
+            throw new InvalidOperationException("Identity relationship observations must be frozen by the extraction stage before persistence.");
+        var preparationInput = _identity?.Enabled == true ? extraction with
+        {
+            ResolvedEntityMap = extraction.IdentityPlans.DistinctBy(plan => plan.Decision.ObservationKey)
+                .ToDictionary(plan => plan.Decision.Observation.EntityId, plan => plan.Decision.Observation, StringComparer.Ordinal)
+        } : extraction;
+        var prepared = await _embeddingPreparation.PrepareAsync(preparationInput, cancellationToken).ConfigureAwait(false);
         if (_options.DeduplicateWithinExtraction && prepared.Facts.Count > 1)
         {
-            var (kept, merged) = WithinExtractionFactDeduplication.Merge(prepared.Facts, _options.WithinExtractionDuplicateThreshold);
+            // ILC-29: identity keeps each original phrasing, so with it only exact copies merge (they are tied to the same people).
+            var (kept, merged) = _identity?.Enabled == true
+                ? WithinExtractionFactDeduplication.MergeExact(prepared.Facts)
+                : WithinExtractionFactDeduplication.Merge(prepared.Facts, _options.WithinExtractionDuplicateThreshold);
             prepared = prepared with { Facts = kept, Outcomes = [.. prepared.Outcomes, .. merged] };
+        }
+        if (_identity?.Enabled == true)
+        {
+            var failures = extraction.Outcomes.Concat(prepared.Outcomes).Where(outcome => outcome.Status == IngestionItemStatus.Failed).ToArray();
+            if (failures.Length > 0) throw new MemoryIngestionException("Identity ingestion preparation failed; nothing was persisted.", failures);
+            var includeShared = extraction.IdentityIncludeSharedSources || extraction.IdentityPlans.Any(plan => plan.IncludeShared);
+            try
+            {
+                return await _identity.ExecuteAsync(ownerId, includeShared, extraction.SourceMessageIds,
+                    ct => PersistPreparedAsync(extraction, ownerId, trustLevel, prepared, ct), cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (MemoryIngestionException ex)
+            {
+                var durablePreparation = ex.CompletedOutcomes.Where(outcome =>
+                    outcome.Stage != IngestionStage.Persistence || outcome.Status != IngestionItemStatus.Succeeded).ToArray();
+                throw new MemoryIngestionException("Atomic identity ingestion failed; no successful persistence outcome is acknowledged.",
+                    durablePreparation, ex);
+            }
+            catch (Exception ex)
+            {
+                // A missing commit acknowledgement can leave the whole operation stored. Stable-key retry discovers it.
+                throw new MemoryIngestionException("Atomic identity ingestion was not acknowledged; retry its stable source keys.",
+                    extraction.Outcomes.Concat(prepared.Outcomes).ToArray(), ex);
+            }
         }
         if (_options.FailureMode == IngestionFailureMode.FailFast)
         {
@@ -233,7 +288,7 @@ internal sealed class PersistenceStage : IPersistenceStage
         CancellationToken cancellationToken)
     {
         var sourceMessageIds = extraction.SourceMessageIds;
-        var failFast = _options.FailureMode == IngestionFailureMode.FailFast;
+        var failFast = _identity?.Enabled == true || _options.FailureMode == IngestionFailureMode.FailFast;
         var outcomes = new List<IngestionItemOutcome>(extraction.Outcomes);
         outcomes.AddRange(prepared.Outcomes);
         var closings = new List<(string Winner, string Loser)>();
@@ -242,7 +297,7 @@ internal sealed class PersistenceStage : IPersistenceStage
         // 1. Resolve the speaker, then persist entities for fact and relationship resolution.
         // I-5. "user" is the owner: once the user has said their name, what they say about themselves is
         // stored under it. Read only when this extraction has something to rewrite.
-        var userName = _options.ResolveUserToName && !string.IsNullOrWhiteSpace(ownerId) &&
+        var userName = _identity?.Enabled != true && _options.ResolveUserToName && !string.IsNullOrWhiteSpace(ownerId) &&
                        (prepared.Facts.Any(f => MemoryUserNames.MeansUser(f.Item, subject: true) || MemoryUserNames.MeansUser(f.Item, subject: false)) ||
                         prepared.Entities.Keys.Any(MemoryUserNames.IsSelf) ||
                         extraction.FilteredRelationships.Any(r => MemoryUserNames.MeansUserEndpoint(r.SourceEntity, source: true) ||
@@ -250,28 +305,39 @@ internal sealed class PersistenceStage : IPersistenceStage
             ? await _entityPersistence.FindUserNameAsync(prepared.Facts, ownerId!, cancellationToken).ConfigureAwait(false)
             : null;
 
-        var persistedEntities = await _entityPersistence.PersistAsync(
-            prepared.Entities, userName, ownerId, trustLevel, sourceMessageIds, outcomes, failFast, cancellationToken)
-            .ConfigureAwait(false);
+        var persistedEntities = _identity?.Enabled == true
+            ? await _identity.PersistObservationsAsync(extraction.IdentityPlans, prepared.Entities, ownerId, trustLevel,
+                outcomes, cancellationToken).ConfigureAwait(false)
+            : await _entityPersistence.PersistAsync(
+                prepared.Entities, userName, ownerId, trustLevel, sourceMessageIds, outcomes, failFast, cancellationToken).ConfigureAwait(false);
         var persistedEntityMap = persistedEntities.ByName;
         var persistedFacts = await _factPersistence.PersistAsync(
             prepared.Facts, persistedEntityMap, userName, ownerId, trustLevel, sourceMessageIds,
             outcomes, failFast, extraction.WrittenByWriter, cancellationToken).ConfigureAwait(false);
-        var factsByKey = persistedFacts.BySourceKey;
+        var factsByKey = _identity?.Enabled == true
+            ? persistedFacts.WrittenFacts.GroupBy(fact => FactNames.CanonicalTripleKey(fact.Subject, fact.Predicate, fact.Object), StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal)
+            : persistedFacts.BySourceKey;
+        if (_identity?.Enabled == true)
+            await _identity.BindFactsAsync(extraction.IdentityPlans, persistedFacts, ownerId, cancellationToken).ConfigureAwait(false);
         var persistedPreferences = await _preferencePersistence.PersistAsync(
             prepared.Preferences, ownerId, trustLevel, sourceMessageIds, outcomes, failFast,
             extraction.WrittenByWriter, cancellationToken).ConfigureAwait(false);
         var preferencesByKey = persistedPreferences.BySourceKey;
-        var persistedRelationships = await _relationshipPersistence.PersistAsync(
-            extraction.FilteredRelationships, persistedEntityMap, userName, ownerId, sourceMessageIds,
-            outcomes, failFast, extraction.WrittenByWriter, cancellationToken).ConfigureAwait(false);
+        var persistedRelationships = _identity?.Enabled == true
+            ? await _identity.PersistRelationshipObservationsAsync(extraction.IdentityRelationships, persistedEntityMap,
+                ownerId, extraction.IdentityIncludeSharedSources || extraction.IdentityPlans.Any(plan => plan.IncludeShared),
+                outcomes, cancellationToken).ConfigureAwait(false)
+            : await _relationshipPersistence.PersistAsync(
+                extraction.FilteredRelationships, persistedEntityMap, userName, ownerId, sourceMessageIds,
+                outcomes, failFast, extraction.WrittenByWriter, cancellationToken).ConfigureAwait(false);
         await _edgeEnding.ApplyAsync(persistedFacts.Replacements.Withdrawn, cancellationToken).ConfigureAwait(false);
 
         // The batch-level signal. Debug-level per-fact logging tells you WHY once you are already
         // looking; this is what makes you look. Warned once per batch rather than per fact so a large
         // ingestion cannot bury it, and only when the option was actually asked for -- a warning on a
         // feature nobody enabled is how warnings stop being read.
-        if (_options.SupersedeReplacedFacts && !extraction.WrittenByWriter && persistedFacts.Replacements.Eligible == 0 && persistedFacts.Replacements.Refusals > 0)
+        if (_identity?.Enabled != true && _options.SupersedeReplacedFacts && !extraction.WrittenByWriter && persistedFacts.Replacements.Eligible == 0 && persistedFacts.Replacements.Refusals > 0)
         {
             _logger.LogWarning(
                 "SupersedeReplacedFacts is ENABLED but none of the {Refused} fact(s) in this batch "
@@ -284,15 +350,30 @@ internal sealed class PersistenceStage : IPersistenceStage
         }
 
         // A store-aware writer named what each new memory replaces: only those pairs go to the judge.
+        Func<CancellationToken, Task<IReadOnlyList<(string Winner, string Loser)>>>? deferredNamedClosings = null;
         if (extraction.WrittenByWriter)
-            await _judgedClosings.CloseNamedAsync(extraction, ownerId, [.. prepared.Facts.SelectMany(f => f.WithClosingProposals())], [.. prepared.Preferences.Select(p => p.Item)],
-                factsByKey, preferencesByKey,
-                persistedRelationships.Inputs.Where(input => persistedRelationships.PersistedIds.Contains(input.Item.RelationshipId))
-                    .GroupBy(input => input.SourceKey, StringComparer.Ordinal)
-                    .ToDictionary(g => g.Key, g => g.First().Item.RelationshipId, StringComparer.Ordinal),
-                cancellationToken).ConfigureAwait(false);
+        {
+            var relationshipIds = persistedRelationships.Inputs.Where(input => persistedRelationships.PersistedIds.Contains(input.Item.RelationshipId))
+                .GroupBy(input => input.SourceKey, StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group => group.First().Item.RelationshipId, StringComparer.Ordinal);
+            if (_identity?.Enabled == true)
+            {
+                deferredNamedClosings = async ct =>
+                {
+                    var followupClosings = new List<(string Winner, string Loser)>();
+                    PersistenceClosingJournal.Begin(followupClosings);
+                    await _judgedClosings.CloseNamedAsync(extraction, ownerId,
+                        [.. prepared.Facts.SelectMany(fact => fact.WithClosingProposals())], [.. prepared.Preferences.Select(preference => preference.Item)],
+                        factsByKey, preferencesByKey, relationshipIds, ct).ConfigureAwait(false);
+                    return followupClosings;
+                };
+            }
+            else await _judgedClosings.CloseNamedAsync(extraction, ownerId,
+                [.. prepared.Facts.SelectMany(fact => fact.WithClosingProposals())], [.. prepared.Preferences.Select(preference => preference.Item)],
+                factsByKey, preferencesByKey, relationshipIds, cancellationToken).ConfigureAwait(false);
+        }
         // 41.06. A change said in other words closes what it replaces, when a judge is registered.
-        else if (_judgedClosings.IsEnabled)
+        else if (_identity?.Enabled != true && _judgedClosings.IsEnabled)
             await _judgedClosings.JudgeUpdatesAsync(
                 extraction, ownerId,
                 [.. factsByKey.Values.Where(fact => persistedFacts.CreatedIds.Contains(fact.FactId)).DistinctBy(fact => fact.FactId)],
@@ -314,6 +395,7 @@ internal sealed class PersistenceStage : IPersistenceStage
 
         return new PersistenceResult
         {
+            DeferredNamedClosings = deferredNamedClosings,
             EntityCount = persistedEntities.Count,
             FactCount = persistedFacts.Count,
             PreferenceCount = persistedPreferences.Count,

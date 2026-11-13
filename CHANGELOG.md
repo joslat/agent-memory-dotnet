@@ -1,10 +1,162 @@
-﻿# Changelog
+# Changelog
 
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [2.2.0] - 2026-11-13
+
+**The Pablo Piovano release.** Memory that knows who is who.
+
+Pablo Piovano's experiment, *Your agent doesn't forget with an error. It forgets with a tidy answer.* (LinkedIn, 3
+November 2026), found the calendar gap that 2.1.0 fixed. Running his scenario again found a second, quieter problem: the
+entity resolver decided identity by name. Two different colleagues called Alex Kim became one, silently and for good,
+and events were not recorded at all, so Bruna's go-live and "the cutover" could never be followed as one thing. Neither
+raised an error; the answers just got quietly worse.
+
+2.2.0 replaces that with evidence-based identity, on by default wherever the store-aware writer runs on Neo4j. The writer
+names the stored entity a mention refers to and quotes the words that show it; the quote is checked; an uncertain match
+gets a bounded second opinion from the extraction model; and when it is still uncertain, nothing is merged and a proposal
+is left for review. On his scenario's busier history (130 statements, no retrieval judge) the previous resolver answered
+2 of 3 questions in both runs and evidence-based identity 3 of 3; no measured run made a wrong merge; and on news
+articles labelled by others (ECB+) it kept two similar real events, the 81st and 86th Oscars, apart in every run.
+
+Thank you, Pablo, for building the test we should have written ourselves, for publishing everything it produced, and
+for letting us run it again. Both of the things it found are fixed, and this release carries your name.
+
+### Upgrading
+
+- **Identity changes only where the store-aware writer runs** (the Recommended preset, or `UseMemoryWriter`) on Neo4j.
+  The memory tiers line logged on the first write says which resolver runs and why. To keep the previous resolver:
+  `services.Configure<IdentityResolutionOptions>(o => o.Enabled = false);`.
+- **NuGet consumers of 2.1.0: apply migrations after upgrading.** The 2.1.0 package left its Cypher migrations out of a
+  consumer's build, so every migration was skipped; 2.2.0 copies them. Run `IMigrationRunner` as usual.
+- `LlmExtractionOptions.MemoryWriterEventIdentities` and `RecallOptions.EventDetails` are now `bool?`: null follows
+  identity; an explicit value wins.
+
+### Changed
+
+- **Evidence-based identity is on by default.** `IdentityResolutionOptions.Enabled` is now `bool?` and
+  null by default: identity runs wherever the store-aware writer runs on a backend with identity storage (Neo4j), and the
+  previous resolver runs everywhere else. The previous resolver matches by name, so it can merge different things that
+  share a name (two different "Alex Kim"s become one); that is the bug this default fixes. `Enabled = false` restores the
+  previous behaviour exactly; `true` always runs it. One decision drives ingestion, the `identity-evidence` schema
+  extension (now added automatically), at least `IdentityResolutionOptions.ContextTurns` (new, 4) read-only context
+  turns, the writer's event identities (`LlmExtractionOptions.MemoryWriterEventIdentities`, now `bool?`, null follows
+  identity), alias capture, event details at recall (`RecallOptions.EventDetails`, now `bool?`, null follows identity)
+  and identity-mode relationship reads. The memory tiers line has a new `identity` leg (`MemoryTiers.Identity`):
+  `identity: evidence-based`, or `identity: previous resolver (why; it can merge different things that share a name)`.
+  The option defaults are now the measured configuration (`MaxCandidates` 4, `AdjudicatorMaxOutputTokens` 1,024,
+  `AdjudicationTimeout` 45 s; in automatic mode the conversational policies for any of their types the host leaves
+  unset), pinned by a test. A host that sets `Enabled = true` keeps configuring its own policies, as before. The second
+  opinion on an uncertain mention asks the extraction model unless `AddIdentityAdjudication` registers a dedicated one,
+  in either order. Where identity runs, an ingestion over `MaxMentionsPerIngestion` (64) fails before persistence and one
+  started inside a caller-owned write transaction is rejected, and within-extraction deduplication merges exact copies
+  only (identity keeps each original phrasing; a fact the writer states twice to close two older facts is stored once,
+  with both closings). NAMS resolves entities on its servers and is unaffected.
+- The identity writer retries an answer without JSON without the schema, at the same room. At the same room and
+  reasoning effort GLM-5.3-Flash answered nothing to about 1 in 30 schema-constrained calls (never to the default
+  writer's), and about 1 turn in 60-130 fell back to the extractors after three empty answers. The contract still checks
+  the reply, and its correction call keeps the schema.
+- Owner import works into stores with identity: importing an identity store's export folds each mention's entity into the
+  identity it was confirmed as (the mention's name kept as an alias), and imported entities are never joined to what the
+  destination already holds. Decision history, evidence and open proposals are not carried by `agentmemory-export/1`.
+- Samples: the Aspire demo moves from Aspire 9.5.2 to 13.6.5, the first version patched for GHSA-4g86-54fm-h9h8
+  (critical, the Aspire dashboard) and GHSA-f7vh-h5g3-7jrh (high, Aspire.Hosting). The demo is not shipped; with the
+  repository's audit settings the advisories failed every restore.
+- Fix: the `AgentMemory.Neo4j` package copies its Cypher migrations into a consumer's build output
+  (`PackageCopyToOutput`). A NuGet consumer of 2.1.0 received none, so base migrations and every schema extension were
+  skipped; repository tests use project references and could not see it. Guarded by a test.
+
+- Extend the opt-in identity-aware writer (`LlmExtractionOptions.MemoryWriterEventIdentities`) with a
+  checked stored-entity reference (`"ref"`, the label of a stored entity shown in the same call, carried
+  as `ExtractedEntity.Reference`) and an operation contract: a JSON-schema reply, deterministic checks of
+  action, text/id, quote, reference, entity format and event observations, at most one targeted
+  correction call, and `UnifiedExtractionResult.Outcomes` entries (`MEMORY_WRITER_OPERATION_REJECTED`)
+  for whatever still fails, reported with the turn's ingestion outcomes. A malformed entity is never
+  coerced into an `OBJECT`. Off remains byte-identical (prompt, request format, single call). A correction passes the
+  same shape checks as a first answer: one that repairs its listed problem but keeps a malformed entity or JSON debris
+  is rejected and reported, and a dropped entity whose text is also malformed is asked to fix both in its one
+  correction (found by the ECB+ independent gold: a quote-only correction had stored "Name (PERSON) | null" as an object).
+- Evidence-based identity re-checks a writer reference as contextual evidence without a model call
+  (candidate, ambiguity, current-source quote and type policy), resolves references to observations
+  already confirmed elsewhere through their decision, and hydrates each eligible candidate's own source
+  text for the adjudicator through the new optional `IIdentitySourceProvider` (Neo4j: owner-scoped,
+  bounded, re-validated at write). The decision records the context actually offered; original
+  provenance stays the current turn. Identity mode also keeps ISO-spelled calendar entities that the
+  numeric-only name filter dropped before the calendar comparison.
+- Add `EntityIdentityPolicy.ReviewContextRootedCandidates` (default false): with read-only extraction context turns
+  (`ExtractionOptions.ExtractionContextTurns`), same-type entities observed in those turns are nominated for review
+  (`IdentityCandidateSignals.ContextRooted`, backend capability `ContextRootedLookup`; Neo4j follows `EXTRACTED_FROM`
+  and resolves each observation to its current identity), so a differently named mention of a just-mentioned entity
+  reaches the contextual adjudicator with both turns. Never a confirmation by itself; off sends no context IDs and runs
+  no extra query. A candidate nominated only this way is withdrawn when the adjudicator answers "different" with quotes;
+  same-name proposals stay for review.
+- Add `IdentityResolutionOptions.ApplyConversationalPolicies()`: the measured policy set in which EVENT, PERSON and
+  ORGANIZATION may be confirmed by checked contextual evidence and nominate context-turn candidates; other types stay
+  review-only. Measured on the standing identity benchmark: person splits 3-4 per full run to 0, no wrong merge, the two
+  "Alex Kim" homonyms kept apart.
+- With identity-evidence enabled, owner export now works for reading: it adds `OwnerMemoryExport.IdentityResolutions`
+  (which observation a confirmed decision resolved to which identity) and `IdentityStateOmitted` (decisions, review
+  history, evidence and open proposals are not in `agentmemory-export/1`); import of such an export is described above.
+  With identity off the export is byte-identical (both members unserialized).
+- Add `IIdentityDecisionRepository.ListPendingAsync` (Neo4j): the owner's open identity proposals for a review queue,
+  bounded (1-256) with stable paging; reviewed proposals leave it.
+- `tools/AgentMemory.Scenarios` (tooling, not shipped): an optional independent identity gold, `--identity-gold
+  ecbplus|conel2`, scoring stores against labels written by others: ECB+ news events (annotations CC BY 3.0) and ConEL-2
+  dialogue entities (annotations MIT). Frozen slices hold identifiers and sentence hashes only; the corpus is read from a
+  local download and refused if it differs. `--identity-gold-select` freezes a slice and `--identity-gold-score` re-scores
+  a recorded run, both without a model. The C# scorer matches the Bariloche metric on recorded runs. Off by default,
+  never in CI; adapters and scorer are unit-tested on fixtures.
+
+- Add an explicit full49-statement Bariloche evaluation profile sharing the persistent cost cap,
+  stronger physical-context assertions and actual Fact/decision/binding IDs. The current real
+  run exposes pending-context and partial-writer gaps; it is not a complete quality pass.
+
+- Add opt-in evidence-based identity with bounded candidate discovery, typed evidence policy,
+  atomic observation/decision/Fact-role support and original relationship claims. Fuzzy/vector
+  scores alone never establish identity; uncertain observations retain separate Pending identity.
+- Add optional dedicated-client contextual adjudication with call/context limits, a constrained
+  JSON verdict schema, strict source quotes and durable freshness/replay checks. Off and zero-budget
+  paths do not construct the model; invalid or uncertain completions cannot authorize equality.
+- Add explicit confirm/reject/revoke with expected versions, immutable history and idempotent
+  operation receipts. Original facts and unrelated links survive changes to decision-owned support.
+- Add opt-in event-aware writer instructions and bounded live event-detail retrieval. Default
+  prompt bytes remain unchanged; Pending proposals never authorize a join. Real physical-event
+  validation retrieves location/presence; uncertain identity can omit details, as the remote control shows.
+- (Superseded in this release: export and import now work with identity; see the owner import entry above.) Refuse
+  legacy owner export/import before I/O whenever identity-evidence is enabled, including
+  empty owners. Full identity portability is separate; owner erasure remains supported.
+- Add bounded synthetic validation with persistent cost reservations, pre-dispatch sanitized
+  traces and separate storage/prompt/native-hop/answer review. Structured probe checks prevent
+  event-name keywords from passing as location or participation evidence. This does not change
+  global presets or establish perfect model accuracy.
+- Reserve built-in identity storage vocabulary against module schema/property collisions.
+- Prevent literal `*` owner IDs from sharing technical storage keys or shared recall with unowned
+  data; add an explicit technical-key migration and scope guards.
+
+### Fixed
+
+- Protect recognised calendar literals from approximate entity identity and canonical fact-name substitution.
+  Complete ISO and English/Spanish named dates are compared by calendar components; incomplete, invalid
+  or ambiguous supported date shapes remain separate without guessing a year or calling name embeddings.
+  A stale alias cannot turn December 12 into December 3. Original fact literals retain their spelling.
+  This integrity correction is distinct from the opt-in evidence-based identity policy.
+  Supported calendar-day intervals compare both endpoints and stay distinct from a point date.
+  Surrounding whitespace cannot bypass calendar recognition or permit a fuzzy/canonical name
+  substitution; oversize rejected values remain bounded during normalization.
+  Fact-to-entity links reject incompatible calendar targets, including stale aliases and contradictory
+  canonical values; source facts and historical records are retained.
+
+### Added
+
+- Evidence-based identity policy, bounded candidate lookup and durable decision/Fact-role support
+  behind explicit activation and the identity-evidence schema extension. Similarity only selects
+  candidates; verified keys and supported values drive identity, and uncertainty keeps separate
+  observations. Initial runtime wiring is verified. Optional contextual ingestion, review/revocation
+  and event-place/presence expansion remain unfinished; no default rollout is implied.
 
 ## [2.1.0] - 2026-11-07
 
@@ -3120,3 +3272,17 @@ NuGet package IDs are permanent once published.
 [0.1.0-preview.3]: https://github.com/joslat/agent-memory-dotnet/compare/v0.1.0-preview.2...v0.1.0-preview.3
 [0.1.0-preview.2]: https://github.com/joslat/agent-memory-dotnet/compare/v0.1.0-preview.1...v0.1.0-preview.2
 [0.1.0-preview.1]: https://github.com/joslat/agent-memory-dotnet/releases/tag/v0.1.0-preview.1
+
+
+Evidence-based ingestion wiring (implementation in progress): configure
+`services.Configure<IdentityResolutionOptions>(o => o.Enabled = true)` and enable the
+`identity-evidence` Neo4j schema extension before ingesting. Pipeline construction rejects a
+backend without bounded candidates, the enabled schema or atomic scoped ingestion. Defaults
+remain off and do not resolve identity backends or issue identity queries. In the enabled mode,
+model/candidate/embedding work precedes the transaction; owner/shared identity locks precede
+fact writes. Original subject/object words remain stored, confirmed targets are not upserted,
+and decision-owned bindings use the repository-returned final Fact ID. A failure rolls back
+the whole enabled ingestion; there is no best-effort replay. Same-surface ambiguous observations
+remain separate and receive no guessed fact or relationship endpoint binding. Source context
+and mentions are bounded (MaxContextUtf8Bytes, MaxMentionsPerIngestion). Review/revocation,
+contextual activation, event evidence and final acceptance remain tracked as unfinished work.

@@ -1,4 +1,4 @@
-﻿using System.Diagnostics.CodeAnalysis;
+using System.Diagnostics.CodeAnalysis;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 
@@ -678,4 +678,19 @@ public interface IFactRepository
         MemoryScope? scope,
         CancellationToken cancellationToken = default) =>
         Task.FromResult<IReadOnlyList<Fact>>([]);
+
+    /// <summary>
+    /// One bounded read of live details bound to the same live EVENT identity as dated seed facts.
+    /// Uses current decision-owned fact bindings, never a pending proposal or name similarity.
+    /// At most 10 seed IDs, 512 excluded IDs and 64 returned facts. Null/global scope preserves the
+    /// read API convention of all owners; tenant reads filter every fact and event endpoint.
+    /// Implementations without this capability reject explicit use; callers never call it while off.
+    /// </summary>
+    Task<IReadOnlyList<Fact>> GetEventDetailsAsync(
+        IReadOnlyList<string> seedFactIds,
+        IReadOnlyCollection<string> excludeFactIds,
+        int limit,
+        MemoryScope? scope,
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("This backend does not support decision-bound event details.");
 }

@@ -40,4 +40,10 @@ public sealed record ExtractedEntity
     /// </summary>
     public IReadOnlyDictionary<string, object> Attributes { get; init; } =
         new Dictionary<string, object>();
+
+    /// <summary>
+    /// Optional writer claim that this mention names a stored entity it was shown. Null unless a store-aware writer in
+    /// event-identity mode sets it; read only by evidence-based identity, never as identity proof.
+    /// </summary>
+    public ExtractedEntityReference? Reference { get; init; }
 }

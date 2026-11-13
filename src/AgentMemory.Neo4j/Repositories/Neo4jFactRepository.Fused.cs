@@ -21,7 +21,7 @@ internal sealed partial class Neo4jFactRepository
         NoteShared(facts);
         var deduped = facts
             .GroupBy(fact => TripleKey(
-                fact.Subject, fact.Predicate, fact.Object, fact.OwnerId ?? OwnerKeyShared))
+                fact.Subject, fact.Predicate, fact.Object, OwnerStorageKey.Encode(fact.OwnerId)))
             .Select(group => group.Last())
             .ToList();
         var updatedAt = _clock.GetUtcNow().ToString("O");
@@ -37,7 +37,7 @@ internal sealed partial class Neo4jFactRepository
                     ("subject_key", MemoryTripleCanonicalizer.CanonicalValue(fact.Subject)),
                     ("predicate_key", MemoryTripleCanonicalizer.Canonical(fact.Predicate)),
                     ("object_key", MemoryTripleCanonicalizer.CanonicalValue(fact.Object)),
-                    ("owner_key", fact.OwnerId ?? OwnerKeyShared)
+                    ("owner_key", OwnerStorageKey.Encode(fact.OwnerId))
                 ],
                 fact.FactId);
         }
@@ -55,7 +55,7 @@ internal sealed partial class Neo4jFactRepository
             ["object_key"] = MemoryTripleCanonicalizer.CanonicalValue(fact.Object),
             ["object"] = fact.Object,
             ["owner_id"] = fact.OwnerId,
-            ["owner_key"] = fact.OwnerId ?? OwnerKeyShared,
+            ["owner_key"] = OwnerStorageKey.Encode(fact.OwnerId),
             ["category"] = fact.Category,
             ["confidence"] = fact.Confidence,
             ["valid_from"] = fact.ValidFrom?.ToString("O"),
@@ -78,8 +78,9 @@ internal sealed partial class Neo4jFactRepository
                     new { items, reinforceAlpha = _reinforceAlpha })
                 .ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
+            if (records.Count == 0) throw new InvalidOperationException("Fact scope-key collision; migrate reserved owner keys before writing.");
             var embeddingByTriple = deduped.ToDictionary(
-                fact => TripleKey(fact.Subject, fact.Predicate, fact.Object, fact.OwnerId ?? OwnerKeyShared),
+                fact => TripleKey(fact.Subject, fact.Predicate, fact.Object, OwnerStorageKey.Encode(fact.OwnerId)),
                 fact => fact.Embedding);
             return records.Select(record =>
             {

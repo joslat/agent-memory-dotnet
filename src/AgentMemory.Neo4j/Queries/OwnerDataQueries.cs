@@ -56,6 +56,14 @@ public static class OwnerDataQueries
     /// to an entity it did not write by its id, which is right only for a shared entity (in the same store, the id of a
     /// merged-away entity of the owner would join two owners).
     /// </summary>
+    // ILC-18 interim: which exported observation a confirmed identity decision resolved to which identity (read only).
+    public const string ExportIdentityResolutions = """
+        MATCH (d:IdentityDecision {owner_scope: 'owned:' + $ownerId})-[:RESOLVES_TO]->(t:Entity)
+        MATCH (o:Entity {identity_observation_key: d.identity_observation_key})
+        WHERE o.owner_id = $ownerId AND o.id <> t.id AND o.merged_into IS NULL AND o.invalidated_at IS NULL
+        RETURN DISTINCT o.id AS from, t.id AS to ORDER BY from, to
+        """;
+
     public const string ExportAbout = @"
             MATCH (f:Fact)-[:ABOUT]->(e:Entity) WHERE f.owner_id = $ownerId
               AND ((e.owner_id = $ownerId AND e.invalidated_at IS NULL AND e.merged_into IS NULL) OR e.owner_id IS NULL)
