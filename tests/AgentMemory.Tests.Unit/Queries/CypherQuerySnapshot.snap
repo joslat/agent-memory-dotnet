@@ -1098,10 +1098,11 @@ WHERE (NOT $hasOwner OR p.owner_id=$ownerId OR ($includeShared AND p.owner_id IS
 MATCH (p)<-[:RESOLVES_TO]-(b:IdentityFactBinding)-[:DECIDED_BY]->(d:IdentityDecision)
 WHERE b.identity_decision_id=d.id AND b.owner_scope=d.owner_scope
   AND (NOT $hasOwner OR b.owner_id=$ownerId OR ($includeShared AND b.owner_id IS NULL))
-  AND NOT EXISTS { (d)-[:POSSIBLE_SAME_AS]->() }
-WITH p, collect(DISTINCT b.identity_observed_surface)[..20] AS observed
+WITH p, b, NOT EXISTS { (d)-[:POSSIBLE_SAME_AS]->() } AS decided
+WITH p, collect(DISTINCT b.identity_observed_surface)[..20] AS observed, any(flag IN collect(decided) WHERE flag) AS confirmed
 ORDER BY p.id LIMIT $limit
-RETURN p.id AS id, [name IN [p.name] + coalesce(p.aliases, []) + observed WHERE name IS NOT NULL][..32] AS surfaces
+RETURN p.id AS id, [name IN [p.name] + coalesce(p.aliases, []) + observed WHERE name IS NOT NULL][..32] AS surfaces,
+       confirmed
 
 ## PersonDetailQueries.Read
 UNWIND range(0,size($personIds)-1) AS personRank

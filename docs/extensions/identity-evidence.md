@@ -266,7 +266,8 @@ and the names facts bound to it used), at most 1,000. A name appears in the ques
 aside; a name two identities share names neither, a one-letter name or a pronoun names nobody, and at most 3 people are
 taken in the order the question names them. Their live facts come through decision-owned fact bindings, newest first
 and taken in turn from each person, at most `MaxPersonDetailFacts` (8; 0..64), excluding facts already in the context.
-A decision that still has `POSSIBLE_SAME_AS` candidates (an open proposal) is never followed. The facts carry no
+A decision that still has `POSSIBLE_SAME_AS` candidates (an open proposal) is never followed, but its name counts:
+a confirmed person whose name an open proposal shares is ambiguous too. The facts carry no
 invented similarity score and share the context budget and the latency allowance. Choosing between two people with the
 same name from the question's context, and questions that name nobody ("what does she like?"), are out of scope.
 

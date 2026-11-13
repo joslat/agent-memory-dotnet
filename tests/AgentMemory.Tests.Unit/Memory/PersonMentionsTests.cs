@@ -22,6 +22,14 @@ public sealed class PersonMentionsTests
             .Should().BeEmpty();
 
     [Fact]
+    public void An_open_proposal_is_never_named_and_makes_its_namesake_ambiguous()
+    {
+        PersonMentions.Named("What do I know about Alex Kim?", [P("cousin", "Alex Kim"), new("pending", ["Alex Kim"], Confirmed: false)])
+            .Should().BeEmpty("it is not yet known which Alex Kim this is");
+        PersonMentions.Named("Ping AK.", [new("pending", ["AK"], Confirmed: false)]).Should().BeEmpty();
+    }
+
+    [Fact]
     public void An_alias_only_one_person_has_still_names_them() =>
         PersonMentions.Named("Ping AK about the invoices.", [P("cousin", "Alex Kim"), P("colleague", "Alex Kim", "AK")])
             .Should().Equal("colleague");

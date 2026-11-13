@@ -559,8 +559,8 @@ public interface ILongTermMemoryService
         throw new NotSupportedException("This backend does not support decision-bound event details.");
 
     /// <summary>
-    /// ILC-33: the confirmed PERSON identities in scope and the names each is known by (its name, aliases and the names
-    /// facts bound to it used), at most <paramref name="limit"/> (0..1000). Open proposals are never followed.
+    /// ILC-33: the PERSON identities in scope and the names each is known by (its name, aliases and the names facts bound
+    /// to it used), at most <paramref name="limit"/> (0..1000). An open proposal's observation comes back unconfirmed.
     /// Implementations without this capability reject explicit use; callers never call it while off.
     /// </summary>
     Task<IReadOnlyList<PersonIdentity>> GetPersonIdentitiesAsync(

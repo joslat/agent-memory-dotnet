@@ -1,12 +1,13 @@
 namespace AgentMemory.Neo4j.Queries;
 
 /// <summary>
-/// ILC-33: identity-aware recall for people. Only confirmed identities: an open proposal (a decision that still has
-/// POSSIBLE_SAME_AS candidates) is never followed, and no name similarity authorises a join.
+/// ILC-33: identity-aware recall for people. Only confirmed identities are followed: an open proposal (a decision that
+/// still has POSSIBLE_SAME_AS candidates) is listed unconfirmed, so its name makes a namesake ambiguous, and its facts are
+/// never read. No name similarity authorises a join.
 /// </summary>
 internal static class PersonDetailQueries
 {
-    /// <summary>The confirmed PERSON identities in scope and the names they are known by, bounded.</summary>
+    /// <summary>The PERSON identities in scope, the names they are known by and whether they are confirmed, bounded.</summary>
     public const string Identities = """
         MATCH (p:Entity)
         WHERE (NOT $hasOwner OR p.owner_id=$ownerId OR ($includeShared AND p.owner_id IS NULL))
@@ -14,10 +15,11 @@ internal static class PersonDetailQueries
         MATCH (p)<-[:RESOLVES_TO]-(b:IdentityFactBinding)-[:DECIDED_BY]->(d:IdentityDecision)
         WHERE b.identity_decision_id=d.id AND b.owner_scope=d.owner_scope
           AND (NOT $hasOwner OR b.owner_id=$ownerId OR ($includeShared AND b.owner_id IS NULL))
-          AND NOT EXISTS { (d)-[:POSSIBLE_SAME_AS]->() }
-        WITH p, collect(DISTINCT b.identity_observed_surface)[..20] AS observed
+        WITH p, b, NOT EXISTS { (d)-[:POSSIBLE_SAME_AS]->() } AS decided
+        WITH p, collect(DISTINCT b.identity_observed_surface)[..20] AS observed, any(flag IN collect(decided) WHERE flag) AS confirmed
         ORDER BY p.id LIMIT $limit
-        RETURN p.id AS id, [name IN [p.name] + coalesce(p.aliases, []) + observed WHERE name IS NOT NULL][..32] AS surfaces
+        RETURN p.id AS id, [name IN [p.name] + coalesce(p.aliases, []) + observed WHERE name IS NOT NULL][..32] AS surfaces,
+               confirmed
         """;
 
     /// <summary>The live facts bound to the named people, newest first, taken in turn from each person.</summary>

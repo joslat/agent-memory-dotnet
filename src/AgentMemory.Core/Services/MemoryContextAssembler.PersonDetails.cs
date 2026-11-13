@@ -33,7 +33,7 @@ internal sealed partial class MemoryContextAssembler
             var people = await TimedAsync("memory.recall.person-identities", () => _longTerm.GetPersonIdentitiesAsync(
                 PersonMentions.MaxPeopleRead, scope, token)).ConfigureAwait(false);
             var named = PersonMentions.Named(question,
-                people.Select(person => new PersonMentions.Person(person.EntityId, person.Surfaces)).ToArray());
+                people.Select(person => new PersonMentions.Person(person.EntityId, person.Surfaces, person.Confirmed)).ToArray());
             if (named.Count == 0) return facts;
             details = await TimedAsync("memory.recall.person-details", () => _longTerm.GetPersonDetailsAsync(
                 named, seen.Take(512).ToArray(), options.MaxPersonDetailFacts, scope, token)).ConfigureAwait(false);

@@ -6,7 +6,8 @@ namespace AgentMemory.Core.Memory;
 /// <summary>
 /// ILC-33: which confirmed people a question names. A name matches as whole words, case and accents aside. A name two
 /// people share names neither of them, so recall never guesses between homonyms; a name only one of them has (an alias)
-/// still names that one. One-letter names and pronouns name nobody.
+/// still names that one. An unconfirmed person (an open proposal) is never named, but its name still makes a namesake
+/// ambiguous. One-letter names and pronouns name nobody.
 /// </summary>
 internal static class PersonMentions
 {
@@ -25,7 +26,7 @@ internal static class PersonMentions
         "their", "it", "user", "assistant",
     };
 
-    internal sealed record Person(string Id, IReadOnlyList<string> Surfaces);
+    internal sealed record Person(string Id, IReadOnlyList<string> Surfaces, bool Confirmed = true);
 
     /// <summary>The ids of the people the question names, in the order it names them, at most <see cref="MaxNamed"/>.</summary>
     internal static IReadOnlyList<string> Named(string question, IReadOnlyList<Person> people)
@@ -47,7 +48,8 @@ internal static class PersonMentions
                 if (!owners.TryGetValue(key, out var ids)) owners[key] = ids = new HashSet<string>(StringComparer.Ordinal);
                 ids.Add(person.Id);
             }
-        return owners.Where(pair => pair.Value.Count == 1)
+        var confirmed = people.Where(person => person.Confirmed).Select(person => person.Id).ToHashSet(StringComparer.Ordinal);
+        return owners.Where(pair => pair.Value.Count == 1 && confirmed.Contains(pair.Value.Single()))
             .Select(pair => (Id: pair.Value.Single(), Position: at[pair.Key]))
             .GroupBy(named => named.Id, StringComparer.Ordinal)
             .Select(group => (Id: group.Key, Position: group.Min(named => named.Position)))

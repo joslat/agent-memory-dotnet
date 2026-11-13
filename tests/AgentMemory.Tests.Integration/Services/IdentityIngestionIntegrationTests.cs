@@ -430,7 +430,7 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
     }
 
     [Fact]
-    public async Task A_confirmed_person_reaches_their_bound_facts_and_an_open_proposal_reaches_nothing()
+    public async Task A_confirmed_person_reaches_their_bound_facts_and_an_open_proposal_only_names_a_namesake()
     {
         // ILC-33: identity-aware recall for people reads confirmed identities only, owner-scoped, live only.
         using var host = Host(); using var scope = host.CreateScope(); var services = scope.ServiceProvider;
@@ -446,8 +446,12 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
         (await Count("(:IdentityDecision)-[:POSSIBLE_SAME_AS]->(:Entity {id: 'existing'})")).Should().Be(1, "precondition: Tomás Pérez is an open proposal");
         var facts = services.GetRequiredService<IFactRepository>();
 
-        var valentina = (await facts.GetPersonIdentitiesAsync(1000, Scope)).Should().ContainSingle("an open proposal is not followed").Subject;
+        var people = await facts.GetPersonIdentitiesAsync(1000, Scope);
+        var valentina = people.Where(p => p.Confirmed).Should().ContainSingle().Subject;
         valentina.Surfaces.Should().Contain("Valentina");
+        var proposal = people.Where(p => !p.Confirmed).Should().ContainSingle("an open proposal is listed, unconfirmed").Subject;
+        proposal.Surfaces.Should().Contain("Tomás Pérez");
+        (await facts.GetPersonDetailsAsync([proposal.EntityId], [], 8, Scope)).Should().BeEmpty("an open proposal's facts are never read");
         var details = await facts.GetPersonDetailsAsync([valentina.EntityId], [], 8, Scope);
         details.Select(f => f.Object).Should().BeEquivalentTo("the invoice queue remotely", "a video tutorial for the clerks");
         details.Should().OnlyContain(f => f.Embedding == null, "traversal does not fabricate vector evidence");
@@ -458,7 +462,7 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
         (await facts.GetPersonDetailsAsync([valentina.EntityId], [], 8, other)).Should().BeEmpty();
         await fixture.TransactionRunner.WriteAsync(async runner =>
         { await runner.RunAsync("MATCH (e:Entity {id:$id}) SET e.invalidated_at=datetime()", new { id = valentina.EntityId }); });
-        (await facts.GetPersonIdentitiesAsync(1000, Scope)).Should().BeEmpty();
+        (await facts.GetPersonIdentitiesAsync(1000, Scope)).Should().NotContain(p => p.EntityId == valentina.EntityId);
         (await facts.GetPersonDetailsAsync([valentina.EntityId], [], 8, Scope)).Should().BeEmpty();
     }
 
