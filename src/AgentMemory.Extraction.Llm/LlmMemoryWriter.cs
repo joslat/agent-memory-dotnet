@@ -132,26 +132,34 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
     /// "nothing to keep". The third try (2026-10-10): over 3,634 turns of the Dreaming jar's store runs the first answer held
     /// no JSON 104 times and the second 10, each a model that reasoned through its whole room and answered nothing (12,000
     /// output tokens over the two): a runaway the next call rarely repeats, so one more call saves most of the lost turns.
+    /// The identity writer's schema-constrained first call is retried without the schema, at the same room (ILC-31): at the
+    /// same room and reasoning effort GLM-5.3-Flash answered nothing to about 1 in 30 schema calls and never to the default
+    /// writer's (six recorded runs each), so the schema, not the room, is what fails; and a constrained runaway that filled
+    /// its room is not cured by more. The contract still checks whatever comes back, and its correction call keeps the schema.
     /// </summary>
     private async Task<(IReadOnlyList<MemoryWriterOps.Op> Ops, IReadOnlyList<MemoryWriterOps.DroppedOp> Dropped, string Reply)> AskAsync(
         string system, string context, CancellationToken cancellationToken)
     {
         const int Attempts = 3;
         var room = _options.MemoryWriterMaxOutputTokens;
+        var format = _operationFormat;
         string? reply = null;
         for (var attempt = 1; attempt <= Attempts; attempt++)
         {
             ChatMessage[] messages = [new ChatMessage(ChatRole.System, system), new ChatMessage(ChatRole.User, context)];
-            var response = _operationFormat is null
+            var response = format is null
                 ? await _runner.CompleteAsync(messages, room, json: false, cancellationToken).ConfigureAwait(false)
-                : await _runner.CompleteAsync(messages, room, _operationFormat, cancellationToken).ConfigureAwait(false);
+                : await _runner.CompleteAsync(messages, room, format, cancellationToken).ConfigureAwait(false);
             reply = response.Text;
             if (MemoryWriterOps.TryParse(reply, _options.MemoryWriterMaxOperations, out var ops, out var dropped))
                 return (ops, dropped, reply);
             _logger.LogWarning("Memory writer: the reply held no JSON (attempt {Attempt} of {Attempts}, {Room} tokens of room).", attempt, Attempts, room);
-            // A schema-constrained reply without JSON is a runaway or a truncation that more room does not cure; the
-            // default writer keeps its measured doubling.
-            if (attempt == 1 && _operationFormat is null) room *= 2;
+            // The default writer doubles its room once; the identity writer's retries drop the schema and keep the room.
+            if (attempt == 1)
+            {
+                if (format is null) room *= 2;
+                format = null;
+            }
         }
         throw new FormatException($"The memory writer's model gave no JSON: {(reply is null ? "" : reply[..Math.Min(160, reply.Length)])}");
     }

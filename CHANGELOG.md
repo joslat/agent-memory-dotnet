@@ -24,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   started inside a caller-owned write transaction is rejected, and within-extraction deduplication merges exact copies
   only (identity keeps each original phrasing; a fact the writer states twice to close two older facts is stored once,
   with both closings). NAMS resolves entities on its servers and is unaffected.
+- The identity writer retries an answer without JSON without the schema, at the same room. At the same room and
+  reasoning effort GLM-5.3-Flash answered nothing to about 1 in 30 schema-constrained calls (never to the default
+  writer's), and about 1 turn in 60-130 fell back to the extractors after three empty answers. The contract still checks
+  the reply, and its correction call keeps the schema.
 - Owner import works into stores with identity: importing an identity store's export folds each mention's entity into the
   identity it was confirmed as (the mention's name kept as an alias), and imported entities are never joined to what the
   destination already holds. Decision history, evidence and open proposals are not carried by `agentmemory-export/1`.

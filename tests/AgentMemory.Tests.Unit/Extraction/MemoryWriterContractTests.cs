@@ -87,6 +87,37 @@ public sealed class MemoryWriterContractTests : IDisposable
         _calls.Should().ContainSingle().Which.Options!.ResponseFormat.Should().BeNull();
     }
 
+    /// <summary>
+    /// ILC-31: at the same room and reasoning effort GLM-5.3-Flash answered nothing to about 1 in 30 schema-constrained
+    /// writer calls and never to the default writer's (six recorded runs each). The retry drops the schema and keeps the
+    /// room (a constrained runaway is not cured by more); the contract still checks the reply.
+    /// </summary>
+    [Fact]
+    public async Task An_empty_schema_reply_is_asked_again_without_the_schema_at_the_same_room()
+    {
+        _replies.Enqueue("");
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"fact","text":"user | will write | the rollback checklist","quote":"I will write the rollback checklist"}]}""");
+
+        var result = await Write("I will write the rollback checklist.");
+
+        _calls.Should().HaveCount(2, "a clean retry needs no correction call");
+        _calls[0].Options!.ResponseFormat.Should().BeOfType<ChatResponseFormatJson>();
+        _calls[1].Options!.ResponseFormat.Should().BeNull("the retry asks the way the default writer does");
+        _calls[1].Options!.MaxOutputTokens.Should().Be(_calls[0].Options!.MaxOutputTokens);
+        result.Facts.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task Three_empty_replies_still_fail_the_turn_loudly()
+    {
+        _replies.Enqueue(""); _replies.Enqueue(""); _replies.Enqueue("");
+
+        var act = () => Write("I will write the rollback checklist.");
+
+        await act.Should().ThrowAsync<FormatException>();
+        _calls.Select(c => c.Options!.ResponseFormat is null).Should().Equal(false, true, true);
+    }
+
     [Fact]
     public async Task A_clean_reply_is_not_corrected()
     {
