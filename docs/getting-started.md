@@ -915,9 +915,9 @@ services.Configure<IdentityResolutionOptions>(o => o.Enabled = false); // the pr
 
 Where it runs: an ingestion with more than `MaxMentionsPerIngestion` (64) entity mentions fails before persistence;
 ingestion started inside a caller-owned write transaction is rejected; mentions in one batch are not candidates for each
-other, so a bulk write can split one identity in two (never merge two); and within-extraction deduplication does not
-run, so a fact the writer states twice in one turn (to close two older facts, say) counts two mentions. Owner export
-and import work: importing an
+other, so a bulk write can split one identity in two (never merge two). Within-extraction deduplication
+(`ExtractionOptions.DeduplicateWithinExtraction`) merges only exact copies, because identity keeps each original
+phrasing. Owner export and import work: importing an
 identity store's export brings back each confirmed identity as one entity, without decision history, evidence or open
 proposals. NAMS, the hosted backend, resolves entities on its own servers and is not affected.
 

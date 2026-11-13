@@ -188,9 +188,12 @@ internal sealed class PersistenceStage : IPersistenceStage
                 .ToDictionary(plan => plan.Decision.Observation.EntityId, plan => plan.Decision.Observation, StringComparer.Ordinal)
         } : extraction;
         var prepared = await _embeddingPreparation.PrepareAsync(preparationInput, cancellationToken).ConfigureAwait(false);
-        if (_identity?.Enabled != true && _options.DeduplicateWithinExtraction && prepared.Facts.Count > 1)
+        if (_options.DeduplicateWithinExtraction && prepared.Facts.Count > 1)
         {
-            var (kept, merged) = WithinExtractionFactDeduplication.Merge(prepared.Facts, _options.WithinExtractionDuplicateThreshold);
+            // ILC-29: identity keeps each original phrasing, so with it only exact copies merge (they are tied to the same people).
+            var (kept, merged) = _identity?.Enabled == true
+                ? WithinExtractionFactDeduplication.MergeExact(prepared.Facts)
+                : WithinExtractionFactDeduplication.Merge(prepared.Facts, _options.WithinExtractionDuplicateThreshold);
             prepared = prepared with { Facts = kept, Outcomes = [.. prepared.Outcomes, .. merged] };
         }
         if (_identity?.Enabled == true)

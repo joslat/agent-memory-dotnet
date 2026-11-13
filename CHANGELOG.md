@@ -21,8 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unset), pinned by a test. A host that sets `Enabled = true` keeps configuring its own policies, as before. The second
   opinion on an uncertain mention asks the extraction model unless `AddIdentityAdjudication` registers a dedicated one,
   in either order. Where identity runs, an ingestion over `MaxMentionsPerIngestion` (64) fails before persistence and one
-  started inside a caller-owned write transaction is rejected, and within-extraction deduplication does not run (a fact
-  the writer states twice in one turn counts two mentions). NAMS resolves entities on its servers and is unaffected.
+  started inside a caller-owned write transaction is rejected, and within-extraction deduplication merges exact copies
+  only (identity keeps each original phrasing; a fact the writer states twice to close two older facts is stored once,
+  with both closings). NAMS resolves entities on its servers and is unaffected.
 - Owner import works into stores with identity: importing an identity store's export folds each mention's entity into the
   identity it was confirmed as (the mention's name kept as an alias), and imported entities are never joined to what the
   destination already holds. Decision history, evidence and open proposals are not carried by `agentmemory-export/1`.
