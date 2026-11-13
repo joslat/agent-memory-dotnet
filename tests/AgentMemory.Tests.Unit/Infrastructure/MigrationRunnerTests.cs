@@ -42,6 +42,32 @@ public sealed class MigrationRunnerTests
         await act.Should().NotThrowAsync();
     }
 
+    /// <summary>
+    /// No migration scripts means the schema is never applied, which is what NuGet consumers of 2.1.0 and of the 2.2.0
+    /// meta-package got without a sign (the scripts never reached their build). It is a warning, and says where it looked.
+    /// </summary>
+    [Fact]
+    public async Task RunMigrationsAsync_NoMigrationFiles_WarnsThatTheSchemaWillNotBeApplied()
+    {
+        var logger = new RecordingLogger();
+        var runner = new MigrationRunner(Substitute.For<INeo4jTransactionRunner>(), logger, NonExistentDir);
+
+        await runner.RunMigrationsAsync();
+
+        var entry = logger.Entries.Should().ContainSingle().Which;
+        entry.Level.Should().Be(Microsoft.Extensions.Logging.LogLevel.Warning);
+        entry.Message.Should().Contain(NonExistentDir).And.Contain("will not be applied");
+    }
+
+    private sealed class RecordingLogger : Microsoft.Extensions.Logging.ILogger<MigrationRunner>
+    {
+        public List<(Microsoft.Extensions.Logging.LogLevel Level, string Message)> Entries { get; } = [];
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+        public void Log<TState>(Microsoft.Extensions.Logging.LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId, TState state,
+            Exception? exception, Func<TState, Exception?, string> formatter) => Entries.Add((logLevel, formatter(state, exception)));
+    }
+
     [Fact]
     public async Task RunMigrationsAsync_CancellationAlreadyRequested_CompletesEarly()
     {

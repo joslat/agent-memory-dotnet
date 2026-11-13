@@ -10,6 +10,8 @@ VERSION="${1:?usage: verify-packages-install.sh <version> [artifacts-dir]}"
 ARTIFACTS="${2:-artifacts}"
 CONSUMERS_DIR="eng/package-consumers"
 TFMS=(net8.0 net9.0 net10.0)
+# Every Cypher migration the package must carry: an installed application runs the copies embedded in AgentMemory.Neo4j.
+EXPECTED_MIGRATIONS="$(find src/AgentMemory.Neo4j/Schema/Migrations -name '*.cypher' | wc -l | tr -d ' ')"
 
 ARTIFACTS_ABS="$(cd "$ARTIFACTS" && pwd)"
 # NuGet expects a native filesystem path for a local feed on Windows.
@@ -47,7 +49,14 @@ for consumer in "$CONSUMERS_DIR"/Consumer.*/; do
       echo "::error::$name ($tfm) did not print the expected IMemoryService type name -- got: $output"
       exit 1
     fi
+
+    # 2.2.0's meta-package reached applications without its migrations; this consumer installs it the README's way.
+    if [[ "$output" == *"embedded-migrations="* && "$output" != *"embedded-migrations=$EXPECTED_MIGRATIONS"* ]]; then
+      echo "::error::$name ($tfm): the installed AgentMemory.Neo4j does not embed all $EXPECTED_MIGRATIONS migrations -- got: $output"
+      exit 1
+    fi
   done
 done
 
-echo "All consumers (${TFMS[*]}) installed, built, and resolved their DI graph cleanly."
+if [[ "$EXPECTED_MIGRATIONS" -lt 1 ]]; then echo "::error::no migrations found in the source tree"; exit 1; fi
+echo "All consumers (${TFMS[*]}) installed, built, and resolved their DI graph cleanly; the meta-package carries all $EXPECTED_MIGRATIONS migrations."

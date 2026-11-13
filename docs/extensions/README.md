@@ -278,7 +278,8 @@ The steps, and what each one is checked by:
    registration *and* by every host-less caller (`schema-parity`, `schema-check`), so the two can never
    disagree about what exists. A reachability test reflects over the assembly and compares against what
    DI produces, so an implementation missing from that list is caught too.
-4. **Write migrations, if any, at `Schema/Migrations/ext/<id>/000N_name.cypher`.** The
+4. **Write migrations, if any, at `Schema/Migrations/ext/<id>/000N_name.cypher`** (the project embeds every script
+   there in the assembly; the runner reads the embedded copies). The
    `MigrationScripts` entry is the **bare filename** — the `ext/<id>/` prefix is supplied by the
    runner, and a value containing a slash is rejected. Every statement must be a
    `CREATE … IF NOT EXISTS` schema object or a `MATCH`-scoped backfill; `DROP`, `REMOVE`, `DELETE` and

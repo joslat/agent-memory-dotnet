@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The Cypher migrations reach every application, including those that install the `AgentMemory` meta-package.** 2.2.0
+  copied them next to an application that references `AgentMemory.Neo4j` directly, but NuGet does not pass a dependency's
+  content files on, so an application that installed `AgentMemory`, as the README says, still got no
+  `Schema/Migrations` and ran without its schema. The scripts are now embedded in the `AgentMemory.Neo4j` assembly and the
+  migration runner reads them from there (`EmbeddedMigrationScripts`); a folder is only the tests' seam. Upgrading
+  applies the missing migrations on the next start.
+- "No migration scripts found" is a warning, not information: no scripts means no schema, and it went unnoticed.
+- The release pipeline installs the freshly packed meta-package into a clean consumer and fails unless the installed
+  `AgentMemory.Neo4j` embeds every migration in the source tree (`eng/verify-packages-install.sh`). Run against the
+  published 2.2.0 it fails with 0 of 18, which is the bug.
+
 ## [2.2.0] - 2026-11-13
 
 **The Pablo Piovano release.** Memory that knows who is who.

@@ -1775,7 +1775,9 @@ for an extension and silently ran without it is the failure the mechanism exists
 
 Base migrations (`Schema/Migrations/000N_name.cypher`) run first, always. Each *active* extension then
 runs its own scripts from `Schema/Migrations/ext/<id>/000N_name.cypher`, recorded under the namespaced
-version key `ext/<id>/000N_name`.
+version key `ext/<id>/000N_name`. The scripts are embedded in the `AgentMemory.Neo4j` assembly at build time and read
+from there, so every way of installing the package gets them; NuGet does not pass a dependency's content files on, so
+files copied next to the application never reached consumers of the `AgentMemory` meta-package.
 
 **Why namespaced rather than a longer linear sequence.** The linear sequence cannot host optional
 modules: two independently-written features each correctly claimed `0012` as "next free after 0011",
