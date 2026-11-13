@@ -23,8 +23,8 @@ is left for review. On his scenario's busier history (130 statements, no retriev
 2 of 3 questions in both runs and evidence-based identity 3 of 3; no measured run made a wrong merge; and on news
 articles labelled by others (ECB+) it kept two similar real events, the 81st and 86th Oscars, apart in every run.
 
-Thank you, Pablo, for building the test we should have written ourselves, for publishing everything it produced, and
-for letting us run it again. Both of the things it found are fixed, and this release carries your name.
+Thank you, Pablo, for building the test I should have written myself, for publishing everything it produced, and for
+letting me run it again. Both of the things it found are fixed, and this release carries your name.
 
 ### Upgrading
 
@@ -167,7 +167,7 @@ words, and makes the Recommended preset the default (falling back to Conversatio
 configured). The release follows Pablo Piovano's experiment *Your agent doesn't forget with an error. It forgets with a
 tidy answer.* (LinkedIn, 3 November 2026). In it, file, vector and graph memories all missed the clash between Bruna's
 go-live and her sister's wedding, and none of them said so. His scenario is now in the repository
-(`tools/AgentMemory.Scenarios`), with his permission. Thank you, Pablo, for the test we should have written ourselves.
+(`tools/AgentMemory.Scenarios`), with his permission. Thank you, Pablo, for the test I should have written myself.
 
 The 2.0.0 tag's packages did not reach nuget.org (the publishing key had expired), so this is the first release on
 NuGet since 1.9.0. Its packages carry everything in 2.0.0 below, as well as this section.
