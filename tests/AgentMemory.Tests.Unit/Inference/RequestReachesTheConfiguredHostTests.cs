@@ -115,6 +115,36 @@ public sealed class RequestReachesTheConfiguredHostTests
         EmbeddingDimensions = 8,
     };
 
+    /// <summary>ILC-32: a resolved reasoning effort reaches the wire; none is sent when none was resolved.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task TheResolvedReasoningEffortReachesTheWire(bool resolved)
+    {
+        await using var host = new FakeHost();
+        var settings = Settings(host.Endpoint) with { ReasoningEffort = resolved ? ReasoningEffort.Low : null };
+
+        InferenceClientFactory.TryCreateChatClient(settings, "answer", out var client, out var diagnostic).Should().BeTrue(diagnostic);
+        await client!.GetResponseAsync([new ChatMessage(ChatRole.User, "hello")]);
+
+        if (resolved) host.LastBody.Should().Contain("\"reasoning_effort\":\"low\"");
+        else host.LastBody.Should().NotContain("reasoning_effort", "no effort is sent that nobody asked for");
+    }
+
+    /// <summary>A caller that chooses its own effort keeps it.</summary>
+    [Fact]
+    public async Task ACallersOwnReasoningEffortWins()
+    {
+        await using var host = new FakeHost();
+        var settings = Settings(host.Endpoint) with { ReasoningEffort = ReasoningEffort.Low };
+
+        InferenceClientFactory.TryCreateChatClient(settings, "answer", out var client, out _).Should().BeTrue();
+        await client!.GetResponseAsync([new ChatMessage(ChatRole.User, "hello")],
+            new ChatOptions { Reasoning = new ReasoningOptions { Effort = ReasoningEffort.High } });
+
+        host.LastBody.Should().Contain("\"reasoning_effort\":\"high\"");
+    }
+
     /// <summary>The chat call reaches the configured endpoint with the configured model and key.</summary>
     [Fact]
     public async Task TheChatRequestCarriesTheConfiguredEndpointModelAndKey()

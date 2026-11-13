@@ -65,6 +65,7 @@ public static class InferenceProviderEnvironment
     private const string AzureExtractionAlias = "AZURE_OPENAI_EXTRACTION_DEPLOYMENT";
     private const string TimeoutVariable = "AGENTMEMORY_INFERENCE_NETWORK_TIMEOUT_S";
     private const string ShowRawVariable = "AGENTMEMORY_INFERENCE_SHOW_RAW";
+    private const string ReasoningEffortVariable = "AI_REASONING_EFFORT";
 
     private static readonly string[] JudgeBlock =
         ["AI_JUDGE_PROVIDER", "AI_JUDGE_ENDPOINT", "AI_JUDGE_API_KEY", "AI_JUDGE_MODEL"];
@@ -239,6 +240,7 @@ public static class InferenceProviderEnvironment
         AzureExtractionAlias,
         TimeoutVariable,
         ShowRawVariable,
+        ReasoningEffortVariable,
     ];
 
     /// <summary>Whether the operator set anything at all this resolver looks at.</summary>
@@ -338,6 +340,8 @@ public static class InferenceProviderEnvironment
 
         var (embedding, embeddingDiagnostic) = ResolveEmbeddings(read, spec, endpoint, apiKey);
         var (judge, judgeDiagnostic) = ResolveJudge(read);
+        if (!TryResolveReasoningEffort(read, spec, model, out var reasoningEffort, out var effortError))
+            return Failure(effortError!);
 
         var settings = new InferenceProviderSettings
         {
@@ -366,6 +370,7 @@ public static class InferenceProviderEnvironment
             EmbeddingDimensions = embedding.Dimensions,
             NetworkTimeoutSeconds = PositiveInt(Value(read, TimeoutVariable)) ?? 180,
             ShowRaw = IsTruthy(Value(read, ShowRawVariable)),
+            ReasoningEffort = reasoningEffort,
         };
 
         return new InferenceResolution
@@ -646,6 +651,39 @@ public static class InferenceProviderEnvironment
             || raw.Equals("yes", StringComparison.OrdinalIgnoreCase));
 
     private static string Plural(int count, string one, string many) => count == 1 ? one : many;
+
+    /// <summary>
+    /// ILC-32. An explicit <c>AI_REASONING_EFFORT</c> wins (<c>default</c> sends none); a misspelling fails closed. Unset,
+    /// only Bitdeer's default model, GLM-5.3-Flash, gets low, as it was measured: some providers reject the parameter on
+    /// models that do not reason, so no other model gets an effort nobody asked for.
+    /// </summary>
+    private static bool TryResolveReasoningEffort(Func<string, string?> read, ProviderSpec spec, string model,
+        out Microsoft.Extensions.AI.ReasoningEffort? effort, out string? error)
+    {
+        error = null;
+        var value = Value(read, ReasoningEffortVariable);
+        if (value is null)
+        {
+            effort = spec.Provider == InferenceProvider.Bitdeer &&
+                     string.Equals(model, spec.DefaultModel, StringComparison.OrdinalIgnoreCase)
+                ? Microsoft.Extensions.AI.ReasoningEffort.Low
+                : null;
+            return true;
+        }
+        switch (value.Trim().ToLowerInvariant())
+        {
+            case "default": effort = null; return true;
+            case "none": effort = Microsoft.Extensions.AI.ReasoningEffort.None; return true;
+            case "low": effort = Microsoft.Extensions.AI.ReasoningEffort.Low; return true;
+            case "medium": effort = Microsoft.Extensions.AI.ReasoningEffort.Medium; return true;
+            case "high": effort = Microsoft.Extensions.AI.ReasoningEffort.High; return true;
+            case "extra-high" or "extrahigh": effort = Microsoft.Extensions.AI.ReasoningEffort.ExtraHigh; return true;
+            default:
+                effort = null;
+                error = $"{ReasoningEffortVariable}='{value}' is not one of: default, none, low, medium, high, extra-high.";
+                return false;
+        }
+    }
 
     private static InferenceResolution Failure(string diagnostic) =>
         new() { Settings = null, Diagnostic = diagnostic, EmbeddingDiagnostic = null };

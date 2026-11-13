@@ -1,4 +1,6 @@
-﻿namespace AgentMemory.Inference;
+﻿using Microsoft.Extensions.AI;
+
+namespace AgentMemory.Inference;
 
 /// <summary>
 /// Everything needed to build chat and embedding clients, with no SDK type in sight.
@@ -103,6 +105,14 @@ public sealed record InferenceProviderSettings
 
     /// <summary>Whether to print every request and reply with key and URI scrubbed.</summary>
     public bool ShowRaw { get; init; }
+
+    /// <summary>
+    /// The reasoning effort sent with every chat request that does not choose its own (<c>AI_REASONING_EFFORT</c>), or
+    /// null to send none. Bitdeer's default model, GLM-5.3-Flash, gets <see cref="Microsoft.Extensions.AI.ReasoningEffort.Low"/> unless the
+    /// operator says otherwise: at its default, maximum effort it can spend its whole reply budget thinking and answer
+    /// nothing, and every measurement on record ran it at low effort.
+    /// </summary>
+    public ReasoningEffort? ReasoningEffort { get; init; }
 
     /// <summary>The extraction model actually used: the named one, else the primary.</summary>
     public string EffectiveExtractionModel =>

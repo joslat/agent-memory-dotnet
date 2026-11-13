@@ -77,6 +77,9 @@ public static class InferenceClientFactory
                 : OpenAIProtocolClient(settings.Endpoint, settings.ApiKey, timeout)
                     .GetChatClient(effectiveModel).AsIChatClient();
 
+            // ILC-32: the resolved reasoning effort, unless the caller chose one.
+            if (settings.ReasoningEffort is { } effort) built = new ReasoningEffortChatClient(built, effort);
+
             client = settings.ShowRaw
                 ? new RawInferenceLoggingChatClient(built, purpose, settings.SafeEndpoint, Console.Error)
                 : built;

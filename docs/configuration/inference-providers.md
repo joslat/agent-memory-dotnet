@@ -62,6 +62,15 @@ For Azure, the "model" is a **deployment name**. Everywhere else it is a model i
 > second chat model. Stated rather than implied, because a setting that looks live and is not is
 > worse than one that is plainly documented as reserved.
 
+### Reasoning effort
+
+`AI_REASONING_EFFORT` sets the reasoning effort sent with every chat request that does not choose its own: `none`,
+`low`, `medium`, `high` or `extra-high`, or `default` to send none. A misspelling fails closed. Unset, only Bitdeer's
+default model, GLM-5.3-Flash, gets `low`: at its default, maximum effort it can spend its whole reply budget thinking and
+answer nothing, and every AgentMemory measurement ran it at low effort. No other model gets an effort it did not ask
+for, because some providers reject the parameter on models that do not reason. It travels as `ChatOptions.Reasoning`,
+which the OpenAI protocol sends as `reasoning_effort`.
+
 ## Embeddings, and why the dimension is not optional
 
 AgentMemory's vector search is core, so every provider needs an embedding model — and the

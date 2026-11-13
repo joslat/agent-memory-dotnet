@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   migration runner reads them from there (`EmbeddedMigrationScripts`); a folder is only the tests' seam. Upgrading
   applies the missing migrations on the next start.
 - "No migration scripts found" is a warning, not information: no scripts means no schema, and it went unnoticed.
+- `AgentMemory.Inference` sends a reasoning effort: `AI_REASONING_EFFORT` (`none`, `low`, `medium`, `high`, `extra-high`,
+  or `default` for none; a misspelling fails closed). Unset, Bitdeer's default model, GLM-5.3-Flash, gets `low`, as every
+  measurement ran it; at its default, maximum effort it could spend its whole reply budget thinking and answer nothing,
+  which left the identity writer with empty replies in the samples. No other model gets an effort it did not ask for.
+  A request that chooses its own effort keeps it.
 - The release pipeline installs the freshly packed meta-package into a clean consumer and fails unless the installed
   `AgentMemory.Neo4j` embeds every migration in the source tree (`eng/verify-packages-install.sh`). Run against the
   published 2.2.0 it fails with 0 of 18, which is the bug.
