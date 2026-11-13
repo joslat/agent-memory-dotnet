@@ -18,11 +18,11 @@ internal sealed class IdentityValidationClients : IDisposable
     /// approved ... be conservative"), USD 2 and one shared 500 chat / 1,600 embedding guard; then, for the standing
     /// benchmark reruns of person continuity (owner: "all approved"), USD 3 with 800 chat / 2,400 embedding; USD 4 for
     /// the busy variant; USD 5.5 (2,000 / 6,000) after the old-model busy run hit USD 4 mid-run, for its rerun and the
-    /// ablations. The ledger is never reset.
+    /// ablations; USD 6.5 (2,200 / 7,800; the attempt guard must bind before the dollar cap) for the repeat of the busy head-to-head. The ledger is never reset.
     /// </summary>
-    internal const int FullScenarioChatAttempts=2000;
-    internal const int CampaignEmbeddingAttempts=6000;
-    internal const decimal CampaignMaximumUsd=5.5m;
+    internal const int FullScenarioChatAttempts=2200; // stays below the dollar cap even at full-size requests
+    internal const int CampaignEmbeddingAttempts=7800;
+    internal const decimal CampaignMaximumUsd=6.5m;
 
     internal const string Endpoint = "https://api-inference.bitdeer.ai/v1";
     internal const string ChatModel = "zai-org/GLM-5.3-Flash";

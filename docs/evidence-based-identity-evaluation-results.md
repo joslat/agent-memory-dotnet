@@ -138,8 +138,8 @@ statement-level gold for the original scenario.
 |---|---|---|---|---|---|
 | Original, 49 statements | new (4 consecutive runs) | 3/3 each | 8 details, 0 failures | 0 | 0 split identities, people included |
 | Original, 49 statements | old | 3/3 | unsupported | 0 | 10 entities, no event entities; answers carried by vector retrieval |
-| Busy variant, 130 statements | new | 3/3 | 8 details, 0 failures | n/a (gold covers the original) | |
-| Busy variant, 130 statements | old | **2/3: conflict question missing the go-live location and the in-person requirement** | unsupported | n/a | distractors defeat vector retrieval |
+| Busy variant, 130 statements | new (2 runs) | 3/3 in both | 8 details, 0 failures in both | n/a (gold covers the original) | |
+| Busy variant, 130 statements | old (2 complete runs) | **2/3 in both: conflict question missing the go-live location and the in-person requirement** | unsupported | n/a | distractors defeat vector retrieval |
 | Ambiguous control (two people named Alex Kim) | old | 1/1 | n/a | **1: both people stored as one entity** | |
 | Ambiguous control | new | 1/1 | n/a | 0 | the second Alex Kim stays a separate, reviewable identity |
 
