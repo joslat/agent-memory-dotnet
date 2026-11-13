@@ -158,6 +158,7 @@ internal sealed class IdentityValidationClients : IDisposable
 
     private sealed class CampaignBudget : IDisposable
     {
+        private readonly FileStream _writer;
         private readonly FileStream _lock;
         private readonly StreamWriter _campaign;
         private readonly StreamWriter _calls;
@@ -171,6 +172,10 @@ internal sealed class IdentityValidationClients : IDisposable
             _maximumChat=FullScenarioChatAttempts;
             _maximumEmbedding=CampaignEmbeddingAttempts;
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(campaignPath))!);
+            // One writer per campaign on every platform. FileShare.None is an exclusive lock on Windows and on Unix (an
+            // exclusive flock); the campaign file itself stays readable (FileShare.Read), which on Unix is only a shared
+            // lock and let a second process open it for writing (found by CI on Linux).
+            _writer=new FileStream(campaignPath+".writer",FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None);
             _lock=new FileStream(campaignPath,FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.Read);
             using(var reader=new StreamReader(_lock,Encoding.UTF8,leaveOpen:true))
             {
@@ -223,6 +228,6 @@ internal sealed class IdentityValidationClients : IDisposable
                 if(_calls.BaseStream is FileStream file) file.Flush(flushToDisk:true);
             }
         }
-        public void Dispose() { _calls.Dispose(); _campaign.Dispose(); _lock.Dispose(); }
+        public void Dispose() { _calls.Dispose(); _campaign.Dispose(); _lock.Dispose(); _writer.Dispose(); }
     }
 }

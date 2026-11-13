@@ -186,13 +186,15 @@ public sealed class GateCompanionTests
     {
         // Extensibility 0.13 §K4, S2: a companion search that waits for core's candidates is answered before the gate waits
         // for it, so the search can use what core memory found and still make the one gate call.
-        RecallCompanions? companions = null;
+        // The search may start before the companions object it reads exists; it waits for it (a race CI on Linux hit).
+        var ready = new TaskCompletionSource<RecallCompanions>(TaskCreationOptions.RunContinuationsAsynchronously);
         var search = Task.Run<IReadOnlyList<MemoryGateCandidate>>(async () =>
         {
-            var core = await companions!.CoreCandidates;
+            var core = await (await ready.Task).CoreCandidates;
             return [new("module:dojo:k1", "io.example.dojo", "searched with: " + string.Join(" | ", core))];
         });
-        companions = new RecallCompanions(search);
+        var companions = new RecallCompanions(search);
+        ready.SetResult(companions);
         var judge = new Judge();
 
         await Sut(judge).AssembleContextAsync(Request() with { Companions = companions });
