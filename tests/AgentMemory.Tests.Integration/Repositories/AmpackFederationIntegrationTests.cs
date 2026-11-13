@@ -253,8 +253,7 @@ public sealed partial class ModuleRecordWriteIntegrationTests
             int port;
             using (var probe = new TcpListener(IPAddress.Loopback, 0)) { probe.Start(); port = ((IPEndPoint)probe.LocalEndpoint).Port; }
             var seed = JsonSerializer.Serialize(Accounts.Select(a => new { email = a + "@example.test", password = a + "-test-only", pods = new[] { new { name = a } } }));
-            var container = new ContainerBuilder()
-                .WithImage(Image)
+            var container = new ContainerBuilder(Image)
                 .WithPortBinding(port, port)
                 .WithResourceMapping(Encoding.UTF8.GetBytes(seed), "/seed/seed.json")
                 .WithCommand("-p", port.ToString(System.Globalization.CultureInfo.InvariantCulture), "-b", $"http://localhost:{port}/", "-c", config,
