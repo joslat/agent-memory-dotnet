@@ -31,6 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Owner import works into stores with identity: importing an identity store's export folds each mention's entity into the
   identity it was confirmed as (the mention's name kept as an alias), and imported entities are never joined to what the
   destination already holds. Decision history, evidence and open proposals are not carried by `agentmemory-export/1`.
+- Samples: the Aspire demo moves from Aspire 9.5.2 to 13.6.5, the first version patched for GHSA-4g86-54fm-h9h8
+  (critical, the Aspire dashboard) and GHSA-f7vh-h5g3-7jrh (high, Aspire.Hosting). The demo is not shipped; with the
+  repository's audit settings the advisories failed every restore.
 - Fix: the `AgentMemory.Neo4j` package copies its Cypher migrations into a consumer's build output
   (`PackageCopyToOutput`). A NuGet consumer of 2.1.0 received none, so base migrations and every schema extension were
   skipped; repository tests use project references and could not see it. Guarded by a test.
