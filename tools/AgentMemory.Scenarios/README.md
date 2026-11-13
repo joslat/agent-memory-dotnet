@@ -182,11 +182,43 @@ The profile accepts only the original49-statement scenario and requires the writ
 | Full write-to-answer chain |`bruna-go-live.json` plus explicit full profile |6store checks, stronger3-question coverage, original identity receipts and manual answers |
 
 These are deterministic and representative model evaluations, not a throughput benchmark or a
-statistically established identity-accuracy score. The current full run completed49/49statements and3questions, with6/6store checks, but Q3and
-the native hop miss location/presence. It is a failed quality result. See the
-[actual full evaluation and root cause](../../docs/evidence-based-identity-evaluation-results.md).
+statistically established identity-accuracy score. The first full run completed49/49statements and3questions, with6/6store checks, but Q3and
+the native hop missed location/presence: a failed quality result, since corrected (writer references, context-rooted
+candidates, conversational policies; later runs pass on two or more runs per change). See the
+[evaluation, root cause and head-to-head](../../docs/evidence-based-identity-evaluation-results.md).
 
 The full review also finds two rejected writer operations (UnknownAction and QuoteNotFound),
 logged at Debug despite zero warnings, and three known-event-subject facts without Subject
 bindings. Read the operation/source/binding evidence as well as warning totals; processed turns
 do not guarantee complete structured writes.
+
+## Independent identity gold (optional; needs a model and the corpus)
+
+Every answer key above was written by the people who built the identity system. The independent gold scores the same
+stores against labels written by others: [ECB+](https://github.com/cltl/ecbPlus) (news events; two similar but different
+real events per topic, annotations CC BY 3.0) and [ConEL-2](https://github.com/informagi/conversational-entity-linking-2022)
+(entities in Wizard of Wikipedia dialogues, annotations MIT). Sources and licences: `scenarios/public-gold/ATTRIBUTION.md`.
+
+- **Frozen slices, no corpus text here.** `scenarios/public-gold/*-slice-v1.json` hold identifiers and SHA-256 hashes of
+  the selected sentences, chosen by a fixed rule written in each file. The run reads the text from your downloaded copy
+  and refuses a copy that differs.
+- **Conversion.** ECB+: one article is one session; each annotated sentence is said verbatim after one fixed frame
+  ("I'm covering this story at work: "), because a personal memory rightly stores nothing of general news. ConEL-2: one
+  dialogue is one session of the user's turns. The gold groups are the corpus's own coreference instances or linked
+  entities; nothing is relabelled.
+- **Scores** (`identity-gold.json` beside the report): wrong merges (must stay 0), splits, splits if pending proposals
+  were accepted, and event identities spanning two similar events of one topic, listed for a person to read. The scorer
+  (`PublicGold/IdentityGoldScorer.cs`) gives the same numbers as the Bariloche metric on recorded runs.
+
+```powershell
+# Freeze a slice (no model), then dry-run and run; --legacy-comparison scores the old system the same way.
+dotnet run --project tools/AgentMemory.Scenarios -- --identity-gold-select ecbplus --dataset artifacts/datasets/ecbplus --out ecbplus-slice.json
+dotnet run --project tools/AgentMemory.Scenarios -- --identity-validation --identity-writer --identity-gold ecbplus --dry-run
+# Re-score a recorded run without a model:
+dotnet run --project tools/AgentMemory.Scenarios -- --identity-gold-score --report <report.json> --gold <identity-gold-answer-key.json> --scenario <scenario.json> --view decisions
+```
+
+The corpus folder is `--dataset`, else `ECBPLUS_DATASET` / `CONEL2_DATASET`, else `artifacts/datasets/<name>`; without
+it the run stops with download instructions. `--identity-gold-sessions <n>` runs the first sessions only (the one-item
+stage; not comparable). The runs share the persistent campaign budget above. Off by default and never in CI; the
+adapters and scorer are covered without a model or corpus by `IdentityGoldTests`.

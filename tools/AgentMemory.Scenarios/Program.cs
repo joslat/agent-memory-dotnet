@@ -7,6 +7,7 @@ using AgentMemory.Abstractions.Services;
 using AgentMemory.Inference;
 using AgentMemory.Scenarios;
 using AgentMemory.Scenarios.Memories;
+using AgentMemory.Scenarios.PublicGold;
 using Microsoft.Extensions.AI;
 using Testcontainers.Neo4j;
 
@@ -16,6 +17,12 @@ using Testcontainers.Neo4j;
 //
 //   dotnet run --project tools/AgentMemory.Scenarios -- [--scenario <file>] [--arms a,b] [--max-calls 400]
 //       [--output <dir>] [--budget-from <arm>] [--no-answers] [--uri bolt://... --password ...] [--dry-run]
+//
+// Independent identity gold (ILC-23; optional, needs a model and the corpus, never in CI):
+//   ... --identity-validation --identity-writer [--legacy-comparison] --identity-gold ecbplus|conel2 [--dataset <dir>]
+//       [--identity-gold-sessions <n>]
+//   ... --identity-gold-select ecbplus|conel2 [--dataset <dir>] --out <slice.json>        (no model: freeze a slice)
+//   ... --identity-gold-score --report <report.json> --gold <gold.json> --scenario <scenario.json> --view decisions|entities
 //
 // Models come from the environment, as AgentMemory.Inference resolves them (docs/configuration/inference-providers.md).
 // The Recommended arm's judge is JEV and needs TYPESAFE_API_KEY.
@@ -33,10 +40,72 @@ if(identityFullScenario && (!identityValidation || !identityWriter))
     Console.Error.WriteLine("--identity-full-scenario requires --identity-validation --identity-writer.");
     return 2;
 }
-var scenarioPath = Argument("--scenario") ?? (identityValidation ? Path.Combine(AppContext.BaseDirectory, "scenarios", "identity-validation", "dates.json") : Path.Combine(AppContext.BaseDirectory, "scenarios", "bruna-go-live.json"));
-var scenario = Scenario.Load(scenarioPath);
-if(identityFullScenario) scenario=BarilocheValidation.Apply(scenario);
-var identityPlan=identityFullScenario?IdentityValidationClients.FullScenarioPlan:IdentityValidationClients.Plan;
+// ── ILC-23: the independent identity gold. Off unless asked; no model in its two offline commands ─────────
+if (Argument("--identity-gold-select") is { } selectName)
+{
+    var selectFrom = PublicGoldSet.ResolveDataset(selectName, Argument("--dataset"), Environment.GetEnvironmentVariable, root);
+    if (selectFrom is null || Argument("--out") is not { } selectOut)
+    {
+        Console.Error.WriteLine($"--identity-gold-select needs the corpus and --out. {PublicGoldSet.DownloadHint(selectName)}");
+        return 2;
+    }
+    await File.WriteAllTextAsync(selectOut, PublicGoldSet.SelectJson(selectName, selectFrom) + "\n");
+    Console.WriteLine($"slice written: {selectOut}");
+    return 0;
+}
+if (args.Contains("--identity-gold-score"))
+{
+    if (Argument("--report") is not { } scoreReport || Argument("--gold") is not { } scoreGold || Argument("--scenario") is not { } scoreScenario || Argument("--view") is not { } scoreView)
+    {
+        Console.Error.WriteLine("--identity-gold-score needs --report, --gold, --scenario and --view decisions|entities.");
+        return 2;
+    }
+    var scoredScenario = Scenario.Load(scoreScenario);
+    var scoredGold = IdentityGold.Load(scoreGold);
+    if (scoredGold.ScenarioSha256 != scoredScenario.Sha256)
+    {
+        Console.Error.WriteLine("The scenario does not match the gold.");
+        return 2;
+    }
+    using var recorded = JsonDocument.Parse(await File.ReadAllBytesAsync(scoreReport));
+    var recordedStore = recorded.RootElement.GetProperty("stores").EnumerateObject().Select(p => p.Value).First(v => v.ValueKind == JsonValueKind.Object);
+    Console.WriteLine(JsonSerializer.Serialize(IdentityGoldScorer.Score(scoredGold, scoredScenario.Turns().Select(t => t.Text).ToList(), recordedStore, scoreView), IdentityGold.Json));
+    return 0;
+}
+var goldName = Argument("--identity-gold");
+if (goldName is not null && (!identityValidation || !identityWriter || identityFullScenario || Argument("--scenario") is not null || !PublicGoldSet.Names.Contains(goldName)))
+{
+    Console.Error.WriteLine($"--identity-gold {string.Join("|", PublicGoldSet.Names)} requires --identity-validation --identity-writer, without --scenario or --identity-full-scenario.");
+    return 2;
+}
+Scenario scenario;
+IdentityGold? gold = null;
+string? goldSlice = null;
+int? goldSessions = Argument("--identity-gold-sessions") is { } limitText ? int.Parse(limitText, CultureInfo.InvariantCulture) : null;
+if (goldName is not null)
+{
+    var dataset = PublicGoldSet.ResolveDataset(goldName, Argument("--dataset"), Environment.GetEnvironmentVariable, root);
+    if (dataset is null)
+    {
+        Console.Error.WriteLine($"No {goldName} corpus. {PublicGoldSet.DownloadHint(goldName)}");
+        return 2;
+    }
+    var slicePath = Argument("--identity-gold-slice") ?? PublicGoldSet.SlicePath(goldName, AppContext.BaseDirectory);
+    if (!File.Exists(slicePath))
+    {
+        Console.Error.WriteLine($"No frozen slice at {slicePath}; freeze one with --identity-gold-select.");
+        return 2;
+    }
+    (scenario, gold, goldSlice) = PublicGoldSet.Build(goldName, slicePath, dataset, goldSessions);
+}
+else
+{
+    var scenarioPath = Argument("--scenario") ?? (identityValidation ? Path.Combine(AppContext.BaseDirectory, "scenarios", "identity-validation", "dates.json") : Path.Combine(AppContext.BaseDirectory, "scenarios", "bruna-go-live.json"));
+    scenario = Scenario.Load(scenarioPath);
+    if(identityFullScenario) scenario=BarilocheValidation.Apply(scenario);
+}
+var goldPolicy = goldName is null ? null : $"identity-gold-{goldName}-v1";
+var identityPlan=goldName is not null?IdentityValidationClients.PlanFor(true,goldPolicy):identityFullScenario?IdentityValidationClients.FullScenarioPlan:IdentityValidationClients.Plan;
 // The old model under the same metered campaign, models and answer key as the identity arm (head-to-head).
 var legacyComparison = args.Contains("--legacy-comparison");
 var validationArm = legacyComparison ? "graph-legacy-writer" : identityWriter ? "graph-identity-writer" : "graph-identity-unified";
@@ -55,7 +124,7 @@ if (identityValidation && (armNames.Length != 1 || armNames[0] != validationArm)
     return 2;
 }
 
-var maxCalls = int.Parse(Argument("--max-calls") ?? (identityFullScenario ? (scenario.Turns().Count() > 49 ? "320" : "120") : identityValidation ? "60" : "400"), CultureInfo.InvariantCulture);
+var maxCalls = int.Parse(Argument("--max-calls") ?? (gold is not null ? (scenario.Turns().Count() * 5 / 2 + 20).ToString(CultureInfo.InvariantCulture) : identityFullScenario ? (scenario.Turns().Count() > 49 ? "320" : "120") : identityValidation ? "60" : "400"), CultureInfo.InvariantCulture);
 var answers = !args.Contains("--no-answers");
 // ILC-21 ablation: one identity component off, same arm otherwise; recorded in the report fingerprint.
 var ablation = Argument("--identity-ablation");
@@ -78,7 +147,8 @@ Console.WriteLine($"  writes    {string.Join(", ", writers)} (the others recall 
 if (identityValidation) Console.WriteLine($"  budget    persistent campaign: at most ${IdentityValidationClients.CampaignMaximumUsd} reserved, {IdentityValidationClients.FullScenarioChatAttempts} chat and {IdentityValidationClients.CampaignEmbeddingAttempts} embedding HTTP attempts; no external retrieval/update judge");
 else Console.WriteLine($"  calls     at most {maxCalls}; about {writers.Count * turns.Count * 2} to write, {graphArms.Count * scenario.Questions.Count} judge calls, {(answers ? armNames.Length * scenario.Questions.Count : 0)} answers");
 Console.WriteLine($"  output    {output}");
-if (identityValidation) Console.WriteLine(JsonSerializer.Serialize(new { inference=identityPlan,assertionPolicy=identityFullScenario?BarilocheValidation.Version:"identity-four-cases",effectiveIngestion=identityWriter?"Store-aware writer + DatesFromText + chat update fallback; no external retrieval judge":"Explicit unified extractor control",eventDetailsRequested=true,writerEventIdentitiesRequested=identityWriter },new JsonSerializerOptions { WriteIndented=true }));
+if (identityValidation) Console.WriteLine(JsonSerializer.Serialize(new { inference=identityPlan,assertionPolicy=goldPolicy??(identityFullScenario?BarilocheValidation.Version:"identity-four-cases"),effectiveIngestion=identityWriter?"Store-aware writer + DatesFromText + chat update fallback; no external retrieval judge":"Explicit unified extractor control",eventDetailsRequested=true,writerEventIdentitiesRequested=identityWriter },new JsonSerializerOptions { WriteIndented=true }));
+if (gold is not null) Console.WriteLine($"  gold      {gold.Version}: {gold.Groups.Count} groups ({string.Join(", ", gold.Groups.Values.GroupBy(g => g.Kind).OrderBy(g => g.Key, StringComparer.Ordinal).Select(g => $"{g.Key} {g.Count()}"))}), slice {goldSlice}{(goldSessions is { } n ? $", first {n} sessions only (not comparable)" : "")}");
 if (args.Contains("--dry-run")) return 0;
 
 Directory.CreateDirectory(output);
@@ -109,7 +179,7 @@ if (graphArms.Any(arm => arm.Judge) && string.IsNullOrWhiteSpace(Environment.Get
 
 using var bounded = identityValidation ? new IdentityValidationClients(settings,
     Argument("--campaign-budget") ?? Path.Combine(root,"artifacts/evaluation/identity-validation/campaign.jsonl"),
-    Path.Combine(output,"inference-http.jsonl"),writerMode:identityWriter,fullScenario:identityFullScenario) : null;
+    Path.Combine(output,"inference-http.jsonl"),writerMode:identityWriter,fullScenario:identityFullScenario || gold is not null) : null;
 if (bounded is not null) { chat=bounded.Writer; embeddings=bounded.Embeddings; }
 Console.WriteLine($"  models    {settings.Summary}");
 using var ledger = new CallLedger(Path.Combine(output, "calls.jsonl"), maxCalls);
@@ -158,6 +228,7 @@ var stores = new Dictionary<string, object>();
 var eventDetailProbes = new Dictionary<string, object>();
 var asked = new List<object>();
 var scoreboard = new Dictionary<string, List<string>>();
+var goldScores = new Dictionary<string, IdentityGoldScore>();
 try
 {
     // ── The memories ───────────────────────────────────────────────────────
@@ -218,8 +289,24 @@ try
         if (identityValidation) acceptanceFailures.AddRange(Checks.ValidationFailures(held,[]));
         var firstPerson = snapshot.Facts.Count(f => f.Subject.Trim().ToLowerInvariant() is "user" or "i" or "me" or "the user");
         stores[graph.Arm.Writes] = new { owner = graph.Owner, held, firstPersonSubjects = firstPerson, snapshot };
-        if (identityValidation) stores[graph.Arm.Writes] = new { owner=graph.Owner,held,firstPersonSubjects=firstPerson,snapshot,
-            identity=await graph.IdentitySnapshotAsync(), entities=await graph.EntitySnapshotAsync() };
+        if (identityValidation)
+        {
+            var identitySnapshot = await graph.IdentitySnapshotAsync();
+            var entitySnapshot = await graph.EntitySnapshotAsync();
+            stores[graph.Arm.Writes] = new { owner=graph.Owner,held,firstPersonSubjects=firstPerson,snapshot,identity=identitySnapshot,entities=entitySnapshot };
+            if (gold is not null)
+            {
+                // ILC-23: the store against the corpus's own labels; the old model by its entities, the new by its decisions.
+                var view = graph.Arm.Identity is null ? IdentityGoldScorer.EntitiesView : IdentityGoldScorer.DecisionsView;
+                var score = IdentityGoldScorer.Score(gold, turns.Select(t => t.Text).ToList(),
+                    JsonSerializer.SerializeToElement(new { identity = identitySnapshot, entities = entitySnapshot }), view);
+                goldScores[graph.Arm.Writes] = score;
+                if (score.FalseMerges > 0) acceptanceFailures.Add($"identity-gold: {score.FalseMerges} wrong merge(s)");
+                Console.WriteLine($"  gold ({view}): {score.FalseMerges} wrong merges, {score.ExtraIdentities} extra identities " +
+                                  $"({score.EventExtraIdentities} event, {score.PersonOrgExtraIdentities} person/org; {score.ExtraIdentitiesIfPendingAccepted} if pending accepted), " +
+                                  $"{score.CrossPartitionEventIdentities.Count} event identities across similar events, {score.LabelledMentions} labelled / {score.UnlabelledMentions} unlabelled mentions");
+            }
+        }
         Console.WriteLine($"  {graph.Arm.Writes} store: {snapshot.Facts.Count} live facts, {snapshot.Closed.Count} closed, {snapshot.Entities.Count} entities; " +
                           $"holds {held.Count(h => h.Held)}/{held.Count} checked facts; {firstPerson} facts with 'user' as subject");
         foreach (var miss in held.Where(h => !h.Held))
@@ -384,7 +471,7 @@ async Task WriteReportAsync()
         failures,
         fingerprint = new
         {
-            scenario = scenario.Name, scenarioSha256 = scenario.Sha256, source = scenario.Source, assertionPolicy=identityFullScenario?BarilocheValidation.Version:"original-or-four-case", ablation,
+            scenario = scenario.Name, scenarioSha256 = scenario.Sha256, source = scenario.Source, assertionPolicy=goldPolicy??(identityFullScenario?BarilocheValidation.Version:"original-or-four-case"), ablation,
             models = settings.Summary, judge = graphArms.Any(a => a.Judge) ? "jev (api.typesafe.ai/v1/systemone)" : null,
             neo4j = container is null ? neo4j.Uri : "neo4j:5.26 (Testcontainers)", commit = GitCommit(root), harness = "scenarios/1",
         },
@@ -400,6 +487,19 @@ async Task WriteReportAsync()
         JsonSerializer.Serialize(new { executionComplete=failures.Count==0,checksPassed=failures.Count==0 && acceptanceFailures.Count==0,
             effectiveIngestion=identityWriter?"store-aware-writer":"unified-extractor",eventDetailsRequested=true,writerEventIdentitiesRequested=identityWriter,acceptanceFailures,answerReview="Independent manual review required" },
             new JsonSerializerOptions { WriteIndented=true }));
+    if (gold is not null)
+    {
+        // The scenario as scored (its hash is the gold's) and the derived answer key, for re-scoring without a model.
+        await File.WriteAllBytesAsync(Path.Combine(output, "scenario.json"), JsonSerializer.SerializeToUtf8Bytes(scenario with { Sha256 = "" }, IdentityGold.Json));
+        await File.WriteAllTextAsync(Path.Combine(output, "identity-gold-answer-key.json"), gold.ToJson());
+        await File.WriteAllTextAsync(Path.Combine(output, "identity-gold.json"), JsonSerializer.Serialize(new
+        {
+            format = "identity-gold/1", gold = gold.Version, slice = goldSlice, sessions = goldSessions, comparable = goldSessions is null,
+            scenario = scenario.Name, scenarioSha256 = scenario.Sha256, arms = armNames,
+            rule = "Wrong merges must stay 0. Splits are reported; pending proposals counted apart; event identities across two similar events of one topic are listed for a person to read.",
+            scores = goldScores,
+        }, IdentityGold.Json));
+    }
     if (bounded is not null) await File.WriteAllTextAsync(Path.Combine(output,"identity-budget.json"),
         JsonSerializer.Serialize(new { plan=identityPlan,summary=bounded.Summary },new JsonSerializerOptions { WriteIndented=true }));
     await File.WriteAllTextAsync(Path.Combine(output, "report.json"),

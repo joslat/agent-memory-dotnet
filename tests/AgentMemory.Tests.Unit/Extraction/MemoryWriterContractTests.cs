@@ -225,6 +225,45 @@ public sealed class MemoryWriterContractTests : IDisposable
     }
 
     [Fact]
+    public async Task A_correction_that_fixes_only_the_quote_keeps_its_malformed_entity_out_of_the_store()
+    {
+        // ILC-23 ECB+ igb-ecbplus-new-02: "Arcade Joseph Comeaux Jr (PERSON) | null" with an inexact quote. The correction
+        // fixed the quote only; the merge accepted it on its text and stored an OBJECT named after the whole text.
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Arcade Comeaux (PERSON) | null","quote":"Arcade Comeaux, Prison Inmate"}]}""");
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Arcade Comeaux (PERSON) | null","quote":"Comeaux, 49"}]}""");
+        var result = await Write("Arcade Comeaux, 49, fled on foot.");
+        _calls.Should().HaveCount(2);
+        result.Entities.Should().BeEmpty();
+        var outcome = result.Outcomes.Should().ContainSingle().Which;
+        outcome.Kind.Should().Be(MemoryItemKind.Entity);
+        outcome.ErrorMessage.Should().Contain("Name (PERSON|PLACE|ORGANIZATION|THING|EVENT)");
+    }
+
+    [Fact]
+    public async Task A_correction_that_fixes_only_the_quote_keeps_its_json_debris_out_of_the_store()
+    {
+        // The same gap for facts: a quote-only fix was accepted on its unchanged text, debris included.
+        _replies.Enqueue("{\"ops\":[{\"op\":\"add\",\"kind\":\"fact\",\"text\":\"user | likes | mate```\",\"quote\":\"I love mate\"}]}");
+        _replies.Enqueue("{\"ops\":[{\"op\":\"add\",\"kind\":\"fact\",\"text\":\"user | likes | mate```\",\"quote\":\"I drink mate\"}]}");
+        var result = await Write("I drink mate all day.");
+        _calls.Should().HaveCount(2);
+        result.Facts.Should().BeEmpty();
+        result.Outcomes.Should().ContainSingle().Which.ErrorMessage.Should().Contain(nameof(MemoryWriterOps.DropReason.TextFormatInvalid));
+    }
+
+    [Fact]
+    public async Task A_dropped_entity_with_a_malformed_text_is_asked_to_fix_both_in_one_correction()
+    {
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Arcade Comeaux (PERSON) | null","quote":"Arcade Comeaux, Prison Inmate"}]}""");
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Arcade Comeaux (PERSON)","quote":"Arcade Comeaux"}]}""");
+        var result = await Write("Arcade Comeaux, 49, fled on foot.");
+        _calls.Should().HaveCount(2);
+        _calls[1].Messages[^1].Text.Should().Contain("not exact").And.Contain("Name (PERSON|PLACE|ORGANIZATION|THING|EVENT)");
+        result.Entities.Should().ContainSingle().Which.Should().Match<ExtractedEntity>(e => e.Name == "Arcade Comeaux" && e.Type == "PERSON");
+        result.Outcomes.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task A_fact_carrying_json_debris_is_corrected_instead_of_stored_with_a_lost_date()
     {
         // Full Bariloche real-04: "December 4\n```json\n{\"ops\": ...}```" was stored as the object; the repeated date then

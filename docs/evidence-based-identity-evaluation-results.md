@@ -147,5 +147,35 @@ Ablation on the original scenario (one component off at a time): adjudicator off
 split an organisation into two identities, at no measurable call saving; context turns off, one run, all checks pass. The
 adjudicator and the context turns are kept as safety nets; writer references produce nearly all confirmations.
 
-Limits: one scenario family and its busy variant, one chat model, gold written by the implementing team; an independent
-gold (adapted public corpora such as ECB+ for events and WePS for shared names) and a second model are the next measures.
+Limits: one scenario family and its busy variant, one chat model, gold written by the implementing team. The independent
+gold below addresses the last of these; a second chat model is deferred.
+
+## Independent gold: ECB+, 13 November 2026
+
+Labels written by others: [ECB+](https://github.com/cltl/ecbPlus) (Cybulska and Vossen, LREC 2014; annotations CC BY 3.0),
+news articles with human cross-document coreference, two similar but different real events per topic. Frozen slice
+`ecbplus-slice-v1`: the first 4 topics (celebrity rehab check-ins, Oscars hosts, prison escapes, actresses' deaths), the
+seminal event of each subtopic, 4 articles per event, every annotated sentence: 61 statements in 32 sessions, 105 gold
+groups. Each sentence is said verbatim after one fixed frame ("I'm covering this story at work: "): verbatim news stored
+nothing, because a personal memory rightly keeps no general knowledge. Same models and campaign as above; no questions
+(the score is the store against the corpus's labels). How to run it: `tools/AgentMemory.Scenarios/README.md`.
+
+| Arm | Runs | Wrong merges | Similar events joined | Split groups per run | Identities | Calls |
+|---|---|---|---|---|---|---|
+| new | 4 (2 before and 2 after the correction fix below) | **0 in all 4** | **0** (81st and 86th Oscars kept apart in every run) | 1, 1, 2, 1 (a ceremony or a clinic stored twice) | 19-21 | 93-99 |
+| old | 2 | 0 | n/a | n/a | **0: no entities stored**, everything kept as "the user is covering a story about ..." facts | 82-86 |
+
+Reading: on data neither the system nor its tests were written for, the new model again never merged two different
+things and kept two similar real events apart; its weakness is the occasional split (a place or an event named
+differently across articles). The old model records no identities at all here, so it cannot merge or split. Coverage is
+narrower than designed: only the Oscars topic produced event entities; check-ins, deaths and the escape were stored as
+facts about people, whose continuity across articles held.
+
+Found and fixed on the way (red-first, `MemoryWriterContractTests`): a correction that repaired only an inexact quote was
+accepted without the shape checks, and stored "Arcade Joseph Comeaux Jr (PERSON) | null" as an object. Corrections now
+pass the same checks as a first answer. After the fix: ECB+ 2 runs with no malformed entity, and the standing benchmark
+on the original scenario 2 more runs at 3/3 prompts, 6/6 storage, 0 event-detail failures, 0 wrong merges, 0 splits.
+
+ConEL-2 (dialogue entities, annotations MIT) was prepared but not run at full size: in its one-item stage the writer kept
+liked things as preferences ("Kid Rock is the user's favorite singer") and stored no entities, so identity is not
+exercised by either arm.

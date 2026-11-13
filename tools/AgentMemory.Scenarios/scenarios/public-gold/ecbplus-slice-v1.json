@@ -1,0 +1,489 @@
+{
+  "version": "ecbplus-slice-v1",
+  "source": "ECB+ (Cybulska and Vossen, LREC 2014), https://github.com/cltl/ecbPlus",
+  "licence": "Annotations CC BY 3.0 Unported, (c) Agata Cybulska, Piek Vossen and VU University Amsterdam; article texts are third-party news and are not redistributed here.",
+  "rule": "The first 4 ECB+ topics in numeric order, both subtopics of each (ecb and ecbplus: two similar but different real events). Seminal event of a subtopic: the cross-document action instance (reporting acts excluded) mentioned in the most documents within the coreference-annotated sentences (ECBplus_coreference_sentences.csv); ties by instance id. Documents: the first 4 by document number that mention the seminal event in an annotated sentence. Sentences: every annotated sentence of those documents; sentence 0 of an ecbplus file (its source URL) excluded. Sessions: per topic, one article at a time, the two subtopics alternating.",
+  "sentencesCsvSha256": "afee49e0f5fe5084eec690e934aaade842d5eeff7a5704a36f59e7a49505f434",
+  "topics": [
+    {
+      "topic": 1,
+      "subtopics": [
+        {
+          "subtopic": "ecb",
+          "seminal": "ACT16236402809085484",
+          "descriptor": "t1b_checking_in_promises",
+          "documents": [
+            {
+              "file": "1_1ecb.xml",
+              "sentences": [
+                {
+                  "sentence": 1,
+                  "sha256": "ded9f69ff4cc8055e2e3c69f9ce9563c18ee106d16022ea7c430a990a3f8524f"
+                },
+                {
+                  "sentence": 2,
+                  "sha256": "d705ce64a4729392e2a9885ddbb93b3bbc11d0022d2600c9cdc90b5dc10edf96"
+                }
+              ]
+            },
+            {
+              "file": "1_2ecb.xml",
+              "sentences": [
+                {
+                  "sentence": 0,
+                  "sha256": "874c9fab858e0dc8d9da36ebbe92a40e92761b5b9c55806dadff02f7d7091e43"
+                },
+                {
+                  "sentence": 2,
+                  "sha256": "2a0536621a7cc6a428ea1c8e50e78788be4e3143d82c02c8a1ff3effc7708e90"
+                }
+              ]
+            },
+            {
+              "file": "1_3ecb.xml",
+              "sentences": [
+                {
+                  "sentence": 1,
+                  "sha256": "920301a44c0b5e4d2ca041940ea1da15e6fa49404809bdbb7420a8047f016c21"
+                }
+              ]
+            },
+            {
+              "file": "1_4ecb.xml",
+              "sentences": [
+                {
+                  "sentence": 1,
+                  "sha256": "b94a81369a8780cb6b358af255c47a7f11df373ac91d7d3aa4387498eda0f979"
+                },
+                {
+                  "sentence": 2,
+                  "sha256": "9d0dc80870d3c1c671ccc892dce97b5a3d9e13384957fd68559943511c1f1855"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "subtopic": "ecbplus",
+          "seminal": "ACT15832182464413376",
+          "descriptor": "t1_checking_into_morningside_or_showing_up",
+          "documents": [
+            {
+              "file": "1_2ecbplus.xml",
+              "sentences": [
+                {
+                  "sentence": 2,
+                  "sha256": "c31d5362cb494712edf2c958dada425df510499f12e92eb7d19f29dd81a9d0c8"
+                },
+                {
+                  "sentence": 4,
+                  "sha256": "0237c522bb8401b98a31582353bcddeab90d285ea636c56bd4fc5f67dd0fa932"
+                }
+              ]
+            },
+            {
+              "file": "1_4ecbplus.xml",
+              "sentences": [
+                {
+                  "sentence": 1,
+                  "sha256": "faf86d841152d97bb09adc6b7f2bb7b8acec6fe9d448b7c3380f4619178b24d5"
+                },
+                {
+                  "sentence": 6,
+                  "sha256": "85db48bf9b040425ade931a57a0ad126ecf37e99a81346200812b372911b73af"
+                },
+                {
+                  "sentence": 7,
+                  "sha256": "59fac2a4ad5b7bf21e0895b490da70b449ca31140e1cf0d98fc0f9fa9327163b"
+                }
+              ]
+            },
+            {
+              "file": "1_5ecbplus.xml",
+              "sentences": [
+                {
+                  "sentence": 1,
+                  "sha256": "885ef48fbd10996ca86599eda12d1bda34d5f31dfa3c926171eacd9ad843400e"
+                },
+                {
+                  "sentence": 3,
+                  "sha256": "ec82016a09494b69cfb5d880868e924c1b8a2a243cdf97b8b1cd340bb56f162b"
+                }
+              ]
+            },
+            {
+              "file": "1_7ecbplus.xml",
+              "sentences": [
+                {
+                  "sentence": 1,
+                  "sha256": "7ad0369a36264b39dad96d5f4613b7bfd705c48512975dc047932deaa8364723"
+                },
+                {
+                  "sentence": 3,
+                  "sha256": "ae647de4e7929d00306b49595f2cca8bb6660646768096167ad27050c5c7e6b7"
+                },
+                {
+                  "sentence": 4,
+                  "sha256": "72a7aab57f3b6a5230bdaeffa77a891906e92a6b7615834d0b2a7875cb54bd40"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "topic": 2,
+      "subtopics": [
+        {
+          "subtopic": "ecb",
+          "seminal": "ACT16268643573999998",
+          "descriptor": "t2b_oscar_ceremony",
+          "documents": [
+            {
+              "file": "2_1ecb.xml",
+              "sentences": [
+                {
+                  "sentence": 0,
+                  "sha256": "4eec82dd7837ed4c86180bcaa9ea6d170d86d8868e8b6ba4ec949519f6691fa2"
+                }
+              ]
+            },
+            {
+              "file": "2_2ecb.xml",
+              "sentences": [
+                {
+                  "sentence": 4,
+                  "sha256": "ec432c36a3c477c48c8bc2dfedf9d0b6e807315d8a085a94d98f4b299291059a"
+                }
+              ]
+            },
+            {
+              "file": "2_3ecb.xml",
+              "sentences": [
+                {
+                  "sentence": 1,
+                  "sha256": "31b569aa78af37a9afb370f7b997f1530b500058f10d646ef1eb2cd4f4a03486"
+                }
+              ]
+            },
+            {
+              "file": "2_4ecb.xml",
+              "sentences": [
+                {
+                  "sentence": 2,
+                  "sha256": "9530e416b7970be7bcdf34cc4293c79dda580af6fd3b6d60cc58cb44bff73dbb"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "subtopic": "ecbplus",
+          "seminal": "ACT16239369414744113",
+          "descriptor": "t2_academy_awards",
+          "documents": [
+            {
+              "file": "2_1ecbplus.xml",
+              "sentences": [
+                {
+                  "sentence": 1,
+                  "sha256": "f84da026e41089a1cfb263ecb6090b73d6c96198416a54d0c7e0e9eb7bae960e"
+                },
+                {
+                  "sentence": 3,
+                  "sha256": "b558130254502a62a9423eadce2ea0a6af5337c1b7b97515493ee4017ee9b759"
+                },
+                {
+                  "sentence": 4,
+                  "sha256": "4a7fde581e1437701526267da2806c107afd4caca72ca3c7b8040627f6d363f9"
+                }
+              ]
+            },
+            {
+              "file": "2_2ecbplus.xml",
+              "sentences": [
+                {
+                  "sentence": 1,
+                  "sha256": "f19472e3bc95b349c62262a62900ed2c008437d01e31c44855c74b2cef5e5e2e"
+                },
+                {
+                  "sentence": 3,
+                  "sha256": "156c5c371065d8774bbfd77298ea6ea4bfe8b552488770063ecbd2197f2f8078"
+                },
+                {
+                  "sentence": 4,
+                  "sha256": "c90a5b2e2b73ad56f9948e76981456beced4ef3a961f7970cd14b6d6cd59e006"
+                }
+              ]
+            },
+            {
+              "file": "2_3ecbplus.xml",
+              "sentences": [
+                {
+                  "sentence": 1,
+                  "sha256": "0ae7218f5493791c94fcd953c6a0c9c2ac96aaf56bdab627a37109394319d89d"
+                },
+                {
+                  "sentence": 3,
+                  "sha256": "a4ebbe6617223cd778b91fc6cc4b7652226ba8ddeb2690b2174c88cfb2801d61"
+                },
+                {
+                  "sentence": 4,
+                  "sha256": "b2ed2ae2c2ad517d21176775007ff96521db25bf2bab8cdca00b6ea697e2249e"
+                }
+              ]
+            },
+            {
+              "file": "2_4ecbplus.xml",
+              "sentences": [
+                {
+                  "sentence": 1,
+                  "sha256": "12179bb16b44d3b838c671c8e8372ab94ed09019702ef1056f6b318f2ff15332"
+                },
+                {
+                  "sentence": 3,
+                  "sha256": "acd8ceab01290337e564916ec0bbd5d9ac538c49ab97ed6afb68c2710aa7531a"
+                },
+                {
+                  "sentence": 4,
+                  "sha256": "9860b7ff9d25c02bacbfb8f6f5a51503d02661d84dc941ce8de69154ef6405f1"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "topic": 3,
+      "subtopics": [
+        {
+          "subtopic": "ecb",
+          "seminal": "ACT16364140299507831",
+          "descriptor": "t3b_judge_gave_life_sentence",
+          "documents": [
+            {
+              "file": "3_1ecb.xml",
+              "sentences": [
+                {
+                  "sentence": 0,
+                  "sha256": "0ab9f0ae5a739815e90f2d587e5fd4bd628595ac0f6ef9bf86b0bab3004a4360"
+                }
+              ]
+            },
+            {
+              "file": "3_2ecb.xml",
+              "sentences": [
+                {
+                  "sentence": 0,
+                  "sha256": "4426ea70275c4e7718d080f5c4e2da63fbb81534189316464e20166226d12317"
+                }
+              ]
+            },
+            {
+              "file": "3_3ecb.xml",
+              "sentences": [
+                {
+                  "sentence": 0,
+                  "sha256": "c1974c7fd55ac67cbada6e91f38a1064ea9340d97b3a7e20ca4ece8b01c0a370"
+                }
+              ]
+            },
+            {
+              "file": "3_4ecb.xml",
+              "sentences": [
+                {
+                  "sentence": 0,
+                  "sha256": "7673757c4a2e8ff127facd5b5e21f5724edc891d2dc831e3042169eef5f6ee39"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "subtopic": "ecbplus",
+          "seminal": "ACT16190399378875259",
+          "descriptor": "t3_escape_nov_30",
+          "documents": [
+            {
+              "file": "3_1ecbplus.xml",
+              "sentences": [
+                {
+                  "sentence": 1,
+                  "sha256": "dde4e98186c6e4a1fa41ef6c4e8461e781d999172b3ea75ab16dd107984c371f"
+                },
+                {
+                  "sentence": 3,
+                  "sha256": "43a1dce7b662becca36e4d2f0933bf6850cf69d9b1e8eaa092c991d9ac625167"
+                },
+                {
+                  "sentence": 5,
+                  "sha256": "a3f03559dcda053ab3e7cbc861d34618fe9b25041a5a00dff3090bedcfc62333"
+                }
+              ]
+            },
+            {
+              "file": "3_2ecbplus.xml",
+              "sentences": [
+                {
+                  "sentence": 1,
+                  "sha256": "6825aba1c68bb1175ea2305278f57bae66dac412636c30f1ab25eb356374f995"
+                },
+                {
+                  "sentence": 3,
+                  "sha256": "ac6cde994674db46357ff051eafb2e35bbb867fd4979d3a9d8c363b18be9aefc"
+                },
+                {
+                  "sentence": 4,
+                  "sha256": "118973feee93dac41f3bcc768662d00a7131bbf992c0bc111b16bffa0b74c218"
+                }
+              ]
+            },
+            {
+              "file": "3_3ecbplus.xml",
+              "sentences": [
+                {
+                  "sentence": 1,
+                  "sha256": "1da54cf3d9dac59ae73f28c97be320a614a34755c4ed1cd50689badec4decf83"
+                },
+                {
+                  "sentence": 3,
+                  "sha256": "dccae05ede6785077fd4565629c774d1c57c1814f9c851aa65e4c7a09ebe3a27"
+                },
+                {
+                  "sentence": 5,
+                  "sha256": "a09d2c33982bddfa7c5cd2f4dfb7e80d5dd8b218f4a78ef4ca766d8936e3467b"
+                }
+              ]
+            },
+            {
+              "file": "3_4ecbplus.xml",
+              "sentences": [
+                {
+                  "sentence": 1,
+                  "sha256": "4b766ff4103c91deea43a481f3122ea83c674b5165bbc83e7b15a68c1c102fbf"
+                },
+                {
+                  "sentence": 2,
+                  "sha256": "9b3ff8a8ccadbae02f8939eba0dc9026e02a0e4cdba24ab2d9cfa4d6851855a6"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "topic": 4,
+      "subtopics": [
+        {
+          "subtopic": "ecb",
+          "seminal": "ACT16369833899538926",
+          "descriptor": "t4b_betty_page_dies",
+          "documents": [
+            {
+              "file": "4_1ecb.xml",
+              "sentences": [
+                {
+                  "sentence": 0,
+                  "sha256": "bb1a9cf05d30dfb22333d08ac33424f5fbdd4a7c23f2457b30a0377f65d9aa4f"
+                }
+              ]
+            },
+            {
+              "file": "4_2ecb.xml",
+              "sentences": [
+                {
+                  "sentence": 0,
+                  "sha256": "adfc656b1965a6de1273fc99649d30891fce7af761d4495bf0bd316acf955012"
+                }
+              ]
+            },
+            {
+              "file": "4_3ecb.xml",
+              "sentences": [
+                {
+                  "sentence": 0,
+                  "sha256": "6a1585aeb28df27edf9df17879e1e20c0d23b2a95b6b219cef87a22f047ec6db"
+                }
+              ]
+            },
+            {
+              "file": "4_4ecb.xml",
+              "sentences": [
+                {
+                  "sentence": 0,
+                  "sha256": "ace46e55fdebfbfc35bd8ee93039e81463f87b500d1c94b4ad51297abd24adc5"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "subtopic": "ecbplus",
+          "seminal": "ACT16194654011907361",
+          "descriptor": "t4_dies",
+          "documents": [
+            {
+              "file": "4_1ecbplus.xml",
+              "sentences": [
+                {
+                  "sentence": 2,
+                  "sha256": "aec1d70c5a24f44eda01d26391a0f8136d20a0ad90a46a2a3348b4227f06be8c"
+                },
+                {
+                  "sentence": 4,
+                  "sha256": "76e4179448edb10999616314b089bbfab00a52e384eee67c9d514460d2f9491f"
+                },
+                {
+                  "sentence": 7,
+                  "sha256": "14d4928288f46d924691380fcee03a18ad64b548911eb515f0975d55264c87d6"
+                }
+              ]
+            },
+            {
+              "file": "4_2ecbplus.xml",
+              "sentences": [
+                {
+                  "sentence": 1,
+                  "sha256": "aa07ecdfa89f2334bbc1b4ad64a2da4254f8544f333fed5116209fded6990f3c"
+                },
+                {
+                  "sentence": 3,
+                  "sha256": "28e050fbe7adefe191f31f3fc2feea6a49fb5ae78f95907d8e5ca12500564468"
+                }
+              ]
+            },
+            {
+              "file": "4_3ecbplus.xml",
+              "sentences": [
+                {
+                  "sentence": 1,
+                  "sha256": "488f93f7730e08a527376385ceddc9a17de0c83d3b0ea51c98c1e62120712a64"
+                }
+              ]
+            },
+            {
+              "file": "4_4ecbplus.xml",
+              "sentences": [
+                {
+                  "sentence": 1,
+                  "sha256": "1344fae69f1cedb1fe592bd3975447ae35a3578ffe80ee22a9c9e2e509558ef5"
+                },
+                {
+                  "sentence": 3,
+                  "sha256": "bccf434e33c8c4c5ff701df5d6a0283f873c148980efa2a2c8c37418bd39c95f"
+                },
+                {
+                  "sentence": 4,
+                  "sha256": "af669e6934172cb3ecc2a9c2f37724af8cc3da088768979b23f8fc6d02e7ff47"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -107,6 +107,28 @@
           "Neo4j__Password": "${input:neo4jPassword}"
         }
       }
+    },
+    {
+      "label": "AgentMemory: identity gold benchmark, ECB+ (dry run) — optional, requires a model and the dataset",
+      "type": "shell",
+      "command": "dotnet",
+      "args": [
+        "run",
+        "--project",
+        "tools/AgentMemory.Scenarios",
+        "--",
+        "--identity-validation",
+        "--identity-writer",
+        "--identity-gold",
+        "ecbplus",
+        "--dry-run"
+      ],
+      "group": "test",
+      "problemMatcher": "$msCompile",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
     }
   ],
   "inputs": [

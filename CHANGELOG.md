@@ -12,7 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   action, text/id, quote, reference, entity format and event observations, at most one targeted
   correction call, and `UnifiedExtractionResult.Outcomes` entries (`MEMORY_WRITER_OPERATION_REJECTED`)
   for whatever still fails, reported with the turn's ingestion outcomes. A malformed entity is never
-  coerced into an `OBJECT`. Off remains byte-identical (prompt, request format, single call).
+  coerced into an `OBJECT`. Off remains byte-identical (prompt, request format, single call). A correction passes the
+  same shape checks as a first answer: one that repairs its listed problem but keeps a malformed entity or JSON debris
+  is rejected and reported, and a dropped entity whose text is also malformed is asked to fix both in its one
+  correction (found by the ECB+ independent gold: a quote-only correction had stored "Name (PERSON) | null" as an object).
 - Evidence-based identity re-checks a writer reference as contextual evidence without a model call
   (candidate, ambiguity, current-source quote and type policy), resolves references to observations
   already confirmed elsewhere through their decision, and hydrates each eligible candidate's own source
@@ -37,6 +40,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   into an identity-enabled store stays refused. With identity off the export is byte-identical (both members unserialized).
 - Add `IIdentityDecisionRepository.ListPendingAsync` (Neo4j): the owner's open identity proposals for a review queue,
   bounded (1-256) with stable paging; reviewed proposals leave it.
+- `tools/AgentMemory.Scenarios` (tooling, not shipped): an optional independent identity gold, `--identity-gold
+  ecbplus|conel2`, scoring stores against labels written by others: ECB+ news events (annotations CC BY 3.0) and ConEL-2
+  dialogue entities (annotations MIT). Frozen slices hold identifiers and sentence hashes only; the corpus is read from a
+  local download and refused if it differs. `--identity-gold-select` freezes a slice and `--identity-gold-score` re-scores
+  a recorded run, both without a model. The C# scorer matches the Bariloche metric on recorded runs. Off by default,
+  never in CI; adapters and scorer are unit-tested on fixtures.
 
 - Add an explicit full49-statement Bariloche evaluation profile sharing the persistent cost cap,
   stronger physical-context assertions and actual Fact/decision/binding IDs. The current real

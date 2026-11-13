@@ -65,23 +65,27 @@ internal static class MemoryWriterContract
     {
         var issues = new List<Issue>();
         foreach (var drop in dropped)
-            issues.Add(new(drop.Reason, drop.Index, drop.Kind, drop.Text, DropProblem(drop.Reason)));
+        {
+            // A dropped entity whose text is malformed too is asked to fix both in its one correction (ILC-23 ECB+: a
+            // quote-only fix kept "Name (PERSON) | null").
+            var alsoMalformed = drop.Kind == "entity" && drop.Text is { } text && !EntityText.IsMatch(text);
+            issues.Add(new(drop.Reason, drop.Index, drop.Kind, drop.Text,
+                DropProblem(drop.Reason) + (alsoMalformed ? "; and " + EntityFormatProblem : "")));
+        }
         var byLabel = stored.ToDictionary(item => item.Label, StringComparer.OrdinalIgnoreCase);
         for (var i = ops.Count - 1; i >= 0; i--)
         {
             // One line, no code fence, no embedded operation JSON: debris in a text is never stored (real-04: a copy of
             // the reply inside a fact's object cost the fact its date).
             if (ops[i].Action == "confirm" || ops[i].Kind == "entity" || !HasDebris(ops[i].Text)) continue;
-            issues.Add(new(MemoryWriterOps.DropReason.TextFormatInvalid, ops[i].Index, ops[i].Kind, ops[i].Text,
-                "the text must be one line of the stated format, with no code fence, JSON or second operation inside it"));
+            issues.Add(new(MemoryWriterOps.DropReason.TextFormatInvalid, ops[i].Index, ops[i].Kind, ops[i].Text, DebrisProblem));
             ops.RemoveAt(i);
         }
         for (var i = ops.Count - 1; i >= 0; i--)
         {
             if (ops[i].Kind != "entity" || ops[i].Action != "add" || EntityText.IsMatch(ops[i].Text)) continue;
             // Never coerced into an OBJECT named after the whole text: corrected once, else dropped and reported.
-            issues.Add(new(MemoryWriterOps.DropReason.EntityFormatInvalid, ops[i].Index, "entity", ops[i].Text,
-                "an entity's text must be exactly \"Name (PERSON|PLACE|ORGANIZATION|THING|EVENT)\", with nothing before or after"));
+            issues.Add(new(MemoryWriterOps.DropReason.EntityFormatInvalid, ops[i].Index, "entity", ops[i].Text, EntityFormatProblem));
             ops.RemoveAt(i);
         }
         for (var i = 0; i < ops.Count; i++)
@@ -155,6 +159,13 @@ internal static class MemoryWriterContract
                 unfixed.Add(issue);
                 continue;
             }
+            // A fix passes the shape checks every first answer passes: one that repairs its listed issue but keeps a
+            // malformed entity or JSON debris is still rejected (ILC-23 ECB+: a quote-only fix stored an OBJECT).
+            if (ShapeProblem(fix) is { } shape)
+            {
+                unfixed.Add(issue with { Reason = shape.Reason, Text = fix.Text, Problem = shape.Problem });
+                continue;
+            }
             used.Add(fix);
             if (issue.Kept is not null)
             {
@@ -218,12 +229,28 @@ internal static class MemoryWriterContract
         text.Contains('\n') || text.Contains('\r') || text.Contains("```", StringComparison.Ordinal) ||
         text.Contains("\"ops\"", StringComparison.Ordinal) || text.Contains("{\"op", StringComparison.Ordinal);
 
+    private const string DebrisProblem = "the text must be one line of the stated format, with no code fence, JSON or second operation inside it";
+    private const string EntityFormatProblem = "an entity's text must be exactly \"Name (PERSON|PLACE|ORGANIZATION|THING|EVENT)\", with nothing before or after";
+
+    /// <summary>The shape checks every operation passes, a correction's included: an entity's form and a text's debris.</summary>
+    private static (MemoryWriterOps.DropReason Reason, string Problem)? ShapeProblem(MemoryWriterOps.Op op)
+    {
+        if (op.Kind == "entity" && op.Action == "add" && !EntityText.IsMatch(op.Text))
+            return (MemoryWriterOps.DropReason.EntityFormatInvalid, EntityFormatProblem);
+        if (op.Kind != "entity" && op.Action != "confirm" && HasDebris(op.Text))
+            return (MemoryWriterOps.DropReason.TextFormatInvalid, DebrisProblem);
+        return null;
+    }
+
     private static bool Fixes(Issue issue, MemoryWriterOps.Op op)
     {
         if (issue.Reason == MemoryWriterOps.DropReason.TextFormatInvalid)
             return op.Kind == issue.Kind && op.Action != "confirm" && !HasDebris(op.Text) && op.Text.Length > 0 &&
                 issue.Text is { } original && original.Contains(op.Text, StringComparison.OrdinalIgnoreCase);
-        if (issue.Reason == MemoryWriterOps.DropReason.EntityFormatInvalid)
+        // A malformed entity (listed for its form, or dropped for another reason with its form named too) is fixed by a
+        // well-formed entity whose name its original text holds.
+        if (issue.Reason == MemoryWriterOps.DropReason.EntityFormatInvalid ||
+            issue.Kind == "entity" && issue.Text is { } listed && !EntityText.IsMatch(listed))
             return op.Kind == "entity" && op.Action == "add" && EntityText.IsMatch(op.Text) && issue.Text is { } original &&
                 original.Contains(EntityName(op.Text), StringComparison.OrdinalIgnoreCase);
         if (issue.EventName is { } name)

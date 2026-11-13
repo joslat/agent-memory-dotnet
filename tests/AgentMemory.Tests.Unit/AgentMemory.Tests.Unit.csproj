@@ -65,5 +65,6 @@
     <Compile Include="../../tools/AgentMemory.Scenarios/Checks.cs" Link="Scenarios/Checks.cs" />
     <Compile Include="../../tools/AgentMemory.Scenarios/Scenario.cs" Link="Scenarios/Scenario.cs" />
     <Compile Include="../../tools/AgentMemory.Scenarios/BarilocheValidation.cs" Link="Scenarios/BarilocheValidation.cs" />
+    <Compile Include="../../tools/AgentMemory.Scenarios/PublicGold/*.cs" LinkBase="Scenarios/PublicGold" />
   </ItemGroup>
 </Project>
