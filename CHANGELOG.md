@@ -20,6 +20,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   measurement ran it; at its default, maximum effort it could spend its whole reply budget thinking and answer nothing,
   which left the identity writer with empty replies in the samples. No other model gets an effort it did not ask for.
   A request that chooses its own effort keeps it.
+- **Owner export and import carry identity whole** (`agentmemory-export/2`). With identity storage the export adds
+  `OwnerMemoryExport.IdentityState`: the owner's decisions with their evidence and quotes, review revisions, fact
+  bindings, host assertions, relationship observations, their links, and the entities' identity properties, each value
+  with its type. Import into an identity store recreates them for the new owner, with every reference rewritten (inside
+  stored JSON too) and each observation under a new key of the same shape, so open proposals, review history and event
+  details work as before; one export can be imported into several owners. Messages stay out: decisions keep their
+  quotes. A format-1 export, or an import into a store without identity, comes back as the current state, as in 2.2.0.
+  An importer that knows only format 1 refuses format 2 rather than dropping its identity state.
 - The release pipeline installs the freshly packed meta-package into a clean consumer and fails unless the installed
   `AgentMemory.Neo4j` embeds every migration in the source tree (`eng/verify-packages-install.sh`). Run against the
   published 2.2.0 it fails with 0 of 18, which is the bug.

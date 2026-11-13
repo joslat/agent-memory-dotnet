@@ -430,26 +430,44 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
     }
 
     [Fact]
-    public async Task Owner_portability_brings_an_identity_store_back_as_its_current_identities()
+    public async Task Owner_portability_brings_an_identity_store_back_whole()
     {
-        // ILC-26: identity is on by default, so import works into an identity store; each confirmed identity comes back as
-        // one entity, and the source owner's decisions are untouched.
+        // ILC-30: decisions, open proposals, fact bindings and evidence come back for the new owner, every reference
+        // rewritten, through a JSON file as an export travels; the source owner is untouched and a second copy is possible.
         using var host = Host(); using var scope = host.CreateScope(); var services = scope.ServiceProvider;
+        await Seed(services, "Acme go live");
         await Ingest(services, Input());
+        var decisions = services.GetRequiredService<IIdentityDecisionRepository>();
+        var original = await StoredDecision();
+        original.Status.Should().Be(IdentityDecisionKind.Pending, "the seeded entity leaves an open proposal to carry over");
         var owners = services.GetRequiredService<IMemoryOwnerDataService>();
         var exported = await owners.ExportAsync("pablito");
-        exported.IdentityStateOmitted.Should().BeTrue(); exported.IdentityResolutions.Should().NotBeNull();
-        var folded = exported.IdentityResolutions!.Where(l => l.From != l.To).Select(l => l.From).Distinct().Count();
+        exported.Format.Should().Be(OwnerMemoryExport.IdentityFormat);
+        exported.IdentityState!.Nodes.Should().Contain(node => node.Label == "IdentityDecision");
+        var file = JsonSerializer.Deserialize<OwnerMemoryExport>(JsonSerializer.Serialize(exported))!;
 
-        var imported = await owners.ImportAsync(exported, "copy-owner");
+        var imported = await owners.ImportAsync(file, "copy-owner");
 
-        imported.Written.GetValueOrDefault("entities").Should().Be(exported.Entities.Count - folded);
-        imported.Written.GetValueOrDefault("facts").Should().Be(exported.Facts.Count);
-        (await owners.ExportAsync("copy-owner")).Entities.Should().HaveCount(exported.Entities.Count - folded);
-        (await services.GetRequiredService<IIdentityDecisionRepository>().GetAsync((await StoredDecision()).DecisionId, "pablito"))
-            .Should().NotBeNull("the source owner is untouched");
+        foreach (var label in new[] { "IdentityDecision", "IdentityDecisionRevision", "IdentityFactBinding", "IdentityEvidenceAssertion", "IdentityRelationshipObservation" })
+            (await Count($"(:{label} {{owner_id: 'copy-owner'}})")).Should().Be(await Count($"(:{label} {{owner_id: 'pablito'}})"), label);
+        foreach (var type in new[] { "RESOLVES_TO", "POSSIBLE_SAME_AS", "HAS_IDENTITY_BINDING", "DECIDED_BY", "HAS_IDENTITY_REVISION" })
+            (await Count($"(a)-[:{type}]->(b) WHERE coalesce(a.owner_id, b.owner_id) = 'copy-owner'"))
+                .Should().Be(await Count($"(a)-[:{type}]->(b) WHERE coalesce(a.owner_id, b.owner_id) = 'pablito'"), type);
+        (await decisions.ListPendingAsync("copy-owner", 50)).Should().HaveCount((await decisions.ListPendingAsync("pablito", 50)).Count);
+        var copy = await decisions.GetAsync(imported.Ids[original.DecisionId], "copy-owner");
+        copy.Should().NotBeNull();
+        copy!.Status.Should().Be(original.Status);
+        copy.ObservationKey.Should().NotBe(original.ObservationKey);
+        copy.DecisionId.Should().Be("identity-decision-" + copy.ObservationKey);
+        copy.Observation.EntityId.Should().Be("identity-observation-" + copy.ObservationKey);
+        copy.PendingEntityIds.Should().Equal(original.PendingEntityIds.Select(id => imported.Ids.GetValueOrDefault(id, id)));
+        var source = await decisions.GetAsync(original.DecisionId, "pablito");
+        source.Should().NotBeNull("the source owner is untouched");
+        (source!.Status, source.ObservationKey, source.Version).Should().Be((original.Status, original.ObservationKey, original.Version));
+        source.PendingEntityIds.Should().Equal(original.PendingEntityIds);
+        await owners.Invoking(o => o.ImportAsync(file, "third-owner")).Should().NotThrowAsync("each copy gets its own keys");
         var empty = await owners.ExportAsync("empty-owner");
-        empty.IdentityStateOmitted.Should().BeTrue(); empty.Entities.Should().BeEmpty();
+        empty.IdentityState!.Nodes.Should().BeEmpty(); empty.Entities.Should().BeEmpty();
     }
 
     private static IdentityHostEvidence HostProof(string eventId = "ACME-2026") => new()

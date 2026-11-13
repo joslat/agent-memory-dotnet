@@ -2190,10 +2190,11 @@ details. See [current evidence and limits](evidence-based-identity-implementatio
 
 ### Identity portability boundary
 
-`agentmemory-export/1` carries the current state, not identity's history. With `identity-evidence` enabled, export adds
-`IdentityResolutions` and sets `IdentityStateOmitted` (decisions, review history, evidence and open proposals are not in
-the format). Import folds each mention's entity into its confirmed identity, which keeps the mention's name as an alias,
-and never joins imported entities to what the destination holds. Owner erasure remains supported. See
+With `identity-evidence` enabled, export writes `agentmemory-export/2`, which carries the owner's identity state
+(decisions, evidence, review history, fact bindings, open proposals) beside the memories; import into an identity store
+recreates it for the new owner with every reference rewritten. A format-1 export, or an import into a store without
+identity, comes back as the current state, each mention folded into its confirmed identity. Imports never join what they
+bring to what the destination holds. Owner erasure remains supported. See
 [the identity extension](extensions/identity-evidence.md#identity-portability-boundary).
 
 ### Writer event-reference option

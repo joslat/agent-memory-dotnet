@@ -51,7 +51,7 @@ internal sealed class Neo4jMemoryOwnerDataService(
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(ownerId);
         cancellationToken.ThrowIfCancellationRequested();
-        // ILC-18 interim: with identity storage the export stays readable and says what this format leaves out.
+        // ILC-30: with identity storage the export carries the identity state too (format 2), so an import can rebuild it.
         var identity = IdentityStorageEnabled;
         var parameters = new Dictionary<string, object?> { ["ownerId"] = ownerId };
         return await tx.ReadAsync(async runner =>
@@ -72,7 +72,8 @@ internal sealed class Neo4jMemoryOwnerDataService(
                 Supersessions = [.. (await All(OwnerDataQueries.ExportSupersessions).ConfigureAwait(false)).Select(Link)],
                 About = [.. (await All(OwnerDataQueries.ExportAbout).ConfigureAwait(false)).Select(Link)],
                 IdentityResolutions = identity ? [.. (await All(OwnerDataQueries.ExportIdentityResolutions).ConfigureAwait(false)).Select(Link)] : null,
-                IdentityStateOmitted = identity,
+                IdentityState = identity ? await ExportIdentityAsync(All).ConfigureAwait(false) : null,
+                Format = identity ? OwnerMemoryExport.IdentityFormat : OwnerMemoryExport.CurrentFormat,
             };
         }, cancellationToken).ConfigureAwait(false);
     }
@@ -81,8 +82,9 @@ internal sealed class Neo4jMemoryOwnerDataService(
     {
         ArgumentNullException.ThrowIfNull(export);
         ArgumentException.ThrowIfNullOrWhiteSpace(ownerId);
-        if (export.Format != OwnerMemoryExport.CurrentFormat)
-            throw new ArgumentException($"export format '{export.Format}' is not '{OwnerMemoryExport.CurrentFormat}'", nameof(export));
+        if (export.Format is not (OwnerMemoryExport.CurrentFormat or OwnerMemoryExport.IdentityFormat))
+            throw new ArgumentException(
+                $"export format '{export.Format}' is not '{OwnerMemoryExport.CurrentFormat}' or '{OwnerMemoryExport.IdentityFormat}'", nameof(export));
 
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -95,7 +97,11 @@ internal sealed class Neo4jMemoryOwnerDataService(
         // alias, so a confirmed identity comes back as one entity. Decision history, evidence and open proposals stay
         // behind: what comes back is the current state. Imported entities are written as they are, never joined to what
         // the destination already holds, so an import cannot merge two different things.
-        var joined = Joined(export);
+        // ILC-30: with the identity state in the export and identity storage here, the store comes back whole instead:
+        // nothing is folded, each observation keeps its own entity under a new key, and the decisions come back with it.
+        var full = export.IdentityState is not null && IdentityStorageEnabled;
+        var keys = full ? ObservationKeys(export.IdentityState!, ownerId) : new Dictionary<string, string>(StringComparer.Ordinal);
+        var joined = full ? new Dictionary<string, string>(StringComparer.Ordinal) : Joined(export);
         var names = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var entity in export.Entities) names.TryAdd(entity.EntityId, entity.Name);
         var mentionNames = joined.GroupBy(pair => pair.Value, StringComparer.Ordinal)
@@ -110,7 +116,7 @@ internal sealed class Neo4jMemoryOwnerDataService(
                 : entity.Aliases;
             var stored = await entities.UpsertAsync(entity with
             {
-                EntityId = ids.GenerateId(), OwnerId = ownerId, Metadata = Plain(entity.Metadata), Aliases = aliases,
+                EntityId = ObservationId(entity.EntityId, keys) ?? ids.GenerateId(), OwnerId = ownerId, Metadata = Plain(entity.Metadata), Aliases = aliases,
                 Embedding = await embeddings.EmbedAsync(entity.Name, cancellationToken).ConfigureAwait(false),
             }, cancellationToken).ConfigureAwait(false);
             map[entity.EntityId] = stored.EntityId;
@@ -174,7 +180,96 @@ internal sealed class Neo4jMemoryOwnerDataService(
             await facts.CreateAboutRelationshipAsync(fact, map.GetValueOrDefault(link.To, link.To), cancellationToken).ConfigureAwait(false);
             Count("about");
         }
+        if (full) await ImportIdentityAsync(export.IdentityState!, export.OwnerId, ownerId, map, keys, written, cancellationToken).ConfigureAwait(false);
         return new OwnerImportResult { OwnerId = ownerId, Written = written, Ids = map };
+    }
+
+    private static async Task<OwnerIdentityState> ExportIdentityAsync(Func<string, Task<List<IRecord>>> all)
+    {
+        static IReadOnlyDictionary<string, OwnerGraphValue> Properties(IRecord row) =>
+            row["props"].As<IDictionary<string, object>>()
+                .Where(pair => pair.Value is not null)
+                .OrderBy(pair => pair.Key, StringComparer.Ordinal)
+                .ToDictionary(pair => pair.Key, pair => OwnerIdentityPortability.ToValue(pair.Value), StringComparer.Ordinal);
+
+        var nodes = new List<OwnerGraphNode>();
+        foreach (var (label, queries) in OwnerDataQueries.IdentityRecords)
+            nodes.AddRange((await all(queries.Export).ConfigureAwait(false))
+                .Select(row => new OwnerGraphNode { Label = label, Key = row["key"].As<string>(), Properties = Properties(row) }));
+        var entityProperties = (await all(OwnerDataQueries.ExportEntityIdentity).ConfigureAwait(false))
+            .Select(row => new OwnerGraphNode { Label = "Entity", Key = row["key"].As<string>(), Properties = Properties(row) }).ToList();
+        var edges = new List<OwnerGraphEdge>();
+        foreach (var link in OwnerDataQueries.IdentityLinks)
+            edges.AddRange((await all(link.Export).ConfigureAwait(false)).Select(row => new OwnerGraphEdge
+            {
+                Type = link.Type, FromLabel = link.FromLabel, From = row["from"].As<string>(),
+                ToLabel = link.ToLabel, To = row["to"].As<string>(), Properties = Properties(row),
+            }));
+        return new OwnerIdentityState { Nodes = nodes, Edges = edges, EntityProperties = entityProperties };
+    }
+
+    /// <summary>Each exported decision's observation key and the key it gets for the new owner.</summary>
+    private static Dictionary<string, string> ObservationKeys(OwnerIdentityState state, string ownerId)
+    {
+        var keys = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var node in state.Nodes.Where(node => node.Label == "IdentityDecision"))
+            if (node.Properties.TryGetValue("identity_observation_key", out var key) && key.Text is { Length: > 0 } old)
+                keys.TryAdd(old, OwnerIdentityPortability.NewObservationKey(ownerId, old));
+        return keys;
+    }
+
+    /// <summary>An observation's entity id follows its key ("identity-observation-" + key), as the ingestion makes it.</summary>
+    private static string? ObservationId(string entityId, IReadOnlyDictionary<string, string> keys) =>
+        entityId.StartsWith(OwnerIdentityPortability.ObservationPrefix, StringComparison.Ordinal) &&
+        keys.TryGetValue(entityId[OwnerIdentityPortability.ObservationPrefix.Length..], out var key)
+            ? OwnerIdentityPortability.ObservationPrefix + key
+            : null;
+
+    /// <summary>
+    /// ILC-30: the identity records for the new owner. A decision's id follows its new key, as the ingestion makes it;
+    /// every other record gets a new id. Every reference is rewritten (records, entities, facts, keys and the owner's
+    /// scope, inside stored JSON too); a link to an entity that was not imported (a shared one) is made to it as it is.
+    /// </summary>
+    private async Task ImportIdentityAsync(OwnerIdentityState state, string oldOwner, string ownerId,
+        Dictionary<string, string> map, IReadOnlyDictionary<string, string> keys, Dictionary<string, int> written,
+        CancellationToken cancellationToken)
+    {
+        foreach (var node in state.Nodes)
+            map[node.Key] = node.Label == "IdentityDecision" && node.Key.StartsWith(OwnerIdentityPortability.DecisionPrefix, StringComparison.Ordinal) &&
+                            keys.TryGetValue(node.Key[OwnerIdentityPortability.DecisionPrefix.Length..], out var key)
+                ? OwnerIdentityPortability.DecisionPrefix + key
+                : ids.GenerateId();
+        var remap = new OwnerIdentityPortability.Remap(oldOwner, ownerId, map, keys);
+        Dictionary<string, object?> Values(IReadOnlyDictionary<string, OwnerGraphValue> properties) =>
+            properties.ToDictionary(pair => pair.Key, pair => OwnerIdentityPortability.FromValue(remap.Value(pair.Key, pair.Value)), StringComparer.Ordinal);
+
+        foreach (var (label, queries) in OwnerDataQueries.IdentityRecords)
+            await WriteRowsAsync(queries.Import, "identity:" + label,
+                state.Nodes.Where(node => node.Label == label).Select(node => (object)Values(node.Properties)).ToList()).ConfigureAwait(false);
+        await WriteRowsAsync(OwnerDataQueries.ImportEntityIdentity, "identity:entity-properties",
+            state.EntityProperties.Where(node => map.ContainsKey(node.Key))
+                .Select(node => (object)new Dictionary<string, object?> { ["key"] = map[node.Key], ["props"] = Values(node.Properties) }).ToList()).ConfigureAwait(false);
+        foreach (var link in OwnerDataQueries.IdentityLinks)
+            await WriteRowsAsync(link.Import, "identity:links",
+                state.Edges.Where(edge => edge.Type == link.Type && edge.FromLabel == link.FromLabel && edge.ToLabel == link.ToLabel)
+                    .Select(edge => (object)new Dictionary<string, object?>
+                    {
+                        ["from"] = remap.Id(edge.From), ["to"] = remap.Id(edge.To), ["props"] = Values(edge.Properties),
+                    }).ToList()).ConfigureAwait(false);
+
+        async Task WriteRowsAsync(string query, string kind, List<object> rows)
+        {
+            // A bounded batch at a time, so one owner's identity state never becomes one transaction.
+            foreach (var batch in rows.Chunk(500))
+            {
+                var count = await tx.WriteAsync(async runner =>
+                {
+                    var cursor = await runner.RunAsync(query, new Dictionary<string, object?> { ["rows"] = batch }).ConfigureAwait(false);
+                    return (await cursor.SingleAsync().ConfigureAwait(false))["written"].As<long>();
+                }, cancellationToken).ConfigureAwait(false);
+                if (count > 0) written[kind] = written.GetValueOrDefault(kind) + (int)count;
+            }
+        }
     }
 
     private bool IdentityStorageEnabled => neo4jOptions?.Value.Extensions.Contains(IdentityEvidenceSchemaExtension.ExtensionId) == true;

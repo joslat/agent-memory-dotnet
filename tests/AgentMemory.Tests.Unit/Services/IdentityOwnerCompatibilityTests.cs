@@ -112,14 +112,17 @@ public sealed class IdentityOwnerCompatibilityTests
     }
 
     [Fact]
-    public async Task Existing_identity_exports_for_reading_with_its_resolutions_and_an_omission_flag()
+    public async Task Existing_identity_exports_its_identity_state_in_format_2()
     {
-        // ILC-18 interim: an owner's memory stays readable with identity enabled; the export says what it leaves out.
+        // ILC-30: an identity store's export carries its identity state, so an import can rebuild it.
         var f = new Fixture(true);
         var export = await f.Service.ExportAsync("owner");
-        export.IdentityStateOmitted.Should().BeTrue();
+        export.Format.Should().Be(OwnerMemoryExport.IdentityFormat);
+        export.IdentityState.Should().NotBeNull();
+        export.IdentityStateOmitted.Should().BeFalse("nothing is left out any more");
         export.IdentityResolutions.Should().NotBeNull();
-        f.Queries.Count.Should().Be(7, "the six memory queries plus one identity-resolution read");
+        f.Queries.Count.Should().Be(6 + 1 + 5 + 1 + 9,
+            "the six memory queries, the resolutions, the five identity records, the entities' identity properties and the nine links");
         f.Embeddings.ReceivedCalls().Should().BeEmpty();
     }
 

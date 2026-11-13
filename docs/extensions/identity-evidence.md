@@ -260,14 +260,22 @@ details. See [current evidence and limits](../evidence-based-identity-implementa
 
 ### Identity portability boundary
 
-`agentmemory-export/1` carries the current state, not identity's history. With `identity-evidence` enabled, export adds
-`IdentityResolutions` (which mention's entity a confirmed decision resolved to which identity) and sets
-`IdentityStateOmitted`: decisions, review history, evidence and open proposals are not in the format. Import (into any
-store) folds each mention's entity into its identity, which keeps the mention's name as an alias, so each confirmed
-identity comes back as one entity; an open proposal's two entities come back apart. Imported entities are written as
-they are and never joined to what the destination already holds, so an import cannot merge two different things.
-Import while the owner is not being written. With the extension disabled the format and its queries are unchanged.
-Owner erasure remains supported. Carrying decisions, history and evidence across stores is a separate follow-up.
+With `identity-evidence` enabled, export writes format `agentmemory-export/2`: the memories as in format 1, plus
+`IdentityState`, the owner's identity records as stored (decisions with their evidence and quotes, review revisions,
+fact bindings, host assertions and relationship observations), the links between them and to the exported entities and
+facts, and the entities' identity properties, each value with its type. Messages stay out: decisions keep their quotes,
+and their links back to the messages point nowhere after a move. Import into a store with identity storage brings the
+owner back whole: each observation gets a new key for the new owner (the same shape, so its decision and entity ids
+follow it as the ingestion makes them), every other record a new id, and every reference is rewritten, inside stored
+JSON too: record, entity and fact ids, observation keys and the owner's scope; the owner itself only where a property
+names the owner. Open proposals, review history and event details work as they did. A link to an entity that was not
+imported (a shared one) is made to it as it is. Importing the same export into several owners gives each its own keys.
+
+A format-1 export of an identity store (2.2.0), or a format-2 export imported into a store without identity storage,
+comes back as the current state: each mention's entity is folded into its confirmed identity, which keeps the mention's
+name as an alias, and an open proposal's two entities come back apart. Either way imported entities are never joined
+to what the destination already holds, so an import cannot merge two different things. Import while the owner is not
+being written. With the extension disabled the format and its queries are unchanged. Owner erasure remains supported.
 
 ### Writer event-reference option
 

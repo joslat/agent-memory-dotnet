@@ -122,11 +122,13 @@ preserving negation and original quotes. Default writer prompt bytes remain unch
 dedicated chat adjudicator requests constrained JSON; providers refusing it safely leave Pending.
 The synthetic arm composes these options explicitly and is not full Recommended/JEV.
 
-`agentmemory-export/1` with identity-evidence enabled exports the current state with `IdentityResolutions` and
-`IdentityStateOmitted` (ILC-18); import (ILC-26) folds each mention's entity into its confirmed identity, keeps the
-mention's name as an alias and joins nothing to what the destination holds. Decisions, review history, evidence and
-open proposals are not carried. Extension-off behavior remains unchanged. Owner erasure is supported. Complete
-identity portability is separate.
+With identity-evidence enabled, export writes `agentmemory-export/2` (ILC-30): `IdentityState` carries the five
+identity record types, the nine identity link types and the entities' identity properties, typed. Import into an
+identity store recreates them for the new owner: each observation key becomes `sha256(newOwner, oldKey)` (same shape, so
+decision and observation ids follow it), other records get new ids, and references are rewritten by exact value, inside
+stored JSON too; the owner only in owner-named properties. Messages are not carried. A format-1 export (ILC-18) or an
+import into a store without identity folds each mention into its confirmed identity (ILC-26). Extension-off behavior
+remains unchanged. Owner erasure is supported.
 
 Finite successful tests support these guarantees within their scope. They do not establish
 perfect extraction, automatic identity confirmation or full model accuracy.
