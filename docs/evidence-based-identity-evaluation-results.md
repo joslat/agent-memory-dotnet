@@ -126,3 +126,26 @@ claimed by completing this evaluation.
 
 One run and six selected store assertions are not a statistical precision benchmark, a guarantee
 that every extracted claim is correct, or a controlled version-to-version comparison.
+
+## Head-to-head and ablation, 13 November 2026
+
+Same harness for both arms: the same store-aware writer, chat and embedding models, metered campaign and no external
+judge; the old arm uses the legacy similarity resolver, the new arm evidence-based identity with
+`ApplyConversationalPolicies()` and four read-only context turns. Wrong merges and splits are scored against a frozen
+statement-level gold for the original scenario.
+
+| Scenario | Arm | Prompt needs (3 questions) | Event details (native) | Wrong merges | Notes |
+|---|---|---|---|---|---|
+| Original, 49 statements | new (4 consecutive runs) | 3/3 each | 8 details, 0 failures | 0 | 0 split identities, people included |
+| Original, 49 statements | old | 3/3 | unsupported | 0 | 10 entities, no event entities; answers carried by vector retrieval |
+| Busy variant, 130 statements | new | 3/3 | 8 details, 0 failures | n/a (gold covers the original) | |
+| Busy variant, 130 statements | old | **2/3: conflict question missing the go-live location and the in-person requirement** | unsupported | n/a | distractors defeat vector retrieval |
+| Ambiguous control (two people named Alex Kim) | old | 1/1 | n/a | **1: both people stored as one entity** | |
+| Ambiguous control | new | 1/1 | n/a | 0 | the second Alex Kim stays a separate, reviewable identity |
+
+Ablation on the original scenario (one component off at a time): adjudicator off, two runs, all checks pass but one run
+split an organisation into two identities, at no measurable call saving; context turns off, one run, all checks pass. The
+adjudicator and the context turns are kept as safety nets; writer references produce nearly all confirmations.
+
+Limits: one scenario family and its busy variant, one chat model, gold written by the implementing team; an independent
+gold (adapted public corpora such as ECB+ for events and WePS for shared names) and a second model are the next measures.
