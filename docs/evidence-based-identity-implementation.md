@@ -102,21 +102,31 @@ verified identity evidence instead of demanding model confirmation from insuffic
 
 ## Configuration and compatibility
 
-`RecallOptions.EventDetails` defaults false; `MaxEventDetailFacts` defaults8 (0-64). The read uses
+On by default since 2.2 (ILC-25): `IdentityResolutionOptions.Enabled` is null, which runs evidence-based identity
+wherever the store-aware writer runs on a backend with identity storage (Neo4j) and the previous resolver elsewhere; one
+decision (`IdentityActivation`) drives ingestion, the `identity-evidence` schema extension, context turns, the writer's
+event identities, alias capture, event details and relationship reads, and the memory tiers line reports it
+(`identity: evidence-based`, or `identity: previous resolver (why; it can merge different things that share a name)`).
+`true` always runs it; `false` is the previous behaviour. The option defaults are the measured arm (4 candidates, 2
+adjudications of 1,024 tokens within 45 s, `ContextTurns` 4; conversational policies in automatic mode), pinned by
+`IdentityDefaultOnTests`. The adjudicator defaults to the extraction model; `AddIdentityAdjudication` replaces it.
+
+`RecallOptions.EventDetails` defaults to null (follows identity; an explicit value wins); `MaxEventDetailFacts` defaults 8 (0-64). The read uses
 at most10 dated seeds,20 events and64 additional facts. It shares latency/context budgets, has no
 invented vector scores, and is suppressed by MaxFacts0 or a zero detail cap. Point-in-time recall
 and unsupported backends reject requested use explicitly.
 
-`LlmExtractionOptions.MemoryWriterEventIdentities` defaults false. Enabled, it uses coherent
+`LlmExtractionOptions.MemoryWriterEventIdentities` defaults to null (follows identity). Enabled, it uses coherent
 event-aware base instructions plus generic source-grounded event/date/place/participation shapes,
 preserving negation and original quotes. Default writer prompt bytes remain unchanged. The
 dedicated chat adjudicator requests constrained JSON; providers refusing it safely leave Pending.
 The synthetic arm composes these options explicitly and is not full Recommended/JEV.
 
-Legacy `agentmemory-export/1` export **and** import refuse use before I/O whenever identity-evidence
-is enabled, including empty owners. Extension-off legacy behavior remains unchanged. Owner erasure
-is supported. Do not remove the extension to export an identity-bearing store through the older
-format; older clients do not provide this protection. Complete identity portability is separate.
+`agentmemory-export/1` with identity-evidence enabled exports the current state with `IdentityResolutions` and
+`IdentityStateOmitted` (ILC-18); import (ILC-26) folds each mention's entity into its confirmed identity, keeps the
+mention's name as an alias and joins nothing to what the destination holds. Decisions, review history, evidence and
+open proposals are not carried. Extension-off behavior remains unchanged. Owner erasure is supported. Complete
+identity portability is separate.
 
 Finite successful tests support these guarantees within their scope. They do not establish
 perfect extraction, automatic identity confirmation or full model accuracy.

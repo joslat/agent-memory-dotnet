@@ -17,13 +17,23 @@ public sealed class IdentityOwnerCompatibilityTests
         public readonly INeo4jTransactionRunner Tx = Substitute.For<INeo4jTransactionRunner>();
         public readonly IEmbeddingOrchestrator Embeddings = Substitute.For<IEmbeddingOrchestrator>();
         public readonly List<string> Queries = [];
+        public readonly IEntityRepository Entities = Substitute.For<IEntityRepository>();
+        public readonly IFactRepository Facts = Substitute.For<IFactRepository>();
+        public readonly IRelationshipRepository Relationships = Substitute.For<IRelationshipRepository>();
+        public readonly List<Entity> EntityWrites = [];
+        public readonly List<Relationship> RelationshipWrites = [];
         public readonly Neo4jMemoryOwnerDataService Service;
         public Fixture(bool enabled)
         {
             var options = new Neo4jOptions(); if (enabled) options.Extensions.Add("identity-evidence");
-            Service = new(Tx, Substitute.For<IEntityRepository>(), Substitute.For<IFactRepository>(),
-                Substitute.For<IPreferenceRepository>(), Substitute.For<IRelationshipRepository>(), Embeddings,
-                Substitute.For<IIdGenerator>(), TimeProvider.System, Options.Create(options));
+            var ids = Substitute.For<IIdGenerator>(); var next = 0;
+            ids.GenerateId().Returns(_ => $"new-{++next}");
+            Entities.UpsertAsync(Arg.Any<Entity>(), Arg.Any<CancellationToken>()).Returns(c => { EntityWrites.Add(c.Arg<Entity>()); return c.Arg<Entity>(); });
+            Facts.UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>()).Returns(c => c.Arg<Fact>());
+            Relationships.UpsertAsync(Arg.Any<Relationship>(), Arg.Any<CancellationToken>())
+                .Returns(c => { RelationshipWrites.Add(c.Arg<Relationship>()); return c.Arg<Relationship>(); });
+            Service = new(Tx, Entities, Facts, Substitute.For<IPreferenceRepository>(), Relationships, Embeddings,
+                ids, TimeProvider.System, Options.Create(options));
             IAsyncQueryRunner Runner()
             {
                 var runner = Substitute.For<IAsyncQueryRunner>();
@@ -44,16 +54,50 @@ public sealed class IdentityOwnerCompatibilityTests
         }
     }
 
+    private static Entity Entity(string id, string name) =>
+        new() { EntityId = id, Name = name, Type = "EVENT", Confidence = 1, CreatedAtUtc = DateTimeOffset.UnixEpoch };
+
+    /// <summary>
+    /// ILC-26: with identity on by default, import must work into an identity store. Each mention's own entity is folded
+    /// into the identity it was confirmed as, so a confirmed identity comes back as one entity carrying the mention's
+    /// name as an alias, and what pointed at the mention points at the identity.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task An_identity_export_imports_each_confirmed_identity_as_one_entity(bool destinationHasIdentity)
+    {
+        var f = new Fixture(destinationHasIdentity);
+        var fact = new Fact { FactId = "f1", Subject = "the cutover", Predicate = "is on", Object = "December 12", Confidence = 1, CreatedAtUtc = DateTimeOffset.UnixEpoch };
+        var export = new OwnerMemoryExport
+        {
+            OwnerId = "source", ExportedAtUtc = DateTimeOffset.UnixEpoch, IdentityStateOmitted = true,
+            Entities = [Entity("golive", "Acme go-live"), Entity("cutover", "the cutover"), Entity("bariloche", "Bariloche")],
+            Facts = [fact],
+            About = [new("f1", "cutover")],
+            Relationships = [new() { RelationshipId = "r1", SourceEntityId = "cutover", TargetEntityId = "bariloche", RelationshipType = "LOCATED_IN", Confidence = 1, CreatedAtUtc = DateTimeOffset.UnixEpoch }],
+            IdentityResolutions = [new("cutover", "golive")],
+        };
+
+        var result = await f.Service.ImportAsync(export, "owner");
+
+        result.Written["entities"].Should().Be(2, "the cutover was confirmed as the go-live");
+        result.Ids["cutover"].Should().Be(result.Ids["golive"]);
+        f.EntityWrites.Single(e => e.Name == "Acme go-live").Aliases.Should().Contain("the cutover");
+        f.RelationshipWrites.Single().SourceEntityId.Should().Be(result.Ids["golive"]);
+        await f.Facts.Received(1).CreateAboutRelationshipAsync(result.Ids["f1"], result.Ids["golive"], Arg.Any<CancellationToken>());
+    }
+
     [Fact]
-    public async Task Existing_identity_refuses_import_before_writes_or_embeddings()
+    public async Task An_identity_store_imports_a_plain_export_without_joining_it_to_what_is_stored()
     {
         var f = new Fixture(true);
-        Func<Task> action = async () => { await f.Service.ImportAsync(new() { OwnerId = "source", ExportedAtUtc = DateTimeOffset.UnixEpoch }, "owner"); };
-        await action.Should().ThrowAsync<NotSupportedException>().WithMessage("*agentmemory-export/1*");
-        f.Queries.Should().BeEmpty();
-        f.Tx.ReceivedCalls().Should().BeEmpty();
-        f.Embeddings.ReceivedCalls().Should().BeEmpty();
-        f.Tx.ReceivedCalls().Should().NotContain(c => c.GetMethodInfo().Name == "WriteAsync");
+        var result = await f.Service.ImportAsync(new()
+        {
+            OwnerId = "source", ExportedAtUtc = DateTimeOffset.UnixEpoch, Entities = [Entity("a", "Alex Kim"), Entity("b", "Alex Kim")],
+        }, "owner");
+        result.Written["entities"].Should().Be(2, "two entities with one name stay two: import merges nothing");
+        f.EntityWrites.Select(e => e.EntityId).Should().OnlyHaveUniqueItems();
     }
 
     [Fact]
@@ -79,14 +123,6 @@ public sealed class IdentityOwnerCompatibilityTests
         f.Embeddings.ReceivedCalls().Should().BeEmpty();
     }
 
-    [Fact]
-    public async Task An_export_that_omits_identity_state_cannot_be_imported_even_without_identity()
-    {
-        var f = new Fixture(false);
-        var action = () => f.Service.ImportAsync(new() { OwnerId = "source", ExportedAtUtc = DateTimeOffset.UnixEpoch, IdentityStateOmitted = true }, "owner");
-        await action.Should().ThrowAsync<NotSupportedException>();
-        f.Queries.Should().BeEmpty(); f.Embeddings.ReceivedCalls().Should().BeEmpty();
-    }
 
     [Fact]
     public async Task Disabled_identity_export_serializes_without_any_identity_field()

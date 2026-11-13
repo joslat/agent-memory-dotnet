@@ -2418,7 +2418,8 @@ identity portability or protection provided by older clients that do not know th
 
 ### Writer event-reference option
 
-`LlmExtractionOptions.MemoryWriterEventIdentities` defaults to false. With the store-aware writer
+`LlmExtractionOptions.MemoryWriterEventIdentities` defaults to null: on where evidence-based identity runs, off
+elsewhere (an explicit `true` or `false` wins). With the store-aware writer
 enabled, it appends instructions to emit source-grounded `EVENT` observations and separate atomic
 event-subject facts for the stated date, place and participation. The writer's default prompt
 remains unchanged. This addresses the write/read seam: a retrieval hop cannot recover event details

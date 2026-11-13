@@ -2190,17 +2190,16 @@ details. See [current evidence and limits](evidence-based-identity-implementatio
 
 ### Identity portability boundary
 
-Full identity export/import is a separate follow-up. The Neo4j owner data service rejects
-`agentmemory-export/1` export **and** import whenever `identity-evidence` is enabled, including empty
-owners, before database or embedding work. A per-owner check followed by writes would race with
-concurrent identity ingestion. With the extension disabled the legacy format and its queries remain
-unchanged; callers must not remove the extension to export an identity-bearing store through that
-older format. Owner erasure remains supported. This is an explicit compatibility limit, not lossless
-identity portability or protection provided by older clients that do not know the extension.
+`agentmemory-export/1` carries the current state, not identity's history. With `identity-evidence` enabled, export adds
+`IdentityResolutions` and sets `IdentityStateOmitted` (decisions, review history, evidence and open proposals are not in
+the format). Import folds each mention's entity into its confirmed identity, which keeps the mention's name as an alias,
+and never joins imported entities to what the destination holds. Owner erasure remains supported. See
+[the identity extension](extensions/identity-evidence.md#identity-portability-boundary).
 
 ### Writer event-reference option
 
-`LlmExtractionOptions.MemoryWriterEventIdentities` defaults to false. With the store-aware writer
+`LlmExtractionOptions.MemoryWriterEventIdentities` defaults to null: on where evidence-based identity runs, off
+elsewhere (an explicit `true` or `false` wins). With the store-aware writer
 enabled, it appends instructions to emit source-grounded `EVENT` observations and separate atomic
 event-subject facts for the stated date, place and participation. The writer's default prompt
 remains unchanged. This addresses the write/read seam: a retrieval hop cannot recover event details

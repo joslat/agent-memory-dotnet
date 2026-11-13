@@ -1,12 +1,22 @@
 namespace AgentMemory.Abstractions.Options;
 
-/// <summary>Controls evidence-based identity. Disabled means no new queries, decisions or model calls.</summary>
+/// <summary>
+/// Controls evidence-based identity. Its defaults are the configuration measured in the identity benchmarks (2026-11):
+/// 4 candidates, 2 second opinions of 1,024 tokens within 45 seconds and 4 context turns; automatic mode adds the
+/// conversational policies. Off means no new queries, decisions or model calls.
+/// </summary>
 public sealed class IdentityResolutionOptions
 {
-    /// <summary>Opt into evidence-based identity; requires an identity-capable backend.</summary>
-    public bool Enabled { get; set; }
+    /// <summary>
+    /// <c>null</c> (the default): evidence-based identity runs wherever the store-aware writer runs on a backend with
+    /// identity storage (Neo4j), and the previous resolver runs everywhere else. The previous resolver can merge different
+    /// things that share a name; the memory tiers line, logged on the first write, says which one runs and why.
+    /// <c>true</c>: always on (a backend without identity storage then fails at startup). <c>false</c>: the previous
+    /// resolver, exactly as before.
+    /// </summary>
+    public bool? Enabled { get; set; }
     /// <summary>Maximum candidates fetched and considered per mention, before contextual work.</summary>
-    public int MaxCandidates { get; set; } = 12;
+    public int MaxCandidates { get; set; } = 4;
     /// <summary>Maximum accepted entity observations in one ingestion; excess input fails before persistence.</summary>
     public int MaxMentionsPerIngestion { get; set; } = 64;
     /// <summary>Maximum UTF-8 bytes of source context sent to an adjudicator.</summary>
@@ -14,10 +24,20 @@ public sealed class IdentityResolutionOptions
     /// <summary>Maximum contextual model calls in one ingestion.</summary>
     public int MaxAdjudicationsPerIngestion { get; set; } = 2;
     /// <summary>Requested output-token cap per contextual call.</summary>
-    public int AdjudicatorMaxOutputTokens { get; set; } = 512;
+    public int AdjudicatorMaxOutputTokens { get; set; } = 1_024;
     /// <summary>Maximum time allowed for one contextual call.</summary>
-    public TimeSpan AdjudicationTimeout { get; set; } = TimeSpan.FromSeconds(10);
-    /// <summary>Rules keyed by entity type. Unknown types use conservative review-only defaults.</summary>
+    public TimeSpan AdjudicationTimeout { get; set; } = TimeSpan.FromSeconds(45);
+    /// <summary>
+    /// While identity runs, at least this many earlier turns are read (never extracted from) before each extraction, so a
+    /// follow-up ("the cutover") can reach what was just said ("the go-live"). A larger
+    /// <c>ExtractionOptions.ExtractionContextTurns</c> wins; 0 adds none. Between 0 and 32.
+    /// </summary>
+    public int ContextTurns { get; set; } = 4;
+    /// <summary>
+    /// Rules keyed by entity type. A type without a rule uses conservative review-only defaults, except in automatic mode
+    /// (<see cref="Enabled"/> null), which uses <see cref="ApplyConversationalPolicies"/> for EVENT, PERSON and
+    /// ORGANIZATION where the backend supports its context-turn lookup, as measured. A rule set here always wins.
+    /// </summary>
     public IDictionary<string, EntityIdentityPolicy> Policies { get; set; } =
         new Dictionary<string, EntityIdentityPolicy>(StringComparer.OrdinalIgnoreCase);
 
@@ -26,7 +46,8 @@ public sealed class IdentityResolutionOptions
     /// be confirmed by checked contextual evidence (a store-aware writer's stored-entity reference or the adjudicator's
     /// quoted verdict) and nominate same-type entities from the extraction window's context turns for review. Every other
     /// type, places and calendar values included, stays review-only. Vetoes, host keys and ambiguity rules still apply.
-    /// Existing policies for those three types keep their other settings. Does not enable identity. Returns this instance.
+    /// Existing policies for those three types keep their other settings. Automatic mode uses this set for any of the three
+    /// types left unset. Does not switch identity on or off. Returns this instance.
     /// </summary>
     public IdentityResolutionOptions ApplyConversationalPolicies()
     {

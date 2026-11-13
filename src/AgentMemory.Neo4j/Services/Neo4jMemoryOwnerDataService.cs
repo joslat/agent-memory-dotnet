@@ -6,6 +6,7 @@ using AgentMemory.Abstractions.Services;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Neo4j.Queries;
 using AgentMemory.Neo4j.Repositories;
+using AgentMemory.Neo4j.Schema.Extensions;
 using Neo4j.Driver;
 
 namespace AgentMemory.Neo4j.Services;
@@ -84,24 +85,39 @@ internal sealed class Neo4jMemoryOwnerDataService(
             throw new ArgumentException($"export format '{export.Format}' is not '{OwnerMemoryExport.CurrentFormat}'", nameof(export));
 
         cancellationToken.ThrowIfCancellationRequested();
-        if (export.IdentityStateOmitted)
-            throw new NotSupportedException("This export left out identity decisions, review history and evidence; it is for reading and cannot be imported faithfully. No database or model operation was started.");
-        RefuseLossyIdentityPortability();
 
         var map = new Dictionary<string, string>(StringComparer.Ordinal);
         var written = new Dictionary<string, int>(StringComparer.Ordinal);
         void Count(string kind) => written[kind] = written.GetValueOrDefault(kind) + 1;
 
+        // ILC-26: an identity store's export keeps each mention's own entity next to the identity a confirmed decision
+        // resolved it to (IdentityResolutions). Each is folded into that identity, which keeps the mention's name as an
+        // alias, so a confirmed identity comes back as one entity. Decision history, evidence and open proposals stay
+        // behind: what comes back is the current state. Imported entities are written as they are, never joined to what
+        // the destination already holds, so an import cannot merge two different things.
+        var joined = Joined(export);
+        var names = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var entity in export.Entities) names.TryAdd(entity.EntityId, entity.Name);
+        var mentionNames = joined.GroupBy(pair => pair.Value, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Select(pair => names[pair.Key]).ToList(), StringComparer.Ordinal);
+
         foreach (var entity in export.Entities)
         {
+            if (joined.ContainsKey(entity.EntityId)) continue;
+            var aliases = mentionNames.TryGetValue(entity.EntityId, out var mentioned)
+                ? [.. entity.Aliases, .. mentioned.Where(name => !string.Equals(name, entity.Name, StringComparison.OrdinalIgnoreCase) &&
+                    !entity.Aliases.Contains(name, StringComparer.OrdinalIgnoreCase)).Distinct(StringComparer.OrdinalIgnoreCase)]
+                : entity.Aliases;
             var stored = await entities.UpsertAsync(entity with
             {
-                EntityId = ids.GenerateId(), OwnerId = ownerId, Metadata = Plain(entity.Metadata),
+                EntityId = ids.GenerateId(), OwnerId = ownerId, Metadata = Plain(entity.Metadata), Aliases = aliases,
                 Embedding = await embeddings.EmbedAsync(entity.Name, cancellationToken).ConfigureAwait(false),
             }, cancellationToken).ConfigureAwait(false);
             map[entity.EntityId] = stored.EntityId;
             Count("entities");
         }
+        // An identity not in the export is a shared entity: the mention goes to it as it is.
+        foreach (var (mention, identity) in joined) map[mention] = map.GetValueOrDefault(identity, identity);
         foreach (var fact in export.Facts)
         {
             var stored = await facts.UpsertAsync(fact with
@@ -129,11 +145,16 @@ internal sealed class Neo4jMemoryOwnerDataService(
         foreach (var relationship in export.Relationships)
         {
             // An end not in the export is a shared entity (the export holds nothing else): the edge goes to it as it is.
+            var source = map.GetValueOrDefault(relationship.SourceEntityId, relationship.SourceEntityId);
+            var target = map.GetValueOrDefault(relationship.TargetEntityId, relationship.TargetEntityId);
+            // A mention related to its own identity becomes no edge once the two are one entity.
+            if (string.Equals(source, target, StringComparison.Ordinal) &&
+                !string.Equals(relationship.SourceEntityId, relationship.TargetEntityId, StringComparison.Ordinal)) continue;
             var stored = await relationships.UpsertAsync(relationship with
             {
                 RelationshipId = ids.GenerateId(),
-                SourceEntityId = map.GetValueOrDefault(relationship.SourceEntityId, relationship.SourceEntityId),
-                TargetEntityId = map.GetValueOrDefault(relationship.TargetEntityId, relationship.TargetEntityId),
+                SourceEntityId = source,
+                TargetEntityId = target,
                 OwnerId = ownerId,
                 Metadata = Plain(relationship.Metadata),
             }, cancellationToken).ConfigureAwait(false);
@@ -156,14 +177,27 @@ internal sealed class Neo4jMemoryOwnerDataService(
         return new OwnerImportResult { OwnerId = ownerId, Written = written, Ids = map };
     }
 
-    private bool IdentityStorageEnabled => neo4jOptions?.Value.Extensions.Contains("identity-evidence") == true;
+    private bool IdentityStorageEnabled => neo4jOptions?.Value.Extensions.Contains(IdentityEvidenceSchemaExtension.ExtensionId) == true;
 
-    private void RefuseLossyIdentityPortability()
+    /// <summary>
+    /// Each exported mention and the exported (or shared) identity it was confirmed as, followed to the end of any chain.
+    /// An entity that would be folded into itself is kept.
+    /// </summary>
+    internal static Dictionary<string, string> Joined(OwnerMemoryExport export)
     {
-        // A per-owner preflight read races with concurrent identity ingestion. Until there is an
-        // identity-aware format, reject import before any I/O when the schema is enabled.
-        if (neo4jOptions?.Value.Extensions.Contains("identity-evidence") == true)
-            throw new NotSupportedException("agentmemory-export/1 cannot preserve native identity evidence, decisions, history and support. Owner import is unavailable while identity-evidence is enabled (export remains available for reading, flagged as omitting that state); no database or model operation was started.");
+        var exported = export.Entities.Select(e => e.EntityId).ToHashSet(StringComparer.Ordinal);
+        var joined = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var link in export.IdentityResolutions ?? [])
+            if (!string.Equals(link.From, link.To, StringComparison.Ordinal) && exported.Contains(link.From)) joined.TryAdd(link.From, link.To);
+        foreach (var mention in joined.Keys.ToList())
+        {
+            var identity = joined[mention];
+            var seen = new HashSet<string>(StringComparer.Ordinal) { mention };
+            while (joined.TryGetValue(identity, out var next) && seen.Add(identity)) identity = next;
+            if (seen.Contains(identity)) joined.Remove(mention);
+            else joined[mention] = identity;
+        }
+        return joined;
     }
 
     private Task RunAsync(string query, Dictionary<string, object?> parameters, CancellationToken cancellationToken) =>

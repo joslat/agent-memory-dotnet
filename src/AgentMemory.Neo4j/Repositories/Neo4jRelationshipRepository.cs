@@ -25,12 +25,14 @@ internal sealed class Neo4jRelationshipRepository : IRelationshipRepository, IBa
     private readonly ILogger<Neo4jRelationshipRepository> _logger;
 
     public Neo4jRelationshipRepository(INeo4jTransactionRunner tx, ILogger<Neo4jRelationshipRepository> logger, TimeProvider? clock = null,
-        IOptions<IdentityResolutionOptions>? identity = null, IOptions<Neo4jOptions>? neo4j = null)
+        IOptions<IdentityResolutionOptions>? identity = null, IOptions<Neo4jOptions>? neo4j = null,
+        AgentMemory.Core.Resolution.IdentityActivation? activation = null)
     {
         _tx = tx;
         _logger = logger;
         _clock = clock ?? TimeProvider.System;
-        _identityRelationships = identity?.Value.Enabled == true;
+        // ILC-25: the host's one decision when there is one (DI); otherwise an explicit switch.
+        _identityRelationships = activation?.Active ?? identity?.Value.Enabled == true;
         if (_identityRelationships && neo4j?.Value.Extensions.Contains("identity-evidence") != true)
             throw new InvalidOperationException("Identity relationship reads require the explicitly enabled identity-evidence schema.");
     }

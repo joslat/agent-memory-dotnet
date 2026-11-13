@@ -27,6 +27,7 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
     private readonly IReadOnlyList<IMemoryReranker> _rerankers;
     private readonly Projection.MemoryContextProjector _projector;
     private readonly ISubQueryDeriver? _subQueryDeriver;
+    private readonly Resolution.IdentityActivation? _identity;
     private readonly IWorkingMemoryService? _workingMemory;
     private readonly IReadOnlyDictionary<TruncationStrategy, ITruncationStrategy> _truncationStrategies;
     private readonly ILogger<MemoryContextAssembler> _logger;
@@ -76,7 +77,9 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         IWorkingMemoryService? workingMemory = null,
         // 30.10. Optional and last, the same shape as every other feature seam here: a host that has
         // not registered a deriver keeps the exact previous construction, and the planner never runs.
-        ISubQueryDeriver? subQueryDeriver = null)
+        ISubQueryDeriver? subQueryDeriver = null,
+        // ILC-25: event details follow identity unless a caller chose; absent, only an explicit true reads them.
+        Resolution.IdentityActivation? identity = null)
     {
         _shortTerm = shortTerm;
         _longTerm = longTerm;
@@ -94,6 +97,7 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         // projection is possible at all, which is the byte-identical path.
         _projector = new Projection.MemoryContextProjector(projectionFeatures ?? []);
         _subQueryDeriver = subQueryDeriver;
+        _identity = identity;
         _workingMemory = workingMemory;
         _truncationStrategies = BuildStrategyMap(truncationStrategies);
         _logger = logger;
@@ -918,7 +922,7 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
             }
         }
 
-        if (includeMemory && recallOpts.EventDetails)
+        if (includeMemory && EventDetailsOn(recallOpts))
             facts = await ExpandEventDetailsAsync(facts, lookAhead, prospective, recallOpts, scope,
                 cancellationToken, Remaining(recallOpts.LatencyBudget, budgetClock)).ConfigureAwait(false);
 
@@ -1256,7 +1260,7 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         // has not configured anything, because MemoryOptions.Recall itself defaults to that same
         // instance -- so the unconfigured path stays byte-identical.
         var recallOpts = EffectiveRecall(request.Options, _options.Recall);
-        if (recallOpts.EventDetails)
+        if (recallOpts.EventDetails == true)
             throw new NotSupportedException("EventDetails currently supports live recall only; historical identity expansion is not available.");
         var projectionOpts = ResolveProjectionOptions(recallOpts.Projection);
         // 30.3. Traces get their own floor. At the shared 0.7 default procedure retrieval NEVER

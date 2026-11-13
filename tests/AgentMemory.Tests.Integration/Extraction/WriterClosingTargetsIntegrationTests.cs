@@ -47,6 +47,9 @@ public sealed class WriterClosingTargetsIntegrationTests(Neo4jIntegrationFixture
         services.AddLogging();
         services.AddSingleton(writer);
         services.AddSingleton(judge);
+        // Within-extraction deduplication is the previous resolver's step: evidence-based identity (on by default where the
+        // writer runs, ILC-25) keeps each stated fact, because identical text can be about two different people.
+        services.Configure<IdentityResolutionOptions>(o => o.Enabled = false);
         services.AddNeo4jAgentMemory(new MemoryOptions { Extraction = new() { DeduplicateWithinExtraction = true } }, n =>
         {
             n.Uri = fixture.ConnectionString; n.Username = fixture.User; n.Password = fixture.Password;

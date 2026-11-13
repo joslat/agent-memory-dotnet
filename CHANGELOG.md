@@ -6,6 +6,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Evidence-based identity is on by default (planned 2.2.0).** `IdentityResolutionOptions.Enabled` is now `bool?` and
+  null by default: identity runs wherever the store-aware writer runs on a backend with identity storage (Neo4j), and the
+  previous resolver runs everywhere else. The previous resolver matches by name, so it can merge different things that
+  share a name (two different "Alex Kim"s become one); that is the bug this default fixes. `Enabled = false` restores the
+  previous behaviour exactly; `true` always runs it. One decision drives ingestion, the `identity-evidence` schema
+  extension (now added automatically), at least `IdentityResolutionOptions.ContextTurns` (new, 4) read-only context
+  turns, the writer's event identities (`LlmExtractionOptions.MemoryWriterEventIdentities`, now `bool?`, null follows
+  identity), alias capture, event details at recall (`RecallOptions.EventDetails`, now `bool?`, null follows identity)
+  and identity-mode relationship reads. The memory tiers line has a new `identity` leg (`MemoryTiers.Identity`):
+  `identity: evidence-based`, or `identity: previous resolver (why; it can merge different things that share a name)`.
+  The option defaults are now the measured configuration (`MaxCandidates` 4, `AdjudicatorMaxOutputTokens` 1,024,
+  `AdjudicationTimeout` 45 s; in automatic mode the conversational policies for any of their types the host leaves
+  unset), pinned by a test. A host that sets `Enabled = true` keeps configuring its own policies, as before. The second
+  opinion on an uncertain mention asks the extraction model unless `AddIdentityAdjudication` registers a dedicated one,
+  in either order. Where identity runs, an ingestion over `MaxMentionsPerIngestion` (64) fails before persistence and one
+  started inside a caller-owned write transaction is rejected, and within-extraction deduplication does not run (a fact
+  the writer states twice in one turn counts two mentions). NAMS resolves entities on its servers and is unaffected.
+- Owner import works into stores with identity: importing an identity store's export folds each mention's entity into the
+  identity it was confirmed as (the mention's name kept as an alias), and imported entities are never joined to what the
+  destination already holds. Decision history, evidence and open proposals are not carried by `agentmemory-export/1`.
+- Fix: the `AgentMemory.Neo4j` package copies its Cypher migrations into a consumer's build output
+  (`PackageCopyToOutput`). A NuGet consumer of 2.1.0 received none, so base migrations and every schema extension were
+  skipped; repository tests use project references and could not see it. Guarded by a test.
+
 - Extend the opt-in identity-aware writer (`LlmExtractionOptions.MemoryWriterEventIdentities`) with a
   checked stored-entity reference (`"ref"`, the label of a stored entity shown in the same call, carried
   as `ExtractedEntity.Reference`) and an operation contract: a JSON-schema reply, deterministic checks of
@@ -36,8 +60,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "Alex Kim" homonyms kept apart.
 - With identity-evidence enabled, owner export now works for reading: it adds `OwnerMemoryExport.IdentityResolutions`
   (which observation a confirmed decision resolved to which identity) and `IdentityStateOmitted` (decisions, review
-  history, evidence and open proposals are not in `agentmemory-export/1`). Such an export is refused by import, and import
-  into an identity-enabled store stays refused. With identity off the export is byte-identical (both members unserialized).
+  history, evidence and open proposals are not in `agentmemory-export/1`); import of such an export is described above.
+  With identity off the export is byte-identical (both members unserialized).
 - Add `IIdentityDecisionRepository.ListPendingAsync` (Neo4j): the owner's open identity proposals for a review queue,
   bounded (1-256) with stable paging; reviewed proposals leave it.
 - `tools/AgentMemory.Scenarios` (tooling, not shipped): an optional independent identity gold, `--identity-gold

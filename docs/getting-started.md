@@ -878,7 +878,7 @@ turn it on only to use the host's explicitly configured `IMemoryGate`. An option
 `IModuleSelectionObserver` receives selection receipts under the resolved request scope.
 See [registration, limits and current acceptance scope](extensions/modules.md#native-module-selection-registration).
 
-The opt-in [identity-evidence extension](extensions/identity-evidence.md) owns host assertions, bounded candidate lookup and initial atomic decisions. The schema alone does not enable identity ingestion; IdentityResolutionOptions.Enabled is separate. Review/revocation remains under implementation.
+The [identity-evidence extension](extensions/identity-evidence.md) owns host assertions, bounded candidate lookup and atomic decisions. It is added wherever evidence-based identity runs, which is by default where the store-aware writer runs on Neo4j ([below](#evidence-based-identity-is-on-by-default-22)).
 
 Reserved owner storage keys escape a leading `*` by adding one `*`; shared remains `*`, ordinary
 owner keys remain unchanged. Owner IDs themselves are unchanged. Apply migration
@@ -888,11 +888,42 @@ does not reconstruct provenance already mixed by an earlier collision. Source an
 qualification of this correction remain in progress.
 
 
-Evidence-based ingestion wiring (implementation in progress): configure
-`services.Configure<IdentityResolutionOptions>(o => o.Enabled = true)` and enable the
-`identity-evidence` Neo4j schema extension before ingesting. Pipeline construction rejects a
-backend without bounded candidates, the enabled schema or atomic scoped ingestion. Defaults
-remain off and do not resolve identity backends or issue identity queries. In the enabled mode,
+### Evidence-based identity is on by default (2.2)
+
+From 2.2, evidence-based identity runs by default wherever the store-aware writer runs (the Recommended preset, or
+`LlmExtractionOptions.UseMemoryWriter`) on the Neo4j backend. Everywhere else, including apps on the plain extractors
+and backends without identity storage, the previous resolver runs. The previous resolver matches by name, so it can
+merge two different people or things that share a name: two different "Alex Kim"s become one. Evidence-based identity
+keeps them apart and leaves a proposal for review. The memory tiers line, logged once on the first write
+(`IMemoryTiers`), says which one runs and why, for example `identity: evidence-based` or
+`identity: previous resolver (the store-aware writer is off; it can merge different things that share a name)`.
+
+Where it runs, identity brings what it was measured with: its Neo4j schema extension (`identity-evidence`, applied by the
+same `IMigrationRunner` step as the rest of the schema), at least 4 read-only context turns
+(`IdentityResolutionOptions.ContextTurns`), the writer's event identities, alias capture, event details at recall, and a
+second opinion on an uncertain mention from the extraction model (`AddIdentityAdjudication` gives it a dedicated model
+instead). The defaults of `IdentityResolutionOptions` are the measured configuration: 4 candidates, 2 second opinions of
+1,024 tokens within 45 seconds, and, in automatic mode, the conversational policies for events, people and
+organisations (a policy the host sets for a type wins).
+
+`IdentityResolutionOptions.Enabled` is `null` by default (automatic, as above); `true` always runs it; `false` runs the
+previous resolver exactly as before:
+
+```csharp
+services.Configure<IdentityResolutionOptions>(o => o.Enabled = false); // the previous resolver
+```
+
+Where it runs: an ingestion with more than `MaxMentionsPerIngestion` (64) entity mentions fails before persistence;
+ingestion started inside a caller-owned write transaction is rejected; mentions in one batch are not candidates for each
+other, so a bulk write can split one identity in two (never merge two); and within-extraction deduplication does not
+run, so a fact the writer states twice in one turn (to close two older facts, say) counts two mentions. Owner export
+and import work: importing an
+identity store's export brings back each confirmed identity as one entity, without decision history, evidence or open
+proposals. NAMS, the hosted backend, resolves entities on its own servers and is not affected.
+
+Evidence-based ingestion wiring: with identity switched on (`Enabled = true`), pipeline construction
+rejects a backend without bounded candidates or atomic scoped ingestion; automatic mode runs the previous
+resolver there instead. Switched off, it resolves no identity backend and issues no identity query. In the enabled mode,
 model/candidate/embedding work precedes the transaction; owner/shared identity locks precede
 fact writes. Original subject/object words remain stored, confirmed targets are not upserted,
 and decision-owned bindings use the repository-returned final Fact ID. A failure rolls back
@@ -914,8 +945,7 @@ and their dedicated regression runs; no final delivery claim is made here.
 
 ### Explicit host identity evidence
 
-The optional identity work remains under qualification. Configure the identity-evidence extension
-and explicitly migrate it before enabling identity ingestion. Register an application-owned
+Where identity runs its schema extension is added for you (apply migrations as usual). Register an application-owned
 `IIdentityContextProvider` when the application can supply independently substantiated identifiers:
 
 ```csharp
@@ -971,8 +1001,8 @@ not activate those capabilities or change the default preset.
 The LLM package provides `AddIdentityAdjudication(clientFactory, maxInFlight: 8)` for an explicitly
 chosen, host-owned singleton IChatClient. The adapter is lazy, leaves a custom IIdentityAdjudicator
 registration in place, bounds in-flight calls and drains them on asynchronous disposal without
-disposing the host's client. This registration neither enables identity nor replaces extraction's
-client. With IdentityResolutionOptions.Enabled, Core uses one call budget per ingestion and
+disposing the host's client. This registration neither switches identity on nor replaces extraction's
+client; without it, the second opinion asks the extraction model. With IdentityResolutionOptions.Enabled, Core uses one call budget per ingestion and
 retains a typed contextual receipt; off and zero-budget modes never construct the adjudicator.
 By default model verdicts remain review evidence. Only an explicit per-type
 AllowContextualConfirmation policy can propose confirmation. Durable source/candidate freshness
@@ -988,7 +1018,7 @@ services.AddIdentityAdjudication(sp =>
     sp.GetRequiredKeyedService<IChatClient>("identity-model"));
 services.Configure<IdentityResolutionOptions>(options =>
 {
-    options.Enabled = true; // requires the explicitly migrated identity-evidence schema
+    options.Enabled = true; // always on; its identity-evidence schema is added for you
     options.MaxAdjudicationsPerIngestion = 1;
     options.MaxContextUtf8Bytes = 8192;
     options.AdjudicatorMaxOutputTokens = 512;
@@ -1078,7 +1108,8 @@ checks pass; see the implementation status for exact model outcomes and limits.
 
 ### Writer event-reference option
 
-`LlmExtractionOptions.MemoryWriterEventIdentities` defaults to false. With the store-aware writer
+`LlmExtractionOptions.MemoryWriterEventIdentities` defaults to null: on where evidence-based identity runs, off
+elsewhere (an explicit `true` or `false` wins). With the store-aware writer
 enabled, it appends instructions to emit source-grounded `EVENT` observations and separate atomic
 event-subject facts for the stated date, place and participation. The writer's default prompt
 remains unchanged. This addresses the write/read seam: a retrieval hop cannot recover event details

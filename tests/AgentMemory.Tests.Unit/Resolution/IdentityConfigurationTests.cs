@@ -96,7 +96,7 @@ public sealed class IdentityConfigurationTests
         options.Policies["PERSON"] = new() { IdentityProperties = ["employeeId"] };
         options.Policies["LOCATION"] = new() { IdentityProperties = ["placeId"] };
         options.ApplyConversationalPolicies().Should().BeSameAs(options);
-        options.Enabled.Should().BeFalse("the policy set never enables identity by itself");
+        options.Enabled.Should().BeNull("the policy set never switches identity on or off");
         foreach (var type in new[] { "EVENT", "PERSON", "ORGANIZATION" })
             options.Policies[type].Should().Match<EntityIdentityPolicy>(p => p.AllowContextualConfirmation && p.ReviewContextRootedCandidates);
         options.Policies["PERSON"].IdentityProperties.Should().Equal("employeeId");

@@ -86,7 +86,7 @@ public sealed class IdentityAdjudicatorRegistrationTests
         var services = new ServiceCollection(); services.AddOptions<IdentityResolutionOptions>();
         Register(services, _ => throw new InvalidOperationException("must stay lazy"));
         await using var provider = services.BuildServiceProvider();
-        provider.GetRequiredService<IOptions<IdentityResolutionOptions>>().Value.Enabled.Should().BeFalse();
+        provider.GetRequiredService<IOptions<IdentityResolutionOptions>>().Value.Enabled.Should().BeNull("registration never switches identity on or off");
     }
 
     [Fact]

@@ -10,6 +10,7 @@ using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Tests.Integration.Fixtures;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Neo4j.Driver;
 using NSubstitute;
 
@@ -129,11 +130,39 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
         (await Count("(:Fact)")).Should().Be(0);
     }
     [Fact]
-    public async Task Missing_owned_schema_rejects_enabled_mode_before_ingestion()
+    public async Task Identity_that_runs_brings_its_own_schema()
     {
+        // ILC-25: the schema follows the one decision on whether identity runs, so a host can no longer switch identity on
+        // and forget its schema (formerly the failure this test asserted).
         using var host = Host(extension: false); using var scope = host.CreateScope();
-        var action = () => scope.ServiceProvider.GetRequiredService<IExtractionStage>();
-        action.Should().Throw<InvalidOperationException>();
+        host.GetRequiredService<IOptions<Neo4jOptions>>().Value.Extensions.Should().Contain("identity-evidence");
+        await Ingest(scope.ServiceProvider, Input());
+        (await Count("(:IdentityDecision)")).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task A_store_built_by_the_previous_resolver_keeps_everything_when_identity_comes_on()
+    {
+        // ILC-27: identity is on by default from 2.2. What the previous resolver stored stays, and a new mention of a stored
+        // name is checked against it rather than silently becoming a second identity.
+        string previous;
+        using (var before = Host(enabled: false, extension: false))
+        {
+            using var first = before.CreateScope();
+            await Ingest(first.ServiceProvider, Input());
+            previous = (await first.ServiceProvider.GetRequiredService<IEntityRepository>().GetByNameAsync("Acme go live", scope: Scope)).Single().EntityId;
+        }
+        var entities = await Count("(:Entity)"); var facts = await Count("(:Fact)");
+
+        using var after = Host(); using var scope = after.CreateScope();
+        await Ingest(scope.ServiceProvider, Input());
+
+        (await Count("(:Entity)")).Should().BeGreaterThanOrEqualTo(entities);
+        (await Count("(:Fact)")).Should().BeGreaterThanOrEqualTo(facts);
+        (await scope.ServiceProvider.GetRequiredService<IEntityRepository>().GetByIdAsync(previous)).Should().NotBeNull();
+        var decision = await StoredDecision();
+        IReadOnlyList<string> candidates = decision.ConfirmedEntityId is { } confirmed ? [confirmed] : decision.PendingEntityIds;
+        candidates.Should().Contain(previous, "the previous resolver's entity is a candidate for the new mention");
     }
     [Fact]
     public async Task Disabled_mode_creates_no_identity_decisions_bindings_or_scope_locks()
@@ -401,22 +430,24 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
     }
 
     [Fact]
-    public async Task Legacy_owner_portability_refuses_native_identity_without_altering_the_store()
+    public async Task Owner_portability_brings_an_identity_store_back_as_its_current_identities()
     {
+        // ILC-26: identity is on by default, so import works into an identity store; each confirmed identity comes back as
+        // one entity, and the source owner's decisions are untouched.
         using var host = Host(); using var scope = host.CreateScope(); var services = scope.ServiceProvider;
         await Ingest(services, Input());
-        var before = await Count("(n)");
         var owners = services.GetRequiredService<IMemoryOwnerDataService>();
-        var export = () => owners.ExportAsync("pablito");
-        var import = () => owners.ImportAsync(new() { OwnerId = "original-owner", ExportedAtUtc = DateTimeOffset.UnixEpoch,
-            Entities = [new() { EntityId = "incoming", Name = "Acme go live", Type = "EVENT", Confidence = 1,
-                CreatedAtUtc = DateTimeOffset.UnixEpoch }] }, "pablito");
-        var exported = await export();
+        var exported = await owners.ExportAsync("pablito");
         exported.IdentityStateOmitted.Should().BeTrue(); exported.IdentityResolutions.Should().NotBeNull();
-        await import.Should().ThrowAsync<NotSupportedException>();
-        (await Count("(n)")).Should().Be(before);
+        var folded = exported.IdentityResolutions!.Where(l => l.From != l.To).Select(l => l.From).Distinct().Count();
+
+        var imported = await owners.ImportAsync(exported, "copy-owner");
+
+        imported.Written.GetValueOrDefault("entities").Should().Be(exported.Entities.Count - folded);
+        imported.Written.GetValueOrDefault("facts").Should().Be(exported.Facts.Count);
+        (await owners.ExportAsync("copy-owner")).Entities.Should().HaveCount(exported.Entities.Count - folded);
         (await services.GetRequiredService<IIdentityDecisionRepository>().GetAsync((await StoredDecision()).DecisionId, "pablito"))
-            .Should().NotBeNull();
+            .Should().NotBeNull("the source owner is untouched");
         var empty = await owners.ExportAsync("empty-owner");
         empty.IdentityStateOmitted.Should().BeTrue(); empty.Entities.Should().BeEmpty();
     }

@@ -98,6 +98,11 @@ internal sealed class GraphMemory : IMemory
             services.Configure(identity);
             if (identityChat is not null) services.AddIdentityAdjudication(_ => identityChat, maxInFlight: 1);
         }
+        else
+        {
+            // Identity is on by default where the writer runs (ILC-25); an arm without it is the previous resolver, as measured.
+            services.Configure<IdentityResolutionOptions>(o => o.Enabled = false);
+        }
         services.AddAgentMemoryFramework(o =>
         {
             arm.Framework(o);

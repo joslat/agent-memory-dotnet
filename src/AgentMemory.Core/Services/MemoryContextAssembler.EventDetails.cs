@@ -5,11 +5,14 @@ namespace AgentMemory.Core.Services;
 
 internal sealed partial class MemoryContextAssembler
 {
+    /// <summary>Event details: the caller's explicit choice, else on where evidence-based identity runs.</summary>
+    private bool EventDetailsOn(RecallOptions options) => _identity?.EventDetails(options.EventDetails) ?? options.EventDetails == true;
+
     private async Task<IReadOnlyList<Fact>> ExpandEventDetailsAsync(IReadOnlyList<Fact> facts,
         LookAheadResult lookAhead, ProspectiveDueResult due, RecallOptions options, MemoryScope scope,
         CancellationToken cancellationToken, TimeSpan? remaining)
     {
-        if (!options.EventDetails || options.MaxFacts <= 0 || options.MaxEventDetailFacts == 0) return facts;
+        if (!EventDetailsOn(options) || options.MaxFacts <= 0 || options.MaxEventDetailFacts == 0) return facts;
         if (options.MaxEventDetailFacts is < 0 or > 64)
             throw new ArgumentOutOfRangeException(nameof(options), "Event detail cap must be between 0 and 64.");
         if (remaining is { } left && left <= TimeSpan.Zero) return facts;

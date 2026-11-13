@@ -1,9 +1,11 @@
 # Identity evidence
 
-Opt-in host assertion storage and bounded candidate lookup. Registration does no database work.
-Enable `neo4j.Extensions.Add("identity-evidence")`, then apply migrations explicitly. The schema
-alone does not activate evidence-based ingestion: IdentityResolutionOptions.Enabled is a separate
-opt-in. See the [versioned implementation checkpoints](../evidence-based-identity-implementation.md).
+Host assertion storage, bounded candidate lookup and identity decisions. Registration does no database work.
+Since 2.2 the extension follows evidence-based identity: it is added wherever identity runs, which by default is
+wherever the store-aware writer runs on Neo4j (`IdentityResolutionOptions.Enabled` null; `true` always, `false` never),
+and applied by the same `IMigrationRunner` step as the rest of the schema. Adding it by hand does not by itself switch
+identity on. See [identity on by default](../getting-started.md#evidence-based-identity-is-on-by-default-22) and the
+[versioned implementation checkpoints](../evidence-based-identity-implementation.md).
 
 ## Shape
 
@@ -78,11 +80,10 @@ not sufficient when a competing identity has appeared. Reserved-ID collisions fa
 These corrections reproduced real-store failures; their green qualification remains required.
 
 
-Evidence-based ingestion wiring (implementation in progress): configure
-`services.Configure<IdentityResolutionOptions>(o => o.Enabled = true)` and enable the
-`identity-evidence` Neo4j schema extension before ingesting. Pipeline construction rejects a
-backend without bounded candidates, the enabled schema or atomic scoped ingestion. Defaults
-remain off and do not resolve identity backends or issue identity queries. In the enabled mode,
+Evidence-based ingestion wiring: identity runs by default where the store-aware writer runs on Neo4j, and
+`services.Configure<IdentityResolutionOptions>(o => o.Enabled = true)` runs it everywhere; the schema extension is
+added in both cases. With `Enabled = true`, pipeline construction rejects a backend without bounded candidates or
+atomic scoped ingestion. Switched off (`false`), it resolves no identity backend and issues no identity query. In the enabled mode,
 model/candidate/embedding work precedes the transaction; owner/shared identity locks precede
 fact writes. Original subject/object words remain stored, confirmed targets are not upserted,
 and decision-owned bindings use the repository-returned final Fact ID. A failure rolls back
@@ -259,17 +260,19 @@ details. See [current evidence and limits](../evidence-based-identity-implementa
 
 ### Identity portability boundary
 
-Full identity export/import is a separate follow-up. The Neo4j owner data service rejects
-`agentmemory-export/1` export **and** import whenever `identity-evidence` is enabled, including empty
-owners, before database or embedding work. A per-owner check followed by writes would race with
-concurrent identity ingestion. With the extension disabled the legacy format and its queries remain
-unchanged; callers must not remove the extension to export an identity-bearing store through that
-older format. Owner erasure remains supported. This is an explicit compatibility limit, not lossless
-identity portability or protection provided by older clients that do not know the extension.
+`agentmemory-export/1` carries the current state, not identity's history. With `identity-evidence` enabled, export adds
+`IdentityResolutions` (which mention's entity a confirmed decision resolved to which identity) and sets
+`IdentityStateOmitted`: decisions, review history, evidence and open proposals are not in the format. Import (into any
+store) folds each mention's entity into its identity, which keeps the mention's name as an alias, so each confirmed
+identity comes back as one entity; an open proposal's two entities come back apart. Imported entities are written as
+they are and never joined to what the destination already holds, so an import cannot merge two different things.
+Import while the owner is not being written. With the extension disabled the format and its queries are unchanged.
+Owner erasure remains supported. Carrying decisions, history and evidence across stores is a separate follow-up.
 
 ### Writer event-reference option
 
-`LlmExtractionOptions.MemoryWriterEventIdentities` defaults to false. With the store-aware writer
+`LlmExtractionOptions.MemoryWriterEventIdentities` defaults to null: on where evidence-based identity runs, off
+elsewhere (an explicit `true` or `false` wins). With the store-aware writer
 enabled, it appends instructions to emit source-grounded `EVENT` observations and separate atomic
 event-subject facts for the stated date, place and participation. The writer's default prompt
 remains unchanged. This addresses the write/read seam: a retrieval hop cannot recover event details

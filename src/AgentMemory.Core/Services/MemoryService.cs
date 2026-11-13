@@ -37,6 +37,7 @@ internal sealed class MemoryService : IMemoryService
     private readonly IIdGenerator _idGenerator;
     // 40.56. Optional for the SemVer reason above; DI supplies the rule-based router. Asked only when routing is on.
     private readonly IMemoryRouter? _router;
+    private readonly Resolution.IdentityActivation? _identity;
     private readonly ILogger<MemoryService> _logger;
 
     /// <summary>
@@ -59,10 +60,12 @@ internal sealed class MemoryService : IMemoryService
         IMemoryIsolationPolicy? isolationPolicy = null,
         IMemoryAccessTracker? accessTracker = null,
         IMessageRepository? messageRepository = null,
-        IMemoryRouter? router = null)
+        IMemoryRouter? router = null,
+        Resolution.IdentityActivation? identity = null)
     {
         _messageRepository = messageRepository;
         _router = router;
+        _identity = identity;
         ArgumentNullException.ThrowIfNull(shortTerm);
         ArgumentNullException.ThrowIfNull(assembler);
         ArgumentNullException.ThrowIfNull(extraction);
@@ -596,7 +599,9 @@ internal sealed class MemoryService : IMemoryService
         ExtractionRequest request,
         CancellationToken cancellationToken)
     {
-        if (_options.Extraction.ExtractionContextTurns <= 0
+        // ILC-25: while evidence-based identity runs it reads at least its own context turns (IdentityResolutionOptions.ContextTurns).
+        var wanted = _identity?.ContextTurns(_options.Extraction.ExtractionContextTurns) ?? _options.Extraction.ExtractionContextTurns;
+        if (wanted <= 0
             || request.ContextMessages.Count > 0
             || request.Messages.Count == 0)
         {
@@ -608,7 +613,6 @@ internal sealed class MemoryService : IMemoryService
         // Over-fetch by the batch size: the most recent stored messages usually ARE the batch, so
         // asking for exactly N would return N turns of which most are excluded and leave the window
         // short without reporting it.
-        var wanted = _options.Extraction.ExtractionContextTurns;
         var recent = await _shortTerm.GetRecentMessagesAsync(
             request.SessionId, wanted + request.Messages.Count, cancellationToken).ConfigureAwait(false);
 

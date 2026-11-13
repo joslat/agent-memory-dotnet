@@ -55,7 +55,7 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
         _services = services;
         _logger = logger;
         // Event-identity mode only: the default writer's request carries no response format, as measured.
-        _operationFormat = _options.MemoryWriterEventIdentities ? MemoryWriterContract.Format(_options.MemoryWriterMaxOperations) : null;
+        _operationFormat = _options.MemoryWriterEventIdentities == true ? MemoryWriterContract.Format(_options.MemoryWriterMaxOperations) : null;
     }
 
     public bool IsEnabled => _options.UseMemoryWriter;
@@ -77,8 +77,8 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
         var stored = await StoredAsync(text, owner, scope, now, cancellationToken).ConfigureAwait(false);
         activity?.SetTag("memory.write.candidates", stored.Count);
 
-        var system = MemoryWriterPrompt.System(owner, _options.MemoryWriterMaxOperations, _options.MemoryWriterEventIdentities);
-        if (_options.MemoryWriterEventIdentities) system += MemoryWriterPrompt.EventIdentityInstructions;
+        var system = MemoryWriterPrompt.System(owner, _options.MemoryWriterMaxOperations, _options.MemoryWriterEventIdentities == true);
+        if (_options.MemoryWriterEventIdentities == true) system += MemoryWriterPrompt.EventIdentityInstructions;
         var context = MemoryWriterPrompt.Context(now, request.Window, owner, stored);
         var (answered, dropped, reply) = await AskAsync(system, context, cancellationToken).ConfigureAwait(false);
 

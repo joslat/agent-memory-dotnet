@@ -3,7 +3,8 @@ namespace AgentMemory.Neo4j.Schema.Extensions;
 /// <summary>Explicit host evidence and decision-owned reversible fact-role support.</summary>
 internal sealed class IdentityEvidenceSchemaExtension : ISchemaExtension
 {
-    public string Id => "identity-evidence";
+    internal const string ExtensionId = "identity-evidence";
+    public string Id => ExtensionId;
     public int Version => 4;
     public IReadOnlyDictionary<string, IReadOnlySet<string>> DeclaredProperties { get; } =
         new Dictionary<string, IReadOnlySet<string>>(StringComparer.Ordinal)

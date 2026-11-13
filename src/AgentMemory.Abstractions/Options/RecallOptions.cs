@@ -290,14 +290,15 @@ public sealed record RecallOptions
 
     /// <summary>
     /// Add details of a recalled dated EVENT through its current decision-owned fact bindings.
-    /// Default off: no extra service call, query, model call or prompt bytes. Requires an identity-capable
-    /// backend. One live read from at most 10 dated facts and 20 event identities; pending proposals are not
-    /// followed. Extra facts have no invented similarity score and share the existing total context budget.
-    /// Point-in-time recall rejects this live-only option rather than reading future identity state.
+    /// <c>null</c> (the default) follows identity: on where evidence-based identity runs, off where the previous resolver
+    /// runs (no extra service call, query, model call or prompt bytes). <c>true</c> requires an identity-capable backend.
+    /// One live read from at most 10 dated facts and 20 event identities; pending proposals are not followed. Extra facts
+    /// have no invented similarity score and share the existing total context budget. Point-in-time recall rejects an
+    /// explicit <c>true</c> rather than reading future identity state, and leaves the default off.
     /// </summary>
-    public bool EventDetails { get; init; }
+    public bool? EventDetails { get; init; }
 
-    /// <summary>Maximum appended event details,0 disables the read; supported range 0..64. Default 8.</summary>
+    /// <summary>Maximum appended event details, 0 disables the read; supported range 0..64. Default 8.</summary>
     public int MaxEventDetailFacts { get; init; } = 8;
 
     /// <summary>

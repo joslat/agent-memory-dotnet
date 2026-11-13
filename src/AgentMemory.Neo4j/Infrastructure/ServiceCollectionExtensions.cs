@@ -49,6 +49,15 @@ public static class ServiceCollectionExtensions
                 neo4j.Extensions.Add(WorkingMemorySchemaExtension.ExtensionId);
         });
 
+        // ILC-25: the identity schema follows the one decision on whether evidence-based identity runs (Core's
+        // IdentityActivation), for the same reason: identity without its schema fails, and a schema without identity
+        // changes what export and import accept.
+        services.AddOptions<Neo4jOptions>().PostConfigure<IServiceProvider>((neo4j, provider) =>
+        {
+            if (provider.GetService<AgentMemory.Core.Resolution.IdentityActivation>()?.Active == true)
+                neo4j.Extensions.Add(IdentityEvidenceSchemaExtension.ExtensionId);
+        });
+
         // Infrastructure
         services.TryAddSingleton<INeo4jDriverFactory, Neo4jDriverFactory>();
         // Raw IDriver, for components (e.g. Neo4jGraphRagContextSource) that need direct driver access
