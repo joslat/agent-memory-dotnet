@@ -430,6 +430,39 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
     }
 
     [Fact]
+    public async Task A_confirmed_person_reaches_their_bound_facts_and_an_open_proposal_reaches_nothing()
+    {
+        // ILC-33: identity-aware recall for people reads confirmed identities only, owner-scoped, live only.
+        using var host = Host(); using var scope = host.CreateScope(); var services = scope.ServiceProvider;
+        await Seed(services, "Tomás Pérez", "PERSON");
+        await Ingest(services, new UnifiedExtractionResult
+        {
+            Entities = [new() { Name = "Valentina", Type = "PERSON", Confidence = 1 }, new() { Name = "Tomás Pérez", Type = "PERSON", Confidence = 1 }],
+            Facts = [
+                new() { Subject = "Valentina", Predicate = "will monitor", Object = "the invoice queue remotely", Confidence = 1 },
+                new() { Subject = "Valentina", Predicate = "will prepare", Object = "a video tutorial for the clerks", Confidence = 1 },
+                new() { Subject = "Tomás Pérez", Predicate = "runs", Object = "the regression suite", Confidence = 1 }]
+        });
+        (await Count("(:IdentityDecision)-[:POSSIBLE_SAME_AS]->(:Entity {id: 'existing'})")).Should().Be(1, "precondition: Tomás Pérez is an open proposal");
+        var facts = services.GetRequiredService<IFactRepository>();
+
+        var valentina = (await facts.GetPersonIdentitiesAsync(1000, Scope)).Should().ContainSingle("an open proposal is not followed").Subject;
+        valentina.Surfaces.Should().Contain("Valentina");
+        var details = await facts.GetPersonDetailsAsync([valentina.EntityId], [], 8, Scope);
+        details.Select(f => f.Object).Should().BeEquivalentTo("the invoice queue remotely", "a video tutorial for the clerks");
+        details.Should().OnlyContain(f => f.Embedding == null, "traversal does not fabricate vector evidence");
+        (await facts.GetPersonDetailsAsync([valentina.EntityId], [details[0].FactId], 8, Scope)).Should().ContainSingle();
+        (await facts.GetPersonDetailsAsync([valentina.EntityId], [], 1, Scope)).Should().ContainSingle();
+        var other = MemoryScope.For("other-owner", false);
+        (await facts.GetPersonIdentitiesAsync(1000, other)).Should().BeEmpty();
+        (await facts.GetPersonDetailsAsync([valentina.EntityId], [], 8, other)).Should().BeEmpty();
+        await fixture.TransactionRunner.WriteAsync(async runner =>
+        { await runner.RunAsync("MATCH (e:Entity {id:$id}) SET e.invalidated_at=datetime()", new { id = valentina.EntityId }); });
+        (await facts.GetPersonIdentitiesAsync(1000, Scope)).Should().BeEmpty();
+        (await facts.GetPersonDetailsAsync([valentina.EntityId], [], 8, Scope)).Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task Owner_portability_brings_an_identity_store_back_whole()
     {
         // ILC-30: decisions, open proposals, fact bindings and evidence come back for the new owner, every reference

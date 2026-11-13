@@ -2166,7 +2166,7 @@ do not close the identity goal or establish perfect identity precision.
 
 ### Event details through decision-owned support
 
-`RecallOptions.EventDetails` is an opt-in live recall capability, off by default. After date-window,
+`RecallOptions.EventDetails` is a live recall capability that follows identity (null by default). After date-window,
 upcoming and overlap selection, it takes at most10 dated seed facts and follows their current
 `HAS_IDENTITY_BINDING` / `DECIDED_BY` / `RESOLVES_TO` support to live `EVENT` entities. One scoped
 read considers at most20 event identities and returns at most `MaxEventDetailFacts` additional facts
@@ -2177,6 +2177,13 @@ Details such as Córdoba or required physical presence need no date of their own
 have explicit fact-role support for that event; missing extraction/binding evidence is not invented.
 This increment does not expand undated relationship-only claims or infer an event from words buried
 inside a sentence. The representative model cases will measure this coverage and any required fix.
+
+`RecallOptions.PersonDetails` (ILC-33, also following identity) does the same for people. The owner's confirmed `PERSON`
+identities are read with the names each is known by (at most 1,000); a name that appears in the question as whole words,
+case and accents aside, and belongs to one identity only, names that person (at most 3). Their live facts come through
+the same bindings, newest first, at most `MaxPersonDetailFacts` (default 8, maximum 64). A name two people share expands
+nothing, and an open proposal is never followed. See
+[the identity extension](extensions/identity-evidence.md#recall-for-people).
 
 Extra facts enter `RelevantFacts` without invented vector scores, are de-duplicated against the date
 sections, respect the latency allowance and share the existing total context budget. `MaxFacts=0`

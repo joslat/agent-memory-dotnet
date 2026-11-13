@@ -926,6 +926,10 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
             facts = await ExpandEventDetailsAsync(facts, lookAhead, prospective, recallOpts, scope,
                 cancellationToken, Remaining(recallOpts.LatencyBudget, budgetClock)).ConfigureAwait(false);
 
+        if (includeMemory && PersonDetailsOn(recallOpts))
+            facts = await ExpandPersonDetailsAsync(facts, lookAhead, prospective, request.Question ?? request.Query, recallOpts, scope,
+                cancellationToken, Remaining(recallOpts.LatencyBudget, budgetClock)).ConfigureAwait(false);
+
         // 30.8. Runs AFTER the fact section resolves, because its trigger is what that section came
         // back with. One extra query, only on a thin recall, only with the flag on -- a well-answered
         // turn pays nothing at all.
@@ -1262,6 +1266,8 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         var recallOpts = EffectiveRecall(request.Options, _options.Recall);
         if (recallOpts.EventDetails == true)
             throw new NotSupportedException("EventDetails currently supports live recall only; historical identity expansion is not available.");
+        if (recallOpts.PersonDetails == true)
+            throw new NotSupportedException("PersonDetails currently supports live recall only; historical identity expansion is not available.");
         var projectionOpts = ResolveProjectionOptions(recallOpts.Projection);
         // 30.3. Traces get their own floor. At the shared 0.7 default procedure retrieval NEVER
         // abstains -- every threshold from 0.00 to 0.86 behaves identically, a measured dead zone --

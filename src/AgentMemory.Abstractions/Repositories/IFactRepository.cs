@@ -693,4 +693,28 @@ public interface IFactRepository
         MemoryScope? scope,
         CancellationToken cancellationToken = default) =>
         throw new NotSupportedException("This backend does not support decision-bound event details.");
+
+    /// <summary>
+    /// ILC-33: the confirmed PERSON identities in scope and the names each is known by (its name, aliases and the names
+    /// facts bound to it used), at most <paramref name="limit"/> (0..1000). Open proposals are never followed.
+    /// Implementations without this capability reject explicit use; callers never call it while off.
+    /// </summary>
+    Task<IReadOnlyList<PersonIdentity>> GetPersonIdentitiesAsync(
+        int limit,
+        MemoryScope? scope,
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("This backend does not support decision-bound person details.");
+
+    /// <summary>
+    /// ILC-33: live facts bound to up to 3 confirmed person identities through current decision-owned fact bindings,
+    /// newest first and taken in turn from each person; never a pending proposal or name similarity. At most 512 excluded
+    /// IDs and 64 returned facts. Scope follows <see cref="GetEventDetailsAsync"/>.
+    /// </summary>
+    Task<IReadOnlyList<Fact>> GetPersonDetailsAsync(
+        IReadOnlyList<string> personEntityIds,
+        IReadOnlyCollection<string> excludeFactIds,
+        int limit,
+        MemoryScope? scope,
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("This backend does not support decision-bound person details.");
 }

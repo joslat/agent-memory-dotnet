@@ -164,6 +164,67 @@ public sealed class LookAheadAssemblerTests
 
     private static RecallOptions AllOn => RecallOptions.Default with { Upcoming = true, TimeWindows = true, OverlapExpansion = true };
 
+    // ── ILC-33: person details ────────────────────────────────────────
+
+    private static readonly Fact Monitoring = Mate with { FactId = "monitoring", Subject = "Valentina", Predicate = "will monitor", Object = "the invoice queue remotely" };
+    private static readonly Fact Tutorial = Mate with { FactId = "tutorial", Subject = "Valentina", Predicate = "will prepare", Object = "a video tutorial for the clerks" };
+
+    private void People(params PersonIdentity[] people) =>
+        _longTerm.GetPersonIdentitiesAsync(Arg.Any<int>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<PersonIdentity>>(people));
+
+    private static PersonIdentity Person(string id, params string[] names) => new() { EntityId = id, Surfaces = names };
+
+    [Fact]
+    public async Task A_question_naming_a_confirmed_person_brings_their_facts_once_without_fake_scores()
+    {
+        _relevant = [Mate, Tutorial];
+        People(Person("valentina", "Valentina"), Person("tomas", "Tomás"));
+        _longTerm.GetPersonDetailsAsync(Arg.Any<IReadOnlyList<string>>(), Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<int>(),
+            Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>()).Returns(Task.FromResult<IReadOnlyList<Fact>>([Monitoring, Tutorial]));
+        var context = await AskAsync("I have my mentoring session with Valentina tomorrow.", RecallOptions.Default with { PersonDetails = true });
+        context.RelevantFacts.Items.Select(f => f.FactId).Should().OnlyHaveUniqueItems().And.Contain(["mate", "tutorial", "monitoring"]);
+        await _longTerm.Received(1).GetPersonDetailsAsync(Arg.Is<IReadOnlyList<string>>(ids => ids.SequenceEqual(new[] { "valentina" })),
+            Arg.Is<IReadOnlyCollection<string>>(ids => ids.Contains("mate") && ids.Contains("tutorial")), 8,
+            Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task A_name_two_confirmed_people_share_reads_no_facts()
+    {
+        People(Person("cousin", "Alex Kim"), Person("colleague", "Alex Kim"));
+        await AskAsync("What do I know about Alex Kim?", RecallOptions.Default with { PersonDetails = true });
+        await _longTerm.Received(1).GetPersonIdentitiesAsync(1000, Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+        await _longTerm.DidNotReceiveWithAnyArgs().GetPersonDetailsAsync(default!, default!, default, default, default);
+    }
+
+    [Fact]
+    public async Task Person_details_are_not_read_while_off_or_with_no_fact_budget()
+    {
+        People(Person("valentina", "Valentina"));
+        await AskAsync("What is Valentina working on?", RecallOptions.Default);
+        await AskAsync("What is Valentina working on?", RecallOptions.Default with { PersonDetails = true, MaxFacts = 0 });
+        await AskAsync("What is Valentina working on?", RecallOptions.Default with { PersonDetails = true, MaxPersonDetailFacts = 0 });
+        await _longTerm.DidNotReceiveWithAnyArgs().GetPersonIdentitiesAsync(default, default, default);
+        await _longTerm.DidNotReceiveWithAnyArgs().GetPersonDetailsAsync(default!, default!, default, default, default);
+    }
+
+    [Fact]
+    public async Task An_out_of_range_person_cap_is_refused()
+    {
+        var action = () => AskAsync("What is Valentina working on?", RecallOptions.Default with { PersonDetails = true, MaxPersonDetailFacts = 65 });
+        await action.Should().ThrowAsync<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public async Task Point_in_time_recall_refuses_live_person_details_before_any_service_read()
+    {
+        Func<Task> action = async () => { await Sut().AssembleContextAsOfAsync(new() { SessionId = "s1", Query = "Valentina",
+            QueryEmbedding = new float[8], Options = RecallOptions.Default with { PersonDetails = true } }, Now); };
+        await action.Should().ThrowAsync<NotSupportedException>().WithMessage("*live recall only*");
+        _longTerm.ReceivedCalls().Should().BeEmpty();
+    }
+
     // ── off issues nothing ────────────────────────────────────────────
 
     [Theory]

@@ -258,6 +258,18 @@ The implementation compiles on .NET8/9/10 and has focused unit plus actual Neo4j
 The physical-event model case proves the native hop; conservative Pending identities can omit
 details. See [current evidence and limits](../evidence-based-identity-implementation.md).
 
+### Recall for people
+
+`RecallOptions.PersonDetails` (null follows identity, like `EventDetails`) adds the facts about a confirmed person the
+question names. The owner's confirmed PERSON identities are read with the names each is known by (its name, its aliases
+and the names facts bound to it used), at most 1,000. A name appears in the question as whole words, case and accents
+aside; a name two identities share names neither, a one-letter name or a pronoun names nobody, and at most 3 people are
+taken in the order the question names them. Their live facts come through decision-owned fact bindings, newest first
+and taken in turn from each person, at most `MaxPersonDetailFacts` (8; 0..64), excluding facts already in the context.
+A decision that still has `POSSIBLE_SAME_AS` candidates (an open proposal) is never followed. The facts carry no
+invented similarity score and share the context budget and the latency allowance. Choosing between two people with the
+same name from the question's context, and questions that name nobody ("what does she like?"), are out of scope.
+
 ### Identity portability boundary
 
 With `identity-evidence` enabled, export writes format `agentmemory-export/2`: the memories as in format 1, plus

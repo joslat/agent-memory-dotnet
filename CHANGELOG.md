@@ -20,6 +20,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   measurement ran it; at its default, maximum effort it could spend its whole reply budget thinking and answer nothing,
   which left the identity writer with empty replies in the samples. No other model gets an effort it did not ask for.
   A request that chooses its own effort keeps it.
+- **Identity-aware recall for people** (`RecallOptions.PersonDetails`, `MaxPersonDetailFacts`). A question that names
+  a confirmed person ("my mentoring session with Valentina") now brings that person's facts, not only the ones whose
+  words resemble the question: up to 8 live facts bound to the person through identity decisions, newest first. A name
+  counts as whole words, case and accents aside, and only when one confirmed person has it: a name two people share
+  (two Alex Kims) expands nothing, never a guess. Open proposals are never followed; at most 3 people per question. Two
+  bounded reads, no model call; the facts share the context budget. Follows identity like `EventDetails`: on where
+  evidence-based identity runs, off and unchanged elsewhere. Point-in-time recall refuses an explicit `true`.
 - **Owner export and import carry identity whole** (`agentmemory-export/2`). With identity storage the export adds
   `OwnerMemoryExport.IdentityState`: the owner's decisions with their evidence and quotes, review revisions, fact
   bindings, host assertions, relationship observations, their links, and the entities' identity properties, each value
