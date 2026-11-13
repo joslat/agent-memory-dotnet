@@ -463,6 +463,18 @@ public static class ServiceCollectionExtensions
         // Extraction pipeline stages.
         // IExtractionStage receives IEnumerable<IExtractor> — all registered extractor implementations.
         services.TryAddSingleton<IMemoryPersistenceTransaction, PassThroughMemoryPersistenceTransaction>();
+        services.TryAddScoped<IdentityIngestion>(sp =>
+        {
+            var configuration = IdentityConfiguration.Capture(sp.GetRequiredService<IOptions<IdentityResolutionOptions>>().Value);
+            var clock = sp.GetRequiredService<TimeProvider>();
+            if (!configuration.Enabled) return new IdentityIngestion(configuration, clock);
+            return new IdentityIngestion(configuration, clock,
+                sp.GetService<IIdentityCandidateProvider>(), sp.GetService<Abstractions.Repositories.IIdentityDecisionRepository>(),
+                sp.GetRequiredService<IEmbeddingOrchestrator>(), sp.GetRequiredService<IIdGenerator>(),
+                sp.GetService<IIdentityContextProvider>(),
+                configuration.MaxAdjudicationsPerIngestion > 0 ? sp.GetService<IIdentityAdjudicator>() : null,
+                configuration.MaxAdjudicationsPerIngestion > 0 ? sp.GetService<IIdentitySourceProvider>() : null);
+        });
         services.TryAddScoped<IExtractionStage, ExtractionStage>();
 
         // each leg's tier, said once on the first write (and to a host that asks, IMemoryTiers). The gate adds

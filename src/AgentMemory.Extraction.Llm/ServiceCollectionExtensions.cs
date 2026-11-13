@@ -1,3 +1,4 @@
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using AgentMemory.Abstractions.Services;
@@ -9,6 +10,22 @@ namespace AgentMemory.Extraction.Llm;
 /// </summary>
 public static class ServiceCollectionExtensions
 {
+    /// <summary>
+    /// Registers one optional contextual adapter with a dedicated host-owned singleton client.
+    /// The factory stays lazy; this does not enable identity or alter extraction's client.
+    /// The host keeps the client alive until this adapter has drained its in-flight calls.
+    /// </summary>
+    public static IServiceCollection AddIdentityAdjudication(this IServiceCollection services,
+        Func<IServiceProvider, IChatClient> clientFactory, int maxInFlight = 8)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(clientFactory);
+        if (maxInFlight is < 1 or > 64) throw new ArgumentOutOfRangeException(nameof(maxInFlight));
+        services.TryAddSingleton<IIdentityAdjudicator>(provider => new ChatIdentityAdjudicator(
+            clientFactory(provider) ?? throw new InvalidOperationException("The identity client factory returned null."), maxInFlight));
+        return services;
+    }
+
     /// <summary>
     /// Registers LLM-backed extractors and their options.
     /// </summary>

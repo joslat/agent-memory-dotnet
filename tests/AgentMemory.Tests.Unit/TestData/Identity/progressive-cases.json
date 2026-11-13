@@ -1,0 +1,105 @@
+{
+  "schemaVersion": 1,
+  "status": "Prepared oracles; no execution or accuracy claim",
+  "referenceUtc": "2026-11-09T12:00:00Z",
+  "inspiration": "tools/AgentMemory.Scenarios/scenarios/bruna-go-live-busy.json and the owner-provided Pablito report",
+  "hostEvidenceNotice": "Keys and verified kinds below are synthetic host assertions for deterministic tests, not facts verified by a model.",
+  "cases": [
+    {
+      "id": "P00-distinct-calendar-days",
+      "level": 0,
+      "sources": [
+        { "id": "training", "text": "Training is on December 3, 2026." },
+        { "id": "wedding", "text": "The wedding is on Saturday, December 12, 2026." }
+      ],
+      "seed": { "id": "date-training", "name": "2026-12-03", "type": "DATE", "verifiedKind": "CalendarDate" },
+      "mention": { "name": "December 12, 2026", "type": "DATE", "sources": ["wedding"] },
+      "fact": { "subject": "Wedding", "predicate": "is on", "object": "December 12, 2026" },
+      "expected": { "decision": "New", "differentFrom": "date-training", "storedObject": "December 12, 2026", "calendarKey": "gregorian:2026-12-12", "modelCalls": 0, "embeddingCalls": 0 }
+    },
+    {
+      "id": "P01-partial-date-is-not-complete-date",
+      "level": 1,
+      "sources": [{ "id": "wedding", "text": "The wedding is on Saturday, December 12." }],
+      "seed": { "id": "complete-date", "name": "2026-12-12", "type": "DATE", "verifiedKind": "CalendarDate" },
+      "mention": { "name": "Saturday, December 12", "type": "DATE", "sources": ["wedding"] },
+      "fact": { "subject": "Wedding", "predicate": "is on", "object": "Saturday, December 12" },
+      "expected": { "decision": "New", "differentFrom": "complete-date", "storedObject": "Saturday, December 12", "calendarKey": null, "inventedYear": false, "modelCalls": 0, "embeddingCalls": 0 }
+    },
+    {
+      "id": "P02-date-shaped-product-reference",
+      "level": 2,
+      "sources": [{ "id": "catalog", "text": "I ordered the product named December 12, SKU D12." }],
+      "seed": { "id": "product", "name": "December 12", "type": "OBJECT", "verifiedKind": "Reference", "key": { "namespace": "fixture:catalog", "values": { "sku": "D12" } } },
+      "mention": { "name": "December 12", "type": "OBJECT", "sources": ["catalog"], "verifiedKind": "Reference", "key": { "namespace": "fixture:catalog", "values": { "sku": "D12" } } },
+      "policy": { "identityProperties": ["sku"] },
+      "expected": { "decision": "Confirmed", "target": "product", "calendarLiteral": false, "modelCalls": 0 }
+    },
+    {
+      "id": "P03-same-date-does-not-identify-events",
+      "level": 3,
+      "sources": [
+        { "id": "wedding", "text": "Wedding W is on December 12, 2026." },
+        { "id": "training", "text": "Training T is also on December 12, 2026." }
+      ],
+      "seed": { "id": "event-training", "name": "December workshop", "type": "EVENT", "key": { "namespace": "fixture:events", "values": { "eventId": "T" } } },
+      "mention": { "name": "December workshop", "type": "EVENT", "sources": ["wedding"], "key": { "namespace": "fixture:events", "values": { "eventId": "W" } } },
+      "policy": { "identityProperties": ["eventId"] },
+      "signals": { "fuzzySimilarity": 1.0, "semanticSimilarity": 1.0 },
+      "expected": { "decision": "New", "differentFrom": "event-training", "reason": "verified_key_conflict", "calendarValueMayBeShared": true, "eventIdentityMayBeShared": false, "modelCalls": 0 }
+    },
+    {
+      "id": "P04-geographic-homonyms-with-contradictory-keys",
+      "level": 4,
+      "sources": [{ "id": "venue", "text": "The venue is in Córdoba, Argentina." }],
+      "seed": { "id": "cordoba-es", "name": "Córdoba", "type": "LOCATION", "key": { "namespace": "fixture:places", "values": { "country": "ES", "placeId": "CBA" } } },
+      "mention": { "name": "Córdoba", "type": "LOCATION", "sources": ["venue"], "key": { "namespace": "fixture:places", "values": { "country": "AR", "placeId": "CBA" } } },
+      "policy": { "identityProperties": ["country", "placeId"], "allowContextualConfirmation": true },
+      "signals": { "fuzzySimilarity": 1.0, "semanticSimilarity": 1.0 },
+      "expected": { "decision": "New", "differentFrom": "cordoba-es", "reason": "verified_key_conflict", "modelCalls": 0 }
+    },
+    {
+      "id": "P05-undated-place-and-presence-complete-event-evidence",
+      "level": 5,
+      "owner": "pablito",
+      "includeShared": false,
+      "sources": [
+        { "id": "go-live-date", "text": "I lead Acme's go-live on December 11, 2026." },
+        { "id": "go-live-place", "text": "The cutover is at Acme's office in Córdoba." },
+        { "id": "go-live-presence", "text": "I must be there in person to run the cutover." },
+        { "id": "bariloche-dates", "text": "I will be in Bariloche from December 9 to December 13, 2026." }
+      ],
+      "eventHostKeys": { "go-live": "fixture:acme-cutover-2026", "cutover": "fixture:acme-cutover-2026" },
+      "facts": [
+        { "id": "go-live-date", "subject": "go-live", "predicate": "occurs on", "object": "2026-12-11", "occurredOn": "2026-12-11", "eventKey": "fixture:acme-cutover-2026" },
+        { "id": "go-live-place", "subject": "cutover", "predicate": "takes place at", "object": "Acme's office in Córdoba", "eventKey": "fixture:acme-cutover-2026" },
+        { "id": "go-live-presence", "subject": "cutover", "predicate": "requires", "object": "my physical presence", "eventKey": "fixture:acme-cutover-2026" },
+        { "id": "bariloche-dates", "subject": "Bariloche trip", "predicate": "covers", "object": "2026-12-09/2026-12-13" }
+      ],
+      "query": "Plan my prep for go-live week",
+      "window": { "from": "2026-12-07", "until": "2026-12-13" },
+      "expected": { "requiredFactIds": ["go-live-date", "go-live-place", "go-live-presence", "bariloche-dates"], "identityLinksMustBeConfirmed": true, "undatedFactsRecovered": ["go-live-place", "go-live-presence"], "physicalConflictSupported": true, "conflictDay": "2026-12-11", "locations": ["Córdoba", "Bariloche"], "scoreMemoryEvidenceSeparatelyFromAnswer": true }
+    },
+    {
+      "id": "P06-overlap-with-remote-event-does-not-prove-physical-conflict",
+      "level": 6,
+      "basedOn": "P05-undated-place-and-presence-complete-event-evidence",
+      "replaceFacts": [
+        { "id": "go-live-presence", "subject": "cutover", "predicate": "allows", "object": "remote participation from any location", "eventKey": "fixture:acme-cutover-2026" }
+      ],
+      "expected": { "requiredFactIds": ["go-live-date", "go-live-place", "go-live-presence", "bariloche-dates"], "physicalConflictSupported": false, "calendarOverlapStillTrue": true, "scoreMemoryEvidenceSeparatelyFromAnswer": true }
+    },
+    {
+      "id": "P07-distractors-owners-and-expansion-budget",
+      "level": 7,
+      "basedOn": "P05-undated-place-and-presence-complete-event-evidence",
+      "distractors": [
+        { "id": "other-event-place", "owner": "pablito", "eventKey": "fixture:other-event", "subject": "another launch", "predicate": "takes place at", "object": "Madrid", "date": "2026-12-11" },
+        { "id": "foreign-place", "owner": "other", "eventKey": "fixture:acme-cutover-2026", "subject": "cutover", "predicate": "takes place at", "object": "private venue" },
+        { "id": "pending-alias-place", "owner": "pablito", "eventKey": "fixture:unconfirmed-cutover", "subject": "cutover candidate", "predicate": "takes place at", "object": "Mendoza", "identityStatus": "Pending" }
+      ],
+      "budget": { "maxHops": 2, "maxExpansionFacts": 3, "maxUtf8Bytes": 8192 },
+      "expected": { "requiredFactIds": ["go-live-date", "go-live-place", "go-live-presence", "bariloche-dates"], "excludedFactIds": ["other-event-place", "foreign-place", "pending-alias-place"], "neverConferEqualityFromPending": true, "reportTruncationWhenBudgetInsufficient": true, "physicalConflictSupported": true }
+    }
+  ]
+}

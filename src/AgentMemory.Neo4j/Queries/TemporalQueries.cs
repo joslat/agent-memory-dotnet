@@ -1,4 +1,4 @@
-﻿namespace AgentMemory.Neo4j.Queries;
+namespace AgentMemory.Neo4j.Queries;
 
 /// <summary>
 /// Cypher queries for temporal (point-in-time) memory retrieval. The vector AsOf searches are
@@ -128,7 +128,7 @@ internal static class TemporalQueries
     public static string SearchFactsAsOf(bool hasOwnerFilter, bool includeShared, int topK, bool ownerScan = false) => $@"
             {(ownerScan
                 ? $@"MATCH (node:Fact)
-            WHERE {(includeShared ? "(node.owner_id = $ownerId OR node.owner_key = '*')" : "node.owner_id = $ownerId")} AND node.embedding IS NOT NULL AND size(node.embedding) = size($embedding)
+            WHERE {(includeShared ? "(node.owner_id = $ownerId OR (node.owner_key = '*' AND node.owner_id IS NULL))" : "node.owner_id = $ownerId")} AND node.embedding IS NOT NULL AND size(node.embedding) = size($embedding)
             WITH node, vector.similarity.cosine(node.embedding, $embedding) AS score"
                 : $@"CALL db.index.vector.queryNodes('fact_embedding_idx', {topK}, $embedding)
             YIELD node, score")}

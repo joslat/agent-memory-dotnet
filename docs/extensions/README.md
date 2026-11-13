@@ -308,3 +308,5 @@ verifier by construction).
 The separate [module SDK](modules.md) documents its current source capabilities and limits.
 It is held out of the core release inventory; it does not change the built-in extension registration
 contract described above.
+
+- [Identity evidence](identity-evidence.md): explicit host assertions and bounded candidate lookup, off by default.

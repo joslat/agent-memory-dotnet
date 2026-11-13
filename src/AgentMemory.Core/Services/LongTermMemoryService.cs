@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Core.Memory;
@@ -11,7 +11,7 @@ namespace AgentMemory.Core.Services;
 /// <summary>
 /// Service for long-term (structured knowledge) memory operations.
 /// </summary>
-internal sealed class LongTermMemoryService : ILongTermMemoryService, IScoredLongTermSearch
+internal sealed partial class LongTermMemoryService : ILongTermMemoryService, IScoredLongTermSearch
 {
     private const int FactDedupLockStripeCount = 256;
     private static readonly SemaphoreSlim[] FactDedupLockStripes =

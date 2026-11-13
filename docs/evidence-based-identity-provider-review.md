@@ -1,5 +1,7 @@
 # Identidad y memoria: revisión de otros sistemas
 
+> **13 November 2026: full Bariloche acceptance reopened.** Candidate-source context and partial writer operations remain active corrections; see the [root-cause audit and bounded validation matrix](evidence-based-identity-root-cause-review.md). Earlier component/source-cut results are retained, not full-scenario acceptance.
+
 > Revisión de diseño del 11 de noviembre de 2026. Se han leído documentación oficial y rutas concretas de código. No se han instalado los proveedores, ejecutado sus tests ni comparado sus respuestas a Bruna. Las conclusiones sobre AgentMemory son decisiones de diseño, no resultados medidos.
 
 ## Qué estamos comparando

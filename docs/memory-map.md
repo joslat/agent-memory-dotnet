@@ -1,5 +1,12 @@
 # The Memory Map
 
+**Calendar identity integrity — BUILT; focused verification passed.** Recognised calendar literals
+are kept out of approximate name matching. Complete supported dates compare by calendar components;
+incomplete or invalid values remain separate, and canonical entity names cannot replace their fact
+literals. Core compiled for net10.0 and 106 focused cases passed after the red regression. Full-suite,
+supported-framework and live persistence acceptance remain open. This correction does not implement
+the complete [evidence-based identity design](evidence-based-identity-design.md).
+
 A reference for what agent memory is, what a memory system has to decide that a store does not, and
 **exactly** which of those decisions AgentMemory makes today.
 
@@ -2107,3 +2114,123 @@ scope are exercised through native DI. Scoped observers expose results without a
 slot. Empty/off paths avoid extra selection calls. Real isolated Neo4j selection acceptance and safe
 shared deadlines/draining remain unfinished. No model-effectiveness claim.
 [Configuration](extensions/modules.md#native-module-selection-registration).
+
+**Evidence-based identity — BUILT / WIRED for initial ingestion and explicit host evidence;
+MEASURED with deterministic tests and disposable Neo4j, not real-model accuracy.** The opt-in
+[identity-evidence extension](extensions/identity-evidence.md) provides bounded candidates,
+atomic decisions, original observations, pending proposals and decision-owned Fact-role support.
+Fuzzy/vector scores only select candidates. Supported calendar values and explicitly verified
+host identifiers drive deterministic identity; uncertainty preserves separate observations.
+
+The optional host provider receives frozen scoped inputs before candidate reads. Its supplied
+keys/kind/name namespace retain authority and source independently of model attributes. Eligible
+assertions for new/pending original observations are indexed atomically with decision/facts;
+confirmed targets are not upserted and replay does not reassert them. Original Fact words survive.
+Disabled remains default and does not resolve/call those services, issue identity queries or
+change prompts.
+
+Temporal integrity is **BUILT / WIRED / VERIFIED for the supported finite grammar**, including
+calendar ranges and surrounding-whitespace cases. It protects stored literals and admissible ABOUT
+links without inventing years or repairing historical data. Scoped owner erasure and reserved-owner
+migration have their own verified increments. These are not complete review/revoke/export/import.
+
+The latest accepted host/index checkpoint passes 7,899 full-root cases, 511 focused cases on each
+.NET 8/9/10 and 230 real-store consumer cases, zero skips. The subsequent dedicated-model
+registration has 521 focused passes per runtime and 7,909 full-root passes after a guarded retry;
+the earlier resource-aborted/incomplete attempts remain recorded. See [exact implementation status](evidence-based-identity-implementation.md) for snapshots
+and failed/incomplete attempts; these figures must not be added as independent coverage.
+
+The contextual adapter and explicit dedicated-client registration are built. Core invocation
+and one shared call budget per ingestion now pass ten actual ingestion/DI cases after missing-wiring
+failures. Typed receipts and fresh source/candidate confirmation/replay now pass the current
+7,935 root, 547-per-runtime and 249-consumer live checkpoint after four reproduced review failures.
+Review/revocation, RELATED_TO endpoint ownership, event-to-place/presence expansion and real-model/final
+delivery acceptance remain unfinished. Model registration alone does not enable identity.
+The core ingestion owns its transaction; no model runs inside it. Writer-named closings remain
+a separate post-commit best-effort consequence, so their failure can leave older Facts live.
+
+
+### Identity review qualification checkpoint
+
+**BUILT / narrowly WIRED:** the opt-in Neo4j decision repository supports explicit confirm,
+reject and revoke, immutable revision history, expected-version checks and idempotent
+operation retry. Four initial real-store lifecycle tests pass, including retained originals,
+unrelated support preservation and owner isolation. Fifteen review contract/payload controls
+pass on net10. These are separate from the older complete-root and focused-runtime receipts.
+
+**Not MEASURED for answer quality:** no real-model quality run has evaluated this increment.
+Broader concurrency/fault/subsequent-write checks, native ownership export/import, event to
+undated place/presence expansion and full current acceptance remain open. These four tests
+do not close the identity goal or establish perfect identity precision.
+
+
+### Event details through decision-owned support
+
+`RecallOptions.EventDetails` is an opt-in live recall capability, off by default. After date-window,
+upcoming and overlap selection, it takes at most10 dated seed facts and follows their current
+`HAS_IDENTITY_BINDING` / `DECIDED_BY` / `RESOLVES_TO` support to live `EVENT` entities. One scoped
+read considers at most20 event identities and returns at most `MaxEventDetailFacts` additional facts
+(default8, maximum64). It does not traverse `POSSIBLE_SAME_AS`, generic `ABOUT`, names, people or
+locations to guess that two events are equal. Closed facts and retired events are excluded.
+
+Details such as Córdoba or required physical presence need no date of their own. They must already
+have explicit fact-role support for that event; missing extraction/binding evidence is not invented.
+This increment does not expand undated relationship-only claims or infer an event from words buried
+inside a sentence. The representative model cases will measure this coverage and any required fix.
+
+Extra facts enter `RelevantFacts` without invented vector scores, are de-duplicated against the date
+sections, respect the latency allowance and share the existing total context budget. `MaxFacts=0`
+or a zero detail cap suppresses the read. Point-in-time recall rejects the live-only option explicitly.
+An unsupported backend rejects requested use instead of returning silent success. Neo4j requires
+the enabled and migrated `identity-evidence` extension. No new schema shape is introduced.
+
+The implementation compiles on .NET8/9/10 and has focused unit plus actual Neo4j qualification.
+The physical-event model case proves the native hop; conservative Pending identities can omit
+details. See [current evidence and limits](evidence-based-identity-implementation.md).
+
+### Identity portability boundary
+
+Full identity export/import is a separate follow-up. The Neo4j owner data service rejects
+`agentmemory-export/1` export **and** import whenever `identity-evidence` is enabled, including empty
+owners, before database or embedding work. A per-owner check followed by writes would race with
+concurrent identity ingestion. With the extension disabled the legacy format and its queries remain
+unchanged; callers must not remove the extension to export an identity-bearing store through that
+older format. Owner erasure remains supported. This is an explicit compatibility limit, not lossless
+identity portability or protection provided by older clients that do not know the extension.
+
+### Writer event-reference option
+
+`LlmExtractionOptions.MemoryWriterEventIdentities` defaults to false. With the store-aware writer
+enabled, it appends instructions to emit source-grounded `EVENT` observations and separate atomic
+event-subject facts for the stated date, place and participation. The writer's default prompt
+remains unchanged. This addresses the write/read seam: a retrieval hop cannot recover event details
+if the writer never emits an event reference. It does not confirm identity, invent missing sources
+or bypass the resolver's domain vetoes; model compliance still requires the bounded actual runs.
+
+Enable this option alongside the existing identity writer configuration and `Recall.EventDetails`.
+It is explicitly enabled in the synthetic `graph-identity-writer` arm and is not a new global
+Recommended default. Unit controls for the unchanged default prompt and event-shaped writer output
+pass in the current .NET8/9/10 matrix. The real physical-event hop passes; a remote identity remains Pending, so automatic expansion is not guaranteed.
+
+**Writer references and operation contract (ILC-07/08).** In the same mode every operation carries a
+`ref` field. An entity operation may set it to the label of a stored entity shown in that call; the
+writer maps the label to the stored ID and keeps it only for an entity add whose quote it located
+(`ExtractedEntity.Reference`). Evidence-based identity treats it as untrusted contextual evidence: it
+must name a Pending, adjudicable candidate that no identically named candidate competes with, its
+quote must be in the current turn, and the entity type's `AllowContextualConfirmation` decides
+between confirmation and review. No model call is made; whatever is refused reaches the adjudicator.
+The reply is schema-constrained; actions, text/ids, quotes, references, the `Name (TYPE)` entity form
+and the event observation of every event-subject fact are checked; one targeted correction call is
+made only when a check fails; what still fails is dropped (never coerced) and reported in
+`UnifiedExtractionResult.Outcomes`. **Candidate source hydration (ILC-09):** with
+`IIdentitySourceProvider` registered (Neo4j registers it), an eligible contextual decision with call
+budget left also offers each candidate's own source text (at most two roots per candidate, 32
+fragments, the byte budget), read in the decision owner's scope and re-validated when the decision is
+written; missing or omitted sources are reported as diagnostics. **Context-rooted candidates (ILC-13):**
+`EntityIdentityPolicy.ReviewContextRootedCandidates` (default false) nominates same-type entities observed in the
+window's read-only context turns (`ExtractionOptions.ExtractionContextTurns`) for review, so "the cutover" said right
+after "the go-live" reaches the adjudicator with both turns even when the writer names it differently. A free offline
+calibration on three recorded runs rejected name-to-sentence similarity as the nomination signal: it ranked a different
+event (0.55) above the right one (0.53). `IdentityResolutionOptions.ApplyConversationalPolicies()` applies the measured set
+(EVENT, PERSON, ORGANIZATION confirmable by checked contextual evidence; everything else review-only), and
+`IIdentityDecisionRepository.ListPendingAsync` gives hosts a bounded review queue of open proposals.

@@ -10,6 +10,11 @@ namespace AgentMemory.Core.Extraction;
 internal sealed record ExtractionStageResult
 {
     public ExtractionPath Path { get; init; }
+    /// <summary>Side-effect-free original observations and proposed identity decisions, present only in the opt-in mode.</summary>
+    public IReadOnlyList<IdentityDecisionWrite> IdentityPlans { get; init; } = Array.Empty<IdentityDecisionWrite>();
+
+    /// <summary>Frozen original relationship claims with optional decision-owned endpoint support.</summary>
+    public IReadOnlyList<IdentityRelationshipObservation> IdentityRelationships { get; init; } = Array.Empty<IdentityRelationshipObservation>();
 
     // ── Raw extracted items — returned to callers via ExtractionResult ──
 
@@ -38,6 +43,9 @@ internal sealed record ExtractionStageResult
     public IReadOnlyList<ExtractedRelationship> FilteredRelationships { get; init; } = Array.Empty<ExtractedRelationship>();
 
     // ── Provenance ──
+
+    /// <summary>Preserves explicit source visibility even when no entity mention was extracted.</summary>
+    public bool IdentityIncludeSharedSources { get; init; }
 
     public IReadOnlyList<string> SourceMessageIds { get; init; } = Array.Empty<string>();
 

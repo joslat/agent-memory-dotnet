@@ -1,4 +1,4 @@
-﻿using AgentMemory.Core.Stubs;
+using AgentMemory.Core.Stubs;
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -286,7 +286,7 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
         // G-16, as on the fact path: filtered inside the index, so never crowded: own rows, then shared, merged by score.
         if (hasOwner && _filteredOwnerIndex)
         {
-            var own = await QueryAsync(topK, cancellationToken, filteredKey: scope!.OwnerId).ConfigureAwait(false);
+            var own = await QueryAsync(topK, cancellationToken, filteredKey: OwnerStorageKey.Encode(scope!.OwnerId)).ConfigureAwait(false);
             var filtered = includeShared
                 ? ScoredMerge.ByScore(own, await QueryAsync(topK, cancellationToken, filteredKey: Neo4jFactRepository.OwnerKeyShared).ConfigureAwait(false),
                     entity => entity.EntityId, limit)
@@ -749,7 +749,7 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
     /// than a Node. Both paths share this body so the two cannot drift into mapping the same stored
     /// entity differently depending on which query fetched it.
     /// </remarks>
-    private static Entity MapToEntity(IReadOnlyDictionary<string, object> properties, float[]? embedding)
+    internal static Entity MapToEntity(IReadOnlyDictionary<string, object> properties, float[]? embedding)
     {
         double? latitude = null;
         double? longitude = null;

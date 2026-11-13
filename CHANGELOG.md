@@ -1,10 +1,88 @@
-﻿# Changelog
+# Changelog
 
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+- Extend the opt-in identity-aware writer (`LlmExtractionOptions.MemoryWriterEventIdentities`) with a
+  checked stored-entity reference (`"ref"`, the label of a stored entity shown in the same call, carried
+  as `ExtractedEntity.Reference`) and an operation contract: a JSON-schema reply, deterministic checks of
+  action, text/id, quote, reference, entity format and event observations, at most one targeted
+  correction call, and `UnifiedExtractionResult.Outcomes` entries (`MEMORY_WRITER_OPERATION_REJECTED`)
+  for whatever still fails, reported with the turn's ingestion outcomes. A malformed entity is never
+  coerced into an `OBJECT`. Off remains byte-identical (prompt, request format, single call).
+- Evidence-based identity re-checks a writer reference as contextual evidence without a model call
+  (candidate, ambiguity, current-source quote and type policy), resolves references to observations
+  already confirmed elsewhere through their decision, and hydrates each eligible candidate's own source
+  text for the adjudicator through the new optional `IIdentitySourceProvider` (Neo4j: owner-scoped,
+  bounded, re-validated at write). The decision records the context actually offered; original
+  provenance stays the current turn. Identity mode also keeps ISO-spelled calendar entities that the
+  numeric-only name filter dropped before the calendar comparison.
+- Add `EntityIdentityPolicy.ReviewContextRootedCandidates` (default false): with read-only extraction context turns
+  (`ExtractionOptions.ExtractionContextTurns`), same-type entities observed in those turns are nominated for review
+  (`IdentityCandidateSignals.ContextRooted`, backend capability `ContextRootedLookup`; Neo4j follows `EXTRACTED_FROM`
+  and resolves each observation to its current identity), so a differently named mention of a just-mentioned entity
+  reaches the contextual adjudicator with both turns. Never a confirmation by itself; off sends no context IDs and runs
+  no extra query. A candidate nominated only this way is withdrawn when the adjudicator answers "different" with quotes;
+  same-name proposals stay for review.
+- Add `IdentityResolutionOptions.ApplyConversationalPolicies()`: the measured policy set in which EVENT, PERSON and
+  ORGANIZATION may be confirmed by checked contextual evidence and nominate context-turn candidates; other types stay
+  review-only. Measured on the standing identity benchmark: person splits 3-4 per full run to 0, no wrong merge, the two
+  "Alex Kim" homonyms kept apart.
+- With identity-evidence enabled, owner export now works for reading: it adds `OwnerMemoryExport.IdentityResolutions`
+  (which observation a confirmed decision resolved to which identity) and `IdentityStateOmitted` (decisions, review
+  history, evidence and open proposals are not in `agentmemory-export/1`). Such an export is refused by import, and import
+  into an identity-enabled store stays refused. With identity off the export is byte-identical (both members unserialized).
+- Add `IIdentityDecisionRepository.ListPendingAsync` (Neo4j): the owner's open identity proposals for a review queue,
+  bounded (1-256) with stable paging; reviewed proposals leave it.
+
+- Add an explicit full49-statement Bariloche evaluation profile sharing the persistent cost cap,
+  stronger physical-context assertions and actual Fact/decision/binding IDs. The current real
+  run exposes pending-context and partial-writer gaps; it is not a complete quality pass.
+
+- Add opt-in evidence-based identity with bounded candidate discovery, typed evidence policy,
+  atomic observation/decision/Fact-role support and original relationship claims. Fuzzy/vector
+  scores alone never establish identity; uncertain observations retain separate Pending identity.
+- Add optional dedicated-client contextual adjudication with call/context limits, a constrained
+  JSON verdict schema, strict source quotes and durable freshness/replay checks. Off and zero-budget
+  paths do not construct the model; invalid or uncertain completions cannot authorize equality.
+- Add explicit confirm/reject/revoke with expected versions, immutable history and idempotent
+  operation receipts. Original facts and unrelated links survive changes to decision-owned support.
+- Add opt-in event-aware writer instructions and bounded live event-detail retrieval. Default
+  prompt bytes remain unchanged; Pending proposals never authorize a join. Real physical-event
+  validation retrieves location/presence; uncertain identity can omit details, as the remote control shows.
+- Refuse legacy owner export/import before I/O whenever identity-evidence is enabled, including
+  empty owners. Full identity portability is separate; owner erasure remains supported.
+- Add bounded synthetic validation with persistent cost reservations, pre-dispatch sanitized
+  traces and separate storage/prompt/native-hop/answer review. Structured probe checks prevent
+  event-name keywords from passing as location or participation evidence. This does not change
+  global presets or establish perfect model accuracy.
+- Reserve built-in identity storage vocabulary against module schema/property collisions.
+- Prevent literal `*` owner IDs from sharing technical storage keys or shared recall with unowned
+  data; add an explicit technical-key migration and scope guards.
+
+### Fixed
+
+- Protect recognised calendar literals from approximate entity identity and canonical fact-name substitution.
+  Complete ISO and English/Spanish named dates are compared by calendar components; incomplete, invalid
+  or ambiguous supported date shapes remain separate without guessing a year or calling name embeddings.
+  A stale alias cannot turn December 12 into December 3. Original fact literals retain their spelling.
+  This integrity correction is distinct from the opt-in evidence-based identity policy.
+  Supported calendar-day intervals compare both endpoints and stay distinct from a point date.
+  Surrounding whitespace cannot bypass calendar recognition or permit a fuzzy/canonical name
+  substitution; oversize rejected values remain bounded during normalization.
+  Fact-to-entity links reject incompatible calendar targets, including stale aliases and contradictory
+  canonical values; source facts and historical records are retained.
+
+### Added
+
+- Evidence-based identity policy, bounded candidate lookup and durable decision/Fact-role support
+  behind explicit activation and the identity-evidence schema extension. Similarity only selects
+  candidates; verified keys and supported values drive identity, and uncertainty keeps separate
+  observations. Initial runtime wiring is verified. Optional contextual ingestion, review/revocation
+  and event-place/presence expansion remain unfinished; no default rollout is implied.
 
 ## [2.1.0] - 2026-11-07
 
@@ -3120,3 +3198,17 @@ NuGet package IDs are permanent once published.
 [0.1.0-preview.3]: https://github.com/joslat/agent-memory-dotnet/compare/v0.1.0-preview.2...v0.1.0-preview.3
 [0.1.0-preview.2]: https://github.com/joslat/agent-memory-dotnet/compare/v0.1.0-preview.1...v0.1.0-preview.2
 [0.1.0-preview.1]: https://github.com/joslat/agent-memory-dotnet/releases/tag/v0.1.0-preview.1
+
+
+Evidence-based ingestion wiring (implementation in progress): configure
+`services.Configure<IdentityResolutionOptions>(o => o.Enabled = true)` and enable the
+`identity-evidence` Neo4j schema extension before ingesting. Pipeline construction rejects a
+backend without bounded candidates, the enabled schema or atomic scoped ingestion. Defaults
+remain off and do not resolve identity backends or issue identity queries. In the enabled mode,
+model/candidate/embedding work precedes the transaction; owner/shared identity locks precede
+fact writes. Original subject/object words remain stored, confirmed targets are not upserted,
+and decision-owned bindings use the repository-returned final Fact ID. A failure rolls back
+the whole enabled ingestion; there is no best-effort replay. Same-surface ambiguous observations
+remain separate and receive no guessed fact or relationship endpoint binding. Source context
+and mentions are bounded (MaxContextUtf8Bytes, MaxMentionsPerIngestion). Review/revocation,
+contextual activation, event evidence and final acceptance remain tracked as unfinished work.

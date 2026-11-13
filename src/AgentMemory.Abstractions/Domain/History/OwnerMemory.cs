@@ -49,6 +49,21 @@ public sealed record OwnerMemoryExport
 
     /// <summary>A fact (<see cref="MemoryLink.From"/>) and an entity it is about (an exported one, or a shared one).</summary>
     public IReadOnlyList<MemoryLink> About { get; init; } = [];
+
+    /// <summary>
+    /// With evidence-based identity storage: each exported observation and the identity a confirmed decision resolved it
+    /// to (<see cref="MemoryLink.From"/> observation, <see cref="MemoryLink.To"/> identity), so a reader can tell which
+    /// exported entities are one identity. Null, and not serialized, when the store keeps no identity state.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<MemoryLink>? IdentityResolutions { get; init; }
+
+    /// <summary>
+    /// True when the store keeps identity state this format cannot carry: decisions, review history, evidence and open
+    /// proposals were left out. Such an export is for reading and is refused by import. False, and not serialized, otherwise.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool IdentityStateOmitted { get; init; }
 }
 
 /// <summary>A link between two memories, by id.</summary>

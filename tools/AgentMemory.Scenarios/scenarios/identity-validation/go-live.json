@@ -1,0 +1,175 @@
+{
+  "source": null,
+  "owner": "bruna-validation",
+  "ownerName": "Bruna",
+  "assistantBrief": "You are Bruna's planning assistant. Use only supported memory. State uncertainty explicitly.",
+  "askedOn": "2026-12-04",
+  "name": "identity-go-live",
+  "title": "Bounded identity validation: go-live",
+  "sessions": [
+    {
+      "date": "2026-11-09",
+      "topic": "go-live",
+      "messages": [
+        "I am Bruna. I am leading the Acme go-live on Friday, December 11, 2026.",
+        "The Acme go-live cutover happens on-site at Acme's office in Córdoba, Argentina.",
+        "I have to be there in person to run the Acme go-live cutover.",
+        "I will be in Bariloche from December 9 through December 13, 2026 for my sister's wedding."
+      ]
+    }
+  ],
+  "questions": [
+    {
+      "id": "when-where",
+      "kind": "identity-validation",
+      "text": "When is the Acme go-live, and where does it happen?",
+      "needs": [
+        {
+          "fact": "Go-live December 11",
+          "mentions": [
+            [
+              "go-live",
+              "cutover"
+            ],
+            [
+              "December 11",
+              "11 December",
+              "Dec 11",
+              "2026-12-11"
+            ]
+          ]
+        },
+        {
+          "fact": "Go-live location",
+          "mentions": [
+            [
+              "go-live",
+              "cutover"
+            ],
+            [
+              "Córdoba",
+              "Cordoba"
+            ]
+          ]
+        }
+      ],
+      "rightAnswer": "December 11, 2026; on-site at Acme's office in Córdoba."
+    },
+    {
+      "id": "calendar",
+      "kind": "identity-validation",
+      "text": "What do I have on my calendar between December 7 and December 13?",
+      "needs": [
+        {
+          "fact": "Go-live December 11",
+          "mentions": [
+            [
+              "go-live",
+              "cutover"
+            ],
+            [
+              "December 11",
+              "11 December",
+              "Dec 11",
+              "2026-12-11"
+            ]
+          ]
+        },
+        {
+          "fact": "Bariloche trip start",
+          "mentions": [
+            [
+              "Bariloche"
+            ],
+            [
+              "December 9",
+              "9 December",
+              "Dec 9",
+              "2026-12-09"
+            ]
+          ]
+        },
+        {
+          "fact": "Bariloche trip end",
+          "mentions": [
+            [
+              "Bariloche"
+            ],
+            [
+              "December 13",
+              "13 December",
+              "Dec 13",
+              "2026-12-13"
+            ]
+          ]
+        }
+      ],
+      "rightAnswer": "Acme go-live on Dec 11 in Córdoba with required physical presence; Bariloche trip Dec 9-13 overlaps."
+    },
+    {
+      "id": "prep",
+      "kind": "identity-validation",
+      "text": "Plan my prep for go-live week.",
+      "needs": [
+        {
+          "fact": "Go-live location",
+          "mentions": [
+            [
+              "go-live",
+              "cutover"
+            ],
+            [
+              "Córdoba",
+              "Cordoba"
+            ]
+          ]
+        },
+        {
+          "fact": "Presence required",
+          "mentions": [
+            [
+              "go-live",
+              "cutover"
+            ],
+            [
+              "in person",
+              "in-person",
+              "on-site",
+              "onsite"
+            ]
+          ]
+        },
+        {
+          "fact": "Bariloche trip",
+          "mentions": [
+            [
+              "Bariloche"
+            ],
+            [
+              "December 9",
+              "2026-12-09",
+              "9 December"
+            ]
+          ]
+        },
+        {
+          "fact": "Go-live December 11",
+          "mentions": [
+            [
+              "go-live",
+              "cutover"
+            ],
+            [
+              "December 11",
+              "11 December",
+              "Dec 11",
+              "2026-12-11"
+            ]
+          ]
+        }
+      ],
+      "rightAnswer": "Flag the physical-presence conflict between Córdoba on Dec 11 and Bariloche Dec 9-13 before suggesting a plan."
+    }
+  ],
+  "store": []
+}

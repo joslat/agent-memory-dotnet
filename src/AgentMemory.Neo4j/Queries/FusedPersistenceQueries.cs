@@ -12,7 +12,7 @@ internal static class FusedPersistenceQueries
             MERGE (e:Entity {id: item.id})
             ON CREATE SET
                 e.owner_id           = item.owner_id,
-                e.owner_key          = coalesce(item.owner_id, '*'),
+                e.owner_key          = CASE WHEN item.owner_id STARTS WITH '*' THEN '*' + item.owner_id ELSE coalesce(item.owner_id, '*') END,
                 e.name               = item.name,
                 e.canonical_name     = item.canonical_name,
                 e.type               = item.type,
@@ -25,7 +25,7 @@ internal static class FusedPersistenceQueries
                 e.created_at         = datetime(item.created_at),
                 e.metadata           = item.metadata
             ON MATCH SET
-                e.owner_key          = coalesce(e.owner_key, coalesce(e.owner_id, '*')),
+                e.owner_key          = CASE WHEN e.owner_id STARTS WITH '*' THEN '*' + e.owner_id ELSE coalesce(e.owner_id, '*') END,
                 e.name               = item.name,
                 e.canonical_name     = item.canonical_name,
                 e.type               = item.type,
@@ -54,7 +54,7 @@ internal static class FusedPersistenceQueries
             }
             RETURN e";
 
-    public const string FactUpsertBatch = @"
+    public const string FactUpsertBatch = OwnerScopeGuards.FactBatch + @"
             UNWIND $items AS item
             MERGE (f:Fact {subject_key: item.subject_key, predicate_key: item.predicate_key, object_key: item.object_key, owner_key: item.owner_key, period_key: ''})
             ON CREATE SET

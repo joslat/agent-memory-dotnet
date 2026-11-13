@@ -19,7 +19,8 @@ internal sealed class Neo4jMemoryOwnerDataService(
     IRelationshipRepository relationships,
     IEmbeddingOrchestrator embeddings,
     IIdGenerator ids,
-    TimeProvider clock) : IMemoryOwnerDataService
+    TimeProvider clock,
+    Microsoft.Extensions.Options.IOptions<Neo4jOptions>? neo4jOptions = null) : IMemoryOwnerDataService
 {
     public async Task<OwnerErasure> EraseAsync(string ownerId, CancellationToken cancellationToken = default)
     {
@@ -48,6 +49,9 @@ internal sealed class Neo4jMemoryOwnerDataService(
     public async Task<OwnerMemoryExport> ExportAsync(string ownerId, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(ownerId);
+        cancellationToken.ThrowIfCancellationRequested();
+        // ILC-18 interim: with identity storage the export stays readable and says what this format leaves out.
+        var identity = IdentityStorageEnabled;
         var parameters = new Dictionary<string, object?> { ["ownerId"] = ownerId };
         return await tx.ReadAsync(async runner =>
         {
@@ -66,6 +70,8 @@ internal sealed class Neo4jMemoryOwnerDataService(
                 Relationships = [.. (await All(OwnerDataQueries.ExportRelationships).ConfigureAwait(false)).Select(r => Neo4jRelationshipRepository.MapToRelationship(r["r"].As<IRelationship>()))],
                 Supersessions = [.. (await All(OwnerDataQueries.ExportSupersessions).ConfigureAwait(false)).Select(Link)],
                 About = [.. (await All(OwnerDataQueries.ExportAbout).ConfigureAwait(false)).Select(Link)],
+                IdentityResolutions = identity ? [.. (await All(OwnerDataQueries.ExportIdentityResolutions).ConfigureAwait(false)).Select(Link)] : null,
+                IdentityStateOmitted = identity,
             };
         }, cancellationToken).ConfigureAwait(false);
     }
@@ -76,6 +82,11 @@ internal sealed class Neo4jMemoryOwnerDataService(
         ArgumentException.ThrowIfNullOrWhiteSpace(ownerId);
         if (export.Format != OwnerMemoryExport.CurrentFormat)
             throw new ArgumentException($"export format '{export.Format}' is not '{OwnerMemoryExport.CurrentFormat}'", nameof(export));
+
+        cancellationToken.ThrowIfCancellationRequested();
+        if (export.IdentityStateOmitted)
+            throw new NotSupportedException("This export left out identity decisions, review history and evidence; it is for reading and cannot be imported faithfully. No database or model operation was started.");
+        RefuseLossyIdentityPortability();
 
         var map = new Dictionary<string, string>(StringComparer.Ordinal);
         var written = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -143,6 +154,16 @@ internal sealed class Neo4jMemoryOwnerDataService(
             Count("about");
         }
         return new OwnerImportResult { OwnerId = ownerId, Written = written, Ids = map };
+    }
+
+    private bool IdentityStorageEnabled => neo4jOptions?.Value.Extensions.Contains("identity-evidence") == true;
+
+    private void RefuseLossyIdentityPortability()
+    {
+        // A per-owner preflight read races with concurrent identity ingestion. Until there is an
+        // identity-aware format, reject import before any I/O when the schema is enabled.
+        if (neo4jOptions?.Value.Extensions.Contains("identity-evidence") == true)
+            throw new NotSupportedException("agentmemory-export/1 cannot preserve native identity evidence, decisions, history and support. Owner import is unavailable while identity-evidence is enabled (export remains available for reading, flagged as omitting that state); no database or model operation was started.");
     }
 
     private Task RunAsync(string query, Dictionary<string, object?> parameters, CancellationToken cancellationToken) =>

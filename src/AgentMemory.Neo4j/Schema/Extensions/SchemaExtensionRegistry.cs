@@ -69,7 +69,7 @@ internal sealed class SchemaExtensionRegistry
     public static IReadOnlyList<ISchemaExtension> CreateShipped() =>
     [
         new ProceduralSchemaExtension(), new WorkingMemorySchemaExtension(),
-        new DeltaRecallSchemaExtension(), new ArithmeticSchemaExtension(), new ModuleBookkeepingSchemaExtension(),
+        new DeltaRecallSchemaExtension(), new ArithmeticSchemaExtension(), new ModuleBookkeepingSchemaExtension(), new IdentityEvidenceSchemaExtension(),
     ];
 
     /// <summary>A registry over <see cref="CreateShipped"/>, for callers with no container.</summary>

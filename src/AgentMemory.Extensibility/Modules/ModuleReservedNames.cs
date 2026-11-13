@@ -10,7 +10,9 @@ internal static class ModuleReservedNames
     {
         "Conversation", "Message", "Entity", "Fact", "Preference", "ReasoningTrace", "ReasoningStep",
         "ToolCall", "Tool", "Extractor", "ConsolidationRun", "MemoryReadAudit", "Schema", "User",
-        "Migration", "ModuleMigration", "ModuleKey"
+        "Migration", "ModuleMigration", "ModuleKey",
+        "IdentityEvidenceAssertion", "IdentityDecision", "IdentityDecisionRevision",
+        "IdentityFactBinding", "IdentityEvidenceScopeLock", "IdentityRelationshipObservation"
     }.ToFrozenSet(StringComparer.Ordinal);
 
     internal static readonly FrozenSet<string> Relationships = new[]
@@ -18,7 +20,9 @@ internal static class ModuleReservedNames
         "HAS_MESSAGE", "FIRST_MESSAGE", "NEXT_MESSAGE", "EXTRACTED_FROM", "MENTIONS", "SAME_AS",
         "SUPERSEDED_BY", "RELATED_TO", "ABOUT", "HAS_STEP", "USES_TOOL", "INSTANCE_OF", "TOUCHED",
         "HAS_TRACE", "INITIATED_BY", "TRIGGERED_BY", "EXTRACTED_BY", "HAS_FACT", "HAS_PREFERENCE",
-        "IN_SESSION", "DERIVED_FROM"
+        "IN_SESSION", "DERIVED_FROM",
+        "HAS_IDENTITY_EVIDENCE", "HAS_IDENTITY_BINDING", "DECIDED_BY", "RESOLVES_TO",
+        "HAS_IDENTITY_REVISION", "POSSIBLE_SAME_AS", "SOURCE_IDENTITY", "TARGET_IDENTITY"
     }.ToFrozenSet(StringComparer.Ordinal);
 
     internal static readonly FrozenSet<string> Properties = new[]
@@ -27,7 +31,8 @@ internal static class ModuleReservedNames
         "valid_from", "valid_to", "expires_at", "review_by", "confidence_micro",
         "source_session_id", "source_message_ids", "source_excerpt",
         "source_pack", "source_pack_version", "source_pack_digest", "source_pack_file", "source_pack_line",
-        "source_carrier", "source_carrier_version", "source_carrier_digest", "source_carrier_signer", "source_policy"
+        "source_carrier", "source_carrier_version", "source_carrier_digest", "source_carrier_signer", "source_policy",
+        "identity_evidence_version", "identity_calendar_key", "identity_observation_key"
     }.ToFrozenSet(StringComparer.Ordinal);
 
     // Base/bootstrap, all built-in migration objects, upstream snapshot and module bookkeeping.
@@ -65,6 +70,19 @@ internal static class ModuleReservedNames
         "fact_predicate_key_idx",
         "fact_valid_from_idx",
         "fact_valid_until_idx",
+        "identity_binding_decision",
+        "identity_binding_id",
+        "identity_calendar_key",
+        "identity_decision_id",
+        "identity_decision_observation",
+        "identity_evidence_id",
+        "identity_evidence_lookup",
+        "identity_evidence_surface",
+        "identity_revision_id",
+        "identity_relationship_observation_id",
+        "identity_relationship_observation_owner",
+        "identity_relationship_legacy_id",
+        "identity_scope_lock",
         "memory_read_audit_id",
         "memory_read_audit_kind_idx",
         "memory_read_audit_memory_id_idx",

@@ -21,6 +21,15 @@ internal static class Arms
     /// </summary>
     private const int NarrowWideLimit = 20;
 
+    private static MemoryOptions IdentityMemoryOptions()
+    {
+        var options = MemoryOptions.CreateRecommended();
+        // ILC-13: coreference ("the cutover" after "the go-live") needs the turns just before; read-only context, never
+        // extracted from. Four turns, as the option documents; the frozen gold reaches 12 of 13 same-session follow-ups at 3.
+        options.Extraction.ExtractionContextTurns = 4;
+        return options with { Recall = options.Recall with { EventDetails = true } };
+    }
+
     public static readonly IReadOnlyList<GraphArm> Graph =
     [
         new(
@@ -65,7 +74,54 @@ internal static class Arms
             o => o.ApplyRecommended(),
             o => o.ApplyRecommended(),
             Gate: g => g.WideLimit = NarrowWideLimit),
+        new(
+            "graph-identity-unified", "identity-unified",
+            "Explicit unified extractor + evidence-based identity + temporal recall; not Recommended; bounded validation only",
+            IdentityMemoryOptions,
+            o => { o.ApplyConversational(); o.UseMemoryWriter=false; o.MaxRetries=0; o.CaptureIdentityAliases=true; },
+            o => o.ApplyRecommended(),
+            Gate: null,
+            Identity: o =>
+            {
+                o.Enabled=true; o.MaxCandidates=4; o.MaxAdjudicationsPerIngestion=2;
+                o.AdjudicatorMaxOutputTokens=1024; o.AdjudicationTimeout=TimeSpan.FromSeconds(45);
+                o.ApplyConversationalPolicies();
+            }),
+        new(
+            "graph-legacy-writer", "legacy-writer",
+            "Old model for the head-to-head: the same store-aware writer + DatesFromText + chat update-judge fallback, with the legacy similarity resolver; no evidence-based identity, no external retrieval judge",
+            MemoryOptions.CreateRecommended,
+            o => { o.ApplyRecommended(); o.MaxRetries=0; },
+            o => o.ApplyRecommended(),
+            Gate: null),
+        new(
+            "graph-identity-writer", "identity-writer",
+            "Store-aware writer + DatesFromText + chat update-judge fallback + evidence-based identity; no external retrieval judge",
+            IdentityMemoryOptions,
+            o => { o.ApplyRecommended(); o.MaxRetries=0; o.CaptureIdentityAliases=true; o.MemoryWriterEventIdentities=true; },
+            o => o.ApplyRecommended(),
+            Gate: null,
+            Identity: o =>
+            {
+                o.Enabled=true; o.MaxCandidates=4; o.MaxAdjudicationsPerIngestion=2;
+                o.AdjudicatorMaxOutputTokens=1024; o.AdjudicationTimeout=TimeSpan.FromSeconds(45);
+                o.ApplyConversationalPolicies();
+            }),
     ];
 
     public static IReadOnlyList<string> All => [.. Baselines, .. Graph.Select(arm => arm.Name)];
+
+    /// <summary>ILC-21: the arm with one identity component switched off; null keeps it unchanged.</summary>
+    public static GraphArm Ablate(GraphArm arm, string? ablation) => ablation switch
+    {
+        null => arm,
+        "adjudicator-off" => arm with { Identity = o => { arm.Identity!(o); o.MaxAdjudicationsPerIngestion = 0; } },
+        "context-turns-off" => arm with { Memory = () => { var m = arm.Memory(); m.Extraction.ExtractionContextTurns = 0; return m; } },
+        "context-rooted-off" => arm with { Identity = o =>
+        {
+            arm.Identity!(o);
+            foreach (var type in o.Policies.Keys.ToList()) o.Policies[type] = o.Policies[type] with { ReviewContextRootedCandidates = false };
+        } },
+        _ => throw new ArgumentException($"Unknown identity ablation '{ablation}'.", nameof(ablation)),
+    };
 }

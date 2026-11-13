@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using AgentMemory.Neo4j.Schema.Extensions;
@@ -84,6 +84,12 @@ public static class ServiceCollectionExtensions
 
         // Long-term memory repositories
         services.TryAddTransient<IEntityRepository, Neo4jEntityRepository>();
+        // Explicit capability, available for opt-in hosts; default extraction never calls it.
+        services.TryAddScoped<Neo4jIdentityEvidenceRepository>();
+        services.TryAddScoped<IIdentityCandidateProvider>(sp => sp.GetRequiredService<Neo4jIdentityEvidenceRepository>());
+        services.TryAddScoped<IIdentityEvidenceRepository>(sp => sp.GetRequiredService<Neo4jIdentityEvidenceRepository>());
+        services.TryAddScoped<IIdentitySourceProvider>(sp => sp.GetRequiredService<Neo4jIdentityEvidenceRepository>());
+        services.TryAddScoped<IIdentityDecisionRepository, Neo4jIdentityDecisionRepository>();
         services.TryAddTransient<IFactRepository, Neo4jFactRepository>();
         // G-14: owner row counts for owner-first recall, shared across the transient repositories.
         services.TryAddSingleton<OwnerRowCounts>();

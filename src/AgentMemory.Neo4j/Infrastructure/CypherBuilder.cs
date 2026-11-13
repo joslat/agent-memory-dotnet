@@ -147,7 +147,7 @@ internal sealed class CypherBuilder
     public CypherBuilder WithOwnerScan(string label, bool includeShared, string embeddingParam, string nodeAlias)
     {
         var owner = includeShared
-            ? $"({nodeAlias}.owner_id = $ownerId OR {nodeAlias}.owner_key = '*')"
+            ? $"({nodeAlias}.owner_id = $ownerId OR ({nodeAlias}.owner_key = '*' AND {nodeAlias}.owner_id IS NULL))"
             : $"{nodeAlias}.owner_id = $ownerId";
         var lines = new List<string>(_lines)
         {

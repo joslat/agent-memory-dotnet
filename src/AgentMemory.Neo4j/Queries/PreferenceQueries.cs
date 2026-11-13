@@ -180,7 +180,7 @@ internal static class PreferenceQueries
             WHERE true" + loserOwner + @"
             MATCH (winner:Preference {id: $winnerId})
             WHERE true" + winnerOwner + @"
-              AND coalesce(loser.owner_id, '*') = coalesce(winner.owner_id, '*')
+              AND (loser.owner_id = winner.owner_id OR (loser.owner_id IS NULL AND winner.owner_id IS NULL))
               AND loser <> winner
             SET loser.invalidated_at = coalesce(loser.invalidated_at, datetime($now))
             MERGE (loser)-[:SUPERSEDED_BY]->(winner)

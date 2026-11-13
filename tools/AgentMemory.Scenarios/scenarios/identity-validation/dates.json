@@ -1,0 +1,73 @@
+{
+  "source": null,
+  "owner": "bruna-validation",
+  "ownerName": "Bruna",
+  "assistantBrief": "You are Bruna's planning assistant. Use only supported memory. State uncertainty explicitly.",
+  "askedOn": "2026-12-04",
+  "name": "identity-dates",
+  "title": "Bounded identity validation: dates",
+  "sessions": [
+    {
+      "date": "2026-11-09",
+      "topic": "dates",
+      "messages": [
+        "I am Bruna. My Acme training is on December 3, 2026.",
+        "The Acme code freeze is on December 4, 2026.",
+        "My sister Sofia's wedding is on Saturday, December 12, 2026 in Bariloche."
+      ]
+    }
+  ],
+  "questions": [
+    {
+      "id": "wedding",
+      "kind": "identity-validation",
+      "text": "When is my sister's wedding?",
+      "needs": [
+        {
+          "fact": "Wedding December 12",
+          "mentions": [
+            [
+              "wedding"
+            ],
+            [
+              "December 12",
+              "2026-12-12",
+              "12 December"
+            ]
+          ]
+        }
+      ],
+      "rightAnswer": "December 12, 2026 in Bariloche. December 3 is training and December 4 is code freeze."
+    }
+  ],
+  "store": [
+    {
+      "fact": "Training December 3",
+      "mentions": [
+        [
+          "training"
+        ]
+      ],
+      "date": "2026-12-03"
+    },
+    {
+      "fact": "Code freeze December 4",
+      "mentions": [
+        [
+          "code freeze",
+          "freeze"
+        ]
+      ],
+      "date": "2026-12-04"
+    },
+    {
+      "fact": "Wedding December 12",
+      "mentions": [
+        [
+          "wedding"
+        ]
+      ],
+      "date": "2026-12-12"
+    }
+  ]
+}

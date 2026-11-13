@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Options;
 using AgentMemory.Core.Stubs;
 using AgentMemory.Abstractions.Services;
 using Microsoft.Extensions.Logging;
@@ -19,14 +20,19 @@ internal sealed class Neo4jRelationshipRepository : IRelationshipRepository, IBa
     /// clock sets all of it. Without DI, the system clock.
     /// </summary>
     private readonly TimeProvider _clock;
+    private readonly bool _identityRelationships;
     private readonly INeo4jTransactionRunner _tx;
     private readonly ILogger<Neo4jRelationshipRepository> _logger;
 
-    public Neo4jRelationshipRepository(INeo4jTransactionRunner tx, ILogger<Neo4jRelationshipRepository> logger, TimeProvider? clock = null)
+    public Neo4jRelationshipRepository(INeo4jTransactionRunner tx, ILogger<Neo4jRelationshipRepository> logger, TimeProvider? clock = null,
+        IOptions<IdentityResolutionOptions>? identity = null, IOptions<Neo4jOptions>? neo4j = null)
     {
         _tx = tx;
         _logger = logger;
         _clock = clock ?? TimeProvider.System;
+        _identityRelationships = identity?.Value.Enabled == true;
+        if (_identityRelationships && neo4j?.Value.Extensions.Contains("identity-evidence") != true)
+            throw new InvalidOperationException("Identity relationship reads require the explicitly enabled identity-evidence schema.");
     }
 
     public async Task<Relationship> UpsertAsync(Relationship relationship, CancellationToken cancellationToken = default)
@@ -99,10 +105,12 @@ internal sealed class Neo4jRelationshipRepository : IRelationshipRepository, IBa
 
         return await _tx.ReadAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(RelationshipQueries.GetById, new { id = relationshipId }).ConfigureAwait(false);
+            var cursor = await runner.RunAsync(_identityRelationships ? IdentityRelationshipReadQueries.GetById() : RelationshipQueries.GetById, new { id = relationshipId }).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
             if (records.Count == 0) return null;
-            return MapToRelationship(records[0]["r"].As<IRelationship>());
+            if (_identityRelationships && records.Count != 1)
+                throw new InvalidOperationException("The relationship ID is ambiguous across stored observations/ordinary edges.");
+            return MapRelationshipValue(records[0]["r"]);
         }, cancellationToken).ConfigureAwait(false);
     }
 
@@ -113,7 +121,7 @@ internal sealed class Neo4jRelationshipRepository : IRelationshipRepository, IBa
         bool includeShared = scope?.IncludeShared ?? true;
         _logger.LogDebug("Getting relationships for entity {EntityId}, owner={Owner}", entityId, scope?.OwnerId);
 
-        var cypher = RelationshipQueries.GetByEntity(hasOwner, includeShared);
+        var cypher = _identityRelationships ? IdentityRelationshipReadQueries.GetByEntity(hasOwner, includeShared) : RelationshipQueries.GetByEntity(hasOwner, includeShared);
         var parameters = new Dictionary<string, object?> { ["entityId"] = entityId };
         if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
 
@@ -121,7 +129,7 @@ internal sealed class Neo4jRelationshipRepository : IRelationshipRepository, IBa
         {
             var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
-            return records.Select(r => MapToRelationship(r["r"].As<IRelationship>())).ToList();
+            return records.Select(r => MapRelationshipValue(r["r"])).ToList();
         }, cancellationToken).ConfigureAwait(false);
     }
 
@@ -142,7 +150,7 @@ internal sealed class Neo4jRelationshipRepository : IRelationshipRepository, IBa
         bool hasOwner = scope?.HasOwnerFilter == true;
         bool includeShared = scope?.IncludeShared ?? true;
 
-        var cypher = RelationshipQueries.GetLiveAmong(hasOwner, includeShared);
+        var cypher = _identityRelationships ? IdentityRelationshipReadQueries.GetLiveAround(hasOwner, includeShared) : RelationshipQueries.GetLiveAmong(hasOwner, includeShared);
         var parameters = new Dictionary<string, object?>
         {
             ["entityIds"] = entityIds.ToList(),
@@ -158,7 +166,7 @@ internal sealed class Neo4jRelationshipRepository : IRelationshipRepository, IBa
             var records = await cursor.ToListAsync().ConfigureAwait(false);
             return (IReadOnlyList<RecalledRelationship>)records.Select(r => new RecalledRelationship
             {
-                Relationship = MapToRelationship(r["r"].As<IRelationship>()),
+                Relationship = MapRelationshipValue(r["r"]),
                 SourceName = r["sourceName"].As<string>() ?? string.Empty,
                 TargetName = r["targetName"].As<string>() ?? string.Empty,
             }).ToList();
@@ -179,7 +187,7 @@ internal sealed class Neo4jRelationshipRepository : IRelationshipRepository, IBa
 
         return await _tx.WriteAsync(async runner =>
         {
-            var cursor = await runner.RunAsync(RelationshipQueries.End(hasOwner, includeShared), parameters).ConfigureAwait(false);
+            var cursor = await runner.RunAsync(_identityRelationships ? IdentityRelationshipReadQueries.End(hasOwner, includeShared) : RelationshipQueries.End(hasOwner, includeShared), parameters).ConfigureAwait(false);
             var record = await cursor.SingleAsync().ConfigureAwait(false);
             return record["ended"].As<bool>();
         }, cancellationToken).ConfigureAwait(false);
@@ -192,7 +200,7 @@ internal sealed class Neo4jRelationshipRepository : IRelationshipRepository, IBa
         bool includeShared = scope?.IncludeShared ?? true;
         _logger.LogDebug("Getting outgoing relationships for entity {EntityId}, owner={Owner}", sourceEntityId, scope?.OwnerId);
 
-        var cypher = RelationshipQueries.GetBySourceEntity(hasOwner, includeShared);
+        var cypher = _identityRelationships ? IdentityRelationshipReadQueries.GetBySource(hasOwner, includeShared) : RelationshipQueries.GetBySourceEntity(hasOwner, includeShared);
         var parameters = new Dictionary<string, object?> { ["sourceEntityId"] = sourceEntityId };
         if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
 
@@ -200,7 +208,7 @@ internal sealed class Neo4jRelationshipRepository : IRelationshipRepository, IBa
         {
             var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
-            return records.Select(r => MapToRelationship(r["r"].As<IRelationship>())).ToList();
+            return records.Select(r => MapRelationshipValue(r["r"])).ToList();
         }, cancellationToken).ConfigureAwait(false);
     }
 
@@ -211,7 +219,7 @@ internal sealed class Neo4jRelationshipRepository : IRelationshipRepository, IBa
         bool includeShared = scope?.IncludeShared ?? true;
         _logger.LogDebug("Getting incoming relationships for entity {EntityId}, owner={Owner}", targetEntityId, scope?.OwnerId);
 
-        var cypher = RelationshipQueries.GetByTargetEntity(hasOwner, includeShared);
+        var cypher = _identityRelationships ? IdentityRelationshipReadQueries.GetByTarget(hasOwner, includeShared) : RelationshipQueries.GetByTargetEntity(hasOwner, includeShared);
         var parameters = new Dictionary<string, object?> { ["targetEntityId"] = targetEntityId };
         if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
 
@@ -219,31 +227,35 @@ internal sealed class Neo4jRelationshipRepository : IRelationshipRepository, IBa
         {
             var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
-            return records.Select(r => MapToRelationship(r["r"].As<IRelationship>())).ToList();
+            return records.Select(r => MapRelationshipValue(r["r"])).ToList();
         }, cancellationToken).ConfigureAwait(false);
     }
 
-    internal static Relationship MapToRelationship(IRelationship r) =>
-        new()
+    private static Relationship MapRelationshipValue(object value) => value is IRelationship relationship
+        ? MapToRelationship(relationship) : MapProperties(value.As<Dictionary<string,object>>());
+
+    internal static Relationship MapToRelationship(IRelationship relationship) => MapProperties(relationship.Properties);
+
+    private static Relationship MapProperties(IReadOnlyDictionary<string,object> properties) => new()
         {
-            RelationshipId = r["id"].As<string>(),
-            SourceEntityId = r["source_entity_id"].As<string>(),
-            TargetEntityId = r["target_entity_id"].As<string>(),
-            RelationshipType = r["relation_type"].As<string>(),
-            OwnerId = r.Properties.TryGetValue("owner_id", out var oid) ? oid.As<string?>() : null,
-            Confidence = r["confidence"].As<double>(),
-            Description = r.Properties.TryGetValue("description", out var desc) ? desc.As<string>() : null,
-            ValidFrom = r.Properties.TryGetValue("valid_from", out var vf)
+            RelationshipId = properties["id"].As<string>(),
+            SourceEntityId = properties["source_entity_id"].As<string>(),
+            TargetEntityId = properties["target_entity_id"].As<string>(),
+            RelationshipType = properties["relation_type"].As<string>(),
+            OwnerId = properties.TryGetValue("owner_id", out var oid) ? oid.As<string?>() : null,
+            Confidence = properties["confidence"].As<double>(),
+            Description = properties.TryGetValue("description", out var desc) ? desc.As<string>() : null,
+            ValidFrom = properties.TryGetValue("valid_from", out var vf)
                                 ? Neo4jDateTimeHelper.ReadNullableDateTimeOffset(vf)
                                 : null,
-            ValidUntil = r.Properties.TryGetValue("valid_until", out var vu)
+            ValidUntil = properties.TryGetValue("valid_until", out var vu)
                                 ? Neo4jDateTimeHelper.ReadNullableDateTimeOffset(vu)
                                 : null,
-            Attributes = DeserializeMetadata(r.Properties.TryGetValue("attributes", out var attr) ? attr.As<string>() : null),
-            SourceMessageIds = r.Properties.TryGetValue("source_message_ids", out var sm)
+            Attributes = DeserializeMetadata(properties.TryGetValue("attributes", out var attr) ? attr.As<string>() : null),
+            SourceMessageIds = properties.TryGetValue("source_message_ids", out var sm)
                                 ? sm.As<IList<object>>().Select(v => v.ToString()!).ToList()
                                 : Array.Empty<string>(),
-            CreatedAtUtc = Neo4jDateTimeHelper.ReadDateTimeOffset(r["created_at"]),
-            Metadata = DeserializeMetadata(r.Properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
+            CreatedAtUtc = Neo4jDateTimeHelper.ReadDateTimeOffset(properties["created_at"]),
+            Metadata = DeserializeMetadata(properties.TryGetValue("metadata", out var md) ? md.As<string>() : null)
         };
 }

@@ -21,7 +21,7 @@ internal static class ConflictQueries
             MATCH (f:Fact)
             WHERE f.invalidated_at IS NULL
               AND ($minConfidence IS NULL OR f.confidence >= $minConfidence)
-            WITH f.subject AS subject, f.predicate AS predicate, coalesce(f.owner_id, '*') AS ownerKey,
+            WITH f.subject AS subject, f.predicate AS predicate, f.owner_id AS ownerKey,
                  collect(DISTINCT f.object) AS distinctObjects,
                  collect({ factId: f.id, object: f.object, confidence: f.confidence }) AS members
             WHERE size(distinctObjects) > 1

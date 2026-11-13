@@ -1,12 +1,33 @@
 # Architecture Overview — Agent Memory for .NET
 
-**Last Updated:** 2026-10-13 (2.0 API stability, explicit migration and host composition)
+**Last Updated:** 2026-11-11 (calendar identity integrity; broader identity work remains in progress)
 **Author:** Jose Luis Latorre Millas
 **Canonical Specification:** [specification.md](specification.md)
 
 ---
 
 ## 1. Vision & Goals
+
+### Calendar values before name matching
+
+`CalendarValues` recognises bounded, whole calendar literals in Core. For OBJECT and explicit temporal
+types, supported complete dates compare by year/month/day before the resolver's name matcher chain.
+Missing precision is retained; invalid or ambiguous recognised shapes never fall through to fuzzy or
+semantic name identity. Exact, fuzzy, partial and semantic matchers also protect their direct entry
+points, and batch pre-warming does not embed these literals. `FactNames` preserves their original
+spelling instead of substituting an entity display name. This integrity correction applies to the
+existing resolver, independently of the planned opt-in identity engine.
+
+The current grammar covers ISO `yyyy-MM-dd` and `yyyy-MM`, full English/Spanish month names with
+day/year or day without year, and month/year. An optional known weekday is checked against a complete
+date. Slash dates and ISO instants are recognised as unresolved shapes rather than interpreted using
+process culture or reduced to a date. Other languages, arbitrary natural language, time-zone inference
+and general interval interpretation are outside this grammar. No year comes from the machine clock.
+
+Complete date candidates retain the existing repository candidate lookup in this correction; the
+new bounded candidate backend belongs to the separate [identity design](evidence-based-identity-design.md).
+The [acceptance matrix](evidence-based-identity-test-matrix.md) separates red/green focused evidence,
+full-suite checks and live persistence verification.
 
 **2.0 API stability:** the selected writer, Recommended composition and ordinary gate/update-judge
 contracts are stable. Compound planner types, its options and the planner-taking assembler
@@ -281,7 +302,7 @@ time in an internal comparison.
 | **Purpose** | Domain contracts — all models, interfaces, and configuration types shared across the system |
 | **Dependencies** | **Microsoft.Extensions.AI.Abstractions** 10.10.1 (approved, D-AR2-1) — .NET BCL otherwise (multi-targets net8.0/net9.0/net10.0) |
 | **MUST NOT reference** | Neo4j.Driver, Microsoft.Agents.*, any GraphRAG SDK, any MCP SDK, any NuGet package **except** Microsoft.Extensions.AI.Abstractions |
-| **Key types** | 86 domain records (`TimeWindow`, `MemoryWhyNot`, `OwnerMemoryExport`, `OwnerErasure`, `OwnerImportResult`, `MemoryLink`, `MemoryIntegrityReport`, `MemoryIntegrityRule`, `MemoryRoute`, `MemoryRoutePlan`, `RecalledRelationship`, Conversation, Message, Entity, Fact, Preference, Relationship, MemoryHistoryQuery, MemoryHistoryRecord, ReasoningTrace, ReasoningStep, ToolCall, ToolCallStats, IngestionItemOutcome, MemoryContextRankedItem, MemoryContextSectionDiagnostics, UnifiedExtractionResult, ExtractionWindow, EntitySummary, MemoryBlock, BulkIngestionResult, `ProjectedContext`, `ProjectedItemAnnotation`, `ProjectedBlock`, `SupersededFact`, `WorkingMemoryBlock`, `MemoryDelta`, `MemoryDeltaRequest`, `SupersededFactPair`, `SupersededPreferencePair`, `FactDeltaRows`, `PreferenceDeltaRows`, `ProspectiveDueResult`, `ForgottenTopicSummary`, `RecallSubQuery`, `SubQueryYield`, `RecallFanOutReport`, etc.), 58 service interfaces (incl. `IMemoryClosingApprover`, `IPreferenceSourceCheck`, `IMemoryUpdateJudgeFallback`, `IMemoryTiers`, `IMemoryTierSource`, `IMemoryWriter`, `IMemoryGate`, `IMemoryUpdateJudge`, `IMemoryRecallExplainer`, `IMemoryOwnerDataService`, `IMemoryIntegrityService`, `IMemoryRouter`, `IMemoryAccessTracker`, `IWorkingMemoryService`) (incl. `IMemoryIsolationPolicy`, `IUnifiedMemoryExtractor`, `IMultiSessionUnifiedMemoryExtractor`, and `IMemoryReranker`, `IEntitySummaryService`), 12 repository interfaces, 20 configuration types (incl. `DerivedMemoryOptions`, `WorkingMemoryOptions`) (incl. `MemoryRankingOptions`, `MemoryIsolationOptions`, `MemoryProjectionOptions`, and `ReasoningMemoryOptions` with its `DefaultTraceTrustLevel`), 40 enums (incl. `MemoryPreset`, `ExtractionPath`, `ExtractionInputMode`, `FactClosureReason`, `DatePrecision`, `DerivedFactMode`, `DerivationOperators`, `MemoryProfile`, `RankingIntent`, `DuplicateStatus`, `EntityMatchType`, `MemoryNodeKind`, `MemoryOperationAccess`, `MemoryIsolationMode`, `IngestionStatus`, `IngestionStage`, `IngestionItemStatus`, `MemoryItemKind`, `IngestionFailureMode`, `MemoryTrustLevel`, `AssistantContentMode`, `TemporalValidityMode`, `ValidTimeMode`, `TraceKind`, `ExtractionProvenanceMode`, `TemporalQueryClocks`, `ProjectedBlockKind`, `MemoryTypeAffinity`) |
+| **Key types** | 104 domain records (`ExtractedEntityReference`, `IdentityReviewRequest`, `IdentityReviewEntry`, `IdentityReviewResult`, `IdentityRelationshipObservation`, `IdentityAdjudicationEvidence`, `IdentityAdjudicationCitation`, `TimeWindow`, `MemoryWhyNot`, `OwnerMemoryExport`, `OwnerErasure`, `OwnerImportResult`, `MemoryLink`, `MemoryIntegrityReport`, `MemoryIntegrityRule`, `MemoryRoute`, `MemoryRoutePlan`, `RecalledRelationship`, Conversation, Message, Entity, Fact, Preference, Relationship, MemoryHistoryQuery, MemoryHistoryRecord, ReasoningTrace, ReasoningStep, ToolCall, ToolCallStats, IngestionItemOutcome, MemoryContextRankedItem, MemoryContextSectionDiagnostics, UnifiedExtractionResult, ExtractionWindow, EntitySummary, MemoryBlock, BulkIngestionResult, `ProjectedContext`, `ProjectedItemAnnotation`, `ProjectedBlock`, `SupersededFact`, `WorkingMemoryBlock`, `MemoryDelta`, `MemoryDeltaRequest`, `SupersededFactPair`, `SupersededPreferencePair`, `FactDeltaRows`, `PreferenceDeltaRows`, `ProspectiveDueResult`, `ForgottenTopicSummary`, `RecallSubQuery`, `SubQueryYield`, `RecallFanOutReport`, etc.), 62 service interfaces (incl. `IIdentitySourceProvider`, `IMemoryClosingApprover`, `IPreferenceSourceCheck`, `IMemoryUpdateJudgeFallback`, `IMemoryTiers`, `IMemoryTierSource`, `IMemoryWriter`, `IMemoryGate`, `IMemoryUpdateJudge`, `IMemoryRecallExplainer`, `IMemoryOwnerDataService`, `IMemoryIntegrityService`, `IMemoryRouter`, `IMemoryAccessTracker`, `IWorkingMemoryService`) (incl. `IMemoryIsolationPolicy`, `IUnifiedMemoryExtractor`, `IMultiSessionUnifiedMemoryExtractor`, and `IMemoryReranker`, `IEntitySummaryService`), 14 repository interfaces, 20 configuration types (incl. `DerivedMemoryOptions`, `WorkingMemoryOptions`) (incl. `MemoryRankingOptions`, `MemoryIsolationOptions`, `MemoryProjectionOptions`, and `ReasoningMemoryOptions` with its `DefaultTraceTrustLevel`), 45 enums (incl. `IdentityReviewAction`, `IdentityAdjudicationVerdict`, `MemoryPreset`, `ExtractionPath`, `ExtractionInputMode`, `FactClosureReason`, `DatePrecision`, `DerivedFactMode`, `DerivationOperators`, `MemoryProfile`, `RankingIntent`, `DuplicateStatus`, `EntityMatchType`, `MemoryNodeKind`, `MemoryOperationAccess`, `MemoryIsolationMode`, `IngestionStatus`, `IngestionStage`, `IngestionItemStatus`, `MemoryItemKind`, `IngestionFailureMode`, `MemoryTrustLevel`, `AssistantContentMode`, `TemporalValidityMode`, `ValidTimeMode`, `TraceKind`, `ExtractionProvenanceMode`, `TemporalQueryClocks`, `ProjectedBlockKind`, `MemoryTypeAffinity`) |
 
 **Namespace structure:**
 ```
@@ -1563,6 +1584,8 @@ what that means for it — for most, the query is never issued at all rather tha
 | Upcoming (look-ahead) | `RecallOptions.Upcoming` | `false` (on in Recommended) | a time predicate like firing: the owner's live facts starting in `(now, now + UpcomingWindow]` (14 days), `MaxUpcomingItems = 5`, its own section; fires only for a question that looks ahead unless `UpcomingOnEveryRecall`; no valid-time gate |
 | Time windows (look-ahead) | `RecallOptions.TimeWindows` | `false` (on in Recommended) | a period the question names ("between December 7 and 13", "next week") or anchors on an event ("go-live week", via `ILongTermMemoryService.FindAnchorFactAsync`); its facts in their own section, `MemoryContext.ResolvedTimeWindow` the witness; such a question recalls live, never as-of |
 | Overlap expansion (look-ahead) | `RecallOptions.OverlapExpansion` | `false` (on in Recommended) | after the scored sections, the owner's facts dated inside the windows of the dated facts recalled; `MaxOverlapItems = 5`; at most 10 windows a recall |
+| Event details | `RecallOptions.EventDetails` | `false` | one live decision-bound event traversal, at most10 dated seeds,20 event identities and64 details; default detail cap8; shared context budget; no pending-proposal hop; qualification pending |
+| Writer event references | `LlmExtractionOptions.MemoryWriterEventIdentities` | `false` | store-aware writer only: explicit EVENT observations, checked stored-entity references and the operation contract (JSON-schema reply, deterministic checks, at most one correction call, reported rejections); off retains prompt bytes, request format and the single call; identity confirmation remains a separate decision |
 | Dates from the writer's words | `LlmExtractionOptions.DatesFromText` | `false` (on in Recommended) | the store-aware writer keeps dates in the text; this reads an explicit date or range into `occurred_on` / `valid_from` / `valid_until` as well, deterministically, never overwriting a field the writer set |
 | Projection layer (§3.2.8) | `MemoryProjectionOptions` × 6 | all `false` | reachable at `MemoryOptions.Projection` and per-request `RecallOptions.Projection`; no flag ⇒ `MemoryContext.Projection` is `null` |
 | Delta recall (§3.2.9) | `AgentFrameworkOptions.InjectDeltaOnSessionResume` | `false` | `IMemoryRecall.RecallChangedSinceAsync` is callable directly regardless; the flag governs automatic injection on session resume |
@@ -2275,3 +2298,157 @@ decisions and reuses the existing wrapper; core messages/tools remain opaque and
 constructor signatures and opt-outs are preserved. Observer failures do not discard selected content.
 This static wiring does not own draining service scopes or implement deadline return/unload safety.
 [Configuration and validation scope](extensions/modules.md#native-module-selection-registration).
+
+### Evidence-based identity (delivery in progress)
+
+The identity contracts separate original observations, candidate signals, host assertions,
+identity interpretations and decision-owned Fact-role support. Abstractions contains the
+framework-independent seams IIdentityCandidateProvider, IIdentityContextProvider,
+IIdentityAdjudicator, IIdentityEvidenceRepository and IIdentityDecisionRepository, without graph
+transport dependencies. The [implementation status](evidence-based-identity-implementation.md)
+records exact source snapshots, test counts and unfinished gates.
+
+Core's per-type policy uses supported calendar values, explicit host keys, backed aliases,
+semantic kinds and namespaces. Fuzzy/vector/context scores select review candidates; their
+scores cannot establish identity. Hard type, calendar, key, namespace and scope contradictions
+veto confirmation. Unknown or incomplete evidence remains conservative. Calendar-day equality
+uses a finite documented grammar, including ranges; surrounding whitespace cannot bypass it.
+Stored literal words remain unchanged and historical corruption is not repaired automatically.
+
+Identity ingestion is wired behind explicit IdentityResolutionOptions.Enabled configuration and
+the migrated [identity-evidence extension](extensions/identity-evidence.md). Construction requires
+bounded candidates, the enabled schema and atomic scoped storage. Disabled remains the default:
+its identity backends, host factories and model services are not resolved or called, and it adds
+no identity queries or prompt changes. The existing default resolver retains the separate
+calendar-integrity correction.
+
+An optional scoped IIdentityContextProvider supplies independently substantiated keys, kinds
+and provenance-bearing name namespaces before candidate reads, outside the write transaction.
+It receives frozen source/mention snapshots and the effective owner scope. Extractor attributes
+never become verified keys automatically. Invalid assertions or provider failures reject the
+unacknowledged ingestion; the source remains replayable. Host evidence does not rekey an original
+observation. Input/mention/candidate/context and serialized payload bounds are explicit.
+
+Embedding and planning precede the transaction. The enabled ingestion owns its outer boundary;
+starting inside a caller-owned write transaction is rejected before extraction/model work.
+Sorted owner/shared scope mutexes precede writes. Infrastructure rows are established separately;
+a callback-owned scope lease lets repositories reuse held locks without widening or borrowing
+an expired transaction. Only pre-callback acquisition can retry, at most three times. A callback,
+unknown commit acknowledgement or unknown rollback is not automatically replayed.
+
+New Facts, observations, decisions, immutable initial revisions and returned-Fact-ID/role support
+commit together. Same-surface ambiguous mentions remain separate and receive no guessed endpoint
+binding. Original subject/object strings are retained and confirmed targets are not upserted.
+Initial new/pending observations index eligible host assertions on the same Neo4j runner and scope
+locks, atomically with the decision/facts. Confirmed targets and replay do not receive those
+initial assertion writes. Incomplete calendar declarations remain in receipts without inventing
+a concrete calendar lookup key.
+
+Optional writer-named closings run as a separate best-effort follow-up after the confirmed core
+commit. Failure/cancellation can leave new Facts committed and older Facts live. Missing commit
+acknowledgement does not start that follow-up; callers retry stable source keys.
+
+Reserved owner storage keys escape a leading asterisk by adding one asterisk; shared remains
+one asterisk and ordinary owner keys are unchanged. Apply 0012_reserved_owner_storage_keys for
+existing reserved-owner data. Shared reads require null owner_id; foreign pre-upgrade collisions
+fail closed. Native owner stamps and the repeatable extension upgrade allow scoped erasure of
+owned identity rows. Neither migration can reconstruct historically mixed provenance.
+
+The LLM package has explicit lazy dedicated-client registration, AddIdentityAdjudication,
+with bounded in-flight calls and asynchronous draining of host-owned clients. It does not enable
+identity or reroute extraction. Its supported-runtime matrix and latest full-root qualification
+are verified at their registration snapshot (521 cases per runtime and 7,909 root cases, zero skips).
+Core invocation/shared ingestion budget, typed receipts and fresh source/candidate persistence
+now pass 7,935 root units, 547 focused cases per runtime and 249 real-store consumer cases after
+review corrections. Review/revocation, RELATED_TO endpoint ownership, event-place/presence
+expansion and final combined/model-quality acceptance remain unfinished.
+No release/default rollout or complete reversibility follows from the accepted initial increments.
+
+
+### Explicit identity review boundary (under qualification)
+
+`IdentityReviewRequest` is a separate host-authorized operation from initial ingestion and
+optional model adjudication. Its expected version, stable operation ID and owner-scoped
+request hash protect against lost updates and duplicate application. `ReviewAsync` atomically
+updates only decision-owned support and appends an immutable revision; `GetHistoryAsync`
+offers bounded newest-first inspection. No model runs in the transaction. `LatestReview`
+is generated by the backend and cannot be injected through an initial decision payload.
+
+Human/service confirmation still passes fresh type, value, key, owner and liveness checks.
+Similarity cannot authorize calendar equivalence. Revocation returns support to the original
+observation without deleting another decision's support or legacy graph edges. The host is
+responsible for authenticating and authorizing the actor named in the audit receipt.
+The first backend passes129 Neo4j decision/ingestion cases, including subsequent writes,
+rollback and concurrency. Both later stale-proposal regressions now pass with the correction; portability and final relevant consumer qualification remain open.
+
+
+### Event details through decision-owned support
+
+`RecallOptions.EventDetails` is an opt-in live recall capability, off by default. After date-window,
+upcoming and overlap selection, it takes at most10 dated seed facts and follows their current
+`HAS_IDENTITY_BINDING` / `DECIDED_BY` / `RESOLVES_TO` support to live `EVENT` entities. One scoped
+read considers at most20 event identities and returns at most `MaxEventDetailFacts` additional facts
+(default8, maximum64). It does not traverse `POSSIBLE_SAME_AS`, generic `ABOUT`, names, people or
+locations to guess that two events are equal. Closed facts and retired events are excluded.
+
+Details such as Córdoba or required physical presence need no date of their own. They must already
+have explicit fact-role support for that event; missing extraction/binding evidence is not invented.
+This increment does not expand undated relationship-only claims or infer an event from words buried
+inside a sentence. The representative model cases will measure this coverage and any required fix.
+
+Extra facts enter `RelevantFacts` without invented vector scores, are de-duplicated against the date
+sections, respect the latency allowance and share the existing total context budget. `MaxFacts=0`
+or a zero detail cap suppresses the read. Point-in-time recall rejects the live-only option explicitly.
+An unsupported backend rejects requested use instead of returning silent success. Neo4j requires
+the enabled and migrated `identity-evidence` extension. No new schema shape is introduced.
+
+The implementation compiles on .NET8/9/10 and has focused unit plus actual Neo4j qualification.
+The physical-event model case proves the native hop; conservative Pending identities can omit
+details. See [current evidence and limits](evidence-based-identity-implementation.md).
+
+### Identity portability boundary
+
+Full identity export/import is a separate follow-up. The Neo4j owner data service rejects
+`agentmemory-export/1` export **and** import whenever `identity-evidence` is enabled, including empty
+owners, before database or embedding work. A per-owner check followed by writes would race with
+concurrent identity ingestion. With the extension disabled the legacy format and its queries remain
+unchanged; callers must not remove the extension to export an identity-bearing store through that
+older format. Owner erasure remains supported. This is an explicit compatibility limit, not lossless
+identity portability or protection provided by older clients that do not know the extension.
+
+### Writer event-reference option
+
+`LlmExtractionOptions.MemoryWriterEventIdentities` defaults to false. With the store-aware writer
+enabled, it appends instructions to emit source-grounded `EVENT` observations and separate atomic
+event-subject facts for the stated date, place and participation. The writer's default prompt
+remains unchanged. This addresses the write/read seam: a retrieval hop cannot recover event details
+if the writer never emits an event reference. It does not confirm identity, invent missing sources
+or bypass the resolver's domain vetoes; model compliance still requires the bounded actual runs.
+
+Enable this option alongside the existing identity writer configuration and `Recall.EventDetails`.
+It is explicitly enabled in the synthetic `graph-identity-writer` arm and is not a new global
+Recommended default. Unit controls for the unchanged default prompt and event-shaped writer output
+pass in the current .NET8/9/10 matrix. The real physical-event hop passes; a remote identity remains Pending, so automatic expansion is not guaranteed.
+
+**Writer references and operation contract (ILC-07/08).** In the same mode every operation carries a
+`ref` field. An entity operation may set it to the label of a stored entity shown in that call; the
+writer maps the label to the stored ID and keeps it only for an entity add whose quote it located
+(`ExtractedEntity.Reference`). Evidence-based identity treats it as untrusted contextual evidence: it
+must name a Pending, adjudicable candidate that no identically named candidate competes with, its
+quote must be in the current turn, and the entity type's `AllowContextualConfirmation` decides
+between confirmation and review. No model call is made; whatever is refused reaches the adjudicator.
+The reply is schema-constrained; actions, text/ids, quotes, references, the `Name (TYPE)` entity form
+and the event observation of every event-subject fact are checked; one targeted correction call is
+made only when a check fails; what still fails is dropped (never coerced) and reported in
+`UnifiedExtractionResult.Outcomes`. **Candidate source hydration (ILC-09):** with
+`IIdentitySourceProvider` registered (Neo4j registers it), an eligible contextual decision with call
+budget left also offers each candidate's own source text (at most two roots per candidate, 32
+fragments, the byte budget), read in the decision owner's scope and re-validated when the decision is
+written; missing or omitted sources are reported as diagnostics. **Context-rooted candidates (ILC-13):**
+`EntityIdentityPolicy.ReviewContextRootedCandidates` (default false) nominates same-type entities observed in the
+window's read-only context turns (`ExtractionOptions.ExtractionContextTurns`) for review, so "the cutover" said right
+after "the go-live" reaches the adjudicator with both turns even when the writer names it differently. A free offline
+calibration on three recorded runs rejected name-to-sentence similarity as the nomination signal: it ranked a different
+event (0.55) above the right one (0.53). `IdentityResolutionOptions.ApplyConversationalPolicies()` applies the measured set
+(EVENT, PERSON, ORGANIZATION confirmable by checked contextual evidence; everything else review-only), and
+`IIdentityDecisionRepository.ListPendingAsync` gives hosts a bounded review queue of open proposals.

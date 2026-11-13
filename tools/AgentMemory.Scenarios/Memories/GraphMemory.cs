@@ -24,7 +24,8 @@ internal sealed record GraphArm(
     Func<MemoryOptions> Memory,
     Action<LlmExtractionOptions> Extraction,
     Action<AgentFrameworkOptions> Framework,
-    Action<MemoryGateOptions>? Gate)
+    Action<MemoryGateOptions>? Gate,
+    Action<IdentityResolutionOptions>? Identity = null)
 {
     /// <summary>Whether the arm runs the retrieval judge (JEV).</summary>
     public bool Judge => Gate is not null;
@@ -72,7 +73,7 @@ internal sealed class GraphMemory : IMemory
 
     public static async Task<GraphMemory> CreateAsync(
         GraphArm arm, IChatClient chat, IEmbeddingGenerator<string, Embedding<float>> embeddings, TimeProvider clock,
-        Neo4jTarget neo4j, string owner, bool writes, ILoggerProvider log, CallLedger? ledger = null, CancellationToken cancellationToken = default)
+        Neo4jTarget neo4j, string owner, bool writes, ILoggerProvider log, CallLedger? ledger = null, CancellationToken cancellationToken = default, IChatClient? identityChat = null)
     {
         var options = arm.Memory();
         var services = new ServiceCollection();
@@ -89,8 +90,14 @@ internal sealed class GraphMemory : IMemory
                 o.Password = neo4j.Password;
                 o.Database = "neo4j";
                 o.EmbeddingDimensions = neo4j.EmbeddingDimensions;
+                if (arm.Identity is not null) o.Extensions.Add("identity-evidence");
             },
             arm.Extraction);
+        if (arm.Identity is { } identity)
+        {
+            services.Configure(identity);
+            if (identityChat is not null) services.AddIdentityAdjudication(_ => identityChat, maxInFlight: 1);
+        }
         services.AddAgentMemoryFramework(o =>
         {
             arm.Framework(o);
@@ -185,6 +192,21 @@ internal sealed class GraphMemory : IMemory
         };
     }
 
+    /// <summary>Probe native event support on the actual written store, with no vector/model retrieval.</summary>
+    public async Task<EventDetailProbe> ProbeEventDetailsAsync(DateTimeOffset start, DateTimeOffset end,
+        CancellationToken cancellationToken = default)
+    {
+        await using var scope = _services.CreateAsyncScope();
+        var memory = scope.ServiceProvider.GetRequiredService<ILongTermMemoryService>();
+        var ownerScope = MemoryScope.For(Owner, includeShared: false);
+        var seeds = await memory.GetFactsInWindowAsync(start, end, 10, ownerScope, cancellationToken).ConfigureAwait(false);
+        var ids = seeds.Select(fact => fact.FactId).ToArray();
+        var details = await memory.GetEventDetailsAsync(ids, ids, 8, ownerScope, cancellationToken).ConfigureAwait(false);
+        return new(seeds.Select(Describe).ToArray(), details.Where(fact =>
+            fact.OccurredOn is null && fact.ValidFrom is null && fact.ValidUntil is null)
+            .Select(fact => new EventDetailFact(fact.Subject, fact.Predicate, fact.Object, fact.FactId)).ToArray(), ids);
+    }
+
     /// <summary>What the store holds for this owner, read straight from Neo4j.</summary>
     public async Task<GraphSnapshot> SnapshotAsync()
     {
@@ -193,12 +215,12 @@ internal sealed class GraphMemory : IMemory
         var facts = await RowsAsync(driver, """
             MATCH (f:Fact {owner_id: $owner})
             WHERE f.invalidated_at IS NULL
-            RETURN f.subject AS subject, f.predicate AS predicate, f.object AS object, f.category AS category,
+            RETURN f.id AS factId, f.subject AS subject, f.predicate AS predicate, f.object AS object, f.category AS category,
                    toString(f.occurred_on) AS occurred, toString(f.valid_from) AS validFrom, toString(f.valid_until) AS validUntil
             ORDER BY f.created_at
             """, row => new StoredFact(
                 row["subject"].As<string>(), row["predicate"].As<string>(), row["object"].As<string>(),
-                Day(row["occurred"]), Day(row["validFrom"]), Day(row["validUntil"]), row["category"].As<string?>())).ConfigureAwait(false);
+                Day(row["occurred"]), Day(row["validFrom"]), Day(row["validUntil"]), row["category"].As<string?>(), row["factId"].As<string>())).ConfigureAwait(false);
 
         var closed = await RowsAsync(driver, """
             MATCH (f:Fact {owner_id: $owner})
@@ -226,6 +248,52 @@ internal sealed class GraphMemory : IMemory
             """, row => row["text"].As<string>()).ConfigureAwait(false);
 
         return new GraphSnapshot(facts, closed, entities, relationships, preferences);
+    }
+
+    /// <summary>Original scoped decision/relationship receipts for the opt-in validation report.</summary>
+    public async Task<object?> IdentitySnapshotAsync()
+    {
+        if(Arm.Identity is null) return null;
+        await using var driver=GraphDatabase.Driver(_neo4j.Uri,AuthTokens.Basic(_neo4j.Username,_neo4j.Password));
+        var decisions=await RowsAsync(driver,"MATCH (d:IdentityDecision {owner_id:$owner}) RETURN d.identity_record_json AS record ORDER BY d.id",
+            row=>System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(row["record"].As<string>()));
+        var relationships=await RowsAsync(driver,"MATCH (o:IdentityRelationshipObservation {owner_id:$owner}) RETURN o.identity_record_json AS record ORDER BY o.id",
+            row=>System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(row["record"].As<string>()));
+        var bindings=await RowsAsync(driver,"""
+            MATCH (f:Fact {owner_id:$owner})-[:HAS_IDENTITY_BINDING]->(b:IdentityFactBinding)-[:DECIDED_BY]->(d:IdentityDecision)
+            WHERE f.invalidated_at IS NULL AND b.owner_id=$owner AND d.owner_id=$owner
+            OPTIONAL MATCH (b)-[:RESOLVES_TO]->(e:Entity)
+            RETURN f.id AS factId,b.id AS bindingId,b.identity_fact_role AS role,
+                   b.identity_observed_surface AS surface,d.id AS decisionId,e.id AS entityId
+            ORDER BY factId,role,bindingId LIMIT 4097
+            """,row=>new { factId=row["factId"].As<string>(),bindingId=row["bindingId"].As<string>(),
+                role=row["role"].As<string>(),surface=row["surface"].As<string>(),decisionId=row["decisionId"].As<string>(),
+                entityId=row["entityId"].As<string?>() });
+        return new { decisions,relationships,bindings=bindings.Take(4096).ToArray(),bindingsTruncated=bindings.Count>4096 };
+    }
+
+    /// <summary>
+    /// Live entities as the store keeps them (any arm): name, aliases and the messages each was extracted from. The
+    /// head-to-head scores the old model's merges with this; SAME_AS links are counted, never treated as merges.
+    /// </summary>
+    public async Task<object> EntitySnapshotAsync()
+    {
+        await using var driver=GraphDatabase.Driver(_neo4j.Uri,AuthTokens.Basic(_neo4j.Username,_neo4j.Password));
+        var entities=await RowsAsync(driver,"""
+            MATCH (e:Entity {owner_id:$owner})
+            WHERE e.merged_into IS NULL AND e.invalidated_at IS NULL
+            OPTIONAL MATCH (e)-[:EXTRACTED_FROM]->(m:Message)
+            WITH e, collect(DISTINCT m.content) AS linked
+            OPTIONAL MATCH (s:Message) WHERE s.id IN coalesce(e.source_message_ids, [])
+            WITH e, linked, collect(DISTINCT s.content) AS listed
+            RETURN e.id AS id, e.name AS name, e.type AS type, coalesce(e.aliases, []) AS aliases,
+                   [x IN linked + listed WHERE x IS NOT NULL] AS sources
+            ORDER BY id LIMIT 2000
+            """,row=>new { id=row["id"].As<string>(),name=row["name"].As<string>(),type=row["type"].As<string>(),
+                aliases=row["aliases"].As<List<string>>(),sources=row["sources"].As<List<string>>().Distinct(StringComparer.Ordinal).ToArray() });
+        var sameAs=await RowsAsync(driver,"MATCH (a:Entity {owner_id:$owner})-[r:SAME_AS]->(b:Entity) RETURN a.id AS a, b.id AS b ORDER BY a, b",
+            row=>new { a=row["a"].As<string>(),b=row["b"].As<string>() });
+        return new { entities,sameAs };
     }
 
     public async ValueTask DisposeAsync()
@@ -260,3 +328,5 @@ internal sealed record GraphSnapshot(
     IReadOnlyList<string> Entities,
     IReadOnlyList<string> Relationships,
     IReadOnlyList<string> Preferences);
+
+internal sealed record EventDetailProbe(IReadOnlyList<string> DatedSeeds, IReadOnlyList<EventDetailFact> UndatedDetails, IReadOnlyList<string> SeedFactIds);

@@ -28,6 +28,9 @@ internal sealed class SemanticMatchEntityMatcher : IEntityMatcher
         IReadOnlyList<Entity> existingEntities,
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (CalendarValues.IsCalendar(candidate)) return null;
+        existingEntities = CalendarValues.NameCandidates(existingEntities);
         var candidateEmbedding = await _embeddingOrchestrator
             .EmbedEntityAsync(candidate.Name, cancellationToken)
             .ConfigureAwait(false);

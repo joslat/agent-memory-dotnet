@@ -1,0 +1,58 @@
+{
+  "source": null,
+  "owner": "bruna-validation",
+  "ownerName": "Bruna",
+  "assistantBrief": "You are Bruna's planning assistant. Use only supported memory. State uncertainty explicitly.",
+  "askedOn": "2026-12-04",
+  "name": "identity-remote",
+  "title": "Bounded identity validation: remote",
+  "sessions": [
+    {
+      "date": "2026-11-09",
+      "topic": "remote",
+      "messages": [
+        "I am Bruna. I am leading the Acme remote go-live on December 11, 2026.",
+        "I can run this Acme go-live remotely; I do not need to be physically present in Córdoba.",
+        "I will be in Bariloche from December 9 through December 13, 2026. I have reliable internet there."
+      ]
+    }
+  ],
+  "questions": [
+    {
+      "id": "remote-prep",
+      "kind": "identity-validation",
+      "text": "Plan my prep for go-live week.",
+      "needs": [
+        {
+          "fact": "Remote go-live",
+          "mentions": [
+            [
+              "go-live",
+              "cutover"
+            ],
+            [
+              "remote",
+              "remotely"
+            ]
+          ]
+        },
+        {
+          "fact": "Bariloche trip",
+          "mentions": [
+            [
+              "Bariloche"
+            ],
+            [
+              "December 9",
+              "9 December",
+              "Dec 9",
+              "2026-12-09"
+            ]
+          ]
+        }
+      ],
+      "rightAnswer": "The dates overlap, but remote participation is explicitly allowed. Do not invent an unavoidable physical-presence conflict."
+    }
+  ],
+  "store": []
+}

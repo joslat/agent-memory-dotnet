@@ -25,9 +25,22 @@ CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
 CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
 
 var root = RepositoryRoot();
-var scenarioPath = Argument("--scenario") ?? Path.Combine(AppContext.BaseDirectory, "scenarios", "bruna-go-live.json");
+var identityValidation = args.Contains("--identity-validation");
+var identityWriter = args.Contains("--identity-writer");
+var identityFullScenario = args.Contains("--identity-full-scenario");
+if(identityFullScenario && (!identityValidation || !identityWriter))
+{
+    Console.Error.WriteLine("--identity-full-scenario requires --identity-validation --identity-writer.");
+    return 2;
+}
+var scenarioPath = Argument("--scenario") ?? (identityValidation ? Path.Combine(AppContext.BaseDirectory, "scenarios", "identity-validation", "dates.json") : Path.Combine(AppContext.BaseDirectory, "scenarios", "bruna-go-live.json"));
 var scenario = Scenario.Load(scenarioPath);
-var armNames = (Argument("--arms") ?? string.Join(',', Arms.All)).Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+if(identityFullScenario) scenario=BarilocheValidation.Apply(scenario);
+var identityPlan=identityFullScenario?IdentityValidationClients.FullScenarioPlan:IdentityValidationClients.Plan;
+// The old model under the same metered campaign, models and answer key as the identity arm (head-to-head).
+var legacyComparison = args.Contains("--legacy-comparison");
+var validationArm = legacyComparison ? "graph-legacy-writer" : identityWriter ? "graph-identity-writer" : "graph-identity-unified";
+var armNames = (Argument("--arms") ?? (identityValidation ? validationArm : string.Join(',', Arms.All.Where(name => !name.StartsWith("graph-identity-",StringComparison.Ordinal) && name != "graph-legacy-writer")))).Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
 var unknown = armNames.Except(Arms.All).ToList();
 if (unknown.Count > 0)
 {
@@ -35,9 +48,23 @@ if (unknown.Count > 0)
     return 2;
 }
 
-var maxCalls = int.Parse(Argument("--max-calls") ?? "400", CultureInfo.InvariantCulture);
+if (identityValidation && (armNames.Length != 1 || armNames[0] != validationArm) || legacyComparison && !(identityValidation && identityWriter) ||
+    !identityValidation && (identityWriter || armNames.Any(name=>name.StartsWith("graph-identity-",StringComparison.Ordinal) || name == "graph-legacy-writer")))
+{
+    Console.Error.WriteLine("Identity arms require --identity-validation; --identity-writer selects the store-aware variant, alone under the same campaign budget.");
+    return 2;
+}
+
+var maxCalls = int.Parse(Argument("--max-calls") ?? (identityFullScenario ? (scenario.Turns().Count() > 49 ? "320" : "120") : identityValidation ? "60" : "400"), CultureInfo.InvariantCulture);
 var answers = !args.Contains("--no-answers");
-var graphArms = Arms.Graph.Where(arm => armNames.Contains(arm.Name)).ToList();
+// ILC-21 ablation: one identity component off, same arm otherwise; recorded in the report fingerprint.
+var ablation = Argument("--identity-ablation");
+if (ablation is not null && !(identityValidation && identityWriter && !legacyComparison))
+{
+    Console.Error.WriteLine("--identity-ablation applies to the identity writer arm under --identity-validation only.");
+    return 2;
+}
+var graphArms = Arms.Graph.Where(arm => armNames.Contains(arm.Name)).Select(arm => Arms.Ablate(arm, ablation)).ToList();
 var budgetFrom = Argument("--budget-from") ?? graphArms.FirstOrDefault()?.Name;
 var stamp = DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
 var output = Path.GetFullPath(Argument("--output") ?? Path.Combine(root, "artifacts", "evaluation", "scenarios", $"{scenario.Name}-{stamp}"));
@@ -48,8 +75,10 @@ Console.WriteLine();
 Console.WriteLine($"SCENARIO  {scenario.Name}: {turns.Count} statements in {scenario.Sessions.Count} sessions, {scenario.Questions.Count} questions, asked {scenario.AskedOn:yyyy-MM-dd}");
 Console.WriteLine($"  arms      {string.Join(", ", armNames)}");
 Console.WriteLine($"  writes    {string.Join(", ", writers)} (the others recall from the store their writer wrote)");
-Console.WriteLine($"  calls     at most {maxCalls}; about {writers.Count * turns.Count * 2} to write, {graphArms.Count * scenario.Questions.Count} judge calls, {(answers ? armNames.Length * scenario.Questions.Count : 0)} answers");
+if (identityValidation) Console.WriteLine($"  budget    persistent campaign: at most ${IdentityValidationClients.CampaignMaximumUsd} reserved, {IdentityValidationClients.FullScenarioChatAttempts} chat and {IdentityValidationClients.CampaignEmbeddingAttempts} embedding HTTP attempts; no external retrieval/update judge");
+else Console.WriteLine($"  calls     at most {maxCalls}; about {writers.Count * turns.Count * 2} to write, {graphArms.Count * scenario.Questions.Count} judge calls, {(answers ? armNames.Length * scenario.Questions.Count : 0)} answers");
 Console.WriteLine($"  output    {output}");
+if (identityValidation) Console.WriteLine(JsonSerializer.Serialize(new { inference=identityPlan,assertionPolicy=identityFullScenario?BarilocheValidation.Version:"identity-four-cases",effectiveIngestion=identityWriter?"Store-aware writer + DatesFromText + chat update fallback; no external retrieval judge":"Explicit unified extractor control",eventDetailsRequested=true,writerEventIdentitiesRequested=identityWriter },new JsonSerializerOptions { WriteIndented=true }));
 if (args.Contains("--dry-run")) return 0;
 
 Directory.CreateDirectory(output);
@@ -78,18 +107,24 @@ if (graphArms.Any(arm => arm.Judge) && string.IsNullOrWhiteSpace(Environment.Get
     return 2;
 }
 
+using var bounded = identityValidation ? new IdentityValidationClients(settings,
+    Argument("--campaign-budget") ?? Path.Combine(root,"artifacts/evaluation/identity-validation/campaign.jsonl"),
+    Path.Combine(output,"inference-http.jsonl"),writerMode:identityWriter,fullScenario:identityFullScenario) : null;
+if (bounded is not null) { chat=bounded.Writer; embeddings=bounded.Embeddings; }
 Console.WriteLine($"  models    {settings.Summary}");
 using var ledger = new CallLedger(Path.Combine(output, "calls.jsonl"), maxCalls);
 using var spans = new SpanRecorder(Path.Combine(output, "spans.jsonl"));
 using var log = new FileLog(Path.Combine(output, "agentmemory.log"));
 var memoryChat = new RecordingChatClient(chat, "memory", ledger);
-var answerChat = new RecordingChatClient(chat, "answer", ledger);
+var answerChat = new RecordingChatClient(bounded?.Answer ?? chat, "answer", ledger);
 var dimensions = settings.EmbeddingDimensions
     ?? (await embeddings.GenerateAsync(["ping"]))[0].Vector.Length;
 
 // ── Neo4j: a container of the run's own, unless one is given ───────────────
 Neo4jContainer? container = null;
 Neo4jTarget neo4j;
+if (identityValidation && Argument("--uri") is not null)
+    throw new InvalidOperationException("Identity validation uses only its owned disposable fixture.");
 if (Argument("--uri") is { } uri)
 {
     neo4j = new Neo4jTarget(uri, Argument("--user") ?? "neo4j", Argument("--password") ?? "password", dimensions);
@@ -97,20 +132,30 @@ if (Argument("--uri") is { } uri)
 else
 {
     var password = Convert.ToHexString(RandomNumberGenerator.GetBytes(12));
-    container = new Neo4jBuilder("neo4j:5.26")
+    var fixtureBuilder = new Neo4jBuilder("neo4j:5.26")
         .WithEnvironment("NEO4J_AUTH", $"neo4j/{password}")
-        .WithEnvironment("NEO4J_server_memory_heap_initial__size", "256m")
-        .WithEnvironment("NEO4J_server_memory_heap_max__size", "512m")
+        .WithEnvironment("NEO4J_server_memory_heap_initial__size", identityValidation ? "128m" : "256m")
+        .WithEnvironment("NEO4J_server_memory_heap_max__size", identityValidation ? "256m" : "512m")
         .WithEnvironment("NEO4J_server_memory_pagecache_size", "64m")
-        .Build();
+        .WithLabel("com.agentmemory.repository","agent-memory-dotnet")
+        .WithLabel("com.agentmemory.fixture","AgentMemory.Scenarios");
+    if (identityValidation) fixtureBuilder = fixtureBuilder.WithEnvironment("JAVA_TOOL_OPTIONS","-XX:ActiveProcessorCount=2").WithCreateParameterModifier(parameters =>
+    {
+        parameters.HostConfig ??= new();
+        parameters.HostConfig.Memory=1024L*1024*1024;
+        parameters.HostConfig.MemorySwap=1024L*1024*1024;
+    });
+    container = fixtureBuilder.Build();
     await container.StartAsync();
     neo4j = new Neo4jTarget(container.GetConnectionString(), "neo4j", password, dimensions);
 }
 
 var failures = new List<string>();
+var acceptanceFailures = new List<string>();
 var memories = new List<IMemory>();
 var took = new Dictionary<string, TimeSpan>();
 var stores = new Dictionary<string, object>();
+var eventDetailProbes = new Dictionary<string, object>();
 var asked = new List<object>();
 var scoreboard = new Dictionary<string, List<string>>();
 try
@@ -123,7 +168,7 @@ try
     foreach (var arm in graphArms)
     {
         var owner = $"{scenario.Owner}-{arm.Writes}-{run}";
-        memories.Add(await GraphMemory.CreateAsync(arm, memoryChat, embeddings, clock, neo4j, owner, writers.Contains(arm.Name), log, ledger));
+        memories.Add(await GraphMemory.CreateAsync(arm, memoryChat, embeddings, clock, neo4j, owner, writers.Contains(arm.Name), log, ledger, identityChat: bounded?.Adjudicator));
     }
 
     // ── Writing: every memory hears the same statements, each at its moment ─
@@ -153,7 +198,7 @@ try
 
         // The library catches a refused call and writes on (a writer failure falls back to the extractors), so the cap
         // is read from the ledger, not from an exception: past it, nothing more is written or asked.
-        if (ledger.Exhausted)
+        if (ledger.Exhausted || bounded?.Exhausted == true)
         {
             failures.Add($"the run reached its cap of {maxCalls} model calls at statement {i + 1} of {turns.Count}, and stopped");
             break;
@@ -170,8 +215,11 @@ try
     {
         var snapshot = await graph.SnapshotAsync();
         var held = Checks.Store(scenario.Store ?? [], snapshot.Facts);
+        if (identityValidation) acceptanceFailures.AddRange(Checks.ValidationFailures(held,[]));
         var firstPerson = snapshot.Facts.Count(f => f.Subject.Trim().ToLowerInvariant() is "user" or "i" or "me" or "the user");
         stores[graph.Arm.Writes] = new { owner = graph.Owner, held, firstPersonSubjects = firstPerson, snapshot };
+        if (identityValidation) stores[graph.Arm.Writes] = new { owner=graph.Owner,held,firstPersonSubjects=firstPerson,snapshot,
+            identity=await graph.IdentitySnapshotAsync(), entities=await graph.EntitySnapshotAsync() };
         Console.WriteLine($"  {graph.Arm.Writes} store: {snapshot.Facts.Count} live facts, {snapshot.Closed.Count} closed, {snapshot.Entities.Count} entities; " +
                           $"holds {held.Count(h => h.Held)}/{held.Count} checked facts; {firstPerson} facts with 'user' as subject");
         foreach (var miss in held.Where(h => !h.Held))
@@ -180,12 +228,36 @@ try
 
     // ── Asking: a new conversation on the scenario's day ───────────────────
     clock.UtcNow = scenario.AskedAt;
+    if (identityValidation && (identityFullScenario || scenario.Name is "identity-go-live" or "identity-remote"))
+    {
+        var required = scenario.Questions.SelectMany(question => question.Needs).DistinctBy(need => need.Fact)
+            .Where(need => need.Fact is "Go-live location" or "Presence required" or "Remote go-live").ToArray();
+        var start = new DateTimeOffset(scenario.AskedOn.Year, 12, 7, 0, 0, 0, TimeSpan.Zero);
+        var end = start.AddDays(7).AddTicks(-1);
+        foreach (var graph in memories.OfType<GraphMemory>().Where(graph => graph.Writes && graph.Arm.Identity is null))
+        {
+            // The old model has no decision-bound event read: recorded as unsupported, never as a pass.
+            acceptanceFailures.Add("event-details: unsupported by the old model");
+            eventDetailProbes[graph.Arm.Writes] = new { unsupported = "No evidence-based identity: no decision-bound event read" };
+            Console.WriteLine("  native event-details probe: unsupported by the old model");
+        }
+        foreach (var graph in memories.OfType<GraphMemory>().Where(graph => graph.Writes && graph.Arm.Identity is not null))
+        {
+            var probe = await graph.ProbeEventDetailsAsync(start, end);
+            var missing = Checks.EventDetailFailures(probe.DatedSeeds, probe.UndatedDetails, required);
+            acceptanceFailures.AddRange(missing);
+            eventDetailProbes[graph.Arm.Writes] = new { probe, failures = missing,
+                method = "Time-window seed followed by native decision-bound event read; no vector or model retrieval" };
+            Console.WriteLine($"  native event-details probe: {probe.DatedSeeds.Count} dated seeds, {probe.UndatedDetails.Count} undated details; {missing.Count} failures");
+        }
+    }
+
     Console.WriteLine();
     Console.WriteLine($"ASKING  on {scenario.AskedOn:dddd, MMMM d, yyyy}");
 
     foreach (var question in scenario.Questions)
     {
-        if (ledger.Exhausted)
+        if (ledger.Exhausted || bounded?.Exhausted == true)
         {
             if (!failures.Any(f => f.Contains("cap of", StringComparison.Ordinal)))
                 failures.Add($"the run reached its cap of {maxCalls} model calls before question {question.Id}, and stopped");
@@ -223,13 +295,14 @@ try
         {
             var prompt = prompts[memory.Name];
             var needs = Checks.Needs(question, prompt);
+            if (identityValidation) acceptanceFailures.AddRange(Checks.ValidationFailures([],needs));
             string? answer = null;
             if (answers)
             {
                 spans.Scope = log.Scope = $"answer {question.Id} {memory.Name}";
                 try
                 {
-                    answer = await AnswerAsync(answerChat, scenario, prompt, question.Text);
+                    answer = await AnswerAsync(answerChat, scenario, prompt, question.Text, identityValidation);
                 }
                 catch (Exception exception) when (exception is not OperationCanceledException)
                 {
@@ -269,6 +342,11 @@ try
     Console.WriteLine($"  model calls {ledger.Calls} ({string.Join(", ", ledger.ByPurpose.Select(p => $"{p.Key} {p.Value}"))}), judge calls {ledger.JudgeCalls}, library warnings {log.Warnings}");
     Console.WriteLine($"  report, prompts, explained recalls: {Path.Combine(output, "report.json")}");
     Console.WriteLine($"  every model call: calls.jsonl · every span: spans.jsonl · the library's log: agentmemory.log");
+    if (identityValidation && acceptanceFailures.Count > 0)
+    {
+        Console.WriteLine("  VALIDATION FAILED: "+string.Join("; ",acceptanceFailures));
+        return 1;
+    }
     if (failures.Count > 0)
     {
         Console.WriteLine($"  INCOMPLETE: {failures.Count} failure(s); the first: {failures[0]}");
@@ -306,7 +384,7 @@ async Task WriteReportAsync()
         failures,
         fingerprint = new
         {
-            scenario = scenario.Name, scenarioSha256 = scenario.Sha256, source = scenario.Source,
+            scenario = scenario.Name, scenarioSha256 = scenario.Sha256, source = scenario.Source, assertionPolicy=identityFullScenario?BarilocheValidation.Version:"original-or-four-case", ablation,
             models = settings.Summary, judge = graphArms.Any(a => a.Judge) ? "jev (api.typesafe.ai/v1/systemone)" : null,
             neo4j = container is null ? neo4j.Uri : "neo4j:5.26 (Testcontainers)", commit = GitCommit(root), harness = "scenarios/1",
         },
@@ -314,15 +392,22 @@ async Task WriteReportAsync()
         warnings = log.Warnings,
         arms = memories.Select(m => new { m.Name, m.How, seconds = Math.Round(took.GetValueOrDefault(m.Name).TotalSeconds, 1), writes = m is not GraphMemory g || g.Writes }),
         stores,
+        eventDetailProbes,
         asked,
         scoreboard,
     };
+    if (identityValidation) await File.WriteAllTextAsync(Path.Combine(output,"identity-validation.json"),
+        JsonSerializer.Serialize(new { executionComplete=failures.Count==0,checksPassed=failures.Count==0 && acceptanceFailures.Count==0,
+            effectiveIngestion=identityWriter?"store-aware-writer":"unified-extractor",eventDetailsRequested=true,writerEventIdentitiesRequested=identityWriter,acceptanceFailures,answerReview="Independent manual review required" },
+            new JsonSerializerOptions { WriteIndented=true }));
+    if (bounded is not null) await File.WriteAllTextAsync(Path.Combine(output,"identity-budget.json"),
+        JsonSerializer.Serialize(new { plan=identityPlan,summary=bounded.Summary },new JsonSerializerOptions { WriteIndented=true }));
     await File.WriteAllTextAsync(Path.Combine(output, "report.json"),
         JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }));
 }
 
 // The same model and instructions for every memory; only the MEMORY block changes (Pablo Piovano's prompt, unchanged).
-static async Task<string> AnswerAsync(IChatClient chat, Scenario scenario, string memory, string question)
+static async Task<string> AnswerAsync(IChatClient chat, Scenario scenario, string memory, string question, bool bounded = false)
 {
     var today = scenario.AskedOn.ToString("dddd, MMMM d, yyyy", CultureInfo.InvariantCulture);
     var instructions = $"""
@@ -337,7 +422,7 @@ static async Task<string> AnswerAsync(IChatClient chat, Scenario scenario, strin
         """;
     var response = await chat.GetResponseAsync(
         [new ChatMessage(ChatRole.System, instructions), new ChatMessage(ChatRole.User, question)],
-        new ChatOptions { Temperature = 0 });
+        new ChatOptions { Temperature = 0, MaxOutputTokens = bounded ? 1024 : null });
     return response.Text.Trim();
 }
 

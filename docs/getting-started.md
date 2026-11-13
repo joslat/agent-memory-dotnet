@@ -877,3 +877,215 @@ whole-item module budgets and optional judging separately from core memory. `Use
 turn it on only to use the host's explicitly configured `IMemoryGate`. An optional scoped
 `IModuleSelectionObserver` receives selection receipts under the resolved request scope.
 See [registration, limits and current acceptance scope](extensions/modules.md#native-module-selection-registration).
+
+The opt-in [identity-evidence extension](extensions/identity-evidence.md) owns host assertions, bounded candidate lookup and initial atomic decisions. The schema alone does not enable identity ingestion; IdentityResolutionOptions.Enabled is separate. Review/revocation remains under implementation.
+
+Reserved owner storage keys escape a leading `*` by adding one `*`; shared remains `*`, ordinary
+owner keys remain unchanged. Owner IDs themselves are unchanged. Apply migration
+`0012_reserved_owner_storage_keys` before using existing reserved-owner data. Shared reads also
+require null owner_id, and writes fail closed on foreign pre-upgrade key collisions. The migration
+does not reconstruct provenance already mixed by an earlier collision. Source and integration
+qualification of this correction remain in progress.
+
+
+Evidence-based ingestion wiring (implementation in progress): configure
+`services.Configure<IdentityResolutionOptions>(o => o.Enabled = true)` and enable the
+`identity-evidence` Neo4j schema extension before ingesting. Pipeline construction rejects a
+backend without bounded candidates, the enabled schema or atomic scoped ingestion. Defaults
+remain off and do not resolve identity backends or issue identity queries. In the enabled mode,
+model/candidate/embedding work precedes the transaction; owner/shared identity locks precede
+fact writes. Original subject/object words remain stored, confirmed targets are not upserted,
+and decision-owned bindings use the repository-returned final Fact ID. A failure rolls back
+the whole enabled ingestion; there is no best-effort replay. Same-surface ambiguous observations
+remain separate and receive no guessed fact or relationship endpoint binding. Source context
+and mentions are bounded (MaxContextUtf8Bytes, MaxMentionsPerIngestion). Review/revocation,
+contextual activation, event evidence and final acceptance remain tracked as unfinished work.
+
+The enabled ingestion owns its outer transaction boundary: starting it inside a caller-owned
+write transaction is rejected before extraction, embedding or contextual model work. Idempotent
+identity scope-lock rows are infrastructure and may remain after an unsuccessful attempt. New
+facts, observations, decisions and fact-role support commit together. Optional writer-named
+closings are a separate best-effort follow-up after that commit, like other post-write consequences:
+model failure or cancellation can leave the new facts committed and the older facts still live.
+A missing commit acknowledgement does not start that follow-up; retry uses stable source keys.
+This composition and the split lock-acquisition correction are currently awaiting compilation
+and their dedicated regression runs; no final delivery claim is made here.
+
+
+### Explicit host identity evidence
+
+The optional identity work remains under qualification. Configure the identity-evidence extension
+and explicitly migrate it before enabling identity ingestion. Register an application-owned
+`IIdentityContextProvider` when the application can supply independently substantiated identifiers:
+
+```csharp
+services.Configure<IdentityResolutionOptions>(options =>
+{
+    options.Enabled = true;
+    options.Policies["PERSON"] = new EntityIdentityPolicy { IdentityProperties = ["employeeId"] };
+});
+services.AddScoped<IIdentityContextProvider, ApplicationIdentityContextProvider>();
+```
+
+`ApplicationIdentityContextProvider` is your implementation. Its `GetContextAsync` receives frozen
+mention/source snapshots, the effective owner scope and cancellation. Return `IdentityHostEvidence`
+with keys, a semantic kind and/or `VerifiedIdentityNameNamespace`, each carrying its authority and
+source. A directory lookup or structured source can substantiate a key; copying the extractor's
+Attributes cannot. Returning null supplies no assertion. A provider exception or invalid assertion
+fails the unacknowledged ingestion before writes; its stable source can be retried. Disabled identity
+never resolves the provider factory.
+
+Keyless conversations get continuity from two opt-in sources of contextual evidence, both governed by
+the type policy's `AllowContextualConfirmation`. With the store-aware writer, set
+`LlmExtractionOptions.MemoryWriterEventIdentities = true`: the writer may say which stored entity a
+mention names (a checked reference, no extra call) and its replies are schema-checked with at most one
+correction call; rejected operations appear in the ingestion outcomes as
+`MEMORY_WRITER_OPERATION_REJECTED`. With an `IIdentityAdjudicator` and `MaxAdjudicationsPerIngestion > 0`,
+the Neo4j backend's `IIdentitySourceProvider` (registered by `AddNeo4jAgentMemory`) lets the adjudicator
+see each candidate's own source message, read in the owner's scope.
+
+```csharp
+services.Configure<IdentityResolutionOptions>(options =>
+{
+    options.Enabled = true;
+    options.MaxAdjudicationsPerIngestion = 2;
+    options.ApplyConversationalPolicies(); // events, people, organisations: confirmable by checked contextual evidence
+});
+// Read context turns so "the cutover" said after "the go-live" is resolved with both turns.
+services.Configure<ExtractionOptions>(options => options.ExtractionContextTurns = 4);
+// Review queue: open proposals the policy left for a person or an operator.
+var queue = await provider.GetRequiredService<IIdentityDecisionRepository>().ListPendingAsync(ownerId, 50);
+services.Configure<LlmExtractionOptions>(options => { options.UseMemoryWriter = true; options.MemoryWriterEventIdentities = true; });
+```
+
+Host planning, receipt persistence and original-observation assertion indexing are verified for
+the documented cases (511 focused per runtime, 7,899 root and 230 live consumers). Indexing uses the same atomic Neo4j runner and
+scopes as the decision/facts, does not stamp an existing confirmed target or reassert on replay,
+and does not manufacture a calendar key from an incomplete value. The optional LLM adjudicator,
+review/revocation and event evidence expansion remain unfinished. Registering a host provider does
+not activate those capabilities or change the default preset.
+
+
+### Dedicated identity model registration under qualification
+
+The LLM package provides `AddIdentityAdjudication(clientFactory, maxInFlight: 8)` for an explicitly
+chosen, host-owned singleton IChatClient. The adapter is lazy, leaves a custom IIdentityAdjudicator
+registration in place, bounds in-flight calls and drains them on asynchronous disposal without
+disposing the host's client. This registration neither enables identity nor replaces extraction's
+client. With IdentityResolutionOptions.Enabled, Core uses one call budget per ingestion and
+retains a typed contextual receipt; off and zero-budget modes never construct the adjudicator.
+By default model verdicts remain review evidence. Only an explicit per-type
+AllowContextualConfirmation policy can propose confirmation. Durable source/candidate freshness
+has deterministic unit/live acceptance; real-model quality remains unmeasured. See the
+[implementation checkpoints](evidence-based-identity-implementation.md).
+Registering this adapter alone does not enable identity or change a preset.
+
+
+With an explicitly registered singleton identity-model client, a review-only configuration is:
+
+```csharp
+services.AddIdentityAdjudication(sp =>
+    sp.GetRequiredKeyedService<IChatClient>("identity-model"));
+services.Configure<IdentityResolutionOptions>(options =>
+{
+    options.Enabled = true; // requires the explicitly migrated identity-evidence schema
+    options.MaxAdjudicationsPerIngestion = 1;
+    options.MaxContextUtf8Bytes = 8192;
+    options.AdjudicatorMaxOutputTokens = 512;
+    options.Policies["PERSON"] = new()
+    {
+        ContextProperties = ["city", "team"], // untrusted context, never verified identifiers
+        AllowContextualConfirmation = false
+    };
+});
+```
+
+The client is host-owned. A missing optional adjudicator keeps deterministic behavior; disabled
+identity or a zero call budget does not construct it. A permitted model confirmation still needs
+fresh authorized source messages, unchanged candidates and no deterministic contradiction at
+persistence. Exact quotes do not guarantee a model's conclusion; use the review-only default
+until the application's model and corpus are qualified. See the implementation page for the
+actual passing checkpoints, unfinished review lifecycle and model-quality limitations.
+
+
+### Explicit identity review (under qualification)
+
+After explicitly enabling and migrating `identity-evidence`, use
+`IIdentityDecisionRepository.GetAsync` to inspect the decision in the exact owner scope.
+The host authorizes the reviewer; the `Actor` string is an audit field, not authentication.
+
+```csharp
+var current = await decisions.GetAsync(decisionId, ownerId, cancellationToken)
+    ?? throw new InvalidOperationException("Unknown decision in this owner scope.");
+var request = new IdentityReviewRequest
+{
+    DecisionId = current.DecisionId,
+    OperationId = Guid.NewGuid().ToString("N"), // persist this request for identical retries
+    ExpectedVersion = current.Version,
+    Action = IdentityReviewAction.Confirm,
+    CandidateEntityId = candidateEntityId,
+    Actor = authorizedReviewerId,
+    Reason = "Reviewed the original sources and verified this reference."
+};
+var outcome = await decisions.ReviewAsync(request, ownerId, includeShared: false,
+    cancellationToken: cancellationToken);
+var history = await decisions.GetHistoryAsync(decisionId, ownerId, limit: 32,
+    cancellationToken: cancellationToken);
+```
+
+`Confirm` selects a fresh, live, visible identity after domain checks. It cannot override
+contradictory keys, incompatible types or different/incomplete calendar values. `Reject`
+removes a currently pending candidate. `Revoke` requires a confirmed decision and a null
+candidate; it returns that decision's support to its original observation. None changes
+the original words or removes unrelated `ABOUT`/`RELATED_TO` support.
+
+Use a new operation ID for a new review. Retry the identical saved request after a lost
+commit acknowledgement. A retry returns `AlreadyApplied`, its `AppliedRevision` and the
+possibly later `CurrentDecision`. Changing the request under the same key is refused.
+A stale expected version requires reading and reviewing the new current state.
+History is newest first, up to 64 per call; `beforeVersion` is an exclusive cursor.
+Null owner means shared-only; it never means every owner. Shared targets require explicit
+`includeShared: true` on an owned review.
+
+The first backend passes129 real-Neo4j decision/ingestion cases, including concurrent review,
+every-statement rollback, lost acknowledgement/restart and later facts/relations. The stale-alternative follow-up also passes; ownership portability and complete feature acceptance remain open.
+External backends keep default-safe unsupported methods until they implement this capability.
+
+### Opt-in event details
+
+Alongside the existing identity configuration and migrated `identity-evidence` extension:
+
+```csharp
+var memory = MemoryOptions.CreateRecommended();
+memory = memory with
+{
+    Recall = memory.Recall with
+    {
+        TimeWindows = true,
+        Upcoming = true,
+        OverlapExpansion = true,
+        EventDetails = true,
+        MaxEventDetailFacts = 8
+    }
+};
+```
+
+This retrieves unscored facts already bound to the dated event, within the existing context budget;
+it does not manufacture missing event references. It is live-only. With identity-evidence enabled,
+legacy owner export/import is explicitly unsupported, including empty owners; erasure remains
+available. Full identity portability is a separate follow-up. Compilation, unit and actual-store
+checks pass; see the implementation status for exact model outcomes and limits.
+
+### Writer event-reference option
+
+`LlmExtractionOptions.MemoryWriterEventIdentities` defaults to false. With the store-aware writer
+enabled, it appends instructions to emit source-grounded `EVENT` observations and separate atomic
+event-subject facts for the stated date, place and participation. The writer's default prompt
+remains unchanged. This addresses the write/read seam: a retrieval hop cannot recover event details
+if the writer never emits an event reference. It does not confirm identity, invent missing sources
+or bypass the resolver's domain vetoes; model compliance still requires the bounded actual runs.
+
+Enable this option alongside the existing identity writer configuration and `Recall.EventDetails`.
+It is explicitly enabled in the synthetic `graph-identity-writer` arm and is not a new global
+Recommended default. Unit controls for the unchanged default prompt and event-shaped writer output
+pass in the current .NET8/9/10 matrix. The real physical-event hop passes; a remote identity remains Pending, so automatic expansion is not guaranteed.

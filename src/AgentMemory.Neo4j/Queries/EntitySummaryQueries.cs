@@ -26,7 +26,7 @@ internal static class EntitySummaryQueries
     /// keep separate summaries — each was synthesised from the facts that tenant can see, and sharing
     /// one node would leak one owner's knowledge into another's context.
     /// </remarks>
-    public const string Upsert = """
+    public const string Upsert = OwnerScopeGuards.Summary + """
         MERGE (s:EntitySummary {entity_id: $entityId, owner_key: $ownerKey})
         SET s.id                 = $summaryId,
             s.content            = $content,
@@ -45,9 +45,13 @@ internal static class EntitySummaryQueries
         OPTIONAL MATCH (s)-[old:EXTRACTED_FROM]->(:Fact)
         DELETE old
         WITH s
-        UNWIND $sourceFactIds AS factId
-        MATCH (f:Fact {id: factId})
-        MERGE (s)-[:EXTRACTED_FROM]->(f)
+        CALL {
+            WITH s
+            UNWIND $sourceFactIds AS factId
+            MATCH (f:Fact {id: factId})
+            MERGE (s)-[:EXTRACTED_FROM]->(f)
+            RETURN count(f) AS linked
+        }
         RETURN s
         """;
 

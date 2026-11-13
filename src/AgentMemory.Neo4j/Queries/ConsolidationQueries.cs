@@ -31,7 +31,7 @@ internal static class ConsolidationQueries
     public const string CountDuplicatePreferences = @"
             MATCH (p:Preference)
             WHERE p.invalidated_at IS NULL
-            WITH coalesce(p.owner_id, '*') AS ownerKey, p.category AS category, toLower(p.preference) AS text, collect(p) AS grp
+            WITH p.owner_id AS ownerKey, p.category AS category, toLower(p.preference) AS text, collect(p) AS grp
             WHERE size(grp) >= $minGroupSize
             RETURN coalesce(sum(size(grp) - 1), 0) AS count";
 
@@ -47,7 +47,7 @@ internal static class ConsolidationQueries
     public const string RemoveDuplicatePreferences = @"
             MATCH (p:Preference)
             WHERE p.invalidated_at IS NULL
-            WITH coalesce(p.owner_id, '*') AS ownerKey, p.category AS category, toLower(p.preference) AS text, p
+            WITH p.owner_id AS ownerKey, p.category AS category, toLower(p.preference) AS text, p
             ORDER BY p.created_at DESC
             WITH ownerKey, category, text, collect(p) AS grp
             WHERE size(grp) >= $minGroupSize
@@ -68,7 +68,7 @@ internal static class ConsolidationQueries
     public const string CountDuplicateEntities = @"
             MATCH (e:Entity)
             WHERE e.invalidated_at IS NULL
-            WITH coalesce(e.owner_id, '*') AS ownerKey, toLower(e.name) AS name, e.type AS type, collect(e) AS grp
+            WITH e.owner_id AS ownerKey, toLower(e.name) AS name, e.type AS type, collect(e) AS grp
             WHERE size(grp) >= $minGroupSize
             RETURN coalesce(sum(size(grp) - 1), 0) AS count";
 

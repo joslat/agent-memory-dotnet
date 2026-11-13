@@ -93,4 +93,30 @@ public sealed class ModuleSchemaObjectTests
         ModuleReservedNames.SchemaObjects.Should().Contain("module_migration_key");
     }
 
+
+    [Theory]
+    [InlineData("IdentityEvidenceAssertion")] [InlineData("IdentityDecision")]
+    [InlineData("IdentityDecisionRevision")] [InlineData("IdentityFactBinding")]
+    [InlineData("IdentityEvidenceScopeLock")] [InlineData("IdentityRelationshipObservation")]
+    public void AModuleCannotClaimAnIdentityStorageLabel(string label)
+    {
+        Module("identity", "Identity", Type(label, "business_key")).Validate()
+            .Should().Contain(error => error.Contains("reserved", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("identity_evidence_version")] [InlineData("identity_calendar_key")]
+    [InlineData("identity_observation_key")]
+    public void AModuleCannotWriteAnEntitysOwnedIdentityProperties(string property)
+    {
+        Module("reviews", "Review", Type("ReviewItem", property)).Validate()
+            .Should().Contain(error => error.Contains("reserved", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void AnUnrelatedIdentityDomainTypeAndPropertyRemainUsable()
+    {
+        Module("identity", "Identity", Type("IdentityCaseNote", "identity_display_note")).Validate()
+            .Should().BeEmpty();
+    }
 }

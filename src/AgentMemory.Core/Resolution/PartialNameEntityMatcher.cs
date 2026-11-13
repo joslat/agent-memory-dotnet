@@ -37,6 +37,9 @@ internal sealed class PartialNameEntityMatcher : IEntityMatcher
         IReadOnlyList<Entity> existingEntities,
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (CalendarValues.IsCalendar(candidate)) return Task.FromResult<EntityResolutionResult?>(null);
+        existingEntities = CalendarValues.NameCandidates(existingEntities);
         if (!AppliesTo(candidate.Type))
             return Task.FromResult<EntityResolutionResult?>(null);
 

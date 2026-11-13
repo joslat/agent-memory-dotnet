@@ -1,0 +1,3239 @@
+{
+  "schemaVersion": 2,
+  "name": "identity-lifecycle-v1",
+  "referenceUtc": "2026-11-09T12:00:00Z",
+  "status": "Registered fixtures and independent gold; runtime outcomes recorded separately",
+  "hostEvidenceNotice": "Keys and kinds are trusted synthetic fixture assertions, never extractor attributes or gold included in a model prompt.",
+  "configurations": [
+    {
+      "id": "legacy-current",
+      "purpose": "Comparison baseline; current temporal protections included, not historic1.9. Non-temporal fuzzy outcomes do not define new-policy acceptance."
+    },
+    {
+      "id": "evidence-deterministic",
+      "purpose": "New policy without model; absent authority may correctly remain Pending."
+    },
+    {
+      "id": "evidence-contextual",
+      "purpose": "New policy plus bounded source-aware model interpretation; mocks are protocol/flow tests, not model accuracy."
+    },
+    {
+      "id": "host-evidence",
+      "purpose": "Use explicit fixture keys only in cases that supply them; never fabricate IDs to satisfy gold."
+    }
+  ],
+  "stages": [
+    "extraction",
+    "candidate-context",
+    "identity",
+    "storage-bindings",
+    "relationships",
+    "retrieval",
+    "temporal-retrieval",
+    "prompt",
+    "answer"
+  ],
+  "cases": [
+    {
+      "id": "DATE-01",
+      "family": "date",
+      "subtype": "different-days",
+      "kind": "identity-pair",
+      "owner": "lifecycle-owner",
+      "includeShared": false,
+      "policy": {
+        "identityProperties": [],
+        "compatibleTypes": []
+      },
+      "seed": {
+        "id": "DATE-01:left",
+        "name": "2026-12-03",
+        "type": "DATE",
+        "subtype": null,
+        "keys": {},
+        "kind": null,
+        "sourceId": "DATE-01:source:0"
+      },
+      "mention": {
+        "id": "DATE-01:right",
+        "name": "December 12, 2026",
+        "type": "DATE",
+        "subtype": null,
+        "keys": {},
+        "kind": null,
+        "sourceId": "DATE-01:source:1"
+      },
+      "truth": "different",
+      "expected": {
+        "policyDecision": "New",
+        "confirmedTarget": null,
+        "contextualDecision": "New",
+        "preserveOriginalSurface": true,
+        "forbidForeignFacts": true
+      },
+      "turns": [
+        {
+          "sourceId": "DATE-01:source:0",
+          "timestampUtc": "2026-11-09T10:00:00Z",
+          "text": "Training is on 2026-12-03.",
+          "entityRef": "seed",
+          "facts": [
+            {
+              "key": "DATE-01:fact:0",
+              "subject": "Training",
+              "predicate": "is on",
+              "object": "2026-12-03",
+              "entityRole": "Object"
+            }
+          ]
+        },
+        {
+          "sourceId": "DATE-01:source:1",
+          "timestampUtc": "2026-11-09T11:00:00Z",
+          "text": "Wedding is on December 12, 2026.",
+          "entityRef": "mention",
+          "facts": [
+            {
+              "key": "DATE-01:fact:1",
+              "subject": "Wedding",
+              "predicate": "is on",
+              "object": "December 12, 2026",
+              "entityRole": "Object"
+            }
+          ]
+        }
+      ],
+      "checks": [
+        "observation-source",
+        "fact-surface",
+        "identity-decision",
+        "binding-owner",
+        "fresh-scope-read"
+      ],
+      "retrieval": {
+        "route": "subject-or-object-read",
+        "requiredFactKeys": [
+          "DATE-01:fact:0",
+          "DATE-01:fact:1"
+        ],
+        "excludedFactKeys": []
+      },
+      "requiredStages": [
+        "identity",
+        "storage-bindings",
+        "retrieval"
+      ],
+      "requiredCoverage": [
+        {
+          "stage": "identity",
+          "configuration": "evidence-deterministic",
+          "variant": "typed-pair",
+          "check": "policy-decision"
+        },
+        {
+          "stage": "storage-bindings",
+          "configuration": "evidence-deterministic",
+          "variant": "sequential",
+          "check": "binding-roundtrip"
+        },
+        {
+          "stage": "retrieval",
+          "configuration": "evidence-deterministic",
+          "variant": "sequential",
+          "check": "fresh-scope-read"
+        }
+      ]
+    },
+    {
+      "id": "DATE-02",
+      "family": "date",
+      "subtype": "equivalent-complete-values",
+      "kind": "identity-pair",
+      "owner": "lifecycle-owner",
+      "includeShared": false,
+      "policy": {
+        "identityProperties": [],
+        "compatibleTypes": []
+      },
+      "seed": {
+        "id": "DATE-02:left",
+        "name": "2026-12-12",
+        "type": "DATE",
+        "subtype": null,
+        "keys": {},
+        "kind": null,
+        "sourceId": "DATE-02:source:0"
+      },
+      "mention": {
+        "id": "DATE-02:right",
+        "name": "12 diciembre 2026",
+        "type": "DATE",
+        "subtype": null,
+        "keys": {},
+        "kind": null,
+        "sourceId": "DATE-02:source:1"
+      },
+      "truth": "same",
+      "expected": {
+        "policyDecision": "Confirmed",
+        "confirmedTarget": "DATE-02:left",
+        "contextualDecision": "Confirmed",
+        "preserveOriginalSurface": true,
+        "forbidForeignFacts": true
+      },
+      "turns": [
+        {
+          "sourceId": "DATE-02:source:0",
+          "timestampUtc": "2026-11-09T10:00:00Z",
+          "text": "Training is on 2026-12-12.",
+          "entityRef": "seed",
+          "facts": [
+            {
+              "key": "DATE-02:fact:0",
+              "subject": "Training",
+              "predicate": "is on",
+              "object": "2026-12-12",
+              "entityRole": "Object"
+            }
+          ]
+        },
+        {
+          "sourceId": "DATE-02:source:1",
+          "timestampUtc": "2026-11-09T11:00:00Z",
+          "text": "Wedding is on 12 diciembre 2026.",
+          "entityRef": "mention",
+          "facts": [
+            {
+              "key": "DATE-02:fact:1",
+              "subject": "Wedding",
+              "predicate": "is on",
+              "object": "12 diciembre 2026",
+              "entityRole": "Object"
+            }
+          ]
+        }
+      ],
+      "checks": [
+        "observation-source",
+        "fact-surface",
+        "identity-decision",
+        "binding-owner",
+        "fresh-scope-read"
+      ],
+      "retrieval": {
+        "route": "subject-or-object-read",
+        "requiredFactKeys": [
+          "DATE-02:fact:0",
+          "DATE-02:fact:1"
+        ],
+        "excludedFactKeys": []
+      },
+      "requiredStages": [
+        "identity",
+        "storage-bindings",
+        "retrieval"
+      ],
+      "requiredCoverage": [
+        {
+          "stage": "identity",
+          "configuration": "evidence-deterministic",
+          "variant": "typed-pair",
+          "check": "policy-decision"
+        },
+        {
+          "stage": "storage-bindings",
+          "configuration": "evidence-deterministic",
+          "variant": "sequential",
+          "check": "binding-roundtrip"
+        },
+        {
+          "stage": "retrieval",
+          "configuration": "evidence-deterministic",
+          "variant": "sequential",
+          "check": "fresh-scope-read"
+        }
+      ]
+    },
+    {
+      "id": "DATE-03",
+      "family": "date",
+      "subtype": "missing-year",
+      "kind": "identity-pair",
+      "owner": "lifecycle-owner",
+      "includeShared": false,
+      "policy": {
+        "identityProperties": [],
+        "compatibleTypes": []
+      },
+      "seed": {
+        "id": "DATE-03:left",
+        "name": "2026-12-12",
+        "type": "DATE",
+        "subtype": null,
+        "keys": {},
+        "kind": null,
+        "sourceId": "DATE-03:source:0"
+      },
+      "mention": {
+        "id": "DATE-03:right",
+        "name": "December 12",
+        "type": "DATE",
+        "subtype": null,
+        "keys": {},
+        "kind": null,
+        "sourceId": "DATE-03:source:1"
+      },
+      "truth": "unknown",
+      "expected": {
+        "policyDecision": "New",
+        "confirmedTarget": null,
+        "contextualDecision": "New",
+        "preserveOriginalSurface": true,
+        "forbidForeignFacts": true
+      },
+      "turns": [
+        {
+          "sourceId": "DATE-03:source:0",
+          "timestampUtc": "2026-11-09T10:00:00Z",
+          "text": "Training is on 2026-12-12.",
+          "entityRef": "seed",
+          "facts": [
+            {
+              "key": "DATE-03:fact:0",
+              "subject": "Training",
+              "predicate": "is on",
+              "object": "2026-12-12",
+              "entityRole": "Object"
+            }
+          ]
+        },
+        {
+          "sourceId": "DATE-03:source:1",
+          "timestampUtc": "2026-11-09T11:00:00Z",
+          "text": "Wedding is on December 12.",
+          "entityRef": "mention",
+          "facts": [
+            {
+              "key": "DATE-03:fact:1",
+              "subject": "Wedding",
+              "predicate": "is on",
+              "object": "December 12",
+              "entityRole": "Object"
+            }
+          ]
+        }
+      ],
+      "checks": [
+        "observation-source",
+        "fact-surface",
+        "identity-decision",
+        "binding-owner",
+        "fresh-scope-read"
+      ],
+      "retrieval": {
+        "route": "subject-or-object-read",
+        "requiredFactKeys": [
+          "DATE-03:fact:0",
+          "DATE-03:fact:1"
+        ],
+        "excludedFactKeys": []
+      },
+      "requiredStages": [
+        "identity",
+        "storage-bindings",
+        "retrieval"
+      ],
+      "requiredCoverage": [
+        {
+          "stage": "identity",
+          "configuration": "evidence-deterministic",
+          "variant": "typed-pair",
+          "check": "policy-decision"
+        },
+        {
+          "stage": "storage-bindings",
+          "configuration": "evidence-deterministic",
+          "variant": "sequential",
+          "check": "binding-roundtrip"
+        },
+        {
+          "stage": "retrieval",
+          "configuration": "evidence-deterministic",
+          "variant": "sequential",
+          "check": "fresh-scope-read"
+        }
+      ]
+    },
+    {
+      "id": "RANGE-01",
+      "family": "interval",
+      "subtype": "equivalent-endpoints",
+      "kind": "identity-pair",
+      "owner": "lifecycle-owner",
+      "includeShared": false,
+      "policy": {
+        "identityProperties": [],
+        "compatibleTypes": []
+      },
+      "seed": {
+        "id": "RANGE-01:left",
+        "name": "2026-12-09/2026-12-13",
+        "type": "DATE_RANGE",
+        "subtype": null,
+        "keys": {},
+        "kind": null,
+        "sourceId": "RANGE-01:source:0"
+      },
+      "mention": {
+        "id": "RANGE-01:right",
+        "name": "December 9–13, 2026",
+        "type": "DATE_RANGE",
+        "subtype": null,
+        "keys": {},
+        "kind": null,
+        "sourceId": "RANGE-01:source:1"
+      },
+      "truth": "same",
+      "expected": {
+        "policyDecision": "Confirmed",
+        "confirmedTarget": "RANGE-01:left",
+        "contextualDecision": "Confirmed",
+        "preserveOriginalSurface": true,
+        "forbidForeignFacts": true
+      },
+      "turns": [
+        {
+          "sourceId": "RANGE-01:source:0",
+          "timestampUtc": "2026-11-09T10:00:00Z",
+          "text": "Training is on 2026-12-09/2026-12-13.",
+          "entityRef": "seed",
+          "facts": [
+            {
+              "key": "RANGE-01:fact:0",
+              "subject": "Training",
+              "predicate": "is on",
+              "object": "2026-12-09/2026-12-13",
+              "entityRole": "Object"
+            }
+          ]
+        },
+        {
+          "sourceId": "RANGE-01:source:1",
+          "timestampUtc": "2026-11-09T11:00:00Z",
+          "text": "Wedding is on December 9–13, 2026.",
+          "entityRef": "mention",
+          "facts": [
+            {
+              "key": "RANGE-01:fact:1",
+              "subject": "Wedding",
+              "predicate": "is on",
+              "object": "December 9–13, 2026",
+              "entityRole": "Object"
+            }
+          ]
+        }
+      ],
+      "checks": [
+        "observation-source",
+        "fact-surface",
+        "identity-decision",
+        "binding-owner",
+        "fresh-scope-read"
+      ],
+      "retrieval": {
+        "route": "subject-or-object-read",
+        "requiredFactKeys": [
+          "RANGE-01:fact:0",
+          "RANGE-01:fact:1"
+        ],
+        "excludedFactKeys": []
+      },
+      "requiredStages": [
+        "identity",
+        "storage-bindings",
+        "retrieval"
+      ],
+      "requiredCoverage": [
+        {
+          "stage": "identity",
+          "configuration": "evidence-deterministic",
+          "variant": "typed-pair",
+          "check": "policy-decision"
+        },
+        {
+          "stage": "storage-bindings",
+          "configuration": "evidence-deterministic",
+          "variant": "sequential",
+          "check": "binding-roundtrip"
+        },
+        {
+          "stage": "retrieval",
+          "configuration": "evidence-deterministic",
+          "variant": "sequential",
+          "check": "fresh-scope-read"
+        }
+      ]
+    },
+    {
+      "id": "RANGE-02",
+      "family": "interval",
+      "subtype": "different-endpoint",
+      "kind": "identity-pair",
+      "owner": "lifecycle-owner",
+      "includeShared": false,
+      "policy": {
+        "identityProperties": [],
+        "compatibleTypes": []
+      },
+      "seed": {
+        "id": "RANGE-02:left",
+        "name": "2026-12-09/2026-12-13",
+        "type": "DATE_RANGE",
+        "subtype": null,
+        "keys": {},
+        "kind": null,
+        "sourceId": "RANGE-02:source:0"
+      },
+      "mention": {
+        "id": "RANGE-02:right",
+        "name": "2026-12-09/2026-12-12",
+        "type": "DATE_RANGE",
+        "subtype": null,
+        "keys": {},
+        "kind": null,
+        "sourceId": "RANGE-02:source:1"
+      },
+      "truth": "different",
+      "expected": {
+        "policyDecision": "New",
+        "confirmedTarget": null,
+        "contextualDecision": "New",
+        "preserveOriginalSurface": true,
+        "forbidForeignFacts": true
+      },
+      "turns": [
+        {
+          "sourceId": "RANGE-02:source:0",
+          "timestampUtc": "2026-11-09T10:00:00Z",
+          "text": "Training is on 2026-12-09/2026-12-13.",
+          "entityRef": "seed",
+          "facts": [
+            {
+              "key": "RANGE-02:fact:0",
+              "subject": "Training",
+              "predicate": "is on",
+              "object": "2026-12-09/2026-12-13",
+              "entityRole": "Object"
+            }
+          ]
+        },
+        {
+          "sourceId": "RANGE-02:source:1",
+          "timestampUtc": "2026-11-09T11:00:00Z",
+          "text": "Wedding is on 2026-12-09/2026-12-12.",
+          "entityRef": "mention",
+          "facts": [
+            {
+              "key": "RANGE-02:fact:1",
+              "subject": "Wedding",
+              "predicate": "is on",
+              "object": "2026-12-09/2026-12-12",
+              "entityRole": "Object"
+            }
+          ]
+        }
+      ],
+      "checks": [
+        "observation-source",
+        "fact-surface",
+        "identity-decision",
+        "binding-owner",
+        "fresh-scope-read"
+      ],
+      "retrieval": {
+        "route": "subject-or-object-read",
+        "requiredFactKeys": [
+          "RANGE-02:fact:0",
+          "RANGE-02:fact:1"
+        ],
+        "excludedFactKeys": []
+      },
+      "requiredStages": [
+        "identity",
+        "storage-bindings",
+        "retrieval"
+      ],
+      "requiredCoverage": [
+        {
+          "stage": "identity",
+          "configuration": "evidence-deterministic",
+          "variant": "typed-pair",
+          "check": "policy-decision"
+        },
+        {
+          "stage": "storage-bindings",
+          "configuration": "evidence-deterministic",
+          "variant": "sequential",
+          "check": "binding-roundtrip"
+        },
+        {
+          "stage": "retrieval",
+          "configuration": "evidence-deterministic",
+          "variant": "sequential",
+          "check": "fresh-scope-read"
+        }
+      ]
+    },
+    {
+      "id": "RANGE-03",
+      "family": "interval",
+      "subtype": "overlap-is-not-identity",
+      "kind": "identity-pair",
+      "owner": "lifecycle-owner",
+      "includeShared": false,
+      "policy": {
+        "identityProperties": [],
+        "compatibleTypes": []
+      },
+      "seed": {
+        "id": "RANGE-03:left",
+        "name": "2026-12-09/2026-12-13",
+        "type": "DATE_RANGE",
+        "subtype": null,
+        "keys": {},
+        "kind": null,
+        "sourceId": "RANGE-03:source:0"
+      },
+      "mention": {
+        "id": "RANGE-03:right",
+        "name": "2026-12-11/2026-12-15",
+        "type": "DATE_RANGE",
+        "subtype": null,
+        "keys": {},
+        "kind": null,
+        "sourceId": "RANGE-03:source:1"
+      },
+      "truth": "different",
+      "expected": {
+        "policyDecision": "New",
+        "confirmedTarget": null,
+        "contextualDecision": "New",
+        "preserveOriginalSurface": true,
+        "forbidForeignFacts": true
+      },
+      "turns": [
+        {
+          "sourceId": "RANGE-03:source:0",
+          "timestampUtc": "2026-11-09T10:00:00Z",
+          "text": "Training is on 2026-12-09/2026-12-13.",
+          "entityRef": "seed",
+          "facts": [
+            {
+              "key": "RANGE-03:fact:0",
+              "subject": "Training",
+              "predicate": "is on",
+              "object": "2026-12-09/2026-12-13",
+              "entityRole": "Object"
+            }
+          ]
+        },
+        {
+          "sourceId": "RANGE-03:source:1",
+          "timestampUtc": "2026-11-09T11:00:00Z",
+          "text": "Wedding is on 2026-12-11/2026-12-15.",
+          "entityRef": "mention",
+          "facts": [
+            {
+              "key": "RANGE-03:fact:1",
+              "subject": "Wedding",
+              "predicate": "is on",
+              "object": "2026-12-11/2026-12-15",
+              "entityRole": "Object"
+            }
+          ]
+        }
+      ],
+      "checks": [
+        "observation-source",
+        "fact-surface",
+        "identity-decision",
+        "binding-owner",
+        "fresh-scope-read"
+      ],
+      "retrieval": {
+        "route": "subject-or-object-read",
+        "requiredFactKeys": [
+          "RANGE-03:fact:0",
+          "RANGE-03:fact:1"
+        ],
+        "excludedFactKeys": []
+      },
+      "requiredStages": [
+        "identity",
+        "storage-bindings",
+        "retrieval"
+      ],
+      "requiredCoverage": [
+        {
+          "stage": "identity",
+          "configuration": "evidence-deterministic",
+          "variant": "typed-pair",
+          "check": "policy-decision"
+        },
+        {
+          "stage": "storage-bindings",
+          "configuration": "evidence-deterministic",
+          "variant": "sequential",
+          "check": "binding-roundtrip"
+        },
+        {
+          "stage": "retrieval",
+          "configuration": "evidence-deterministic",
+          "variant": "sequential",
+          "check": "fresh-scope-read"
+        }
+      ]
+    },
+    {
+      "id": "PERSON-01",
+      "family": "person",
+      "subtype": "backed-alias",
+      "kind": "identity-pair",
+      "owner": "lifecycle-owner",
+      "includeShared": false,
+      "policy": {
+        "identityProperties": [
+          "id"
+        ],
+        "compatibleTypes": []
+      },
+      "seed": {
+        "id": "PERSON-01:left",
+        "name": "Alejandra Garcia",
+        "type": "PERSON",
+        "subtype": null,
+        "keys": {
+          "id": "person-7"
+        },
+        "kind": null,
+        "sourceId": "PERSON-01:source:0"
+      },
+      "mention": {
+        "id": "PERSON-01:right",
+        "name": "Alex Garcia",
+        "type": "PERSON",
+        "subtype": null,
+        "keys": {
+          "id": "person-7"
+        },
+        "kind": null,
+        "sourceId": "PERSON-01:source:1"
+      },
+      "truth": "same",
+      "expected": {
+        "policyDecision": "Confirmed",
+        "confirmedTarget": "PERSON-01:left",
+        "contextualDecision": "Confirmed",
+        "preserveOriginalSurface": true,
+        "forbidForeignFacts": true
+      },
+      "turns": [
+        {
+          "sourceId": "PERSON-01:source:0",
+          "timestampUtc": "2026-11-09T10:00:00Z",
+          "text": "Alejandra Garcia has responsibility prepare Atlas.",
+          "entityRef": "seed",
+          "facts": [
+            {
+              "key": "PERSON-01:fact:0",
+              "subject": "Alejandra Garcia",
+              "predicate": "has responsibility",
+              "object": "prepare Atlas",
+              "entityRole": "Subject"
+            }
+          ]
+        },
+        {
+          "sourceId": "PERSON-01:source:1",
+          "timestampUtc": "2026-11-09T11:00:00Z",
+          "text": "Alex Garcia has responsibility review Atlas.",
+          "entityRef": "mention",
+          "facts": [
+            {
+              "key": "PERSON-01:fact:1",
+              "subject": "Alex Garcia",
+              "predicate": "has responsibility",
+              "object": "review Atlas",
+              "entityRole": "Subject"
+            }
+          ]
+        }
+      ],
+      "checks": [
+        "observation-source",
+        "fact-surface",
+        "identity-decision",
+        "binding-owner",
+        "fresh-scope-read"
+      ],
+      "retrieval": {
+        "route": "subject-or-object-read",
+        "requiredFactKeys": [
+          "PERSON-01:fact:0",
+          "PERSON-01:fact:1"
+        ],
+        "excludedFactKeys": []
+      },
+      "requiredStages": [
+        "identity",
+        "storage-bindings",
+        "retrieval"
+      ],
+      "requiredCoverage": [
+        {
+          "stage": "identity",
+          "configuration": "host-evidence",
+          "variant": "typed-pair",
+          "check": "policy-decision"
+        },
+        {
+          "stage": "storage-bindings",
+          "configuration": "host-evidence",
+          "variant": "sequential",
+          "check": "binding-roundtrip"
+        },
+        {
+          "stage": "retrieval",
+          "configuration": "host-evidence",
+          "variant": "sequential",
+          "check": "fresh-scope-read"
+        }
+      ]
+    },
+    {
+      "id": "PERSON-02",
+      "family": "person",
+      "subtype": "homonyms",
+      "kind": "identity-pair",
+      "owner": "lifecycle-owner",
+      "includeShared": false,
+      "policy": {
+        "identityProperties": [
+          "id"
+        ],
+        "compatibleTypes": []
+      },
+      "seed": {
+        "id": "PERSON-02:left",
+        "name": "Alex Garcia",
+        "type": "PERSON",
+        "subtype": null,
+        "keys": {
+          "id": "person-7"
+        },
+        "kind": null,
+        "sourceId": "PERSON-02:source:0"
+      },
+      "mention": {
+        "id": "PERSON-02:right",
+        "name": "Alex Garcia",
+        "type": "PERSON",
+        "subtype": null,
+        "keys": {
+          "id": "person-9"
+        },
+        "kind": null,
+        "sourceId": "PERSON-02:source:1"
+      },
+      "truth": "different",
+      "expected": {
+        "policyDecision": "New",
+        "confirmedTarget": null,
+        "contextualDecision": "New",
+        "preserveOriginalSurface": true,
+        "forbidForeignFacts": true
+      },
+      "turns": [
+        {
+          "sourceId": "PERSON-02:source:0",
+          "timestampUtc": "2026-11-09T10:00:00Z",
+          "text": "Alex Garcia has responsibility prepare Atlas.",
+          "entityRef": "seed",
+          "facts": [
+            {
+              "key": "PERSON-02:fact:0",
+              "subject": "Alex Garcia",
+              "predicate": "has responsibility",
+              "object": "prepare Atlas",
+              "entityRole": "Subject"
+            }
+          ]
+        },
+        {
+          "sourceId": "PERSON-02:source:1",
+          "timestampUtc": "2026-11-09T11:00:00Z",
+          "text": "Alex Garcia has responsibility review Atlas.",
+          "entityRef": "mention",
+          "facts": [
+            {
+              "key": "PERSON-02:fact:1",
+              "subject": "Alex Garcia",
+              "predicate": "has responsibility",
+              "object": "review Atlas",
+              "entityRole": "Subject"
+            }
+          ]
+        }
+      ],
+      "checks": [
+        "observation-source",
+        "fact-surface",
+        "identity-decision",
+        "binding-owner",
+        "fresh-scope-read"
+      ],
+      "retrieval": {
+        "route": "subject-or-object-read",
+        "requiredFactKeys": [
+          "PERSON-02:fact:0",
+          "PERSON-02:fact:1"
+        ],
+        "excludedFactKeys": []
+      },
+      "requiredStages": [
+        "identity",
+        "storage-bindings",
+        "retrieval"
+      ],
+      "requiredCoverage": [
+        {
+          "stage": "identity",
+          "configuration": "host-evidence",
+          "variant": "typed-pair",
+          "check": "policy-decision"
+        },
+        {
+          "stage": "storage-bindings",
+          "configuration": "host-evidence",
+          "variant": "sequential",
+          "check": "binding-roundtrip"
+        },
+        {
+          "stage": "retrieval",
+          "configuration": "host-evidence",
+          "variant": "sequential",
+          "check": "fresh-scope-read"
+        }
+      ]
+    },
+    {
+      "id": "PERSON-03",
+      "family": "person",
+      "subtype": "name-alone-insufficient",
+      "kind": "identity-pair",
+      "owner": "lifecycle-owner",
+      "includeShared": false,
+      "policy": {
+        "identityProperties": [],
+        "compatibleTypes": []
+      },
+      "seed": {
+        "id": "PERSON-03:left",
+        "name": "Alex Garcia",
+        "type": "PERSON",
+        "subtype": null,
+        "keys": {},
+        "kind": null,
+        "sourceId": "PERSON-03:source:0"
+      },
+      "mention": {
+        "id": "PERSON-03:right",
+        "name": "Alex Garcia",
+        "type": "PERSON",
+        "subtype": null,
+        "keys": {},
+        "kind": null,
+        "sourceId": "PERSON-03:source:1"
+      },
+      "truth": "unknown",
+      "expected": {
+        "policyDecision": "Pending",
+        "confirmedTarget": null,
+        "contextualDecision": "Pending",
+        "preserveOriginalSurface": true,
+        "forbidForeignFacts": true
+      },
+      "turns": [
+        {
+          "sourceId": "PERSON-03:source:0",
+          "timestampUtc": "2026-11-09T10:00:00Z",
+          "text": "Alex Garcia has responsibility prepare Atlas.",
+          "entityRef": "seed",
+          "facts": [
+            {
+              "key": "PERSON-03:fact:0",
+              "subject": "Alex Garcia",
+              "predicate": "has responsibility",
+              "object": "prepare Atlas",
+              "entityRole": "Subject"
+            }
+          ]
+        },
+        {
+          "sourceId": "PERSON-03:source:1",
+          "timestampUtc": "2026-11-09T11:00:00Z",
+          "text": "Alex Garcia has responsibility review Atlas.",
+          "entityRef": "mention",
+          "facts": [
+            {
+              "key": "PERSON-03:fact:1",
+              "subject": "Alex Garcia",
+              "predicate": "has responsibility",
+              "object": "review Atlas",
+              "entityRole": "Subject"
+            }
+          ]
+        }
+      ],
+      "checks": [
+        "observation-source",
+        "fact-surface",
+        "identity-decision",
+        "binding-owner",
+        "fresh-scope-read"
+      ],
+      "retrieval": {
+        "route": "subject-or-object-read",
+        "requiredFactKeys": [
+          "PERSON-03:fact:0",
+          "PERSON-03:fact:1"
+        ],
+        "excludedFactKeys": []
+      },
+      "requiredStages": [
+        "identity",
+        "storage-bindings",
+        "retrieval"
+      ],
+      "requiredCoverage": [
+        {
+          "stage": "identity",
+          "configuration": "evidence-deterministic",
+          "variant": "typed-pair",
+          "check": "policy-decision"
+        },
+        {
+          "stage": "storage-bindings",
+          "configuration": "evidence-deterministic",
+          "variant": "sequential",
+          "check": "binding-roundtrip"
+        },
+        {
+          "stage": "retrieval",
+          "configuration": "evidence-deterministic",
+          "variant": "sequential",
+          "check": "fresh-scope-read"
+        }
+      ]
+    },
+    {
+      "id": "ORG-01",
+      "family": "organization",
+      "subtype": "legal-name-and-backed-alias",
+      "kind": "identity-pair",
+      "owner": "lifecycle-owner",
+      "includeShared": false,
+      "policy": {
+        "identityProperties": [
+          "id"
+        ],
+        "compatibleTypes": []
+      },
+      "seed": {
+        "id": "ORG-01:left",
+        "name": "Acme Logistics SA",
+        "type": "ORGANIZATION",
+        "subtype": null,
+        "keys": {
+          "id": "org-7"
+        },
+        "kind": null,
+        "sourceId": "ORG-01:source:0"
+      },
+      "mention": {
+        "id": "ORG-01:right",
+        "name": "Acme",
+        "type": "ORGANIZATION",
+        "subtype": null,
+        "keys": {
+          "id": "org-7"
+        },
+        "kind": null,
+        "sourceId": "ORG-01:source:1"
+      },
+      "truth": "same",
+      "expected": {
+        "policyDecision": "Confirmed",
+        "confirmedTarget": "ORG-01:left",
+        "contextualDecision": "Confirmed",
+        "preserveOriginalSurface": true,
+        "forbidForeignFacts": true
+      },
+      "turns": [
+        {
+          "sourceId": "ORG-01:source:0",
+          "timestampUtc": "2026-11-09T10:00:00Z",
+          "text": "Acme Logistics SA has responsibility prepare Atlas.",
+          "entityRef": "seed",
+          "facts": [
+            {
+              "key": "ORG-01:fact:0",
+              "subject": "Acme Logistics SA",
+              "predicate": "has responsibility",
+              "object": "prepare Atlas",
+              "entityRole": "Subject"
+            }
+          ]
+        },
+        {
+          "sourceId": "ORG-01:source:1",
+          "timestampUtc": "2026-11-09T11:00:00Z",
+          "text": "Acme has responsibility review Atlas.",
+          "entityRef": "mention",
+          "facts": [
+            {
+              "key": "ORG-01:fact:1",
+              "subject": "Acme",
+              "predicate": "has responsibility",
+              "object": "review Atlas",
+              "entityRole": "Subject"
+            }
+          ]
+        }
+      ],
+      "checks": [
+        "observation-source",
+        "fact-surface",
+        "identity-decision",
+        "binding-owner",
+        "fresh-scope-read"
+      ],
+      "retrieval": {
+        "route": "subject-or-object-read",
+        "requiredFactKeys": [
+          "ORG-01:fact:0",
+          "ORG-01:fact:1"
+        ],
+        "excludedFactKeys": []
+      },
+      "requiredStages": [
+        "identity",
+        "storage-bindings",
+        "retrieval"
+      ],
+      "requiredCoverage": [
+        {
+          "stage": "identity",
+          "configuration": "host-evidence",
+          "variant": "typed-pair",
+          "check": "policy-decision"
+        },
+        {
+          "stage": "storage-bindings",
+          "configuration": "host-evidence",
+          "variant": "sequential",
+          "check": "binding-roundtrip"
+        },
+        {
+          "stage": "retrieval",
+          "configuration": "host-evidence",
+          "variant": "sequential",
+          "check": "fresh-scope-read"
+        }
+      ]
+    },
+    {
+      "id": "ORG-02",
+      "family": "organization",
+      "subtype": "parent-and-subsidiary",
+      "kind": "identity-pair",
+      "owner": "lifecycle-owner",
+      "includeShared": false,
+      "policy": {
+        "identityProperties": [
+          "id"
+        ],
+        "compatibleTypes": []
+      },
+      "seed": {
+        "id": "ORG-02:left",
+        "name": "Acme Holdings",
+        "type": "ORGANIZATION",
+        "subtype": null,
+        "keys": {
+          "id": "holding-1"
+        },
+        "kind": null,
+        "sourceId": "ORG-02:source:0"
+      },
+      "mention": {
+        "id": "ORG-02:right",
+        "name": "Acme Logistics",
+        "type": "ORGANIZATION",
+        "subtype": null,
+        "keys": {
+          "id": "subsidiary-1"
+        },
+        "kind": null,
+        "sourceId": "ORG-02:source:1"
+      },
+      "truth": "different",
+      "expected": {
+        "policyDecision": "New",
+        "confirmedTarget": null,
+        "contextualDecision": "New",
+        "preserveOriginalSurface": true,
+        "forbidForeignFacts": true
+      },
+      "turns": [
+        {
+          "sourceId": "ORG-02:source:0",
+          "timestampUtc": "2026-11-09T10:00:00Z",
+          "text": "Acme Holdings has responsibility prepare Atlas.",
+          "entityRef": "seed",
+          "facts": [
+            {
+              "key": "ORG-02:fact:0",
+              "subject": "Acme Holdings",
+              "predicate": "has responsibility",
+              "object": "prepare Atlas",
+              "entityRole": "Subject"
+            }
+          ]
+        },
+        {
+          "sourceId": "ORG-02:source:1",
+          "timestampUtc": "2026-11-09T11:00:00Z",
+          "text": "Acme Logistics has responsibility review Atlas.",
+          "entityRef": "mention",
+          "facts": [
+            {
+              "key": "ORG-02:fact:1",
+              "subject": "Acme Logistics",
+              "predicate": "has responsibility",
+              "object": "review Atlas",
+              "entityRole": "Subject"
+            }
+          ]
+        }
+      ],
+      "checks": [
+        "observation-source",
+        "fact-surface",
+        "identity-decision",
+        "binding-owner",
+        "fresh-scope-read"
+      ],
+      "retrieval": {
+        "route": "subject-or-object-read",
+        "requiredFactKeys": [
+          "ORG-02:fact:0",
+          "ORG-02:fact:1"
+        ],
+        "excludedFactKeys": []
+      },
+      "requiredStages": [
+        "identity",
+        "storage-bindings",
+        "retrieval"
+      ],
+      "requiredCoverage": [
+        {
+          "stage": "identity",
+          "configuration": "host-evidence",
+          "variant": "typed-pair",
+          "check": "policy-decision"
+        },
+        {
+          "stage": "storage-bindings",
+          "configuration": "host-evidence",
+          "variant": "sequential",
+          "check": "binding-roundtrip"
+        },
+        {
+          "stage": "retrieval",
+          "configuration": "host-evidence",
+          "variant": "sequential",
+          "check": "fresh-scope-read"
+        }
+      ]
+    },
+    {
+      "id": "ORG-03",
+      "family": "organization",
+      "subtype": "ambiguous-acronym",
+      "kind": "identity-pair",
+      "owner": "lifecycle-owner",
+      "includeShared": false,
+      "policy": {
+        "identityProperties": [],
+        "compatibleTypes": []
+      },
+      "seed": {
+        "id": "ORG-03:left",
+        "name": "ABC",
+        "type": "ORGANIZATION",
+        "subtype": null,
+        "keys": {},
+        "kind": null,
+        "sourceId": "ORG-03:source:0"
+      },
+      "mention": {
+        "id": "ORG-03:right",
+        "name": "ABC",
+        "type": "ORGANIZATION",
+        "subtype": null,
+        "keys": {},
+        "kind": null,
+        "sourceId": "ORG-03:source:1"
+      },
+      "truth": "unknown",
+      "expected": {
+        "policyDecision": "Pending",
+        "confirmedTarget": null,
+        "contextualDecision": "Pending",
+        "preserveOriginalSurface": true,
+        "forbidForeignFacts": true
+      },
+      "turns": [
+        {
+          "sourceId": "ORG-03:source:0",
+          "timestampUtc": "2026-11-09T10:00:00Z",
+          "text": "ABC has responsibility prepare Atlas.",
+          "entityRef": "seed",
+          "facts": [
+            {
+              "key": "ORG-03:fact:0",
+              "subject": "ABC",
+              "predicate": "has responsibility",
+              "object": "prepare Atlas",
+              "entityRole": "Subject"
+            }
+          ]
+        },
+        {
+          "sourceId": "ORG-03:source:1",
+          "timestampUtc": "2026-11-09T11:00:00Z",
+          "text": "ABC has responsibility review Atlas.",
+          "entityRef": "mention",
+          "facts": [
+            {
+              "key": "ORG-03:fact:1",
+              "subject": "ABC",
+              "predicate": "has responsibility",
+              "object": "review Atlas",
+              "entityRole": "Subject"
+            }
+          ]
+        }
+      ],
+      "checks": [
+        "observation-source",
+        "fact-surface",
+        "identity-decision",
+        "binding-owner",
+        "fresh-scope-read"
+      ],
+      "retrieval": {
+        "route": "subject-or-object-read",
+        "requiredFactKeys": [
+          "ORG-03:fact:0",
+          "ORG-03:fact:1"
+        ],
+        "excludedFactKeys": []
+      },
+      "requiredStages": [
+        "identity",
+        "storage-bindings",
+        "retrieval"
+      ],
+      "requiredCoverage": [
+        {
+          "stage": "identity",
+          "configuration": "evidence-deterministic",
+          "variant": "typed-pair",
+          "check": "policy-decision"
+        },
+        {
+          "stage": "storage-bindings",
+          "configuration": "evidence-deterministic",
+          "variant": "sequential",
+          "check": "binding-roundtrip"
+        },
+        {
+          "stage": "retrieval",
+          "configuration": "evidence-deterministic",
+          "variant": "sequential",
+          "check": "fresh-scope-read"
+        }
+      ]
+    },
+    {
+      "id": "PLACE-01",
+      "family": "place",
+      "subtype": "country-disambiguation",
+      "kind": "identity-pair",
+      "owner": "lifecycle-owner",
+      "includeShared": false,
+      "policy": {
+        "identityProperties": [
+          "country",
+          "placeId"
+        ],
+        "compatibleTypes": []
+      },
+      "seed": {
+        "id": "PLACE-01:left",
+        "name": "Cordoba",
+        "type": "LOCATION",
+        "subtype": null,
+        "keys": {
+          "country": "AR",
+          "placeId": "CBA"
+        },
+        "kind": null,
+        "sourceId": "PLACE-01:source:0"
+      },
+      "mention": {
+        "id": "PLACE-01:right",
+        "name": "Cordoba",
+        "type": "LOCATION",
+        "subtype": null,
+        "keys": {
+          "country": "ES",
+          "placeId": "CBA"
+        },
+        "kind": null,
+        "sourceId": "PLACE-01:source:1"
+      },
+      "truth": "different",
+      "expected": {
+        "policyDecision": "New",
+        "confirmedTarget": null,
+        "contextualDecision": "New",
+        "preserveOriginalSurface": true,
+        "forbidForeignFacts": true
+      },
+      "turns": [
+        {
+          "sourceId": "PLACE-01:source:0",
+          "timestampUtc": "2026-11-09T10:00:00Z",
+          "text": "Cordoba has responsibility prepare Atlas.",
+          "entityRef": "seed",
+          "facts": [
+            {
+              "key": "PLACE-01:fact:0",
+              "subject": "Cordoba",
+              "predicate": "has responsibility",
+              "object": "prepare Atlas",
+              "entityRole": "Subject"
+            }
+          ]
+        },
+        {
+          "sourceId": "PLACE-01:source:1",
+          "timestampUtc": "2026-11-09T11:00:00Z",
+          "text": "Cordoba has responsibility review Atlas.",
+          "entityRef": "mention",
+          "facts": [
+            {
+              "key": "PLACE-01:fact:1",
+              "subject": "Cordoba",
+              "predicate": "has responsibility",
+              "object": "review Atlas",
+              "entityRole": "Subject"
+            }
+          ]
+        }
+      ],
+      "checks": [
+        "observation-source",
+        "fact-surface",
+        "identity-decision",
+        "binding-owner",
+        "fresh-scope-read"
+      ],
+      "retrieval": {
+        "route": "subject-or-object-read",
+        "requiredFactKeys": [
+          "PLACE-01:fact:0",
+          "PLACE-01:fact:1"
+        ],
+        "excludedFactKeys": []
+      },
+      "requiredStages": [
+        "identity",
+        "storage-bindings",
+        "retrieval"
+      ],
+      "requiredCoverage": [
+        {
+          "stage": "identity",
+          "configuration": "host-evidence",
+          "variant": "typed-pair",
+          "check": "policy-decision"
+        },
+        {
+          "stage": "storage-bindings",
+          "configuration": "host-evidence",
+          "variant": "sequential",
+          "check": "binding-roundtrip"
+        },
+        {
+          "stage": "retrieval",
+          "configuration": "host-evidence",
+          "variant": "sequential",
+          "check": "fresh-scope-read"
+        }
+      ]
+    },
+    {
+      "id": "PLACE-02",
+      "family": "place",
+      "subtype": "backed-place-alias",
+      "kind": "identity-pair",
+      "owner": "lifecycle-owner",
+      "includeShared": false,
+      "policy": {
+        "identityProperties": [
+          "placeId"
+        ],
+        "compatibleTypes": []
+      },
+      "seed": {
+        "id": "PLACE-02:left",
+        "name": "New York City",
+        "type": "LOCATION",
+        "subtype": null,
+        "keys": {
+          "placeId": "US-NYC"
+        },
+        "kind": null,
+        "sourceId": "PLACE-02:source:0"
+      },
+      "mention": {
+        "id": "PLACE-02:right",
+        "name": "NYC",
+        "type": "LOCATION",
+        "subtype": null,
+        "keys": {
+          "placeId": "US-NYC"
+        },
+        "kind": null,
+        "sourceId": "PLACE-02:source:1"
+      },
+      "truth": "same",
+      "expected": {
+        "policyDecision": "Confirmed",
+        "confirmedTarget": "PLACE-02:left",
+        "contextualDecision": "Confirmed",
+        "preserveOriginalSurface": true,
+        "forbidForeignFacts": true
+      },
+      "turns": [
+        {
+          "sourceId": "PLACE-02:source:0",
+          "timestampUtc": "2026-11-09T10:00:00Z",
+          "text": "New York City has responsibility prepare Atlas.",
+          "entityRef": "seed",
+          "facts": [
+            {
+              "key": "PLACE-02:fact:0",
+              "subject": "New York City",
+              "predicate": "has responsibility",
+              "object": "prepare Atlas",
+              "entityRole": "Subject"
+            }
+          ]
+        },
+        {
+          "sourceId": "PLACE-02:source:1",
+          "timestampUtc": "2026-11-09T11:00:00Z",
+          "text": "NYC has responsibility review Atlas.",
+          "entityRef": "mention",
+          "facts": [
+            {
+              "key": "PLACE-02:fact:1",
+              "subject": "NYC",
+              "predicate": "has responsibility",
+              "object": "review Atlas",
+              "entityRole": "Subject"
+            }
+          ]
+        }
+      ],
+      "checks": [
+        "observation-source",
+        "fact-surface",
+        "identity-decision",
+        "binding-owner",
+        "fresh-scope-read"
+      ],
+      "retrieval": {
+        "route": "subject-or-object-read",
+        "requiredFactKeys": [
+          "PLACE-02:fact:0",
+          "PLACE-02:fact:1"
+        ],
+        "excludedFactKeys": []
+      },
+      "requiredStages": [
+        "identity",
+        "storage-bindings",
+        "retrieval"
+      ],
+      "requiredCoverage": [
+        {
+          "stage": "identity",
+          "configuration": "host-evidence",
+          "variant": "typed-pair",
+          "check": "policy-decision"
+        },
+        {
+          "stage": "storage-bindings",
+          "configuration": "host-evidence",
+          "variant": "sequential",
+          "check": "binding-roundtrip"
+        },
+        {
+          "stage": "retrieval",
+          "configuration": "host-evidence",
+          "variant": "sequential",
+          "check": "fresh-scope-read"
+        }
+      ]
+    },
+    {
+      "id": "PLACE-03",
+      "family": "place",
+      "subtype": "city-versus-specific-office",
+      "kind": "identity-pair",
+      "owner": "lifecycle-owner",
+      "includeShared": false,
+      "policy": {
+        "identityProperties": [],
+        "compatibleTypes": []
+      },
+      "seed": {
+        "id": "PLACE-03:left",
+        "name": "Cordoba",
+        "type": "CITY",
+        "subtype": null,
+        "keys": {},
+        "kind": null,
+        "sourceId": "PLACE-03:source:0"
+      },
+      "mention": {
+        "id": "PLACE-03:right",
+        "name": "Cordoba",
+        "type": "OFFICE",
+        "subtype": null,
+        "keys": {},
+        "kind": null,
+        "sourceId": "PLACE-03:source:1"
+      },
+      "truth": "different",
+      "expected": {
+        "policyDecision": "New",
+        "confirmedTarget": null,
+        "contextualDecision": "New",
+        "preserveOriginalSurface": true,
+        "forbidForeignFacts": true
+      },
+      "turns": [
+        {
+          "sourceId": "PLACE-03:source:0",
+          "timestampUtc": "2026-11-09T10:00:00Z",
+          "text": "Cordoba has responsibility prepare Atlas.",
+          "entityRef": "seed",
+          "facts": [
+            {
+              "key": "PLACE-03:fact:0",
+              "subject": "Cordoba",
+              "predicate": "has responsibility",
+              "object": "prepare Atlas",
+              "entityRole": "Subject"
+            }
+          ]
+        },
+        {
+          "sourceId": "PLACE-03:source:1",
+          "timestampUtc": "2026-11-09T11:00:00Z",
+          "text": "Cordoba has responsibility review Atlas.",
+          "entityRef": "mention",
+          "facts": [
+            {
+              "key": "PLACE-03:fact:1",
+              "subject": "Cordoba",
+              "predicate": "has responsibility",
+              "object": "review Atlas",
+              "entityRole": "Subject"
+            }
+          ]
+        }
+      ],
+      "checks": [
+        "observation-source",
+        "fact-surface",
+        "identity-decision",
+        "binding-owner",
+        "fresh-scope-read"
+      ],
+      "retrieval": {
+        "route": "subject-or-object-read",
+        "requiredFactKeys": [
+          "PLACE-03:fact:0",
+          "PLACE-03:fact:1"
+        ],
+        "excludedFactKeys": []
+      },
+      "requiredStages": [
+        "identity",
+        "storage-bindings",
+        "retrieval"
+      ],
+      "requiredCoverage": [
+        {
+          "stage": "identity",
+          "configuration": "evidence-deterministic",
+          "variant": "typed-pair",
+          "check": "policy-decision"
+        },
+        {
+          "stage": "storage-bindings",
+          "configuration": "evidence-deterministic",
+          "variant": "sequential",
+          "check": "binding-roundtrip"
+        },
+        {
+          "stage": "retrieval",
+          "configuration": "evidence-deterministic",
+          "variant": "sequential",
+          "check": "fresh-scope-read"
+        }
+      ]
+    },
+    {
+      "id": "EVENT-01",
+      "family": "event",
+      "subtype": "cross-turn-date-place-presence",
+      "kind": "identity-pair",
+      "owner": "lifecycle-owner",
+      "includeShared": false,
+      "policy": {
+        "identityProperties": [],
+        "compatibleTypes": []
+      },
+      "seed": {
+        "id": "EVENT-01:left",
+        "name": "Acme billing go-live",
+        "type": "EVENT",
+        "subtype": null,
+        "keys": {},
+        "kind": null,
+        "sourceId": "EVENT-01:source:0"
+      },
+      "mention": {
+        "id": "EVENT-01:right",
+        "name": "Acme billing go-live",
+        "type": "EVENT",
+        "subtype": null,
+        "keys": {},
+        "kind": null,
+        "sourceId": "EVENT-01:source:1"
+      },
+      "truth": "same",
+      "expected": {
+        "policyDecision": "Pending",
+        "confirmedTarget": null,
+        "contextualDecision": "Confirmed",
+        "preserveOriginalSurface": true,
+        "forbidForeignFacts": true
+      },
+      "turns": [
+        {
+          "sourceId": "EVENT-01:source:0",
+          "timestampUtc": "2026-11-09T10:00:00Z",
+          "text": "I am leading Acme billing go-live on December 11, 2026.",
+          "entityRef": "seed",
+          "facts": [
+            {
+              "key": "EVENT-01:date",
+              "subject": "Acme billing go-live",
+              "predicate": "is on",
+              "object": "December 11, 2026",
+              "occurredOn": "2026-12-11",
+              "entityRole": "Subject"
+            }
+          ]
+        },
+        {
+          "sourceId": "EVENT-01:source:1",
+          "timestampUtc": "2026-11-09T11:00:00Z",
+          "text": "The cutover is on-site in Cordoba and I must be there in person.",
+          "entityRef": "mention",
+          "facts": [
+            {
+              "key": "EVENT-01:place",
+              "subject": "Acme billing go-live",
+              "predicate": "takes place at",
+              "object": "Cordoba",
+              "entityRole": "Subject"
+            },
+            {
+              "key": "EVENT-01:presence",
+              "subject": "Acme billing go-live",
+              "predicate": "requires",
+              "object": "in person participation",
+              "entityRole": "Subject"
+            }
+          ]
+        }
+      ],
+      "checks": [
+        "observation-source",
+        "fact-surface",
+        "identity-decision",
+        "binding-owner",
+        "fresh-scope-read"
+      ],
+      "requiresPriorContext": true,
+      "retrieval": {
+        "route": "event-details",
+        "seedFactKeys": [
+          "EVENT-01:date"
+        ],
+        "requiredFactKeys": [
+          "EVENT-01:place",
+          "EVENT-01:presence"
+        ],
+        "windowFrom": "2026-12-07",
+        "windowUntil": "2026-12-13",
+        "excludedFactKeys": []
+      },
+      "requiredStages": [
+        "identity",
+        "storage-bindings",
+        "retrieval"
+      ],
+      "requiredCoverage": [
+        {
+          "stage": "identity",
+          "configuration": "evidence-deterministic",
+          "variant": "typed-pair",
+          "check": "policy-decision"
+        },
+        {
+          "stage": "storage-bindings",
+          "configuration": "evidence-deterministic",
+          "variant": "sequential",
+          "check": "binding-roundtrip"
+        },
+        {
+          "stage": "retrieval",
+          "configuration": "evidence-deterministic",
+          "variant": "sequential",
+          "check": "fresh-scope-read"
+        }
+      ]
+    },
+    {
+      "id": "EVENT-02",
+      "family": "event",
+      "subtype": "recurring-editions",
+      "kind": "identity-pair",
+      "owner": "lifecycle-owner",
+      "includeShared": false,
+      "policy": {
+        "identityProperties": [
+          "eventId"
+        ],
+        "compatibleTypes": []
+      },
+      "seed": {
+        "id": "EVENT-02:left",
+        "name": "Acme go-live",
+        "type": "EVENT",
+        "subtype": null,
+        "keys": {
+          "eventId": "cutover-2026"
+        },
+        "kind": null,
+        "sourceId": "EVENT-02:source:0"
+      },
+      "mention": {
+        "id": "EVENT-02:right",
+        "name": "Acme go-live",
+        "type": "EVENT",
+        "subtype": null,
+        "keys": {
+          "eventId": "cutover-2027"
+        },
+        "kind": null,
+        "sourceId": "EVENT-02:source:1"
+      },
+      "truth": "different",
+      "expected": {
+        "policyDecision": "New",
+        "confirmedTarget": null,
+        "contextualDecision": "New",
+        "preserveOriginalSurface": true,
+        "forbidForeignFacts": true
+      },
+      "turns": [
+        {
+          "sourceId": "EVENT-02:source:0",
+          "timestampUtc": "2026-11-09T10:00:00Z",
+          "text": "Acme go-live has responsibility prepare Atlas.",
+          "entityRef": "seed",
+          "facts": [
+            {
+              "key": "EVENT-02:fact:0",
+              "subject": "Acme go-live",
+              "predicate": "has responsibility",
+              "object": "prepare Atlas",
+              "entityRole": "Subject"
+            }
+          ]
+        },
+        {
+          "sourceId": "EVENT-02:source:1",
+          "timestampUtc": "2026-11-09T11:00:00Z",
+          "text": "Acme go-live has responsibility review Atlas.",
+          "entityRef": "mention",
+          "facts": [
+            {
+              "key": "EVENT-02:fact:1",
+              "subject": "Acme go-live",
+              "predicate": "has responsibility",
+              "object": "review Atlas",
+              "entityRole": "Subject"
+            }
+          ]
+        }
+      ],
+      "checks": [
+        "observation-source",
+        "fact-surface",
+        "identity-decision",
+        "binding-owner",
+        "fresh-scope-read"
+      ],
+      "retrieval": {
+        "route": "subject-or-object-read",
+        "requiredFactKeys": [
+          "EVENT-02:fact:0",
+          "EVENT-02:fact:1"
+        ],
+        "excludedFactKeys": []
+      },
+      "requiredStages": [
+        "identity",
+        "storage-bindings",
+        "retrieval"
+      ],
+      "requiredCoverage": [
+        {
+          "stage": "identity",
+          "configuration": "host-evidence",
+          "variant": "typed-pair",
+          "check": "policy-decision"
+        },
+        {
+          "stage": "storage-bindings",
+          "configuration": "host-evidence",
+          "variant": "sequential",
+          "check": "binding-roundtrip"
+        },
+        {
+          "stage": "retrieval",
+          "configuration": "host-evidence",
+          "variant": "sequential",
+          "check": "fresh-scope-read"
+        }
+      ]
+    },
+    {
+      "id": "EVENT-03",
+      "family": "event",
+      "subtype": "remote-permission-not-physical-conflict",
+      "kind": "identity-pair",
+      "owner": "lifecycle-owner",
+      "includeShared": false,
+      "policy": {
+        "identityProperties": [
+          "eventId"
+        ],
+        "compatibleTypes": []
+      },
+      "seed": {
+        "id": "EVENT-03:left",
+        "name": "Acme remote go-live",
+        "type": "EVENT",
+        "subtype": null,
+        "keys": {
+          "eventId": "remote-2026"
+        },
+        "kind": null,
+        "sourceId": "EVENT-03:source:0"
+      },
+      "mention": {
+        "id": "EVENT-03:right",
+        "name": "Acme remote go-live",
+        "type": "EVENT",
+        "subtype": null,
+        "keys": {
+          "eventId": "remote-2026"
+        },
+        "kind": null,
+        "sourceId": "EVENT-03:source:1"
+      },
+      "truth": "same",
+      "expected": {
+        "policyDecision": "Confirmed",
+        "confirmedTarget": "EVENT-03:left",
+        "contextualDecision": "Confirmed",
+        "preserveOriginalSurface": true,
+        "forbidForeignFacts": true
+      },
+      "turns": [
+        {
+          "sourceId": "EVENT-03:source:0",
+          "timestampUtc": "2026-11-09T10:00:00Z",
+          "text": "Acme remote go-live has responsibility prepare Atlas.",
+          "entityRef": "seed",
+          "facts": [
+            {
+              "key": "EVENT-03:fact:0",
+              "subject": "Acme remote go-live",
+              "predicate": "has responsibility",
+              "object": "prepare Atlas",
+              "entityRole": "Subject"
+            }
+          ]
+        },
+        {
+          "sourceId": "EVENT-03:source:1",
+          "timestampUtc": "2026-11-09T11:00:00Z",
+          "text": "Acme remote go-live allows remote participation from Bariloche; physical presence in Cordoba is not required.",
+          "entityRef": "mention",
+          "facts": [
+            {
+              "key": "EVENT-03:permission",
+              "subject": "Acme remote go-live",
+              "predicate": "allows",
+              "object": "remote participation; physical presence in Cordoba is not required",
+              "entityRole": "Subject"
+            }
+          ]
+        }
+      ],
+      "checks": [
+        "observation-source",
+        "fact-surface",
+        "identity-decision",
+        "binding-owner",
+        "fresh-scope-read"
+      ],
+      "physicalConflictExpected": false,
+      "retrieval": {
+        "route": "subject-or-object-read",
+        "requiredFactKeys": [
+          "EVENT-03:fact:0",
+          "EVENT-03:permission"
+        ],
+        "excludedFactKeys": []
+      },
+      "requiredStages": [
+        "identity",
+        "storage-bindings",
+        "retrieval"
+      ],
+      "requiredCoverage": [
+        {
+          "stage": "identity",
+          "configuration": "host-evidence",
+          "variant": "typed-pair",
+          "check": "policy-decision"
+        },
+        {
+          "stage": "storage-bindings",
+          "configuration": "host-evidence",
+          "variant": "sequential",
+          "check": "binding-roundtrip"
+        },
+        {
+          "stage": "retrieval",
+          "configuration": "host-evidence",
+          "variant": "sequential",
+          "check": "fresh-scope-read"
+        }
+      ]
+    },
+    {
+      "id": "OBJECT-01",
+      "family": "object",
+      "subtype": "numeric-identifiers-preserve-leading-zeroes",
+      "kind": "identity-pair",
+      "owner": "lifecycle-owner",
+      "includeShared": false,
+      "policy": {
+        "identityProperties": [
+          "id"
+        ],
+        "compatibleTypes": []
+      },
+      "seed": {
+        "id": "OBJECT-01:left",
+        "name": "Invoice 005",
+        "type": "DOCUMENT",
+        "subtype": null,
+        "keys": {
+          "id": "005"
+        },
+        "kind": null,
+        "sourceId": "OBJECT-01:source:0"
+      },
+      "mention": {
+        "id": "OBJECT-01:right",
+        "name": "Invoice 05",
+        "type": "DOCUMENT",
+        "subtype": null,
+        "keys": {
+          "id": "05"
+        },
+        "kind": null,
+        "sourceId": "OBJECT-01:source:1"
+      },
+      "truth": "different",
+      "expected": {
+        "policyDecision": "New",
+        "confirmedTarget": null,
+        "contextualDecision": "New",
+        "preserveOriginalSurface": true,
+        "forbidForeignFacts": true
+      },
+      "turns": [
+        {
+          "sourceId": "OBJECT-01:source:0",
+          "timestampUtc": "2026-11-09T10:00:00Z",
+          "text": "Invoice 005 has responsibility prepare Atlas.",
+          "entityRef": "seed",
+          "facts": [
+            {
+              "key": "OBJECT-01:fact:0",
+              "subject": "Invoice 005",
+              "predicate": "has responsibility",
+              "object": "prepare Atlas",
+              "entityRole": "Subject"
+            }
+          ]
+        },
+        {
+          "sourceId": "OBJECT-01:source:1",
+          "timestampUtc": "2026-11-09T11:00:00Z",
+          "text": "Invoice 05 has responsibility review Atlas.",
+          "entityRef": "mention",
+          "facts": [
+            {
+              "key": "OBJECT-01:fact:1",
+              "subject": "Invoice 05",
+              "predicate": "has responsibility",
+              "object": "review Atlas",
+              "entityRole": "Subject"
+            }
+          ]
+        }
+      ],
+      "checks": [
+        "observation-source",
+        "fact-surface",
+        "identity-decision",
+        "binding-owner",
+        "fresh-scope-read"
+      ],
+      "retrieval": {
+        "route": "subject-or-object-read",
+        "requiredFactKeys": [
+          "OBJECT-01:fact:0",
+          "OBJECT-01:fact:1"
+        ],
+        "excludedFactKeys": []
+      },
+      "requiredStages": [
+        "identity",
+        "storage-bindings",
+        "retrieval"
+      ],
+      "requiredCoverage": [
+        {
+          "stage": "identity",
+          "configuration": "host-evidence",
+          "variant": "typed-pair",
+          "check": "policy-decision"
+        },
+        {
+          "stage": "storage-bindings",
+          "configuration": "host-evidence",
+          "variant": "sequential",
+          "check": "binding-roundtrip"
+        },
+        {
+          "stage": "retrieval",
+          "configuration": "host-evidence",
+          "variant": "sequential",
+          "check": "fresh-scope-read"
+        }
+      ]
+    },
+    {
+      "id": "OBJECT-02",
+      "family": "object",
+      "subtype": "stable-key-with-renamed-label",
+      "kind": "identity-pair",
+      "owner": "lifecycle-owner",
+      "includeShared": false,
+      "policy": {
+        "identityProperties": [
+          "id"
+        ],
+        "compatibleTypes": []
+      },
+      "seed": {
+        "id": "OBJECT-02:left",
+        "name": "Atlas release",
+        "type": "PROJECT",
+        "subtype": null,
+        "keys": {
+          "id": "project-17"
+        },
+        "kind": null,
+        "sourceId": "OBJECT-02:source:0"
+      },
+      "mention": {
+        "id": "OBJECT-02:right",
+        "name": "Project North",
+        "type": "PROJECT",
+        "subtype": null,
+        "keys": {
+          "id": "project-17"
+        },
+        "kind": null,
+        "sourceId": "OBJECT-02:source:1"
+      },
+      "truth": "same",
+      "expected": {
+        "policyDecision": "Confirmed",
+        "confirmedTarget": "OBJECT-02:left",
+        "contextualDecision": "Confirmed",
+        "preserveOriginalSurface": true,
+        "forbidForeignFacts": true
+      },
+      "turns": [
+        {
+          "sourceId": "OBJECT-02:source:0",
+          "timestampUtc": "2026-11-09T10:00:00Z",
+          "text": "Atlas release has responsibility prepare Atlas.",
+          "entityRef": "seed",
+          "facts": [
+            {
+              "key": "OBJECT-02:fact:0",
+              "subject": "Atlas release",
+              "predicate": "has responsibility",
+              "object": "prepare Atlas",
+              "entityRole": "Subject"
+            }
+          ]
+        },
+        {
+          "sourceId": "OBJECT-02:source:1",
+          "timestampUtc": "2026-11-09T11:00:00Z",
+          "text": "Project North has responsibility review Atlas.",
+          "entityRef": "mention",
+          "facts": [
+            {
+              "key": "OBJECT-02:fact:1",
+              "subject": "Project North",
+              "predicate": "has responsibility",
+              "object": "review Atlas",
+              "entityRole": "Subject"
+            }
+          ]
+        }
+      ],
+      "checks": [
+        "observation-source",
+        "fact-surface",
+        "identity-decision",
+        "binding-owner",
+        "fresh-scope-read"
+      ],
+      "retrieval": {
+        "route": "subject-or-object-read",
+        "requiredFactKeys": [
+          "OBJECT-02:fact:0",
+          "OBJECT-02:fact:1"
+        ],
+        "excludedFactKeys": []
+      },
+      "requiredStages": [
+        "identity",
+        "storage-bindings",
+        "retrieval"
+      ],
+      "requiredCoverage": [
+        {
+          "stage": "identity",
+          "configuration": "host-evidence",
+          "variant": "typed-pair",
+          "check": "policy-decision"
+        },
+        {
+          "stage": "storage-bindings",
+          "configuration": "host-evidence",
+          "variant": "sequential",
+          "check": "binding-roundtrip"
+        },
+        {
+          "stage": "retrieval",
+          "configuration": "host-evidence",
+          "variant": "sequential",
+          "check": "fresh-scope-read"
+        }
+      ]
+    },
+    {
+      "id": "OBJECT-03",
+      "family": "object",
+      "subtype": "date-shaped-reference",
+      "kind": "identity-pair",
+      "owner": "lifecycle-owner",
+      "includeShared": false,
+      "policy": {
+        "identityProperties": [
+          "id"
+        ],
+        "compatibleTypes": []
+      },
+      "seed": {
+        "id": "OBJECT-03:left",
+        "name": "Build December 12",
+        "type": "OBJECT",
+        "subtype": null,
+        "keys": {
+          "id": "build-12"
+        },
+        "kind": "Reference",
+        "sourceId": "OBJECT-03:source:0"
+      },
+      "mention": {
+        "id": "OBJECT-03:right",
+        "name": "December 12",
+        "type": "OBJECT",
+        "subtype": null,
+        "keys": {
+          "id": "build-12"
+        },
+        "kind": "Reference",
+        "sourceId": "OBJECT-03:source:1"
+      },
+      "truth": "same",
+      "expected": {
+        "policyDecision": "Confirmed",
+        "confirmedTarget": "OBJECT-03:left",
+        "contextualDecision": "Confirmed",
+        "preserveOriginalSurface": true,
+        "forbidForeignFacts": true
+      },
+      "turns": [
+        {
+          "sourceId": "OBJECT-03:source:0",
+          "timestampUtc": "2026-11-09T10:00:00Z",
+          "text": "Build December 12 has responsibility prepare Atlas.",
+          "entityRef": "seed",
+          "facts": [
+            {
+              "key": "OBJECT-03:fact:0",
+              "subject": "Build December 12",
+              "predicate": "has responsibility",
+              "object": "prepare Atlas",
+              "entityRole": "Subject"
+            }
+          ]
+        },
+        {
+          "sourceId": "OBJECT-03:source:1",
+          "timestampUtc": "2026-11-09T11:00:00Z",
+          "text": "December 12 has responsibility review Atlas.",
+          "entityRef": "mention",
+          "facts": [
+            {
+              "key": "OBJECT-03:fact:1",
+              "subject": "December 12",
+              "predicate": "has responsibility",
+              "object": "review Atlas",
+              "entityRole": "Subject"
+            }
+          ]
+        }
+      ],
+      "checks": [
+        "observation-source",
+        "fact-surface",
+        "identity-decision",
+        "binding-owner",
+        "fresh-scope-read"
+      ],
+      "retrieval": {
+        "route": "subject-or-object-read",
+        "requiredFactKeys": [
+          "OBJECT-03:fact:0",
+          "OBJECT-03:fact:1"
+        ],
+        "excludedFactKeys": []
+      },
+      "requiredStages": [
+        "identity",
+        "storage-bindings",
+        "retrieval"
+      ],
+      "requiredCoverage": [
+        {
+          "stage": "identity",
+          "configuration": "host-evidence",
+          "variant": "typed-pair",
+          "check": "policy-decision"
+        },
+        {
+          "stage": "storage-bindings",
+          "configuration": "host-evidence",
+          "variant": "sequential",
+          "check": "binding-roundtrip"
+        },
+        {
+          "stage": "retrieval",
+          "configuration": "host-evidence",
+          "variant": "sequential",
+          "check": "fresh-scope-read"
+        }
+      ]
+    },
+    {
+      "id": "TYPE-01",
+      "family": "type",
+      "subtype": "incompatible-types",
+      "kind": "identity-pair",
+      "owner": "lifecycle-owner",
+      "includeShared": false,
+      "policy": {
+        "identityProperties": [],
+        "compatibleTypes": []
+      },
+      "seed": {
+        "id": "TYPE-01:left",
+        "name": "Jordan",
+        "type": "LOCATION",
+        "subtype": null,
+        "keys": {},
+        "kind": null,
+        "sourceId": "TYPE-01:source:0"
+      },
+      "mention": {
+        "id": "TYPE-01:right",
+        "name": "Jordan",
+        "type": "PERSON",
+        "subtype": null,
+        "keys": {},
+        "kind": null,
+        "sourceId": "TYPE-01:source:1"
+      },
+      "truth": "different",
+      "expected": {
+        "policyDecision": "New",
+        "confirmedTarget": null,
+        "contextualDecision": "New",
+        "preserveOriginalSurface": true,
+        "forbidForeignFacts": true
+      },
+      "turns": [
+        {
+          "sourceId": "TYPE-01:source:0",
+          "timestampUtc": "2026-11-09T10:00:00Z",
+          "text": "Jordan has responsibility prepare Atlas.",
+          "entityRef": "seed",
+          "facts": [
+            {
+              "key": "TYPE-01:fact:0",
+              "subject": "Jordan",
+              "predicate": "has responsibility",
+              "object": "prepare Atlas",
+              "entityRole": "Subject"
+            }
+          ]
+        },
+        {
+          "sourceId": "TYPE-01:source:1",
+          "timestampUtc": "2026-11-09T11:00:00Z",
+          "text": "Jordan has responsibility review Atlas.",
+          "entityRef": "mention",
+          "facts": [
+            {
+              "key": "TYPE-01:fact:1",
+              "subject": "Jordan",
+              "predicate": "has responsibility",
+              "object": "review Atlas",
+              "entityRole": "Subject"
+            }
+          ]
+        }
+      ],
+      "checks": [
+        "observation-source",
+        "fact-surface",
+        "identity-decision",
+        "binding-owner",
+        "fresh-scope-read"
+      ],
+      "retrieval": {
+        "route": "subject-or-object-read",
+        "requiredFactKeys": [
+          "TYPE-01:fact:0",
+          "TYPE-01:fact:1"
+        ],
+        "excludedFactKeys": []
+      },
+      "requiredStages": [
+        "identity",
+        "storage-bindings",
+        "retrieval"
+      ],
+      "requiredCoverage": [
+        {
+          "stage": "identity",
+          "configuration": "evidence-deterministic",
+          "variant": "typed-pair",
+          "check": "policy-decision"
+        },
+        {
+          "stage": "storage-bindings",
+          "configuration": "evidence-deterministic",
+          "variant": "sequential",
+          "check": "binding-roundtrip"
+        },
+        {
+          "stage": "retrieval",
+          "configuration": "evidence-deterministic",
+          "variant": "sequential",
+          "check": "fresh-scope-read"
+        }
+      ]
+    },
+    {
+      "id": "TYPE-02",
+      "family": "type",
+      "subtype": "declared-compatible-types",
+      "kind": "identity-pair",
+      "owner": "lifecycle-owner",
+      "includeShared": false,
+      "policy": {
+        "identityProperties": [
+          "id"
+        ],
+        "compatibleTypes": [
+          "PERSON"
+        ]
+      },
+      "seed": {
+        "id": "TYPE-02:left",
+        "name": "Alex Garcia",
+        "type": "PERSON",
+        "subtype": null,
+        "keys": {
+          "id": "person-7"
+        },
+        "kind": null,
+        "sourceId": "TYPE-02:source:0"
+      },
+      "mention": {
+        "id": "TYPE-02:right",
+        "name": "Alex Garcia",
+        "type": "EMPLOYEE",
+        "subtype": null,
+        "keys": {
+          "id": "person-7"
+        },
+        "kind": null,
+        "sourceId": "TYPE-02:source:1"
+      },
+      "truth": "same",
+      "expected": {
+        "policyDecision": "Confirmed",
+        "confirmedTarget": "TYPE-02:left",
+        "contextualDecision": "Confirmed",
+        "preserveOriginalSurface": true,
+        "forbidForeignFacts": true
+      },
+      "turns": [
+        {
+          "sourceId": "TYPE-02:source:0",
+          "timestampUtc": "2026-11-09T10:00:00Z",
+          "text": "Alex Garcia has responsibility prepare Atlas.",
+          "entityRef": "seed",
+          "facts": [
+            {
+              "key": "TYPE-02:fact:0",
+              "subject": "Alex Garcia",
+              "predicate": "has responsibility",
+              "object": "prepare Atlas",
+              "entityRole": "Subject"
+            }
+          ]
+        },
+        {
+          "sourceId": "TYPE-02:source:1",
+          "timestampUtc": "2026-11-09T11:00:00Z",
+          "text": "Alex Garcia has responsibility review Atlas.",
+          "entityRef": "mention",
+          "facts": [
+            {
+              "key": "TYPE-02:fact:1",
+              "subject": "Alex Garcia",
+              "predicate": "has responsibility",
+              "object": "review Atlas",
+              "entityRole": "Subject"
+            }
+          ]
+        }
+      ],
+      "checks": [
+        "observation-source",
+        "fact-surface",
+        "identity-decision",
+        "binding-owner",
+        "fresh-scope-read"
+      ],
+      "retrieval": {
+        "route": "subject-or-object-read",
+        "requiredFactKeys": [
+          "TYPE-02:fact:0",
+          "TYPE-02:fact:1"
+        ],
+        "excludedFactKeys": []
+      },
+      "requiredStages": [
+        "identity",
+        "storage-bindings",
+        "retrieval"
+      ],
+      "requiredCoverage": [
+        {
+          "stage": "identity",
+          "configuration": "host-evidence",
+          "variant": "typed-pair",
+          "check": "policy-decision"
+        },
+        {
+          "stage": "storage-bindings",
+          "configuration": "host-evidence",
+          "variant": "sequential",
+          "check": "binding-roundtrip"
+        },
+        {
+          "stage": "retrieval",
+          "configuration": "host-evidence",
+          "variant": "sequential",
+          "check": "fresh-scope-read"
+        }
+      ]
+    },
+    {
+      "id": "TYPE-03",
+      "family": "type",
+      "subtype": "unknown-subtype-not-authority",
+      "kind": "identity-pair",
+      "owner": "lifecycle-owner",
+      "includeShared": false,
+      "policy": {
+        "identityProperties": [],
+        "compatibleTypes": []
+      },
+      "seed": {
+        "id": "TYPE-03:left",
+        "name": "Alex Garcia",
+        "type": "PERSON",
+        "subtype": "engineer",
+        "keys": {},
+        "kind": null,
+        "sourceId": "TYPE-03:source:0"
+      },
+      "mention": {
+        "id": "TYPE-03:right",
+        "name": "Alex Garcia",
+        "type": "PERSON",
+        "subtype": "unknown",
+        "keys": {},
+        "kind": null,
+        "sourceId": "TYPE-03:source:1"
+      },
+      "truth": "unknown",
+      "expected": {
+        "policyDecision": "Pending",
+        "confirmedTarget": null,
+        "contextualDecision": "Pending",
+        "preserveOriginalSurface": true,
+        "forbidForeignFacts": true
+      },
+      "turns": [
+        {
+          "sourceId": "TYPE-03:source:0",
+          "timestampUtc": "2026-11-09T10:00:00Z",
+          "text": "Alex Garcia has responsibility prepare Atlas.",
+          "entityRef": "seed",
+          "facts": [
+            {
+              "key": "TYPE-03:fact:0",
+              "subject": "Alex Garcia",
+              "predicate": "has responsibility",
+              "object": "prepare Atlas",
+              "entityRole": "Subject"
+            }
+          ]
+        },
+        {
+          "sourceId": "TYPE-03:source:1",
+          "timestampUtc": "2026-11-09T11:00:00Z",
+          "text": "Alex Garcia has responsibility review Atlas.",
+          "entityRef": "mention",
+          "facts": [
+            {
+              "key": "TYPE-03:fact:1",
+              "subject": "Alex Garcia",
+              "predicate": "has responsibility",
+              "object": "review Atlas",
+              "entityRole": "Subject"
+            }
+          ]
+        }
+      ],
+      "checks": [
+        "observation-source",
+        "fact-surface",
+        "identity-decision",
+        "binding-owner",
+        "fresh-scope-read"
+      ],
+      "retrieval": {
+        "route": "subject-or-object-read",
+        "requiredFactKeys": [
+          "TYPE-03:fact:0",
+          "TYPE-03:fact:1"
+        ],
+        "excludedFactKeys": []
+      },
+      "requiredStages": [
+        "identity",
+        "storage-bindings",
+        "retrieval"
+      ],
+      "requiredCoverage": [
+        {
+          "stage": "identity",
+          "configuration": "evidence-deterministic",
+          "variant": "typed-pair",
+          "check": "policy-decision"
+        },
+        {
+          "stage": "storage-bindings",
+          "configuration": "evidence-deterministic",
+          "variant": "sequential",
+          "check": "binding-roundtrip"
+        },
+        {
+          "stage": "retrieval",
+          "configuration": "evidence-deterministic",
+          "variant": "sequential",
+          "check": "fresh-scope-read"
+        }
+      ]
+    },
+    {
+      "id": "CROSS-01",
+      "family": "cross-cut",
+      "kind": "cross-cut",
+      "subtype": "sequential-versus-batch-and-restart",
+      "basedOn": [
+        "EVENT-01",
+        "PERSON-01"
+      ],
+      "variants": [
+        "same-batch",
+        "sequential",
+        "fresh-host-reload"
+      ],
+      "checks": [
+        "original-provenance",
+        "equivalent-final-identity",
+        "event-details"
+      ],
+      "acceptance": "All declared mandatory supported routes must execute; absence is unverified, not a pass.",
+      "requiredStages": [
+        "storage-bindings",
+        "retrieval"
+      ],
+      "requiredCoverage": [
+        {
+          "stage": "storage-bindings",
+          "configuration": "evidence-deterministic",
+          "variant": "sequential",
+          "check": "equivalent-final-identity",
+          "tests": [
+            "AgentMemory.Tests.Integration.Services.IdentityLifecycleNativeTests.Storage_sequential_identity_and_bindings"
+          ]
+        },
+        {
+          "stage": "storage-bindings",
+          "configuration": "evidence-deterministic",
+          "variant": "fresh-host-reload",
+          "check": "equivalent-final-identity",
+          "tests": [
+            "AgentMemory.Tests.Integration.Repositories.IdentityDecisionIntegrationTests.Replaying_and_restarting_a_decision_is_idempotent_including_both_roles_of_a_deduplicated_fact"
+          ]
+        },
+        {
+          "stage": "storage-bindings",
+          "configuration": "evidence-deterministic",
+          "variant": "same-batch",
+          "check": "equivalent-final-identity"
+        },
+        {
+          "stage": "retrieval",
+          "configuration": "evidence-deterministic",
+          "variant": "same-batch",
+          "check": "event-details",
+          "tests": [
+            "AgentMemory.Tests.Integration.Services.IdentityIngestionIntegrationTests.Dated_event_reaches_undated_location_and_presence_without_similarity"
+          ]
+        },
+        {
+          "stage": "retrieval",
+          "configuration": "evidence-deterministic",
+          "variant": "fresh-host-reload",
+          "check": "original-provenance",
+          "tests": [
+            "AgentMemory.Tests.Integration.Services.IdentityLifecycleNativeTests.Retrieval_fresh_host_read_of_required_facts"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "CROSS-02",
+      "family": "cross-cut",
+      "kind": "cross-cut",
+      "subtype": "ambiguous-identical-event-candidates",
+      "basedOn": [
+        "EVENT-01",
+        "EVENT-02"
+      ],
+      "variants": [
+        "two-candidates",
+        "candidate-order-reversed",
+        "pending-candidate"
+      ],
+      "checks": [
+        "no-arbitrary-confirmation",
+        "pending-not-equality",
+        "no-transferred-location"
+      ],
+      "acceptance": "All declared mandatory supported routes must execute; absence is unverified, not a pass.",
+      "requiredStages": [
+        "identity",
+        "storage-bindings",
+        "retrieval"
+      ],
+      "requiredCoverage": [
+        {
+          "stage": "identity",
+          "configuration": "evidence-contextual",
+          "variant": "two-candidates",
+          "check": "no-arbitrary-confirmation",
+          "tests": [
+            "AgentMemory.Tests.Unit.Resolution.IdentityWriterReferenceTests.Two_identically_named_candidates_make_the_reference_ambiguous"
+          ]
+        },
+        {
+          "stage": "identity",
+          "configuration": "evidence-contextual",
+          "variant": "candidate-order-reversed",
+          "check": "no-arbitrary-confirmation",
+          "tests": [
+            "AgentMemory.Tests.Unit.Resolution.IdentityWriterReferenceTests.Reversed_identical_candidates_stay_ambiguous_for_either_reference"
+          ]
+        },
+        {
+          "stage": "retrieval",
+          "configuration": "evidence-deterministic",
+          "variant": "pending-candidate",
+          "check": "no-transferred-location",
+          "tests": [
+            "AgentMemory.Tests.Integration.Services.IdentityIngestionIntegrationTests.A_pending_event_candidate_does_not_supply_the_other_events_location"
+          ]
+        },
+        {
+          "stage": "storage-bindings",
+          "configuration": "evidence-deterministic",
+          "variant": "pending-candidate",
+          "check": "pending-not-equality",
+          "tests": [
+            "AgentMemory.Tests.Integration.Services.IdentityIngestionIntegrationTests.Similarity_preserves_original_fact_and_existing_identity_and_stores_pending_support"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "CROSS-03",
+      "family": "cross-cut",
+      "kind": "cross-cut",
+      "subtype": "owner-and-shared-source-boundaries",
+      "basedOn": [
+        "PLACE-01",
+        "PERSON-01"
+      ],
+      "variants": [
+        "owned",
+        "foreign",
+        "shared-denied",
+        "shared-allowed",
+        "reserved-owner",
+        "owned-foreign-shared",
+        "owned-shared"
+      ],
+      "checks": [
+        "no-source-leak",
+        "no-foreign-binding",
+        "no-foreign-recall"
+      ],
+      "acceptance": "All declared mandatory supported routes must execute; absence is unverified, not a pass.",
+      "requiredStages": [
+        "candidate-context",
+        "storage-bindings",
+        "retrieval"
+      ],
+      "requiredCoverage": [
+        {
+          "stage": "candidate-context",
+          "configuration": "evidence-contextual",
+          "variant": "owned-foreign-shared",
+          "check": "no-source-leak",
+          "tests": [
+            "AgentMemory.Tests.Integration.Repositories.IdentityEvidenceIntegrationTests.Candidate_sources_are_read_only_within_the_decision_owner_scope"
+          ]
+        },
+        {
+          "stage": "candidate-context",
+          "configuration": "evidence-contextual",
+          "variant": "shared-denied",
+          "check": "no-source-leak",
+          "tests": [
+            "AgentMemory.Tests.Integration.Repositories.IdentityDecisionIntegrationTests.Shared_context_sources_require_explicit_shared_permission"
+          ]
+        },
+        {
+          "stage": "storage-bindings",
+          "configuration": "evidence-deterministic",
+          "variant": "owned-shared",
+          "check": "no-foreign-binding",
+          "tests": [
+            "AgentMemory.Tests.Integration.Repositories.IdentityDecisionIntegrationTests.Exact_owner_scope_and_shared_target_visibility_are_preserved"
+          ]
+        },
+        {
+          "stage": "storage-bindings",
+          "configuration": "evidence-deterministic",
+          "variant": "reserved-owner",
+          "check": "no-foreign-binding",
+          "tests": [
+            "AgentMemory.Tests.Integration.Repositories.IdentityDecisionIntegrationTests.Explicit_review_uses_exact_owner_scope_even_for_reserved_looking_owner_values"
+          ]
+        },
+        {
+          "stage": "retrieval",
+          "configuration": "evidence-deterministic",
+          "variant": "foreign",
+          "check": "no-foreign-recall",
+          "tests": [
+            "AgentMemory.Tests.Integration.Services.IdentityLifecycleNativeTests.Retrieval_fresh_host_read_of_required_facts"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "CROSS-04",
+      "family": "cross-cut",
+      "kind": "cross-cut",
+      "subtype": "review-revoke-and-chained-claims",
+      "basedOn": [
+        "EVENT-01",
+        "PERSON-01"
+      ],
+      "variants": [
+        "confirm",
+        "reject",
+        "revoke",
+        "replay",
+        "concurrent-version-conflict",
+        "confirm-revoke"
+      ],
+      "checks": [
+        "immutable-history",
+        "revoke-only-own-support",
+        "fresh-read",
+        "original-facts-survive",
+        "no-silent-reproposal"
+      ],
+      "acceptance": "All declared mandatory supported routes must execute; absence is unverified, not a pass.",
+      "requiredStages": [
+        "storage-bindings"
+      ],
+      "requiredCoverage": [
+        {
+          "stage": "storage-bindings",
+          "configuration": "host-evidence",
+          "variant": "confirm-revoke",
+          "check": "revoke-only-own-support",
+          "tests": [
+            "AgentMemory.Tests.Integration.Repositories.IdentityDecisionIntegrationTests.Explicit_review_confirm_and_revoke_move_only_owned_support_and_preserve_original_history"
+          ]
+        },
+        {
+          "stage": "storage-bindings",
+          "configuration": "host-evidence",
+          "variant": "revoke",
+          "check": "original-facts-survive",
+          "tests": [
+            "AgentMemory.Tests.Integration.Repositories.IdentityDecisionIntegrationTests.Facts_added_after_manual_confirmation_follow_the_decision_and_return_to_original_on_revoke"
+          ]
+        },
+        {
+          "stage": "storage-bindings",
+          "configuration": "host-evidence",
+          "variant": "reject",
+          "check": "no-silent-reproposal",
+          "tests": [
+            "AgentMemory.Tests.Integration.Repositories.IdentityDecisionIntegrationTests.Rejecting_a_pending_candidate_cannot_be_silently_reproposed_by_ingestion_replay"
+          ]
+        },
+        {
+          "stage": "storage-bindings",
+          "configuration": "host-evidence",
+          "variant": "replay",
+          "check": "immutable-history",
+          "tests": [
+            "AgentMemory.Tests.Integration.Repositories.IdentityDecisionIntegrationTests.Retrying_a_review_after_later_operations_returns_its_revision_without_reapplying_it"
+          ]
+        },
+        {
+          "stage": "storage-bindings",
+          "configuration": "host-evidence",
+          "variant": "replay",
+          "check": "fresh-read",
+          "tests": [
+            "AgentMemory.Tests.Integration.Repositories.IdentityDecisionIntegrationTests.A_review_with_a_lost_commit_acknowledgement_is_discoverable_after_repository_restart"
+          ]
+        },
+        {
+          "stage": "storage-bindings",
+          "configuration": "host-evidence",
+          "variant": "concurrent-version-conflict",
+          "check": "immutable-history",
+          "tests": [
+            "AgentMemory.Tests.Integration.Repositories.IdentityDecisionIntegrationTests.Concurrent_reviews_of_one_version_commit_exactly_one_revision_and_retry_the_winner"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "CROSS-05",
+      "family": "cross-cut",
+      "kind": "cross-cut",
+      "subtype": "writer-operation-and-reference-contract",
+      "basedOn": [
+        "EVENT-01"
+      ],
+      "variants": [
+        "unknown-action",
+        "noncontiguous-quote",
+        "missing-current-event",
+        "partial-repair-exhausted",
+        "malformed-entity",
+        "unshown-reference"
+      ],
+      "checks": [
+        "source-grounding",
+        "bounded-repair",
+        "visible-partial-result",
+        "no-invented-identity",
+        "no-coercion"
+      ],
+      "acceptance": "All declared mandatory supported routes must execute; absence is unverified, not a pass.",
+      "requiredStages": [
+        "extraction",
+        "identity"
+      ],
+      "requiredCoverage": [
+        {
+          "stage": "extraction",
+          "configuration": "evidence-contextual",
+          "variant": "unknown-action",
+          "check": "bounded-repair",
+          "tests": [
+            "AgentMemory.Tests.Unit.Extraction.MemoryWriterContractTests.Unknown_action_gets_one_bounded_correction_instead_of_a_silent_missing_event"
+          ]
+        },
+        {
+          "stage": "extraction",
+          "configuration": "evidence-contextual",
+          "variant": "noncontiguous-quote",
+          "check": "source-grounding",
+          "tests": [
+            "AgentMemory.Tests.Unit.Extraction.MemoryWriterContractTests.Invented_quote_is_corrected_without_accepting_the_unsupported_words"
+          ]
+        },
+        {
+          "stage": "extraction",
+          "configuration": "evidence-contextual",
+          "variant": "missing-current-event",
+          "check": "bounded-repair",
+          "tests": [
+            "AgentMemory.Tests.Unit.Extraction.MemoryWriterContractTests.An_event_fact_without_its_event_observation_asks_for_the_observation"
+          ]
+        },
+        {
+          "stage": "extraction",
+          "configuration": "evidence-contextual",
+          "variant": "partial-repair-exhausted",
+          "check": "visible-partial-result",
+          "tests": [
+            "AgentMemory.Tests.Unit.Extraction.MemoryWriterContractTests.A_correction_that_fails_again_is_reported_and_never_retried_a_third_time",
+            "AgentMemory.Tests.Unit.Extraction.ExtractionInputModeTests.Writer_rejections_reach_the_turn_outcomes_without_routing_around_a_working_writer"
+          ]
+        },
+        {
+          "stage": "extraction",
+          "configuration": "evidence-contextual",
+          "variant": "malformed-entity",
+          "check": "no-coercion",
+          "tests": [
+            "AgentMemory.Tests.Unit.Extraction.MemoryWriterContractTests.A_malformed_entity_text_is_corrected_instead_of_coerced_into_an_object",
+            "AgentMemory.Tests.Unit.Extraction.MemoryWriterContractTests.A_malformed_entity_that_stays_malformed_is_dropped_and_reported_never_stored_as_an_object"
+          ]
+        },
+        {
+          "stage": "identity",
+          "configuration": "evidence-contextual",
+          "variant": "unshown-reference",
+          "check": "no-invented-identity",
+          "tests": [
+            "AgentMemory.Tests.Unit.Extraction.MemoryWriterContractTests.A_reference_to_an_item_that_was_not_shown_is_removed_and_reported_not_guessed",
+            "AgentMemory.Tests.Unit.Resolution.IdentityWriterReferenceTests.A_reference_to_an_entity_that_is_not_a_candidate_falls_back_to_the_adjudicator"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "CROSS-06",
+      "family": "cross-cut",
+      "kind": "cross-cut",
+      "subtype": "budgets-and-failures",
+      "basedOn": [
+        "EVENT-01"
+      ],
+      "variants": [
+        "zero-calls",
+        "utf8-boundary",
+        "sources-incomplete",
+        "timeout",
+        "caller-cancelled",
+        "off"
+      ],
+      "checks": [
+        "bounded-queries",
+        "pending-on-uncertainty",
+        "no-late-write",
+        "off-byte-equivalence"
+      ],
+      "acceptance": "All declared mandatory supported routes must execute; absence is unverified, not a pass.",
+      "requiredStages": [
+        "candidate-context",
+        "identity"
+      ],
+      "requiredCoverage": [
+        {
+          "stage": "candidate-context",
+          "configuration": "evidence-contextual",
+          "variant": "zero-calls",
+          "check": "bounded-queries",
+          "tests": [
+            "AgentMemory.Tests.Unit.Resolution.IdentityCandidateSourceHydrationTests.No_call_budget_means_no_source_reads"
+          ]
+        },
+        {
+          "stage": "candidate-context",
+          "configuration": "evidence-contextual",
+          "variant": "utf8-boundary",
+          "check": "bounded-queries",
+          "tests": [
+            "AgentMemory.Tests.Unit.Resolution.IdentityContextualAdjudicationTests.The_entire_data_json_fits_the_utf8_budget_and_source_instructions_remain_data",
+            "AgentMemory.Tests.Unit.Resolution.IdentityCandidateSourceHydrationTests.A_source_beyond_the_byte_budget_is_omitted_and_reported_not_truncated"
+          ]
+        },
+        {
+          "stage": "candidate-context",
+          "configuration": "evidence-contextual",
+          "variant": "sources-incomplete",
+          "check": "pending-on-uncertainty",
+          "tests": [
+            "AgentMemory.Tests.Unit.Resolution.IdentityCandidateSourceHydrationTests.A_source_outside_the_owner_scope_is_reported_missing_and_never_invented"
+          ]
+        },
+        {
+          "stage": "identity",
+          "configuration": "evidence-contextual",
+          "variant": "timeout",
+          "check": "no-late-write",
+          "tests": [
+            "AgentMemory.Tests.Unit.Resolution.IdentityContextualAdjudicationTests.A_late_response_after_timeout_cannot_confirm_identity"
+          ]
+        },
+        {
+          "stage": "identity",
+          "configuration": "evidence-contextual",
+          "variant": "caller-cancelled",
+          "check": "no-late-write",
+          "tests": [
+            "AgentMemory.Tests.Unit.Resolution.IdentityContextualAdjudicationTests.Cancellation_cannot_be_reinterpreted_as_a_model_failure"
+          ]
+        },
+        {
+          "stage": "identity",
+          "configuration": "evidence-deterministic",
+          "variant": "off",
+          "check": "off-byte-equivalence",
+          "tests": [
+            "AgentMemory.Tests.Unit.Resolution.IdentityPlannerTests.Disabled_identity_never_reads_backend_capabilities_or_issues_queries",
+            "AgentMemory.Tests.Unit.Extraction.MemoryWriterContractTests.Default_writer_sends_no_response_format_and_asks_once"
+          ]
+        }
+      ]
+    }
+  ]
+}

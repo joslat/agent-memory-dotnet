@@ -28,6 +28,8 @@ internal interface IPersistenceStage
 /// </summary>
 internal sealed record PersistenceResult
 {
+    /// <summary>Optional named closing work that runs only after the owned identity transaction commits.</summary>
+    public Func<CancellationToken, Task<IReadOnlyList<(string Winner, string Loser)>>>? DeferredNamedClosings { get; init; }
     public int EntityCount { get; init; }
     public int FactCount { get; init; }
     public int PreferenceCount { get; init; }

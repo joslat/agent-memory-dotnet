@@ -62,6 +62,7 @@ internal sealed partial class CompositeEntityResolver
             var names = new List<string>();
             foreach (var entity in entities)
             {
+                if (CalendarValues.IsCalendar(entity)) continue;
                 if (string.IsNullOrWhiteSpace(entity.Name) || names.Contains(entity.Name, StringComparer.Ordinal))
                     continue;
                 // The same-type snapshot only (already loaded, no extra read): this decides what is worth

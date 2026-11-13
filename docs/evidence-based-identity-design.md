@@ -163,6 +163,35 @@ Confirmar o rechazar una decisión cambia su estado y los enlaces de esa decisi�
 
 Los datos antiguos se revisan con un informe de sólo lectura: objeto actual frente a object_surface, fechas estructuradas, alias sospechosos y procedencia disponible. Si falta evidencia, no hay reparación automática. No se fusiona ni se borra nada durante un upgrade.
 
+### 6.1. Afirmaciones de relación y extremos revisables
+
+La auditoría de IDER-03-C reprodujo dos huecos: el camino habilitado todavía escribe RELATED_TO
+ordinario con extremos elegidos por la interpretación actual, y pierde una afirmación si un
+extremo es ambiguo. No se puede prometer revocación segura de esos extremos sin registrar qué
+decisión los sostiene. Cerrar esta dependencia precede al ciclo completo de IDER-05.
+
+El incremento propuesto conserva una IdentityRelationshipObservation independiente: texto de los
+dos extremos, tipo, descripción, atributos, fuentes y tiempo originales. SOURCE_IDENTITY y
+TARGET_IDENTITY vinculan cada extremo no ambiguo a su IdentityDecision; una decisión mantiene su
+destino actual mediante RESOLVES_TO. Una afirmación ambigua se guarda sin adivinar ese extremo.
+La relación observada no se transforma en una igualdad entre entidades.
+
+La lectura proyecta los extremos autorizados por las decisiones actuales y conserva las lecturas
+legadas. El modo apagado mantiene las consultas y escrituras anteriores. En el modo nuevo no se
+coalescen afirmaciones con RELATED_TO ajenos ni se borra una arista ajena para revocar identidad.
+Cambiar una interpretación puede actualizar sus apoyos y su historial, conservando el registro
+original de la relación. Los pendientes siguen apuntando a su identidad separada.
+
+La extensión de esquema es dueña de ese registro, sus enlaces e índices. La escritura es atómica,
+idempotente, acotada por ingesta/decisión y valida propietario, fuentes, superficies y decisiones
+antes de añadir apoyo. Backends sin esta capacidad rechazan la escritura de relaciones solicitada
+antes del trabajo de identidad. Los registros sin ambos apoyos pueden inspeccionarse; la portabilidad completa se entrega por separado,
+no se anuncia que ya participen en recuperación vectorial o navegación por una entidad confirmada.
+
+Este apartado fija la responsabilidad y las pruebas del incremento; las API, migración y lecturas
+permanecen bajo implementación hasta su compilación y aceptación real. No equivale a haber cerrado
+revisión/revocación, consumidores/exportación ni el objetivo completo.
+
 ## 7. Cómo lo usaría una aplicación
 
 ### Configuración propuesta
@@ -271,3 +300,54 @@ El cambio más visible respecto al primer diseño es POSSIBLE_SAME_AS para pendi
 - Supermemory: [relaciones entre memorias](https://supermemory.ai/docs/concepts/graph-memory), [revisión](https://supermemory.ai/docs/recall/memory-review) y [límite del código público](https://supermemory.ai/docs/self-hosting/overview).
 - Hindsight: [resolver y contexto selectivo](https://github.com/vectorize-io/hindsight/blob/289fb421bdb438861480720e947874551ac42ff7/hindsight-api-slim/hindsight_api/engine/memories/pg/entity_resolver.py).
 - Cognee: [alineamiento con una ontología](https://github.com/topoteretes/cognee/blob/8853378eae5366addb064e758e560a456146ae1a/cognee/modules/ontology/rdf_xml/RDFLibOntologyResolver.py).
+
+
+## Incremento de revisión explícita: comprobación inicial
+
+La API separada `ReviewAsync` implementa confirmar/rechazar/revocar con versión esperada,
+operación idempotente e historial inmutable (`GetHistoryAsync`). El backend genera la prueba
+`LatestReview`; el payload inicial no puede inventarla. El host autoriza al actor y los vetos
+de dominio siguen vigentes. Cuatro controles reales de Neo4j pasan después de fallar antes
+de implementar el backend. No se considera cerrado IDER-05: quedan combinaciones de fallos,
+concurrencia, escrituras posteriores, reinicio y portabilidad, además de la aceptación completa.
+
+## Alcance acordado el12de noviembre de2026
+
+El objetivo actual cierra identidad, hechos y procedencia originales, revisión/revocación, contexto
+de eventos y compatibilidad segura. Se escribe código y pruebas primero; la compilación y la
+verificación de regresiones, Neo4j y los cuatro escenarios acotados siguen después. No se da por
+validado el código solamente por estar escrito.
+
+La portabilidad completa se separó por decisión explícita del usuario. El formato legado no
+representa decisiones, revisiones ni apoyos; con identity-evidence habilitado la implementación
+rechaza exportar e importar antes de I/O, también para un propietario vacío. El modo apagado
+conserva el comportamiento anterior. Este límite evita una falsa promesa de conservación, pero
+no equivale a haber implementado la portabilidad. El borrado y aislamiento siguen dentro del goal.
+
+## Addendum, 13 November 2026: the writer's own judgment, candidate context and the operation contract
+
+The full original 49-statement run showed where continuity was lost. The store-aware writer was shown
+the stored go-live event and named "the cutover" after it, which was correct, but it could express that
+judgment only by copying the name. Identity then decided again from the current sentence alone: the
+candidate was found but offered without its source text, the adjudicator answered "uncertain", and the
+place and presence facts stayed on a separate Pending event. Three changes close that gap without
+weakening the precision rules above:
+
+1. **Writer reference.** In the opt-in identity-aware writer mode an entity operation may name the
+   stored entity it refers to (the label shown in that call). Identity treats it as untrusted
+   contextual evidence: it must be a Pending, adjudicable candidate with no identically named rival,
+   its quote must be in the current turn, a veto still wins, and the type policy decides between
+   confirmation and review. It costs no model call.
+2. **Candidate source hydration.** An eligible contextual decision also sees each candidate's own source
+   message, read in the decision owner's scope through `IIdentitySourceProvider`, bounded, reported when
+   missing or over budget, and re-validated when the decision is written. The recorded context is the
+   context offered; original provenance stays the current turn.
+3. **Operation contract.** The writer's reply is schema-constrained and checked; one targeted correction
+   call is made only when a check fails; what still fails is dropped and reported, never coerced.
+
+Measured on the unchanged scenario (bariloche49-ilc-real-01, before the final contract fixes): all
+automated storage, event-detail and prompt checks pass; against a frozen statement-level identity gold,
+0 false merges and 0 fragmented groups (the previous run: 0 false merges, 6 extra identities, the go-live
+split four ways). Labelled possible-same evidence at answer time (an unconfirmed hop) was considered and
+deferred: the confirmed path now carries the event details, and unconfirmed evidence in a prompt is a
+hallucination risk the measurements do not justify.
