@@ -6,6 +6,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-11-14
+
+**The Pablo Piovano release 2.** A fix and some improvements.
+
+2.2.0 carried Pablo Piovano's name and was out for a day. It made identity evidence-based: two people who share a name
+stay two, an uncertain match waits for review instead of merging, and a confirmed event brings its details to recall. It
+also named its own limits: recall still found people by similarity, export and import carried the current state but not
+identity's history, and hosts running GLM-5.3-Flash through `AgentMemory.Inference` ran it at maximum reasoning effort.
+Those were meant for 2.2 and missed it; 2.3.0 brings all three.
+
+Checking the release also found two critical bugs, both in how the database schema reaches an application. The migration
+scripts did not reach applications that install the `AgentMemory` package, and nothing in the library ran them at
+startup anyway, so identity has run without its unique constraints and lookup indexes. Both are fixed: the scripts ship
+inside the library, and schema bootstrap applies them. If you run 2.2.0, upgrade.
+
+Thank you again, Pablo: your scenario is now the benchmark every identity change is measured against, this one included.
+
+### Upgrading
+
+- **The first start applies the migration scripts the database is missing**, identity's among them, and later starts
+  only check. If the log shows an error about a constraint, the store holds duplicates written without it: it keeps
+  running as before, and the next start adds the constraint once they are removed. Where an operator owns the schema,
+  set `Neo4jOptions.ApplyMigrationsOnBootstrap = false` and apply the scripts with `IMigrationRunner`.
+- Owner exports from identity stores are now `agentmemory-export/2`. 2.3.0 imports both formats; 2.2.0 and earlier
+  refuse format 2 rather than drop its identity state.
+- `AgentMemory.Inference` on Bitdeer's GLM-5.3-Flash now asks for low reasoning effort; `AI_REASONING_EFFORT` changes it.
+
 ### Added
 
 - **Identity-aware recall for people** (`RecallOptions.PersonDetails`, `MaxPersonDetailFacts`). A question that names
@@ -3315,7 +3342,10 @@ NuGet package IDs are permanent once published.
 
 ---
 
-[Unreleased]: https://github.com/joslat/agent-memory-dotnet/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/joslat/agent-memory-dotnet/compare/v2.3.0...HEAD
+[2.3.0]: https://github.com/joslat/agent-memory-dotnet/compare/v2.2.0...v2.3.0
+[2.2.0]: https://github.com/joslat/agent-memory-dotnet/compare/v2.1.0...v2.2.0
+[2.1.0]: https://github.com/joslat/agent-memory-dotnet/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/joslat/agent-memory-dotnet/compare/v1.9.0...v2.0.0
 [1.0.1]: https://github.com/joslat/agent-memory-dotnet/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/joslat/agent-memory-dotnet/compare/v0.1.0-preview.4...v1.0.0
