@@ -701,6 +701,11 @@ internal static class MemoryWriterOps
         var relationships = new List<ExtractedRelationship>();
         var confirmedFacts = new List<string>();
         var confirmedPreferences = new List<string>();
+        // ILC-34: the entity names this call knows: the stored entities it showed and the entities this reply declares.
+        var known = stored.Where(s => s.Letter == 'E').Select(s => s.Text)
+            .Concat(ops.Where(o => o.Kind == "entity" && o.Action != "confirm").Select(o => o.Text))
+            .Select(text => Named.Match(text) is { Success: true } m ? m.Groups["n"].Value.Trim() : text.Trim())
+            .Where(name => name.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).OrderByDescending(name => name.Length).ToList();
         foreach (var op in ops)
         {
             var target = op.Action != "add" && op.Id is not null && byLabel.TryGetValue(op.Id, out var named) ? named : null;
@@ -720,10 +725,19 @@ internal static class MemoryWriterOps
                         link.Groups["r"].Value.Trim().ToLowerInvariant().Replace('_', ' '), link.Groups["t"].Value));
                     continue;
                 }
+                // ILC-34: a connection joins entities. An end holding more than a name ("Valentina on system design.") is a
+                // statement: it is kept as a fact, and when it starts with a known name the connection goes to that entity.
+                var from = End(link.Groups["s"].Value, known);
+                var to = End(link.Groups["t"].Value, known);
+                if (from.Kind != EndKind.Name || to.Kind != EndKind.Name)
+                {
+                    facts.Add(CreateFact(op, null, from.Said, link.Groups["r"].Value.Trim().ToLowerInvariant().Replace('_', ' '), to.Said));
+                    if (from.Kind == EndKind.Phrase || to.Kind == EndKind.Phrase) continue;
+                }
                 relationships.Add(new ExtractedRelationship
                 {
-                    SourceEntity = link.Groups["s"].Value,
-                    TargetEntity = link.Groups["t"].Value,
+                    SourceEntity = from.Entity,
+                    TargetEntity = to.Entity,
                     RelationshipType = link.Groups["r"].Value.Trim().ToUpperInvariant().Replace(' ', '_'),
                     ReplacesId = target?.Letter == 'R' ? target.Id : null,
                 });
@@ -770,6 +784,35 @@ internal static class MemoryWriterOps
             ConfirmedFactIds = [.. confirmedFacts.Distinct(StringComparer.Ordinal)],
             ConfirmedPreferenceIds = [.. confirmedPreferences.Distinct(StringComparer.Ordinal)],
         };
+    }
+
+    private enum EndKind { Name, KnownThenMore, Phrase }
+
+    /// <summary>Lowercase words a person's or organisation's name may hold ("María de la Cruz", "University of Buenos Aires").</summary>
+    private static readonly HashSet<string> NameParticles = new(StringComparer.Ordinal)
+    {
+        "de", "del", "la", "las", "los", "el", "van", "von", "der", "den", "da", "das", "do", "dos", "di", "du", "le", "les", "of",
+        "the", "and", "y", "e", "bin", "ibn", "al", "zu", "ten", "ter", "st", "&",
+    };
+
+    /// <summary>
+    /// ILC-34: one end of a connection. <c>Said</c> is the end as written (trailing punctuation removed); <c>Entity</c> the
+    /// entity it names: a known name as written, the known name an end starts with ("Valentina" in "Valentina on system
+    /// design"), or the end itself when it reads as a name. An end of several words holding a lowercase word that is no name
+    /// particle reads as a statement, not a name. The user ("user", "me") is always a name.
+    /// </summary>
+    private static (EndKind Kind, string Said, string Entity) End(string text, IReadOnlyList<string> known)
+    {
+        var said = text.Trim().TrimEnd('.', ',', ';', ':', '!', '?').Trim();
+        if (said.Length == 0 || MemoryUserNames.IsSelf(said)) return (EndKind.Name, said, said);
+        if (known.FirstOrDefault(name => string.Equals(name, said, StringComparison.OrdinalIgnoreCase)) is { } exact)
+            return (EndKind.Name, said, exact);
+        if (known.FirstOrDefault(name => said.StartsWith(name + " ", StringComparison.OrdinalIgnoreCase)) is { } prefix)
+            return (EndKind.KnownThenMore, said, prefix);
+        var words = said.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return words.Length > 1 && words.Skip(1).Any(word => char.IsLower(word[0]) && !NameParticles.Contains(word))
+            ? (EndKind.Phrase, said, said)
+            : (EndKind.Name, said, said);
     }
 
     private static ExtractedFact CreateFact(Op op, Stored? target, string subject, string predicate, string value) => new()

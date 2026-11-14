@@ -526,6 +526,69 @@ public sealed class MemoryWriterTests
         MessageId = Guid.NewGuid().ToString("N"), ConversationId = "c", SessionId = "s", Role = role, Content = text,
         TimestampUtc = DateTimeOffset.UnixEpoch,
     };
+
+    [Fact]
+    public void A_connection_end_holding_more_than_a_name_is_kept_as_a_fact_and_joins_the_known_entity()
+    {
+        // ILC-34, the recorded reply (people-new-real-01): the topic was folded into the target, and no fact was kept.
+        IReadOnlyList<MemoryWriterOps.Stored> stored =
+        [
+            new("martin", 'E', "Martín (PERSON)") { Label = "E1" },
+            new("valentina", 'E', "Valentina (PERSON)") { Label = "E2" },
+        ];
+        var result = MemoryWriterOps.ToResult(
+            [new("add", "relationship", "Martín -[asked user to mentor]-> Valentina on system design.", null)], stored, owner: null);
+
+        var fact = result.Facts.Should().ContainSingle().Subject;
+        (fact.Subject, fact.Predicate, fact.Object).Should().Be(("Martín", "asked user to mentor", "Valentina on system design"));
+        var edge = result.Relationships.Should().ContainSingle().Subject;
+        (edge.SourceEntity, edge.TargetEntity, edge.RelationshipType).Should().Be(("Martín", "Valentina", "ASKED_USER_TO_MENTOR"));
+    }
+
+    [Fact]
+    public void A_connection_to_a_statement_no_entity_starts_is_kept_as_a_fact_only()
+    {
+        // ILC-34: "the invoice queue on Fridays" is no entity's name; the statement stays, no entity is made of it.
+        var result = MemoryWriterOps.ToResult([new("add", "relationship", "Valentina -[monitors]-> the invoice queue on Fridays", null)], [], owner: null);
+
+        result.Facts.Should().ContainSingle().Which.Object.Should().Be("the invoice queue on Fridays");
+        result.Relationships.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Connections_between_names_stay_connections()
+    {
+        // ILC-34: proper names, names with particles, the user, and a single lowercase thing are unchanged.
+        var result = MemoryWriterOps.ToResult(
+        [
+            new("add", "relationship", "Owen -[ENGAGED_TO]-> Simone Gagné", null),
+            new("add", "relationship", "Ana -[STUDIES_AT]-> University of Buenos Aires", null),
+            new("add", "relationship", "María de la Cruz -[SISTER_OF]-> Ana", null),
+            new("add", "relationship", "Alex Kim -[cousin]-> user", null),
+            new("add", "relationship", "Ana -[LIKES]-> jazz", null),
+            new("add", "relationship", "Bruna -[WORKS_FOR]-> Acme.", null),
+        ], [], owner: null);
+
+        result.Facts.Should().BeEmpty();
+        result.Relationships.Select(r => (r.SourceEntity, r.TargetEntity)).Should().Equal(
+            ("Owen", "Simone Gagné"), ("Ana", "University of Buenos Aires"), ("María de la Cruz", "Ana"), ("Alex Kim", "user"),
+            ("Ana", "jazz"), ("Bruna", "Acme"));
+    }
+
+    [Fact]
+    public void An_end_naming_an_entity_the_reply_declares_is_that_entity()
+    {
+        // ILC-34: a declared entity is known in the same reply, so a longer end that starts with it joins it.
+        var result = MemoryWriterOps.ToResult(
+        [
+            new("add", "entity", "Lucía Pérez (PERSON)", null),
+            new("add", "relationship", "Martín -[asked user to mentor]-> Lucía Pérez on databases", null),
+        ], [], owner: null);
+
+        result.Relationships.Should().ContainSingle().Which.TargetEntity.Should().Be("Lucía Pérez");
+        result.Facts.Should().ContainSingle().Which.Object.Should().Be("Lucía Pérez on databases");
+    }
+
 }
 
 /// <summary>AMWRITE001 in persistence: only the stored memories the writer named are closed, each when the judge confirms it.</summary>
@@ -1121,4 +1184,5 @@ public sealed class ChatModelUpdateJudgeTests
         new LlmExtractionOptions().ApplyRecommended().ChatModelUpdateJudge.Should().BeTrue();
         new LlmExtractionOptions().ChatModelUpdateJudge.Should().BeFalse();
     }
+
 }
