@@ -6,20 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
+### Added
 
-- **The Cypher migrations reach every application, including those that install the `AgentMemory` meta-package.** 2.2.0
-  copied them next to an application that references `AgentMemory.Neo4j` directly, but NuGet does not pass a dependency's
-  content files on, so an application that installed `AgentMemory`, as the README says, still got no
-  `Schema/Migrations` and ran without its schema. The scripts are now embedded in the `AgentMemory.Neo4j` assembly and the
-  migration runner reads them from there (`EmbeddedMigrationScripts`); a folder is only the tests' seam. Upgrading
-  applies the missing migrations on the next start.
-- "No migration scripts found" is a warning, not information: no scripts means no schema, and it went unnoticed.
-- `AgentMemory.Inference` sends a reasoning effort: `AI_REASONING_EFFORT` (`none`, `low`, `medium`, `high`, `extra-high`,
-  or `default` for none; a misspelling fails closed). Unset, Bitdeer's default model, GLM-5.3-Flash, gets `low`, as every
-  measurement ran it; at its default, maximum effort it could spend its whole reply budget thinking and answer nothing,
-  which left the identity writer with empty replies in the samples. No other model gets an effort it did not ask for.
-  A request that chooses its own effort keeps it.
 - **Identity-aware recall for people** (`RecallOptions.PersonDetails`, `MaxPersonDetailFacts`). A question that names
   a confirmed person ("my mentoring session with Valentina") now brings that person's facts, not only the ones whose
   words resemble the question: up to 8 live facts bound to the person through identity decisions, newest first. A name
@@ -36,6 +24,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   details work as before; one export can be imported into several owners. Messages stay out: decisions keep their
   quotes. A format-1 export, or an import into a store without identity, comes back as the current state, as in 2.2.0.
   An importer that knows only format 1 refuses format 2 rather than dropping its identity state.
+
+### Fixed
+
+- **The Cypher migrations reach every application, including those that install the `AgentMemory` meta-package.** 2.2.0
+  copied them next to an application that references `AgentMemory.Neo4j` directly, but NuGet does not pass a dependency's
+  content files on, so an application that installed `AgentMemory`, as the README says, still got no
+  `Schema/Migrations` and ran without its schema. The scripts are now embedded in the `AgentMemory.Neo4j` assembly and the
+  migration runner reads them from there (`EmbeddedMigrationScripts`); a folder is only the tests' seam. Upgrading
+  applies the missing migrations on the next start.
+- "No migration scripts found" is a warning, not information: no scripts means no schema, and it went unnoticed.
+- `AgentMemory.Inference` sends a reasoning effort: `AI_REASONING_EFFORT` (`none`, `low`, `medium`, `high`, `extra-high`,
+  or `default` for none; a misspelling fails closed). Unset, Bitdeer's default model, GLM-5.3-Flash, gets `low`, as every
+  measurement ran it; at its default, maximum effort it could spend its whole reply budget thinking and answer nothing,
+  which left the identity writer with empty replies in the samples. No other model gets an effort it did not ask for.
+  A request that chooses its own effort keeps it.
 - The release pipeline installs the freshly packed meta-package into a clean consumer and fails unless the installed
   `AgentMemory.Neo4j` embeds every migration in the source tree (`eng/verify-packages-install.sh`). Run against the
   published 2.2.0 it fails with 0 of 18, which is the bug.
