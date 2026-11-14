@@ -6,6 +6,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.1] - 2026-11-15
+
+A fix release. Pablo Piovano's scenario, run again with two people called Alex Kim, found two places where what the
+identity writer stored was not what was said, and recall for people goes back on by default now that its read is
+bounded.
+
+### Upgrading
+
+- The first start applies one more identity script (`ext/identity-evidence/0005_person_surfaces`): two indexes on
+  (owner, type) for entities, and a backfill that copies the names each owned person's bound facts used onto the person.
+  Idempotent; later starts only check.
+- `RecallOptions.PersonDetails` follows identity again (on where evidence-based identity runs, as in 2.2.0's plan); set
+  it to `false` to keep 2.3.0's opt-in.
+
+### Changed
+
+- **Recall for people is bounded and follows identity again.** Its reads walked every entity the owner had and every
+  binding to each person, so 2.3.0 shipped it opt-in. An index on (owner, type) now reaches the owner's people directly,
+  at most 1,000 of them, and an owned person keeps the names its bound facts used (`identity_surfaces`): binding adds the
+  name it saw, import rebuilds them, the migration backfills them. A shared person's bound names stay on its bindings,
+  read per owner, never written onto the shared node.
+
+### Fixed
+
+- **A connection whose end held more than a name lost the statement.** "Martín asked me to mentor Valentina on system
+  design" was stored as a connection to an entity named "Valentina on system design." and no fact, so recall could not
+  return it. A connection's end must now read as a name: one with more words after a known name keeps the statement as a
+  fact and joins the known entity; one that reads as a statement keeps the fact only. Trailing punctuation is no longer
+  part of an entity's name.
+- **A person named only inside facts got no identity decision.** With identity on, facts are tied to people only
+  through decisions, and identity decided only the entities a writer extracted. A person a fact named without an entity
+  of their own (the billing Alex Kim) got none: their facts were tied to nobody, and the other Alex Kim looked unique,
+  so recall for people could add his facts to a question about the wrong one. Such a mention now gets an observation of
+  its own when a stored person has exactly that name, and identity decides it like any mention.
+
 ## [2.3.0] - 2026-11-14
 
 **The Pablo Piovano release 2.** A fix and some improvements.
