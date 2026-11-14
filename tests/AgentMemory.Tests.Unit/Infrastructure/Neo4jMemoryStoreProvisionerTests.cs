@@ -88,6 +88,22 @@ public sealed class Neo4jMemoryStoreProvisionerTests
     }
 
     [Fact]
+    public async Task A_database_bound_runner_keeps_the_configured_transaction_timeout()
+    {
+        // CP3-3: the runner that applies the migrations to a provisioned database uses Neo4jOptions.TransactionTimeout,
+        // as the default runner does, and none when it is unset.
+        var session = Substitute.For<IAsyncSession>();
+        var factory = Substitute.For<INeo4jSessionFactory>();
+        factory.OpenSession("mem-acme", Arg.Any<AccessMode>()).Returns(session);
+
+        await new DatabaseTransactionRunner(factory, "mem-acme", TimeSpan.FromSeconds(5)).WriteAsync(_ => Task.CompletedTask);
+        await new DatabaseTransactionRunner(factory, "mem-acme").ReadAsync(_ => Task.CompletedTask);
+
+        await session.Received(1).ExecuteWriteAsync(Arg.Any<Func<IAsyncQueryRunner, Task<bool>>>(), Arg.Is<Action<TransactionConfigBuilder>>(c => c != null));
+        await session.Received(1).ExecuteReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task<bool>>>(), Arg.Is<Action<TransactionConfigBuilder>>(c => c == null));
+    }
+
+    [Fact]
     public async Task EnsureStoreAsync_PerApplication_BacktickQuotesDatabaseNameInCreateCommand()
     {
         // Regression guard: an unquoted database name with a dash (the default 'mem-' prefix always

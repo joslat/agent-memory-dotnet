@@ -56,6 +56,28 @@ public sealed class PersonMentionsTests
     }
 
     [Fact]
+    public void A_name_of_several_words_is_never_read_across_punctuation()
+    {
+        // CP3-1: "Mary, Ann" are Mary and Ann, never Mary Ann.
+        var people = new[] { P("mary", "Mary"), P("ann", "Ann"), P("maryann", "Mary Ann") };
+        PersonMentions.Named("What did Mary, Ann and I decide?", people).Should().Equal(["mary", "ann"]);
+        PersonMentions.Named("What did Mary Ann decide?", people).Should().Equal(["maryann"]);
+        PersonMentions.Named("Ask Mary. Ann knows.", people).Should().Equal(["mary", "ann"]);
+    }
+
+    [Fact]
+    public void A_capitalised_word_opening_the_sentence_before_a_name_may_be_part_of_it()
+    {
+        // CP3-2: only García is known; "Ana García" is someone else. A question's opening word is not part of a name.
+        var people = new[] { P("garcia", "García") };
+        PersonMentions.Named("Ana García called.", people).Should().BeEmpty();
+        PersonMentions.Named("Did García call?", people).Should().Equal(["garcia"]);
+        PersonMentions.Named("Call García about the invoice.", people).Should().Equal(["garcia"], "a request's verb is not part of a name");
+        PersonMentions.Named("¿Dónde vive García?", people).Should().Equal(["garcia"]);
+        PersonMentions.Named("When is García's birthday?", people).Should().Equal(["garcia"]);
+    }
+
+    [Fact]
     public void A_persons_own_spellings_leave_out_what_another_person_shares()
     {
         // REV3-2: by the same whole-word key as Named, case and accents aside.

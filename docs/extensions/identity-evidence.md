@@ -272,7 +272,10 @@ people, each scope read through its owner index; one is confirmed when facts are
 A person with more names than that may carry any name, so recall then names nobody. A name inside a longer name the
 question says ("Ana" in "Ana García") is part of that name; a known name joined by a space (or an apostrophe or hyphen)
 to another capitalised word that is not a title ("Ana Torres" when only Ana is known) is part of a longer name the store
-does not know, so it names nobody ("Dr Ana" still names Ana); and a single-word name that is also an everyday word
+does not know, so it names nobody ("Dr Ana" still names Ana), and so does a capitalised word that opens the sentence
+right before it ("Ana García called." when only García is known), unless that word is one a question or request opens
+with ("Did García call?", "Call García"); a name of several words matches only words joined by spaces in one sentence
+("Mary, Ann" are Mary and Ann, never Mary Ann); and a single-word name that is also an everyday word
 ("Will", "May", "Rosa") counts only written as a name: capitalised and not starting a sentence.
 A name appears in the question as whole words, case and accents aside; a name two people share names neither, a
 one-letter name or a pronoun names nobody, and at most 3 people are taken in the order the question names them. Only a
@@ -314,7 +317,9 @@ Import into a store with identity storage brings the owner back whole, and the c
   where a property names the owner. A value is a reference only under a property whose name says so (`id`, `ids`,
   `key`, `keys`, `scope`, or ending `Id`, `_id`, `Ids`, `_ids`, `Key`, `_key`, `Keys`, `_keys`, `Scope`, `_scope`):
   a name, a quote or an attribute that happens to equal an id stays as written, and a host assertion's payload and
-  lookup key are never rewritten.
+  lookup key are never rewritten. JSON kept as a string is read only in a record and a decision's receipt (so a quote
+  that looks like JSON is still the exact words it quotes), and an observation's attributes, a verified key's values,
+  quotes and source text are never rewritten.
 - **Source messages become the copy's own.** Each source message id that is not a message of the importing owner in
   this store is replaced by an `imported-message-` marker of the importing owner, in every format and in the facts,
   entities, decisions, bindings and relationship observations alike (a restore into the same owner keeps its own ids), so they still agree with one

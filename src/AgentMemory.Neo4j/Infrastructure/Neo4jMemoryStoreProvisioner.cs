@@ -128,7 +128,7 @@ internal sealed class Neo4jMemoryStoreProvisioner : IMemoryStoreProvisioner
     private async Task ApplyMigrationsAsync(string database, CancellationToken cancellationToken)
     {
         if (!_neo4jOptions.ApplyMigrationsOnBootstrap) return;
-        var runner = new MigrationRunner(new DatabaseTransactionRunner(_sessionFactory, database), _migrationLogger,
+        var runner = new MigrationRunner(new DatabaseTransactionRunner(_sessionFactory, database, _neo4jOptions.TransactionTimeout), _migrationLogger,
             EmbeddedMigrationScripts.Shipped, _extensions?.Active(_neo4jOptions) ?? []);
         try
         {

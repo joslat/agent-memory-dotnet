@@ -112,6 +112,9 @@ internal static class OwnerIdentityPortability
                 case JsonObject obj:
                     foreach (var (name, child) in obj.ToList())
                     {
+                        // CP3-4: host data and what an observation says stay as they were: its attributes, a verified key's
+                        // values, a quote, a source's text.
+                        if (Untouched.Contains(name)) continue;
                         var next = child;
                         if (child is JsonValue value && value.TryGetValue<string>(out var s))
                         {
@@ -152,8 +155,19 @@ internal static class OwnerIdentityPortability
                 var leaf = Leaf(text);
                 if (!string.Equals(leaf, text, StringComparison.Ordinal)) return leaf;
             }
-            return text.Length > 1 && text[0] is '{' or '[' ? Json(text) : text;
+            // CP3-4: JSON kept as a string is parsed only where JSON is stored (a record, a decision's receipt); a quote or
+            // an attribute that happens to look like JSON is text.
+            return property is not null && JsonProperties.Contains(property) && text.Length > 1 && text[0] is '{' or '[' ? Json(text) : text;
         }
+
+        /// <summary>CP3-4: the properties that hold JSON as a string.</summary>
+        private static readonly HashSet<string> JsonProperties = new(StringComparer.Ordinal) { "identity_record_json", "EvidenceJson" };
+
+        /// <summary>CP3-4: subtrees never rewritten: host data and free text.</summary>
+        private static readonly HashSet<string> Untouched = new(StringComparer.Ordinal)
+        {
+            "Attributes", "attributes", "Values", "Quote", "Text", "payload", "lookup_key",
+        };
 
         // An id, a key or a scope by name: "id", "candidateId", "SourceMessageIds", "identity_decision_id", "ObservationKey",
         // "owner_scope". Ordinal suffixes, so ordinary words that end in those letters ("valid", "paid") are not taken for one.

@@ -110,6 +110,20 @@ public sealed class OwnerIdentityPortabilityTests
     }
 
     [Fact]
+    public void Quotes_attributes_and_host_values_are_never_rewritten()
+    {
+        // CP3-4: a quote that looks like JSON stays the exact words it quotes; an observation's attributes and a verified
+        // key's values are the host's; a reference beside them is still rewritten.
+        var remap = Remap();
+        const string record = """{"Quote":"{\"id\":\"message-1\"}","Observation":{"Attributes":{"id":"message-1"}},"Context":{"VerifiedKeys":[{"Values":{"id":"message-1"},"SourceId":"message-1"}]}}""";
+        var json = remap.Value("identity_record_json", Text(record)).Text!;
+        json.Should().Contain("\"Quote\":\"{\\\"id\\\":\\\"message-1\\\"}\"");
+        json.Should().Contain("\"Attributes\":{\"id\":\"message-1\"}").And.Contain("\"Values\":{\"id\":\"message-1\"}");
+        json.Should().Contain("\"SourceId\":\"imported-message-1\"");
+        remap.Value("attributes", Text("""{"id":"message-1"}""")).Text.Should().Be("""{"id":"message-1"}""", "a relationship's attributes are text");
+    }
+
+    [Fact]
     public void Every_value_keeps_its_type_through_the_round_trip()
     {
         var at = new ZonedDateTime(new DateTimeOffset(2026, 11, 13, 21, 30, 5, TimeSpan.Zero));

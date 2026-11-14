@@ -64,6 +64,29 @@ internal static class PersonMentions
             .Where(surface => Key(surface) is { } key && holders[key].Count == 1)];
     }
 
+    /// <summary>
+    /// CP3-2: words a question or request opens with, which stand before a name without being part of it ("Did García
+    /// call?"). Any other capitalised word right before a known name may be a longer name's first part, so the name is
+    /// then nobody's: a missed expansion, never the wrong person. Accents are folded, as in the question's words.
+    /// </summary>
+    private static readonly HashSet<string> Openers = new(StringComparer.Ordinal)
+    {
+        "what", "when", "where", "who", "whom", "whose", "which", "why", "how", "did", "do", "does", "is", "are", "was", "were",
+        "am", "can", "could", "will", "would", "should", "shall", "may", "might", "must", "has", "have", "had", "tell", "show",
+        "remind", "ask", "give", "find", "list", "please", "and", "but", "or", "so", "then", "also", "if", "the", "a", "an",
+        "my", "our", "your", "his", "her", "their", "its", "this", "that", "these", "those", "we", "you", "he", "she", "they",
+        "it", "let", "about", "for", "with", "to", "from", "at", "on", "in", "since", "after", "before", "hey", "hi", "hello",
+        "ok", "okay", "yes", "no", "not", "dear",
+        // Requests open with a verb: "Ping AK", "Call Ana", "Email García".
+        "ping", "call", "email", "mail", "text", "message", "phone", "contact", "meet", "invite", "thank", "thanks", "help",
+        "update", "notify", "send", "schedule", "book", "follow", "write", "check", "cc", "forward", "reply", "answer",
+        "llama", "llamale", "escribe", "escribele", "avisa", "avisale", "manda", "mandale", "recuerda", "invita", "contesta",
+        "responde", "saluda", "pide", "pidele", "consulta", "habla",
+        "que", "cuando", "donde", "quien", "quienes", "como", "cual", "cuales", "por", "para", "el", "la", "los", "las", "un",
+        "una", "y", "o", "mi", "mis", "su", "sus", "tu", "tus", "dime", "dile", "recuerdame", "pregunta", "pregunto", "hola",
+        "con", "de", "del", "en", "sobre", "desde",
+    };
+
     /// <summary>Titles that may stand before a name without making it part of a longer one.</summary>
     private static readonly HashSet<string> Titles = new(StringComparer.Ordinal)
     {
@@ -98,6 +121,10 @@ internal static class PersonMentions
         for (var start = 0; start < words.Length; start++)
             for (var length = 1; length <= MaxNameWords && start + length <= words.Length; length++)
             {
+                // CP3-1: a name of several words is its words joined by spaces (or an apostrophe or hyphen) in one sentence;
+                // "Mary, Ann" are two people, never "Mary Ann".
+                var last = tokens[start + length - 1];
+                if (length > 1 && (!last.Joined || last.SentenceStart)) break;
                 var key = string.Join(' ', words, start, length);
                 if (!starts.TryGetValue(key, out var at)) starts[key] = at = [];
                 at.Add(start);
@@ -122,8 +149,11 @@ internal static class PersonMentions
         // REV2-6: and a name followed or preceded by another capitalised word ("Ana Torres") is part of a longer name the
         // store does not know, not this person (titles such as "Dr" aside).
         // Only a word joined to the name by a space counts: "Diego, Tomás" are two people.
+        // CP3-2: a word that opens the sentence counts too ("Ana García called." when only García is known), unless it is
+        // a word questions and requests open with ("Did García call?").
         bool Bordered(int start, int length) =>
-            tokens[start].Joined && Capitalised(start - 1) && !Titles.Contains(tokens[start - 1].Word) ||
+            tokens[start].Joined && start > 0 && tokens[start - 1] is { Capitalized: true } before && before.Word != "i" &&
+                !Titles.Contains(before.Word) && (!before.SentenceStart || !Openers.Contains(before.Word)) ||
             start + length < tokens.Length && tokens[start + length].Joined && Capitalised(start + length);
         bool Capitalised(int at) => at >= 0 && at < tokens.Length && tokens[at].Capitalized && !tokens[at].SentenceStart && tokens[at].Word != "i";
         IEnumerable<int> Alone(string key) => starts[key].Where(start => !Bordered(start, Length(key)) && !said.Any(other => Length(other) > Length(key) &&

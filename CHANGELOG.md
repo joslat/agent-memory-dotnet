@@ -55,7 +55,9 @@ Thank you again, Pablo: your scenario is now the benchmark every identity change
   counts as whole words, case and accents aside, and only when one person in the store has it: a name two people share
   expands nothing, never a guess, whether the other is confirmed, an open proposal (never followed) or a person with no
   bound facts. A name inside a longer name the question says ("Ana" in "Ana García") is part of it, a known name
-  joined by a space to another capitalised word ("Ana Torres" when only Ana is known) names nobody, and a single-word
+  joined by a space to another capitalised word ("Ana Torres" when only Ana is known), or right after a word opening the
+  sentence that is not a question or request opener ("Ana García called."), names nobody, a name of several words
+  matches only words joined in one sentence ("Mary, Ann" are two people), and a single-word
   name that is also an everyday word ("Will", "May") counts only written as a name, capitalised and not starting a
   sentence. At most 3 people per question; a store whose read of people comes back full (1,000), or a person with more
   names than are read (32, spellings that differ only in case counted once), expands nobody. A light read of every
