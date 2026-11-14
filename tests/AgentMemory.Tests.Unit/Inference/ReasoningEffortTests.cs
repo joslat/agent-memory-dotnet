@@ -28,6 +28,15 @@ public sealed class ReasoningEffortTests
     }
 
     [Fact]
+    public void The_automatic_effort_names_the_model_it_was_chosen_for_and_an_explicit_one_names_none()
+    {
+        InferenceProviderEnvironment.Resolve(Env(("AI_INFERENCE_PROVIDER", "bitdeer"), ("BITDEER_API_KEY", "k")))
+            .Settings!.ReasoningEffortModel.Should().Be("zai-org/GLM-5.3-Flash");
+        InferenceProviderEnvironment.Resolve(Env(("AI_INFERENCE_PROVIDER", "bitdeer"), ("BITDEER_API_KEY", "k"), ("AI_REASONING_EFFORT", "low")))
+            .Settings!.ReasoningEffortModel.Should().BeNull("an operator's effort applies to every model");
+    }
+
+    [Fact]
     public void Another_model_gets_no_effort_it_did_not_ask_for()
     {
         var resolution = InferenceProviderEnvironment.Resolve(Env(

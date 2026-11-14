@@ -114,6 +114,13 @@ public sealed record InferenceProviderSettings
     /// </summary>
     public ReasoningEffort? ReasoningEffort { get; init; }
 
+    /// <summary>
+    /// When <see cref="ReasoningEffort"/> is the automatic default, the one model it was chosen for: a role built on another
+    /// model (an extraction or judge override) gets none. Null when the operator set the effort, which then applies to every
+    /// role.
+    /// </summary>
+    internal string? ReasoningEffortModel { get; init; }
+
     /// <summary>The extraction model actually used: the named one, else the primary.</summary>
     public string EffectiveExtractionModel =>
         string.IsNullOrWhiteSpace(ExtractionModel) ? Model : ExtractionModel;

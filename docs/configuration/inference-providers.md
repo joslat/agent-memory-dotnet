@@ -68,7 +68,9 @@ For Azure, the "model" is a **deployment name**. Everywhere else it is a model i
 `low`, `medium`, `high` or `extra-high`, or `default` to send none. A misspelling fails closed. Unset, only Bitdeer's
 default model, GLM-5.3-Flash, gets `low`: at its default, maximum effort it can spend its whole reply budget thinking and
 answer nothing, and every AgentMemory measurement ran it at low effort. No other model gets an effort it did not ask
-for, because some providers reject the parameter on models that do not reason. It travels as `ChatOptions.Reasoning`,
+for, because some providers reject the parameter on models that do not reason: the automatic `low` reaches only clients
+built on GLM-5.3-Flash, never an extraction model or judge override on another model. An effort the operator sets
+applies to every client. It travels as `ChatOptions.Reasoning`,
 which the OpenAI protocol sends as `reasoning_effort`.
 
 ## Embeddings, and why the dimension is not optional

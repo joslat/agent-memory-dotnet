@@ -371,6 +371,8 @@ public static class InferenceProviderEnvironment
             NetworkTimeoutSeconds = PositiveInt(Value(read, TimeoutVariable)) ?? 180,
             ShowRaw = IsTruthy(Value(read, ShowRawVariable)),
             ReasoningEffort = reasoningEffort,
+            // The automatic default belongs to the model it was chosen for; an operator's effort applies to every role.
+            ReasoningEffortModel = reasoningEffort is not null && Value(read, ReasoningEffortVariable) is null ? model : null,
         };
 
         return new InferenceResolution

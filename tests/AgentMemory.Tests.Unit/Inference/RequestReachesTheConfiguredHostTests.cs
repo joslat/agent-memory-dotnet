@@ -131,6 +131,43 @@ public sealed class RequestReachesTheConfiguredHostTests
         else host.LastBody.Should().NotContain("reasoning_effort", "no effort is sent that nobody asked for");
     }
 
+    /// <summary>
+    /// The automatic low effort was chosen for one model (Bitdeer's GLM-5.3-Flash). A role built on another model (an
+    /// extraction or judge override) gets none: some providers reject the parameter on models that do not reason. An
+    /// operator's explicit effort applies to every role.
+    /// </summary>
+    [Theory]
+    [InlineData(null, true)]
+    [InlineData("other-org/a-plain-chat-model", false)]
+    public async Task TheAutomaticEffortStaysWithTheModelItWasChosenFor(string? roleModel, bool sent)
+    {
+        await using var host = new FakeHost();
+        var settings = Settings(host.Endpoint) with
+        {
+            Model = "zai-org/GLM-5.3-Flash", ReasoningEffort = ReasoningEffort.Low, ReasoningEffortModel = "zai-org/GLM-5.3-Flash",
+        };
+
+        InferenceClientFactory.TryCreateChatClient(settings, "extraction", out var client, out var diagnostic, model: roleModel)
+            .Should().BeTrue(diagnostic);
+        await client!.GetResponseAsync([new ChatMessage(ChatRole.User, "hello")]);
+
+        if (sent) host.LastBody.Should().Contain("\"reasoning_effort\":\"low\"");
+        else host.LastBody.Should().NotContain("reasoning_effort", "the automatic effort belongs to the model it was chosen for");
+    }
+
+    [Fact]
+    public async Task AnOperatorsExplicitEffortReachesEveryRole()
+    {
+        await using var host = new FakeHost();
+        var settings = Settings(host.Endpoint) with { ReasoningEffort = ReasoningEffort.Medium, ReasoningEffortModel = null };
+
+        InferenceClientFactory.TryCreateChatClient(settings, "extraction", out var client, out _, model: "other-org/a-plain-chat-model")
+            .Should().BeTrue();
+        await client!.GetResponseAsync([new ChatMessage(ChatRole.User, "hello")]);
+
+        host.LastBody.Should().Contain("\"reasoning_effort\":\"medium\"");
+    }
+
     /// <summary>A caller that chooses its own effort keeps it.</summary>
     [Fact]
     public async Task ACallersOwnReasoningEffortWins()
