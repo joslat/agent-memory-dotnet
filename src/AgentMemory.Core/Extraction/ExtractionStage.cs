@@ -409,49 +409,6 @@ internal sealed class ExtractionStage : IExtractionStage
             }
         }
 
-        // ILC-35: a person a fact or connection names, with no entity of their own in this extraction, is invisible to
-        // identity: no decision, no binding, and a namesake looks unique. When a live stored person has exactly that name,
-        // the mention gets an observation of its own, so identity decides it like any mention (confirmed on evidence, a
-        // possibly-same proposal, or new). Only names a stored person has: no other name can be confused with anyone.
-        // Only people: events and things are named in facts constantly and have their own decisions. Bounded by the
-        // ingestion's mention cap, which stops it without failing the write.
-        if (_identity?.Enabled == true)
-        {
-            var covered = identityPlans.Select(plan => MemoryTripleCanonicalizer.CanonicalValue(plan.Decision.Observation.Name))
-                .Concat(rawEntities.Select(entity => MemoryTripleCanonicalizer.CanonicalValue(entity.Name)))
-                .ToHashSet(StringComparer.Ordinal);
-            var named = rawFacts.Where(fact => fact.Confidence >= _options.MinConfidenceThreshold)
-                .SelectMany(fact => new[] { (Name: fact.Subject, fact.Confidence), (Name: fact.Object, fact.Confidence) })
-                .Concat(rawRelationships.Where(relationship => relationship.Confidence >= _options.MinConfidenceThreshold)
-                    .SelectMany(relationship => new[] { (Name: relationship.SourceEntity, relationship.Confidence),
-                        (Name: relationship.TargetEntity, relationship.Confidence) }))
-                // A name is short: a sentence-long object ("the invoice export after the go-live …") is no one's name and
-                // is not looked up.
-                .Where(said => !string.IsNullOrWhiteSpace(said.Name) && !MemoryUserNames.IsSelf(said.Name) &&
-                    said.Name.Length <= 256 && said.Name.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length <= 6)
-                .GroupBy(said => MemoryTripleCanonicalizer.CanonicalValue(said.Name), StringComparer.Ordinal)
-                .Where(group => group.Key.Length > 0 && !covered.Contains(group.Key))
-                .Select(group => (Name: group.First().Name.Trim(), Confidence: group.Max(said => said.Confidence)))
-                .ToList();
-            foreach (var (name, confidence) in named)
-            {
-                if (identityPlans.Count >= _identity.MaxMentions)
-                {
-                    _logger.LogWarning("Identity: {Count} people named only in facts got no observation; the mention cap was reached.",
-                        named.Count - named.IndexOf((name, confidence)));
-                    break;
-                }
-                if (!await _identity.NamesStoredPersonAsync(name, scope, cancellationToken).ConfigureAwait(false)) continue;
-                var plan = await _identity.PlanAsync(new ExtractedEntity { Name = name, Type = "PERSON", Confidence = confidence },
-                    window, scope, cancellationToken, identityBudget).ConfigureAwait(false);
-                var baseKey = plan.Decision.ObservationKey;
-                var occurrence = identityOccurrences.GetValueOrDefault(baseKey);
-                identityOccurrences[baseKey] = occurrence + 1;
-                if (occurrence > 0) plan = IdentityIngestion.WithOccurrence(plan, occurrence);
-                identityPlans.Add(plan);
-            }
-        }
-
         if (_identity?.Enabled == true)
             foreach (var group in identityPlans.DistinctBy(plan => plan.Decision.ObservationKey)
                 .GroupBy(plan => MemoryTripleCanonicalizer.CanonicalValue(plan.Decision.Observation.Name), StringComparer.Ordinal))

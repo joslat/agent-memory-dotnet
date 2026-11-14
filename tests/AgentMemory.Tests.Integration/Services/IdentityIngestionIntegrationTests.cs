@@ -1624,43 +1624,6 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
         imported.Written.Should().Contain("identity:bindings-dropped", bindings);
     }
 
-    [Fact]
-    public async Task A_person_named_only_in_a_fact_gets_an_identity_decision_of_their_own()
-    {
-        // ILC-35, the recorded billing Alex Kim: the writer emitted a fact naming him and no entity. A stored person has
-        // the name, so the mention gets an observation of its own and the fact binds to its decision: identity decides,
-        // and the namesake is visible.
-        using var host = Host(); using var scope = host.CreateScope(); var services = scope.ServiceProvider;
-        await Seed(services, "Alex Kim", "PERSON");
-
-        await Ingest(services, new UnifiedExtractionResult
-        {
-            Facts = [new ExtractedFact { Subject = "Alex Kim", Predicate = "will test", Object = "the invoice export", Confidence = 1 }]
-        });
-
-        (await Count("(d:IdentityDecision {owner_id:'pablito'}) WHERE d.identity_record_json CONTAINS '\"Name\":\"Alex Kim\"'")).Should().Be(1);
-        (await Count("(:Fact {subject:'Alex Kim', owner_id:'pablito'})-[:HAS_IDENTITY_BINDING]->(:IdentityFactBinding)")).Should().Be(1);
-    }
-
-    [Fact]
-    public async Task Only_a_stored_persons_name_in_a_fact_gets_an_observation()
-    {
-        // ILC-35: an unknown name cannot be confused with anyone, and events and things keep their own decisions.
-        using var host = Host(); using var scope = host.CreateScope(); var services = scope.ServiceProvider;
-        await Seed(services, "Acme go live");
-
-        await Ingest(services, new UnifiedExtractionResult
-        {
-            Facts =
-            [
-                new ExtractedFact { Subject = "Bob Stone", Predicate = "will test", Object = "the invoice export", Confidence = 1 },
-                new ExtractedFact { Subject = "Acme go live", Predicate = "moved to", Object = "December 14", Confidence = 1 },
-            ]
-        });
-
-        (await Count("(d:IdentityDecision {owner_id:'pablito'})")).Should().Be(0);
-    }
-
     private async Task RunPersonSurfacesBackfill()
     {
         var script = await AgentMemory.Neo4j.Infrastructure.EmbeddedMigrationScripts.Shipped.ReadAsync(

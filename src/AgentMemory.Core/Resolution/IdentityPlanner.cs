@@ -39,25 +39,6 @@ internal sealed class IdentityPlanner
                 ["The selected identity backend must guarantee bounded reads, calendar lookup and configured verified-key lookup."]);
     }
 
-    /// <summary>
-    /// ILC-35: whether the scope holds a live PERSON with exactly this name, by the same exact lookup a person mention
-    /// gets its candidates from. An incomplete lookup counts as yes: the mention then goes through identity, which decides
-    /// on evidence, rather than being left out.
-    /// </summary>
-    internal async Task<bool> NamesStoredPersonAsync(string name, MemoryScope? scope, CancellationToken cancellationToken)
-    {
-        var policy = _configuration.PolicyFor("PERSON");
-        var owner = SharedScopes.WriteOwner(scope);
-        if (string.IsNullOrEmpty(owner)) owner = null;
-        var exact = await _provider.FindExactCandidatesAsync(new IdentityCandidateQuery
-        {
-            Name = name, Type = "PERSON", OwnerId = owner, CompatibleTypes = policy.CompatibleTypes,
-            IdentityNameComparison = policy.IdentityNameComparison, IdentityProperties = policy.IdentityProperties,
-            IncludeShared = owner is null || (scope?.IncludeShared ?? true), Limit = 1,
-        }, cancellationToken).ConfigureAwait(false);
-        return exact.Candidates.Count > 0 || !exact.ExactIdentityLookupComplete;
-    }
-
     public async Task<IdentityResolutionPlan> PlanAsync(ExtractedEntity mention,
         EntityIdentityResolutionContext context, MemoryScope? scope = null, CancellationToken cancellationToken = default)
     {
