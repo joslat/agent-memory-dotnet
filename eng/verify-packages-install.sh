@@ -51,6 +51,11 @@ for consumer in "$CONSUMERS_DIR"/Consumer.*/; do
     fi
 
     # 2.2.0's meta-package reached applications without its migrations; this consumer installs it the README's way.
+    # The meta-package consumer must report the count: a consumer that stopped printing it would otherwise pass in silence.
+    if [[ "$name" == "Consumer.MetaPackage" && "$output" != *"embedded-migrations="* ]]; then
+      echo "::error::$name ($tfm) did not report its embedded migrations -- got: $output"
+      exit 1
+    fi
     if [[ "$output" == *"embedded-migrations="* && "$output" != *"embedded-migrations=$EXPECTED_MIGRATIONS"* ]]; then
       echo "::error::$name ($tfm): the installed AgentMemory.Neo4j does not embed all $EXPECTED_MIGRATIONS migrations -- got: $output"
       exit 1
