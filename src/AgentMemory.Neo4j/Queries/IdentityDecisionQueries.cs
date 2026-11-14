@@ -141,6 +141,12 @@ internal static class IdentityDecisionQueries
         MERGE (f)-[:HAS_IDENTITY_BINDING]->(b)
         MERGE (b)-[:DECIDED_BY]->(d)
         MERGE (b)-[:RESOLVES_TO]->(t)
+        // REV2-2b: the name this binding saw is kept on its person, so recall for people reads a person's names without
+        // walking every binding. Only on a target the binding's owner owns: one owner's spelling never sits on a shared
+        // node another owner reads. Append-only: a stale name can only make a name ambiguous, never hide a namesake.
+        FOREACH (_ IN CASE WHEN t.owner_id IS NOT NULL AND t.owner_id = b.owner_id
+                AND NOT b.identity_observed_surface IN coalesce(t.identity_surfaces, []) THEN [1] ELSE [] END |
+            SET t.identity_surfaces = coalesce(t.identity_surfaces, []) + b.identity_observed_surface)
         RETURN b.id AS id
         """;
 }

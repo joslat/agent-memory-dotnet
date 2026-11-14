@@ -462,9 +462,12 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
         (await facts.GetPersonDetailsAsync([valentina.EntityId], [details[0].FactId], 8, Scope)).Should().ContainSingle();
         (await facts.GetPersonDetailsAsync([valentina.EntityId], [], 1, Scope)).Should().ContainSingle();
         // REV2-2: the light first read lists every spelling, a name a bound fact used included, and nothing of another owner's.
+        // REV2-2b: a person keeps the names its bindings saw; here one binding is made to have seen "Vale", and the 0005
+        // migration's backfill (as an existing store gets it) puts that name on the person.
         await fixture.TransactionRunner.WriteAsync(async runner => { await runner.RunAsync(
             "MATCH (b:IdentityFactBinding {owner_id:'pablito'})-[:RESOLVES_TO]->(:Entity {id:$id}) WITH b LIMIT 1 SET b.identity_observed_surface='Vale'",
             new { id = valentina.EntityId }); });
+        await RunPersonSurfacesBackfill();
         (await facts.GetPersonNamesAsync(10_000, Scope)).Should().Contain(["Valentina", "Tomás Pérez", "Vale"]).And.OnlyHaveUniqueItems();
         (await facts.GetPersonNamesAsync(1, Scope)).Should().ContainSingle();
         var other = MemoryScope.For("other-owner", false);
@@ -1656,6 +1659,53 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
         });
 
         (await Count("(d:IdentityDecision {owner_id:'pablito'})")).Should().Be(0);
+    }
+
+    private async Task RunPersonSurfacesBackfill()
+    {
+        var script = await AgentMemory.Neo4j.Infrastructure.EmbeddedMigrationScripts.Shipped.ReadAsync(
+            "ext/identity-evidence/0005_person_surfaces.cypher", CancellationToken.None);
+        var backfill = AgentMemory.Neo4j.Infrastructure.MigrationRunner.ParseStatements(script).Single(statement => statement.StartsWith("MATCH", StringComparison.Ordinal));
+        await fixture.TransactionRunner.WriteAsync(async runner => { await runner.RunAsync(backfill); });
+    }
+
+    [Fact]
+    public async Task Binding_a_fact_keeps_the_name_it_saw_on_the_owned_person()
+    {
+        // REV2-2b: the people read takes a person's bound names from the person, so binding writes them there.
+        using var host = Host(); using var scope = host.CreateScope(); var services = scope.ServiceProvider;
+        await Ingest(services, new UnifiedExtractionResult
+        {
+            Entities = [new() { Name = "Valentina", Type = "PERSON", Confidence = 1 }],
+            Facts = [new() { Subject = "Valentina", Predicate = "will prepare", Object = "a video tutorial", Confidence = 1 }]
+        });
+
+        var person = await fixture.TransactionRunner.ReadAsync(async runner => ValueExtensions.As<List<string>>((await (await runner.RunAsync(
+            "MATCH (:IdentityFactBinding {owner_id:'pablito'})-[:RESOLVES_TO]->(p:Entity) RETURN p.identity_surfaces AS s")).SingleAsync())["s"]));
+        person.Should().Equal(["Valentina"]);
+    }
+
+    [Fact]
+    public async Task An_imported_person_carries_the_names_its_bindings_saw()
+    {
+        // REV2-2b: the copy rebuilds each person's bound names from the bindings it brings, so recall for people reads
+        // the same names in the copy as in the source.
+        using var host = Host(); using var scope = host.CreateScope(); var services = scope.ServiceProvider;
+        await Ingest(services, new UnifiedExtractionResult
+        {
+            Entities = [new() { Name = "Valentina", Type = "PERSON", Confidence = 1 }],
+            Facts = [new() { Subject = "Valentina", Predicate = "will prepare", Object = "a video tutorial", Confidence = 1 }]
+        });
+        // The fact said "Vale" and was bound to Valentina: binding and fact agree on the name, as Bind requires.
+        await fixture.TransactionRunner.WriteAsync(async runner => { await runner.RunAsync(
+            "MATCH (f:Fact {owner_id:'pablito'})-[:HAS_IDENTITY_BINDING]->(b:IdentityFactBinding {owner_id:'pablito'}) " +
+            "SET b.identity_observed_surface = 'Vale', f.subject = 'Vale', f.subject_key = 'vale'"); });
+        var file = await ExportFile(services);
+
+        await services.GetRequiredService<IMemoryOwnerDataService>().ImportAsync(file, "copy-owner");
+
+        (await services.GetRequiredService<IFactRepository>().GetPersonNamesAsync(10_000, MemoryScope.For("copy-owner", false)))
+            .Should().Contain("Vale");
     }
 
     private static IdentityHostEvidence HostProof(string eventId = "ACME-2026") => new()

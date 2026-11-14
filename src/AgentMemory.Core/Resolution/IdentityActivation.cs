@@ -49,9 +49,9 @@ internal sealed class IdentityActivation : IMemoryTierSource
     public bool EventDetails(bool? requested) => requested ?? Active;
 
     /// <summary>Person details at recall: an explicit choice, or whether identity runs.</summary>
-    // REV4-1: opt-in for now. Each recall that uses it reads the owner's people and the names their facts were bound with,
-    // which grows with the owner; once that read is a lookup (REV2-2b) it follows identity like event details.
-    public bool PersonDetails(bool? requested) => requested == true;
+    // REV2-2b: the people read is bounded (an index reaches the owner's people, at most 1,000, and their bound names are
+    // kept on them), so recall for people follows identity again, like event details (it was opt-in in 2.3.0).
+    public bool PersonDetails(bool? requested) => requested ?? Active;
 
     public MemoryTier Describe() => _fallback.Value is { } why
         ? new MemoryTier(MemoryTiers.Identity, "previous resolver", $"{why}; {KnownIssue}")

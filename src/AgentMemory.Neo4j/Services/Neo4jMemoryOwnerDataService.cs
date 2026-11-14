@@ -856,6 +856,10 @@ internal sealed class Neo4jMemoryOwnerDataService(
         foreach (var decision in state.CurrentConfirmations)
             if (map.TryGetValue(decision, out var id))
                 await RefreshConfirmationAsync(id, ownerId, importedEntities, cancellationToken).ConfigureAwait(false);
+        // REV2-2b: the copy's people carry the names their bindings saw, as binding gives them.
+        await tx.WriteAsync(async runner => await (await runner.RunAsync(OwnerDataQueries.RefreshPersonSurfaces,
+            new Dictionary<string, object?> { ["ownerId"] = ownerId }).ConfigureAwait(false)).ConsumeAsync().ConfigureAwait(false),
+            cancellationToken).ConfigureAwait(false);
 
         async Task WriteRowsAsync(string query, string kind, List<object> rows)
         {

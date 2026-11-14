@@ -302,9 +302,9 @@ public sealed record RecallOptions
     public int MaxEventDetailFacts { get; init; } = 8;
 
     /// <summary>
-    /// Add the facts about a confirmed person the question names (ILC-33). Off unless <c>true</c> for now: each recall that
-    /// uses it reads the owner's people and the names their facts were bound with, which grows with the owner, until that
-    /// read is indexed; <c>true</c> requires an identity-capable backend. A name counts as whole words, case and accents
+    /// Add the facts about a confirmed person the question names (ILC-33). <c>null</c> (the default) follows identity, like
+    /// <see cref="EventDetails"/>; <c>true</c> requires an identity-capable backend. The read is bounded: an index reaches the
+    /// owner's people, at most 1,000 of them, with the names their facts were bound with kept on each person. A name counts as whole words, case and accents
     /// aside, and only when one confirmed person has it: a name two people share expands nothing, never a guess. At most
     /// 3 people per question; their live facts come through decision-owned fact bindings, newest first, pending proposals
     /// never followed. No model call; extra facts have no invented similarity score and share the existing context budget.

@@ -184,6 +184,18 @@ public static class OwnerDataQueries
         ["IdentityRelationshipObservation"] = "UNWIND $rows AS row MATCH (n:IdentityRelationshipObservation {id: row.id}) WHERE n.owner_id = $ownerId DETACH DELETE n",
     };
 
+    /// <summary>
+    /// REV2-2b: an imported owner's people get the names their bindings saw, as binding gives them (see
+    /// IdentityDecisionQueries.Bind): from the owner's own entities, never a shared one.
+    /// </summary>
+    public const string RefreshPersonSurfaces = @"
+            MATCH (t:Entity) WHERE t.owner_id = $ownerId
+            MATCH (t)<-[:RESOLVES_TO]-(b:IdentityFactBinding) WHERE b.owner_id = $ownerId AND b.identity_observed_surface IS NOT NULL
+            WITH t, collect(DISTINCT b.identity_observed_surface) AS bound
+            WITH t, coalesce(t.identity_surfaces, []) + [s IN bound WHERE NOT s IN coalesce(t.identity_surfaces, [])] AS surfaces
+            SET t.identity_surfaces = surfaces
+            RETURN count(t) AS written";
+
     /// <summary>REV2-10: how many of these ids already exist as messages.</summary>
     public const string ExistingMessages = @"
             UNWIND $ids AS id

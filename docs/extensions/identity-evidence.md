@@ -11,7 +11,8 @@ constraints and lookup indexes). Adding it by hand does not by itself switch ide
 ## Shape
 
 `(Entity)-[:HAS_IDENTITY_EVIDENCE]->(IdentityEvidenceAssertion)` records explicit authority and source.
-Entity properties: `identity_evidence_version`, `identity_calendar_key`.
+Entity properties: `identity_evidence_version`, `identity_calendar_key`, `identity_observation_key`, and
+`identity_surfaces` (the names an owned person's bound facts used, kept as facts are bound; see Recall for people).
 Assertion properties: `id`, `assertion_kind`, `namespace`, `authority`, `source_id`, `owner_scope`,
 `payload`, `lookup_key`, `surface`, `subject_kind`, `calendar_key`, `created_at`.
 
@@ -21,7 +22,9 @@ The extension owns `0001_identity_evidence.cypher`: unique assertion IDs and loo
 calendar-key indexes. Query text lives in `IdentityEvidenceQueries`. Every input is parameterized.
 Exact IDs use K+1 to detect truncation before hydrating at most K contexts. Lexical/vector pools and
 candidate context are bounded. Evidence loads at most 65 assertions; the extra row marks the
-candidate incomplete, blocking confirmation and model adjudication.
+candidate incomplete, blocking confirmation and model adjudication. `0005_person_surfaces.cypher` adds the
+`entity_owner_type` and `entity_owner_key_type` indexes, so recall for people seeks an owner's people instead of walking
+every entity, and backfills `identity_surfaces` from the bindings already stored.
 
 ## Semantics
 
@@ -52,7 +55,7 @@ The extension is off by default; its APIs reject use while disabled before issui
 ## Parity delta
 
 NET-only label `IdentityEvidenceAssertion`; NET-only relationship `HAS_IDENTITY_EVIDENCE`.
-Superset properties: `identity_evidence_version`, `identity_calendar_key`, `assertion_kind`,
+Superset properties: `identity_evidence_version`, `identity_calendar_key`, `identity_surfaces`, `assertion_kind`,
 `namespace`, `authority`, `source_id`, `owner_scope`, `payload`, `lookup_key`, `surface`,
 `subject_kind`, `calendar_key`. The shared names `id` and `created_at` retain their base meaning.
 

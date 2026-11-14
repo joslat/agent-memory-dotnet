@@ -13,7 +13,7 @@ internal static class PersonMentions
 {
     /// <summary>
     /// People read per question. An owner with this many people or more names nobody (a namesake may lie past the bound),
-    /// so the reads stop there; below it they grow with the owner's people and their bindings (REV4-1).
+    /// so the reads stop there (REV4-1); an index reaches the people and each keeps its bound names (REV2-2b).
     /// </summary>
     internal const int MaxPeopleRead = 1000;
 
