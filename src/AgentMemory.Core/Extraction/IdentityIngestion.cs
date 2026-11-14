@@ -47,6 +47,10 @@ internal sealed partial class IdentityIngestion
 
     internal IdentityAdjudicationBudget CreateAdjudicationBudget() => new(_configuration.MaxAdjudicationsPerIngestion);
 
+    /// <summary>ILC-35: whether a live stored person has exactly this name in the scope (see IdentityPlanner).</summary>
+    internal Task<bool> NamesStoredPersonAsync(string name, MemoryScope? scope, CancellationToken cancellationToken) =>
+        _planner!.NamesStoredPersonAsync(name, scope, cancellationToken);
+
     public async Task<IdentityDecisionWrite> PlanAsync(ExtractedEntity mention, ExtractionWindow window,
         MemoryScope? scope, CancellationToken cancellationToken, IdentityAdjudicationBudget? budget = null)
     {
