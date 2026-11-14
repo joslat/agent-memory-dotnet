@@ -51,6 +51,9 @@ public sealed class IdentityOwnerCompatibilityTests
                 .Returns(c => c.Arg<Func<IAsyncQueryRunner, Task<OwnerMemoryExport>>>()(Runner()));
             Tx.ReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task>>(), Arg.Any<CancellationToken>())
                 .Returns(c => c.Arg<Func<IAsyncQueryRunner, Task>>()(Runner()));
+            // REV2-14: the "does the owner already hold this fact" read runs against the empty store, not a stub's "".
+            Tx.ReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task<string?>>>(), Arg.Any<CancellationToken>())
+                .Returns(c => c.Arg<Func<IAsyncQueryRunner, Task<string?>>>()(Runner()));
         }
     }
 
@@ -132,13 +135,13 @@ public sealed class IdentityOwnerCompatibilityTests
     }
 
     [Fact]
-    public async Task Existing_identity_exports_its_identity_state_in_format_2()
+    public async Task An_identity_store_with_no_identity_records_exports_format_1()
     {
-        // ILC-30: an identity store's export carries its identity state, so an import can rebuild it.
+        // ILC-30 reads the identity state; REV2-13: with nothing to carry the export stays format 1, readable by 2.2.
         var f = new Fixture(true);
         var export = await f.Service.ExportAsync("owner");
-        export.Format.Should().Be(OwnerMemoryExport.IdentityFormat);
-        export.IdentityState.Should().NotBeNull();
+        export.Format.Should().Be(OwnerMemoryExport.CurrentFormat);
+        export.IdentityState.Should().BeNull();
         export.IdentityStateOmitted.Should().BeFalse("nothing is left out any more");
         export.IdentityResolutions.Should().NotBeNull();
         f.Queries.Count.Should().Be(6 + 1 + 5 + 1 + 9 + 1,

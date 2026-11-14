@@ -133,6 +133,54 @@ public sealed class MigrationRunnerTests
         MigrationRunner.ParseStatements("// just a comment\n// and another").Should().BeEmpty();
     }
 
+    // ── A script the database refuses ──
+
+    [Fact]
+    public async Task A_refused_script_stops_its_own_sequence_only_and_is_reported()
+    {
+        // REV2-7: base 0002 is refused; base 0003 builds on it and is skipped; the working-memory extension still runs.
+        var dir = Path.Combine(Path.GetTempPath(), "agentmemory-migtest-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(dir, "ext", "working-memory"));
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(dir, "0002_refused.cypher"), "CREATE CONSTRAINT refused_idx IF NOT EXISTS FOR (n:A) REQUIRE n.x IS UNIQUE;");
+            await File.WriteAllTextAsync(Path.Combine(dir, "0003_after.cypher"), "CREATE INDEX after_idx IF NOT EXISTS FOR (n:B) ON (n.y);");
+            await File.WriteAllTextAsync(Path.Combine(dir, "ext", "working-memory", "0001_user.cypher"), "CREATE INDEX user_idx IF NOT EXISTS FOR (n:User) ON (n.z);");
+            var executed = new List<string>();
+            var txRunner = Substitute.For<INeo4jTransactionRunner>();
+            txRunner.ReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task<bool>>>(), Arg.Any<CancellationToken>()).Returns(call =>
+            {
+                var runner = Substitute.For<IAsyncQueryRunner>();
+                runner.RunAsync(Arg.Any<string>(), Arg.Any<object>()).Returns(_ => Task.FromResult(Substitute.For<IResultCursor>()));
+                return call.Arg<Func<IAsyncQueryRunner, Task<bool>>>()(runner);
+            });
+            txRunner.WriteAsync(Arg.Any<Func<IAsyncQueryRunner, Task>>(), Arg.Any<CancellationToken>()).Returns(call =>
+            {
+                var runner = Substitute.For<IAsyncQueryRunner>();
+                Task<IResultCursor> Run(string statement)
+                {
+                    if (statement.Contains("refused_idx")) throw new ClientException("Neo.ClientError.Schema.ConstraintCreationFailed", "duplicates");
+                    executed.Add(statement);
+                    return Task.FromResult(Substitute.For<IResultCursor>());
+                }
+                runner.RunAsync(Arg.Any<string>()).Returns(ci => Run(ci.Arg<string>()));
+                runner.RunAsync(Arg.Any<string>(), Arg.Any<object>()).Returns(ci => Run(ci.Arg<string>()));
+                return call.Arg<Func<IAsyncQueryRunner, Task>>()(runner);
+            });
+            var migrations = new MigrationRunner(txRunner, NullLogger<MigrationRunner>.Instance, dir,
+                [new AgentMemory.Neo4j.Schema.Extensions.WorkingMemorySchemaExtension()]);
+
+            await migrations.Invoking(m => m.RunMigrationsAsync()).Should().ThrowAsync<ClientException>();
+
+            executed.Should().Contain(s => s.Contains("user_idx"), "another sequence still runs");
+            executed.Should().NotContain(s => s.Contains("after_idx"), "a later script of the refused sequence may build on it");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
     // ── Applying a real multi-statement migration ──
 
     [Fact]

@@ -43,6 +43,30 @@ internal static class PersonMentions
         "rey", "leon", "lucero", "estrella", "paloma", "fe", "esperanza", "consuelo", "amparo", "soledad", "dolores",
     };
 
+    /// <summary>Titles that may stand before a name without making it part of a longer one.</summary>
+    private static readonly HashSet<string> Titles = new(StringComparer.Ordinal)
+    {
+        "mr", "mrs", "ms", "miss", "dr", "prof", "sir", "dame", "sr", "sra", "srta", "don", "dona", "lic", "ing",
+    };
+
+    /// <summary>REV2-2: how many spellings the light first read of people takes; a full page goes on to the full read.</summary>
+    internal const int MaxSpellingsRead = 10_000;
+
+    /// <summary>
+    /// REV2-2: whether any of these spellings is in the question at all, as whole words, case and accents aside. A
+    /// necessary condition for <see cref="Named"/> to name anyone; when it is false recall reads nothing more.
+    /// </summary>
+    internal static bool Mentions(string question, IReadOnlyList<string> spellings)
+    {
+        if (string.IsNullOrWhiteSpace(question) || spellings.Count == 0) return false;
+        var words = Words(question).Take(MaxQuestionWords).ToArray();
+        var keys = new HashSet<string>(StringComparer.Ordinal);
+        for (var start = 0; start < words.Length; start++)
+            for (var length = 1; length <= MaxNameWords && start + length <= words.Length; length++)
+                keys.Add(string.Join(' ', words, start, length));
+        return spellings.Any(surface => Key(surface) is { } key && keys.Contains(key));
+    }
+
     /// <summary>The ids of the people the question names, in the order it names them, at most <see cref="MaxNamed"/>.</summary>
     internal static IReadOnlyList<string> Named(string question, IReadOnlyList<Person> people)
     {
@@ -74,7 +98,14 @@ internal static class PersonMentions
         var said = owners.Keys.Where(Written).ToList();
         // REV1-M3: a name inside a longer name the question says ("Ana" in "Ana García") is part of that name, not a name
         // of its own: only the places where it stands alone count.
-        IEnumerable<int> Alone(string key) => starts[key].Where(start => !said.Any(other => Length(other) > Length(key) &&
+        // REV2-6: and a name followed or preceded by another capitalised word ("Ana Torres") is part of a longer name the
+        // store does not know, not this person (titles such as "Dr" aside).
+        // Only a word joined to the name by a space counts: "Diego, Tomás" are two people.
+        bool Bordered(int start, int length) =>
+            tokens[start].Joined && Capitalised(start - 1) && !Titles.Contains(tokens[start - 1].Word) ||
+            start + length < tokens.Length && tokens[start + length].Joined && Capitalised(start + length);
+        bool Capitalised(int at) => at >= 0 && at < tokens.Length && tokens[at].Capitalized && !tokens[at].SentenceStart && tokens[at].Word != "i";
+        IEnumerable<int> Alone(string key) => starts[key].Where(start => !Bordered(start, Length(key)) && !said.Any(other => Length(other) > Length(key) &&
             starts[other].Any(at => at <= start && start + Length(key) <= at + Length(other))));
         var confirmed = people.Where(person => person.Confirmed).Select(person => person.Id).ToHashSet(StringComparer.Ordinal);
         return said.Select(key => (Key: key, Alone: Alone(key).ToList()))
@@ -86,24 +117,32 @@ internal static class PersonMentions
             .Take(MaxNamed).Select(named => named.Id).ToArray();
     }
 
-    /// <summary>The question's words as <see cref="Words"/> makes them, with how each was written.</summary>
-    private static IEnumerable<(string Word, bool Capitalized, bool SentenceStart)> Tokens(string text)
+    /// <summary>
+    /// The question's words as <see cref="Words"/> makes them, with how each was written and whether only spaces (or an
+    /// apostrophe or hyphen) separate it from the word before.
+    /// </summary>
+    private static IEnumerable<(string Word, bool Capitalized, bool SentenceStart, bool Joined)> Tokens(string text)
     {
         var word = new StringBuilder();
-        bool capitalized = false, sentenceStart = true, nextStartsSentence = true;
+        bool capitalized = false, sentenceStart = true, nextStartsSentence = true, joined = false, nextJoined = false;
         foreach (var c in text.Normalize(NormalizationForm.FormD))
         {
             if (CharUnicodeInfo.GetUnicodeCategory(c) == UnicodeCategory.NonSpacingMark) continue;
             if (char.IsLetterOrDigit(c))
             {
-                if (word.Length == 0) { capitalized = char.IsUpper(c); sentenceStart = nextStartsSentence; }
+                if (word.Length == 0) { capitalized = char.IsUpper(c); sentenceStart = nextStartsSentence; joined = nextJoined; }
                 word.Append(char.ToLowerInvariant(c));
                 continue;
             }
-            if (word.Length > 0) { yield return (word.ToString(), capitalized, sentenceStart); word.Clear(); nextStartsSentence = false; }
+            if (word.Length > 0)
+            {
+                yield return (word.ToString(), capitalized, sentenceStart, joined);
+                word.Clear(); nextStartsSentence = false; nextJoined = true;
+            }
             if (c is '.' or '!' or '?' or '¿' or '¡' or '\n') nextStartsSentence = true;
+            if (!char.IsWhiteSpace(c) && c is not ('\'' or '\u2019' or '-')) nextJoined = false;
         }
-        if (word.Length > 0) yield return (word.ToString(), capitalized, sentenceStart);
+        if (word.Length > 0) yield return (word.ToString(), capitalized, sentenceStart, joined);
     }
 
     private static string? Key(string? surface)

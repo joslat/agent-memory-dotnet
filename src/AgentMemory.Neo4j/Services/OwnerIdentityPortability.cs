@@ -83,13 +83,7 @@ internal static class OwnerIdentityPortability
 
         public string Id(string id) => ids.GetValueOrDefault(id, id);
 
-        private string Text(string property, string text)
-        {
-            if (IsOwner(property) && text == oldOwner) return newOwner;
-            var leaf = Leaf(text);
-            if (!string.Equals(leaf, text, StringComparison.Ordinal)) return leaf;
-            return text.Length > 1 && text[0] is '{' or '[' ? Json(text) : text;
-        }
+        private string Text(string property, string text) => Replace(property, text);
 
         // A value that IS a reference: an id, an observation key or the owner's scope, compared whole.
         private string Leaf(string text) =>
@@ -146,14 +140,27 @@ internal static class OwnerIdentityPortability
             return changed;
         }
 
-        // JSON kept as a string inside JSON (a decision's receipt) is rewritten too (PR260-F7).
+        // JSON kept as a string inside JSON (a decision's receipt) is rewritten too (PR260-F7). REV2-11: a value is rewritten
+        // only where it is a reference (an id, a key, a scope, an owner), never free text such as a name, a quote or an
+        // attribute, and never host evidence (a payload or its lookup key), which must stay byte for byte what was asserted.
         private string Replace(string? property, string text)
         {
+            if (property is "payload" or "lookup_key") return text;
             if (property is not null && IsOwner(property) && text == oldOwner) return newOwner;
-            var leaf = Leaf(text);
-            if (!string.Equals(leaf, text, StringComparison.Ordinal)) return leaf;
+            if (property is not null && IsReference(property))
+            {
+                var leaf = Leaf(text);
+                if (!string.Equals(leaf, text, StringComparison.Ordinal)) return leaf;
+            }
             return text.Length > 1 && text[0] is '{' or '[' ? Json(text) : text;
         }
+
+        // An id, a key or a scope by name: "id", "candidateId", "SourceMessageIds", "identity_decision_id", "ObservationKey",
+        // "owner_scope". Ordinal suffixes, so ordinary words that end in those letters ("valid", "paid") are not taken for one.
+        private static bool IsReference(string property) =>
+            property is "id" or "ids" or "key" or "keys" or "scope" ||
+            new[] { "Id", "Ids", "_id", "_ids", "Key", "Keys", "_key", "_keys", "Scope", "_scope" }
+                .Any(suffix => property.EndsWith(suffix, StringComparison.Ordinal));
 
         private static bool IsOwner(string property) =>
             property.Equals("owner_id", StringComparison.OrdinalIgnoreCase) || property.Equals("ownerId", StringComparison.OrdinalIgnoreCase) ||

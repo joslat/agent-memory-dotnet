@@ -262,11 +262,16 @@ details. See [current evidence and limits](../evidence-based-identity-implementa
 ### Recall for people
 
 `RecallOptions.PersonDetails` (null follows identity, like `EventDetails`) adds the facts about a confirmed person the
-question names. Every live PERSON entity of the owner is read with the names it is known by (its name, its aliases and
+question names. Recall first reads every spelling people are known by (names, aliases and the names bound facts used),
+distinct and at most 10,000, with no per-person grouping or decision checks; when none of them is in the question, it
+reads nothing more. A full page goes on to the full read, so this step skips work, never a person. Otherwise every live
+PERSON entity of the owner is read with the names it is known by (its name, its aliases and
 the names facts bound to it used, up to 32 per person, spellings that differ only in case counted once), at most 1,000
 people, each scope read through its owner index; one is confirmed when facts are bound to it through a decided identity.
 A person with more names than that may carry any name, so recall then names nobody. A name inside a longer name the
-question says ("Ana" in "Ana García") is part of that name, and a single-word name that is also an everyday word
+question says ("Ana" in "Ana García") is part of that name; a known name joined by a space (or an apostrophe or hyphen)
+to another capitalised word that is not a title ("Ana Torres" when only Ana is known) is part of a longer name the store
+does not know, so it names nobody ("Dr Ana" still names Ana); and a single-word name that is also an everyday word
 ("Will", "May", "Rosa") counts only written as a name: capitalised and not starting a sentence.
 A name appears in the question as whole words, case and accents aside; a name two people share names neither, a
 one-letter name or a pronoun names nobody, and at most 3 people are taken in the order the question names them. Only a
@@ -277,7 +282,9 @@ comes back full (1,000 people), a namesake may lie past the bound, so nobody is 
 come through decision-owned fact bindings, newest first and taken in turn from each person, at most
 `MaxPersonDetailFacts` (8; 0..64), excluding facts already in the context. Recall then hands over to current values
 again, every time, with the dated sections' facts as competitors, so a value a begun plan replaced does not come back
-with the details. The facts carry no
+with the details, and facts said about a named person under any of their spellings ("Ana", "Ana García") compete as
+one subject. The full read still costs one pass over the owner's people and their bindings when a known spelling is in
+the question; a normalised-name index that turns both reads into seeks is planned. The facts carry no
 invented similarity score and share the context budget and the latency allowance. Choosing between two people with the
 same name from the question's context, and questions that name nobody ("what does she like?"), are out of scope.
 
@@ -295,10 +302,16 @@ Import into a store with identity storage brings the owner back whole, and the c
 - **Every import is its own copy.** Each observation gets a key new to this owner and this import (the same shape, so
   its decision and entity ids follow it as the ingestion makes them, including the entity id a confirmed decision
   reserves before a revocation creates it), and every other record a new id. Importing the same file into the same
-  owner twice gives two copies.
+  owner twice gives two copies. The exception is a restore into the owner the file came from: a decision whose key, and
+  the ids that follow it, this store does not hold, and whose source messages are the owner's own here, keeps them, as
+  do its review revisions and the relationship observations whose ids are free; ingesting the restored message again
+  then replays the decision instead of making a second one.
 - **Every reference is rewritten**, inside stored JSON too, including JSON stored inside it (a decision's receipt) and ids
   used as property names: record, entity and fact ids, observation keys and the owner's scope; the owner itself only
-  where a property names the owner.
+  where a property names the owner. A value is a reference only under a property whose name says so (`id`, `ids`,
+  `key`, `keys`, `scope`, or ending `Id`, `_id`, `Ids`, `_ids`, `Key`, `_key`, `Keys`, `_keys`, `Scope`, `_scope`):
+  a name, a quote or an attribute that happens to equal an id stays as written, and a host assertion's payload and
+  lookup key are never rewritten.
 - **Source messages become the copy's own.** Each source message id that is not a message of the importing owner in
   this store is replaced by an `imported-message-` marker of the importing owner, in every format and in the facts,
   entities, decisions, bindings and relationship observations alike (a restore into the same owner keeps its own ids), so they still agree with one
@@ -307,6 +320,9 @@ Import into a store with identity storage brings the owner back whole, and the c
 - **Fingerprints follow the target.** A confirmed decision whose target still matched its fingerprint at export
   (`CurrentConfirmations`) gets the fingerprint of its imported target, and a contextual confirmation its imported
   candidates' fingerprints. Any other keeps a fingerprint no target matches, so it needs re-evaluation, as in the source.
+  An open proposal whose candidates the destination does not hold (shared entities it lacks) cannot be proposed there:
+  those candidates are dropped, and a proposal left with none is New, as identity decides when no candidate exists,
+  with the diagnostic `identity_import_candidates_not_in_store`.
   A decision confirmed from context alone still cannot be replayed after a move, because its source messages stay
   behind.
 - **Evidence and vectors are the destination's.** An evidence assertion keeps the id asserting derives from its content
@@ -321,7 +337,11 @@ Import into a store with identity storage brings the owner back whole, and the c
   (`skipped:*` counts). An entity a current decision's record names without a link (its confirmed target, its
   candidates, its observation) is checked the same way; the export carries any retired one. A fact or identity record a
   link names must be in the file, the file must name its owner, and a malformed value is refused before anything is
-  written. Retired entities are retired again as soon as they are written, so a failure later never leaves them live.
+  written, as is a file that carries a record twice, a record that is not one of the five identity records, a record
+  key that is also a memory's id, or a decision without its own observation key and stored record. A fact binding
+  must tie a fact said about the binding's observed name (its subject or object, by role) to a decision whose sources
+  it shares; one that does not is left out with its links (`identity:bindings-dropped`). Message markers are
+  predictable, so an import whose markers already name a message in this store is refused. Retired entities are retired again as soon as they are written, so a failure later never leaves them live.
   Into a store without identity storage, the result says the identity state stayed out (`identity:state-not-imported`). The same check applies to format 1:
   2.2.0 made a relationship or ABOUT link to whatever id a file named, creating a bare node if none existed.
 
@@ -343,20 +363,25 @@ operations on a source owner and on its copy in one store and requires the same 
 | An evidence assertion's id follows its entity and content | `Assert` (idempotent), evidence version | derived again from the imported entity and content |
 | An entity holds at most 64 evidence assertions for its evidence to count as complete | `Hydrate` | assertions are not duplicated (rule above) |
 | An observation's vector comes from this store's embedding model | revocation (`MaterializeObservation`) | current decisions embedded again; revisions carry none |
-| A pending decision is exactly one with `POSSIBLE_SAME_AS` links to live, in-scope candidates | review queue, recall | links copied to the copies of their candidates, retired ones included |
+| A pending decision is exactly one with `POSSIBLE_SAME_AS` links to live, in-scope candidates | review queue, recall | links copied to the copies of their candidates, retired ones included; a candidate the store does not hold is dropped, and a proposal left with none is New |
+| Re-ingesting a message replays its decision instead of deciding again | replay (`identity_decision_observation`) | a restore into the same owner keeps each free key whose messages are the owner's own; any other copy gets new keys, so its messages are not the original's |
 | Recall follows only decided bindings, and hands over to current values after adding details | recall | unchanged by import |
 
-Two kinds of id are new in a copy on purpose. A review revision's id follows its owner and operation id, and a
-relationship observation's id follows its owner and source messages; no operation in the copy derives either again, so
-each gets a fresh id. A review operation applied before the import is therefore history in the copy: sending it again
+Two kinds of id are new in a copy on purpose (a restore into the same owner aside, above). A review revision's id
+follows its owner and operation id, and a relationship observation's id follows its owner and source messages; no
+operation in the copy derives either again, so each gets a fresh id. A review operation applied before the import is therefore history in the copy: sending it again
 there is refused as stale, not reported as already applied. A decision confirmed from context alone keeps its
 confirmation but cannot be replayed after a move, because its source messages stay behind.
 
 A format-1 export of an identity store (2.2.0), or a format-2 export imported into a store without identity storage,
 comes back as the current state: each mention's entity is folded into its confirmed identity, which keeps the mention's
-name as an alias, and an open proposal's two entities come back apart. Either way imported entities are never joined
+name as an alias, and an open proposal's two entities come back apart. An identity the file does not carry is folded
+into only when it is a shared entity here; one merged away since the export, or missing, leaves the mention as its own
+entity. Either way imported entities are never joined
 to what the destination already holds, so an import cannot merge two different things. Import while the owner is not
-being written. With the extension disabled the format and its queries are unchanged. Owner erasure remains supported.
+being written. A fact the owner already holds, live with the same subject, predicate and object, is left as it is,
+links included (`facts:already-held`). With the extension disabled the format and its queries are unchanged, and an
+identity store whose owner has no identity records still exports format 1. Owner erasure remains supported.
 
 ### Writer event-reference option
 

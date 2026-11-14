@@ -32,6 +32,27 @@ internal sealed partial class Neo4jFactRepository
         }, cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<IReadOnlyList<string>> GetPersonNamesAsync(int limit, MemoryScope? scope,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (limit is < 0 or > 10_000) throw new ArgumentOutOfRangeException(nameof(limit), "Person name reads are bounded to 10,000.");
+        if (limit == 0) return Array.Empty<string>();
+        if (!_identityEventDetailsEnabled)
+            throw new NotSupportedException("Enable and migrate identity-evidence before requesting person details.");
+        var parameters = new Dictionary<string, object?>
+        {
+            ["limit"] = limit, ["hasOwner"] = scope?.OwnerId is not null, ["ownerId"] = scope?.OwnerId, ["includeShared"] = scope?.IncludeShared ?? false,
+        };
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(PersonDetailQueries.Names, parameters).ConfigureAwait(false);
+            var rows = await cursor.ToListAsync().ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            return (IReadOnlyList<string>)rows.Select(row => row["spelling"].As<string>()).ToArray();
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<IReadOnlyList<Fact>> GetPersonDetailsAsync(IReadOnlyList<string> personEntityIds,
         IReadOnlyCollection<string> excludeFactIds, int limit, MemoryScope? scope,
         CancellationToken cancellationToken = default)

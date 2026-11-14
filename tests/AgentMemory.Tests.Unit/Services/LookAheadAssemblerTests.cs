@@ -169,9 +169,13 @@ public sealed class LookAheadAssemblerTests
     private static readonly Fact Monitoring = Mate with { FactId = "monitoring", Subject = "Valentina", Predicate = "will monitor", Object = "the invoice queue remotely" };
     private static readonly Fact Tutorial = Mate with { FactId = "tutorial", Subject = "Valentina", Predicate = "will prepare", Object = "a video tutorial for the clerks" };
 
-    private void People(params PersonIdentity[] people) =>
+    private void People(params PersonIdentity[] people)
+    {
+        _longTerm.GetPersonNamesAsync(Arg.Any<int>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<string>>([.. people.SelectMany(person => person.Surfaces)]));
         _longTerm.GetPersonIdentitiesAsync(Arg.Any<int>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<PersonIdentity>>(people));
+    }
 
     private static PersonIdentity Person(string id, params string[] names) => new() { EntityId = id, Surfaces = names };
 
@@ -196,6 +200,45 @@ public sealed class LookAheadAssemblerTests
         await AskAsync("What do I know about Alex Kim?", RecallOptions.Default with { PersonDetails = true });
         await _longTerm.Received(1).GetPersonIdentitiesAsync(1000, Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
         await _longTerm.DidNotReceiveWithAnyArgs().GetPersonDetailsAsync(default!, default!, default, default, default);
+    }
+
+    [Fact]
+    public async Task A_question_that_names_no_known_person_reads_only_the_names()
+    {
+        // REV2-2: the cheap names read decides; the full read, with every binding's name, never runs.
+        People(Person("valentina", "Valentina"));
+        await AskAsync("What did I buy for the go-live?", RecallOptions.Default with { PersonDetails = true });
+        await _longTerm.ReceivedWithAnyArgs(1).GetPersonNamesAsync(default, default, default);
+        await _longTerm.DidNotReceiveWithAnyArgs().GetPersonIdentitiesAsync(default, default, default);
+    }
+
+    [Fact]
+    public async Task A_full_page_of_spellings_goes_on_to_the_full_read()
+    {
+        // REV2-2: a full page may leave the question's name out, so the light read never decides "nobody" from one.
+        People(Person("valentina", "Valentina"));
+        _longTerm.GetPersonNamesAsync(Arg.Any<int>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<string>>([.. Enumerable.Range(0, AgentMemory.Core.Memory.PersonMentions.MaxSpellingsRead).Select(i => "Person " + i)]));
+        await AskAsync("What did Valentina say?", RecallOptions.Default with { PersonDetails = true });
+        await _longTerm.ReceivedWithAnyArgs(1).GetPersonIdentitiesAsync(default, default, default);
+    }
+
+    [Fact]
+    public async Task One_persons_older_value_under_another_spelling_gives_way_to_the_newer()
+    {
+        // REV2-5: "Ana García lives in Paris" and "Ana lives in Berlin" are about one person; the newer value is current.
+        var paris = new Fact { FactId = "paris", Subject = "Ana García", Predicate = "lives in", Object = "Paris", Confidence = 0.9,
+            CreatedAtUtc = new(2023, 3, 1, 10, 0, 0, TimeSpan.Zero), ValidFrom = new(2023, 3, 1, 0, 0, 0, TimeSpan.Zero) };
+        var berlin = new Fact { FactId = "berlin", Subject = "Ana", Predicate = "lives in", Object = "Berlin", Confidence = 0.9,
+            CreatedAtUtc = new(2025, 3, 1, 10, 0, 0, TimeSpan.Zero), ValidFrom = new(2025, 3, 1, 0, 0, 0, TimeSpan.Zero) };
+        _relevant = [];
+        People(Person("ana", "Ana", "Ana García"));
+        _longTerm.GetPersonDetailsAsync(Arg.Any<IReadOnlyList<string>>(), Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<int>(),
+            Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>()).Returns(Task.FromResult<IReadOnlyList<Fact>>([berlin, paris]));
+
+        var context = await AskAsync("Where does Ana live?", RecallOptions.Default with { PersonDetails = true });
+
+        context.RelevantFacts.Items.Select(f => f.FactId).Should().Contain("berlin").And.NotContain("paris");
     }
 
     [Fact]

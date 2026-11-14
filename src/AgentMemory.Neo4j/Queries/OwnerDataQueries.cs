@@ -165,6 +165,30 @@ public static class OwnerDataQueries
             MATCH (c:Conversation {id: m.conversation_id}) WHERE c.user_id = $ownerId
             RETURN DISTINCT m.id AS id";
 
+    /// <summary>REV2-4: which original observation keys this store already holds, in the owner's scope or by the ids they give.</summary>
+    public const string TakenObservationKeys = @"
+            UNWIND $keys AS key
+            RETURN key, EXISTS { MATCH (d:IdentityDecision {owner_scope: $ownerScope, identity_observation_key: key}) }
+                OR EXISTS { MATCH (d:IdentityDecision {id: 'identity-decision-' + key}) }
+                OR EXISTS { MATCH (e:Entity {id: 'identity-observation-' + key}) } AS taken";
+
+    /// <summary>REV2-4: which revision and relationship-observation ids this store already holds.</summary>
+    public const string TakenIdentityRecordIds = @"
+            UNWIND $ids AS id
+            RETURN id, EXISTS { MATCH (r:IdentityDecisionRevision {id: id}) } OR EXISTS { MATCH (o:IdentityRelationshipObservation {id: id}) } AS taken";
+
+    /// <summary>REV2-10: how many of these ids already exist as messages.</summary>
+    public const string ExistingMessages = @"
+            UNWIND $ids AS id
+            MATCH (m:Message {id: id})
+            RETURN count(m) AS taken";
+
+    /// <summary>REV2-14: the owner's fact in its open period with these keys, the one a write would merge onto.</summary>
+    public const string HeldFact = @"
+            MATCH (f:Fact {subject_key: $subjectKey, predicate_key: $predicateKey, object_key: $objectKey, owner_key: $ownerKey, period_key: ''})
+            WHERE f.owner_id = $ownerId
+            RETURN f.id AS id LIMIT 1";
+
     /// <summary>PR260-F7: an imported decision's record and target fingerprint, rebuilt for its imported target.</summary>
     public const string ReadImportedDecision = @"
             MATCH (d:IdentityDecision {id: $id}) WHERE d.owner_id = $ownerId RETURN d.identity_record_json AS recordJson";

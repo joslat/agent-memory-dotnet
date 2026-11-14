@@ -291,11 +291,14 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
     /// </summary>
     private static (IReadOnlyList<Fact> Facts, IReadOnlyList<(Fact Fact, double Score)> Scores) HandOverWithDated(
         IReadOnlyList<Fact> facts, IReadOnlyList<(Fact Fact, double Score)> scores, LookAheadResult lookAhead,
-        ProspectiveDueResult due, DateTimeOffset at)
+        ProspectiveDueResult due, IReadOnlyDictionary<string, string> personSubjects, DateTimeOffset at)
     {
         if (facts.Count == 0) return (facts, scores);
         var dated = lookAhead.Window.Concat(lookAhead.Upcoming).Concat(lookAhead.Overlapping).Concat(due.Due).Concat(due.Expiring);
-        var current = ValueHandOver.Current([.. facts, .. dated], at).Select(f => f.FactId).ToHashSet(StringComparer.Ordinal);
+        // REV2-5: a named person's facts compete as one subject whatever spelling they were said with.
+        Fact Person(Fact fact) => personSubjects.TryGetValue(MemoryTripleCanonicalizer.CanonicalValue(fact.Subject), out var person)
+            ? fact with { Subject = "\u0001person " + person } : fact;
+        var current = ValueHandOver.Current([.. facts.Concat(dated).Select(Person)], at).Select(f => f.FactId).ToHashSet(StringComparer.Ordinal);
         if (facts.All(f => current.Contains(f.FactId))) return (facts, scores);
         return ([.. facts.Where(f => current.Contains(f.FactId))], scores.Where(s => current.Contains(s.Fact.FactId)).ToArray());
     }
@@ -941,15 +944,16 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
             facts = await ExpandEventDetailsAsync(facts, lookAhead, prospective, recallOpts, scope,
                 cancellationToken, Remaining(recallOpts.LatencyBudget, budgetClock)).ConfigureAwait(false);
 
+        IReadOnlyDictionary<string, string> personSubjects = new Dictionary<string, string>(StringComparer.Ordinal);
         if (includeMemory && PersonDetailsOn(recallOpts))
-            facts = await ExpandPersonDetailsAsync(facts, lookAhead, prospective, request.Question ?? request.Query, recallOpts, scope,
-                cancellationToken, Remaining(recallOpts.LatencyBudget, budgetClock)).ConfigureAwait(false);
+            (facts, personSubjects) = await ExpandPersonDetailsAsync(facts, lookAhead, prospective, request.Question ?? request.Query,
+                recallOpts, scope, cancellationToken, Remaining(recallOpts.LatencyBudget, budgetClock)).ConfigureAwait(false);
 
         // PR260-N3, REV1-L10: the details above arrive after the hand-over to current values, so a value a begun plan
         // replaced could come back with them. Hand over again over everything recall now holds, the dated sections'
         // facts included as competitors (a plan found by date still replaces the old value), dropping only from the
         // relevant facts. Run every time, so what is dropped never depends on whether details happened to be added.
-        (facts, factScores) = HandOverWithDated(facts, factScores, lookAhead, prospective, _clock.GetUtcNow());
+        (facts, factScores) = HandOverWithDated(facts, factScores, lookAhead, prospective, personSubjects, _clock.GetUtcNow());
 
         // 30.8. Runs AFTER the fact section resolves, because its trigger is what that section came
         // back with. One extra query, only on a thin recall, only with the flag on -- a well-answered

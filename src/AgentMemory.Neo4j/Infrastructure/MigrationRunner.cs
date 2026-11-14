@@ -103,9 +103,19 @@ internal sealed class MigrationRunner : IMigrationRunner
 
         await EnsureMigrationConstraintAsync(cancellationToken).ConfigureAwait(false);
 
+        // REV2-7: a script the database refuses stops its own namespace only (the base sequence, or one extension), whose
+        // later scripts may build on it; every other namespace still runs. The first failure is rethrown at the end.
+        var failed = new Dictionary<string, Neo4jException>(StringComparer.Ordinal);
         foreach (var (version, name, extensionId) in migrationFiles)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            var space = extensionId ?? string.Empty;
+            if (failed.ContainsKey(space))
+            {
+                _logger.LogError("Migration {Version} skipped: an earlier script of {Namespace} could not be applied.",
+                    version, extensionId ?? "the base sequence");
+                continue;
+            }
 
             if (await IsMigrationAppliedAsync(version, cancellationToken).ConfigureAwait(false))
             {
@@ -113,8 +123,18 @@ internal sealed class MigrationRunner : IMigrationRunner
                 continue;
             }
 
-            await ApplyMigrationAsync(version, name, extensionId, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await ApplyMigrationAsync(version, name, extensionId, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Neo4jException exception)
+            {
+                _logger.LogError(exception, "Migration {Version} could not be applied ({Message}); the rest of {Namespace} is skipped.",
+                    version, exception.Message, extensionId ?? "the base sequence");
+                failed[space] = exception;
+            }
         }
+        if (failed.Count > 0) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(failed.Values.First());
     }
 
     /// <summary>

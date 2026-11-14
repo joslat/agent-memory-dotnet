@@ -98,6 +98,18 @@ public sealed class OwnerIdentityPortabilityTests
     }
 
     [Fact]
+    public void Only_references_are_rewritten_never_free_text_or_host_evidence()
+    {
+        // REV2-11: a short host-chosen message id ("message-1") must not turn a name, a quote or an evidence payload into a marker.
+        var remap = Remap();
+        remap.Value("name", Text("message-1")).Text.Should().Be("message-1");
+        remap.Value("payload", Text("message-1")).Text.Should().Be("message-1");
+        remap.Value("source_id", Text("message-1")).Text.Should().Be("imported-message-1");
+        var json = remap.Value("identity_record_json", Text("""{"Quote":"message-1","SourceId":"message-1","Attributes":{"code":"fact-1"}}""")).Text!;
+        json.Should().Contain("\"Quote\":\"message-1\"").And.Contain("\"SourceId\":\"imported-message-1\"").And.Contain("\"code\":\"fact-1\"");
+    }
+
+    [Fact]
     public void Every_value_keeps_its_type_through_the_round_trip()
     {
         var at = new ZonedDateTime(new DateTimeOffset(2026, 11, 13, 21, 30, 5, TimeSpan.Zero));

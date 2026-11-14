@@ -29,7 +29,8 @@ internal static class PersonDetailQueries
             WHERE p.identity_observation_key IS NOT NULL AND o.identity_observation_key=p.identity_observation_key
               AND o.owner_scope=CASE WHEN p.owner_id IS NULL THEN 'shared' ELSE 'owned:'+p.owner_id END
               AND t.id<>p.id AND NOT EXISTS { (o)-[:POSSIBLE_SAME_AS]->() } }
-        WITH p ORDER BY p.id LIMIT $limit
+        // REV2-2: read no further than the bound (the caller names nobody from a full page).
+        WITH p LIMIT $limit
         OPTIONAL MATCH (p)<-[:RESOLVES_TO]-(b:IdentityFactBinding)-[:DECIDED_BY]->(d:IdentityDecision)
         WHERE b.identity_decision_id=d.id AND b.owner_scope=d.owner_scope
           AND (NOT $hasOwner OR b.owner_id=$ownerId OR ($includeShared AND b.owner_id IS NULL))
@@ -42,6 +43,37 @@ internal static class PersonDetailQueries
             WHERE NOT toLower(toString(spellings[i])) IN [j IN range(0, i - 1) | toLower(toString(spellings[j]))] | spellings[i]] AS names
         RETURN p.id AS id, names[..32] AS surfaces, size(names) <= 32 AS complete, confirmed
         ORDER BY id
+        """;
+
+    /// <summary>
+    /// REV2-2: the first, light read: every spelling a live person in scope is known by (its name, its aliases, and the
+    /// names facts bound to a person used), distinct, at most <c>$limit</c>. No per-person grouping and no decision checks;
+    /// recall reads <see cref="Identities"/> only when one of these is in the question, or when this page comes back full.
+    /// </summary>
+    public const string Names = """
+        CALL {
+          CALL {
+            MATCH (p:Entity) WHERE $hasOwner AND p.owner_id=$ownerId RETURN p
+            UNION
+            MATCH (p:Entity) WHERE $hasOwner AND $includeShared AND p.owner_key='*' RETURN p
+            UNION
+            MATCH (p:Entity) WHERE NOT $hasOwner RETURN p
+          }
+          WITH p WHERE toUpper(p.type)='PERSON' AND p.invalidated_at IS NULL AND p.merged_into IS NULL
+          UNWIND [p.name] + coalesce(p.aliases, []) AS spelling
+          RETURN spelling
+          UNION
+          CALL {
+            MATCH (b:IdentityFactBinding) WHERE $hasOwner AND b.owner_id=$ownerId RETURN b
+            UNION
+            MATCH (b:IdentityFactBinding) WHERE $hasOwner AND $includeShared AND b.owner_id IS NULL RETURN b
+            UNION
+            MATCH (b:IdentityFactBinding) WHERE NOT $hasOwner RETURN b
+          }
+          RETURN b.identity_observed_surface AS spelling
+        }
+        WITH DISTINCT spelling WHERE spelling IS NOT NULL
+        RETURN toString(spelling) AS spelling LIMIT $limit
         """;
 
     /// <summary>The live facts bound to the named people, newest first, taken in turn from each person.</summary>

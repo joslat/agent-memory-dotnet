@@ -706,6 +706,17 @@ public interface IFactRepository
         throw new NotSupportedException("This backend does not support decision-bound person details.");
 
     /// <summary>
+    /// Every spelling a live person in scope is known by (its name, its aliases, and the names facts bound to a person
+    /// used), distinct, at most <paramref name="limit"/>: the light first read of recall for people, which reads
+    /// <see cref="GetPersonIdentitiesAsync"/> only when one of these is in the question or the page comes back full.
+    /// </summary>
+    Task<IReadOnlyList<string>> GetPersonNamesAsync(
+        int limit,
+        MemoryScope? scope,
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("This backend does not support decision-bound person details.");
+
+    /// <summary>
     /// ILC-33: live facts bound to up to 3 confirmed person identities through current decision-owned fact bindings,
     /// newest first and taken in turn from each person; never a pending proposal or name similarity. At most 512 excluded
     /// IDs and 64 returned facts. Scope follows <see cref="GetEventDetailsAsync"/>.

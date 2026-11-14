@@ -45,6 +45,26 @@ public sealed class PersonMentionsTests
     }
 
     [Fact]
+    public void A_known_first_name_inside_an_unknown_full_name_names_nobody()
+    {
+        // REV2-6: the store knows only "Ana"; "Ana Torres" is someone else.
+        PersonMentions.Named("When is Ana Torres's birthday?", [P("ana", "Ana")]).Should().BeEmpty();
+        PersonMentions.Named("Did Professor Ana call?", [P("ana", "Ana")]).Should().BeEmpty("a capitalised word before it may be a name too");
+        PersonMentions.Named("Did Dr Ana call?", [P("ana", "Ana")]).Should().Equal(["ana"], "a title is not part of the name");
+        PersonMentions.Named("When is Ana's birthday? Torres asked.", [P("ana", "Ana")]).Should().Equal(["ana"]);
+        PersonMentions.Named("Ana and I met.", [P("ana", "Ana")]).Should().Equal(["ana"]);
+    }
+
+    [Fact]
+    public void Mentions_tells_whether_any_known_name_is_in_the_question_at_all()
+    {
+        // REV2-2: the cheap first test on names and aliases only.
+        PersonMentions.Mentions("What about valentina?", ["Valentina"]).Should().BeTrue();
+        PersonMentions.Mentions("Did Tomas call?", ["Tomás Pérez", "Tomás"]).Should().BeTrue("accents aside");
+        PersonMentions.Mentions("What did I buy?", ["Valentina"]).Should().BeFalse();
+    }
+
+    [Fact]
     public void A_name_that_is_an_everyday_word_counts_only_written_as_a_name()
     {
         // REV1-L11.

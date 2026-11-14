@@ -10,46 +10,62 @@ internal sealed partial class MemoryContextAssembler
     private bool PersonDetailsOn(RecallOptions options) => _identity?.PersonDetails(options.PersonDetails) ?? options.PersonDetails == true;
 
     /// <summary>
-    /// ILC-33: the facts bound to the confirmed people the question names, by a unique name only. Two bounded reads: the
-    /// owner's confirmed people, then, only when the question names one of them, that person's facts.
+    /// ILC-33: the facts bound to the confirmed people the question names, by a unique name only. Three bounded reads:
+    /// every spelling people are known by; only when one is in the question, the owner's people with their names; only
+    /// when the question names one of them, that person's facts. Also returns each named person's spellings, so the
+    /// hand-over to current values treats them as one subject (REV2-5).
     /// </summary>
-    private async Task<IReadOnlyList<Fact>> ExpandPersonDetailsAsync(IReadOnlyList<Fact> facts,
-        LookAheadResult lookAhead, ProspectiveDueResult due, string question, RecallOptions options, MemoryScope scope,
-        CancellationToken cancellationToken, TimeSpan? remaining)
+    private async Task<(IReadOnlyList<Fact> Facts, IReadOnlyDictionary<string, string> Subjects)> ExpandPersonDetailsAsync(
+        IReadOnlyList<Fact> facts, LookAheadResult lookAhead, ProspectiveDueResult due, string question, RecallOptions options,
+        MemoryScope scope, CancellationToken cancellationToken, TimeSpan? remaining)
     {
+        var none = (facts, (IReadOnlyDictionary<string, string>)new Dictionary<string, string>(StringComparer.Ordinal));
         if (!PersonDetailsOn(options) || options.MaxFacts <= 0 || options.MaxPersonDetailFacts == 0 || string.IsNullOrWhiteSpace(question))
-            return facts;
+            return none;
         if (options.MaxPersonDetailFacts is < 0 or > 64)
             throw new ArgumentOutOfRangeException(nameof(options), "Person detail cap must be between 0 and 64.");
-        if (remaining is { } left && left <= TimeSpan.Zero) return facts;
+        if (remaining is { } left && left <= TimeSpan.Zero) return none;
         var seen = facts.Concat(lookAhead.Window).Concat(lookAhead.Upcoming).Concat(lookAhead.Overlapping)
             .Concat(due.Due).Concat(due.Expiring).Select(fact => fact.FactId).ToHashSet(StringComparer.Ordinal);
         using var expiry = remaining is not null ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken) : null;
         if (expiry is not null) expiry.CancelAfter(remaining!.Value);
         var token = expiry?.Token ?? cancellationToken;
         IReadOnlyList<Fact> details;
+        IReadOnlyList<PersonIdentity> people;
+        IReadOnlyList<string> named;
         try
         {
-            var people = await TimedAsync("memory.recall.person-identities", () => _longTerm.GetPersonIdentitiesAsync(
+            // REV2-2: first every spelling people are known by, a light read; the full read only when one of them is in
+            // the question. A full page of spellings may leave one out, so it goes on to the full read: this step can
+            // skip work, never a person.
+            var known = await TimedAsync("memory.recall.person-names", () => _longTerm.GetPersonNamesAsync(
+                PersonMentions.MaxSpellingsRead, scope, token)).ConfigureAwait(false);
+            if (known.Count < PersonMentions.MaxSpellingsRead && !PersonMentions.Mentions(question, known)) return none;
+            people = await TimedAsync("memory.recall.person-identities", () => _longTerm.GetPersonIdentitiesAsync(
                 PersonMentions.MaxPeopleRead, scope, token)).ConfigureAwait(false);
             // A full page may leave a namesake past the bound, and a person whose names were cut off may carry any name, so
             // no name is known to be unique: expand nobody (PR260-F2, N4).
-            if (people.Count >= PersonMentions.MaxPeopleRead || people.Any(person => !person.Complete)) return facts;
-            var named = PersonMentions.Named(question,
+            if (people.Count >= PersonMentions.MaxPeopleRead || people.Any(person => !person.Complete)) return none;
+            named = PersonMentions.Named(question,
                 people.Select(person => new PersonMentions.Person(person.EntityId, person.Surfaces, person.Confirmed)).ToArray());
-            if (named.Count == 0) return facts;
+            if (named.Count == 0) return none;
             details = await TimedAsync("memory.recall.person-details", () => _longTerm.GetPersonDetailsAsync(
                 named, seen.Take(512).ToArray(), options.MaxPersonDetailFacts, scope, token)).ConfigureAwait(false);
             token.ThrowIfCancellationRequested();
         }
         catch (OperationCanceledException) when (expiry is { IsCancellationRequested: true } && !cancellationToken.IsCancellationRequested)
         {
-            return facts;
+            return none;
         }
         cancellationToken.ThrowIfCancellationRequested();
         var widened = new List<Fact>(facts);
         foreach (var detail in details.Take(options.MaxPersonDetailFacts))
             if (seen.Add(detail.FactId)) widened.Add(detail);
-        return widened;
+        // REV2-5: every spelling of a named person, so the hand-over to current values treats "Ana" and "Ana García" as one.
+        var subjects = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var person in people.Where(person => named.Contains(person.EntityId, StringComparer.Ordinal)))
+            foreach (var surface in person.Surfaces)
+                subjects.TryAdd(MemoryTripleCanonicalizer.CanonicalValue(surface), person.EntityId);
+        return (widened, subjects);
     }
 }
