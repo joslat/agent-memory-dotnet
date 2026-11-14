@@ -27,6 +27,7 @@ internal sealed partial class Neo4jFactRepository
             return (IReadOnlyList<PersonIdentity>)rows.Select(row => new PersonIdentity
             {
                 EntityId = row["id"].As<string>(), Surfaces = row["surfaces"].As<List<string>>(), Confirmed = row["confirmed"].As<bool>(),
+                Complete = row["complete"].As<bool>(),
             }).ToArray();
         }, cancellationToken).ConfigureAwait(false);
     }

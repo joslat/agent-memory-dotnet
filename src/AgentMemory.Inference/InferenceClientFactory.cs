@@ -129,6 +129,8 @@ public static class InferenceClientFactory
             Endpoint = settings.JudgeEndpoint!,
             ApiKey = settings.JudgeApiKey!,
             Model = settings.JudgeModel!,
+            // REV1-L15: an effort is a parameter of the configured provider's models; a judge on another provider gets none.
+            ReasoningEffort = settings.JudgeProvider == settings.Provider ? settings.ReasoningEffort : null,
         };
 
         return TryCreateChatClient(judgeSettings, "judge", out client, out diagnostic, generousTimeout: true);

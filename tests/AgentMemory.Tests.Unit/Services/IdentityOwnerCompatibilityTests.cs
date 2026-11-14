@@ -54,6 +54,26 @@ public sealed class IdentityOwnerCompatibilityTests
         }
     }
 
+    [Fact]
+    public async Task Identity_state_a_store_without_identity_cannot_take_is_reported_not_dropped_in_silence()
+    {
+        // REV1-L8: the store comes back as its current state, as documented; the result says the identity state stayed out.
+        var f = new Fixture(false);
+        var export = new OwnerMemoryExport { OwnerId = "source", ExportedAtUtc = DateTimeOffset.UnixEpoch,
+            Format = OwnerMemoryExport.IdentityFormat, IdentityState = new OwnerIdentityState() };
+        (await f.Service.ImportAsync(export, "new-owner")).Written.Should().Contain("identity:state-not-imported", 1);
+    }
+
+    [Fact]
+    public async Task An_export_that_names_no_owner_is_refused()
+    {
+        // REV1-H1: a record must belong to the exported owner; a file without one could not be checked.
+        var f = new Fixture(true);
+        await f.Service.Invoking(s => s.ImportAsync(new OwnerMemoryExport { OwnerId = null!, ExportedAtUtc = DateTimeOffset.UnixEpoch }, "new-owner"))
+            .Should().ThrowAsync<ArgumentException>();
+        f.Queries.Should().BeEmpty();
+    }
+
     private static Entity Entity(string id, string name) =>
         new() { EntityId = id, Name = name, Type = "EVENT", Confidence = 1, CreatedAtUtc = DateTimeOffset.UnixEpoch };
 

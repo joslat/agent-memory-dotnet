@@ -98,49 +98,61 @@ internal static class OwnerIdentityPortability
             : text == _oldScope ? _newScope
             : text;
 
+        // REV1-L7: JSON is written again only when something in it changed. Unchanged JSON keeps its exact text, so an
+        // evidence payload (hashed into its assertion's id) and a quote that happens to be JSON come through as they were.
         private string Json(string text)
         {
             JsonNode? root;
             try { root = JsonNode.Parse(text); }
             catch (JsonException) { return text; }
             if (root is null) return text;
-            Walk(root, null);
-            return root.ToJsonString(Readable);
+            return Walk(root, null) ? root.ToJsonString(Readable) : text;
         }
 
-        private void Walk(JsonNode node, string? property)
+        /// <summary>Rewrites references under <paramref name="node"/> in place; true when anything changed.</summary>
+        private bool Walk(JsonNode node, string? property)
         {
+            var changed = false;
             switch (node)
             {
                 case JsonObject obj:
                     foreach (var (name, child) in obj.ToList())
                     {
                         var next = child;
-                        if (child is JsonValue value && value.TryGetValue<string>(out var s)) next = Replace(name, s);
-                        else if (child is not null) Walk(child, name);
+                        if (child is JsonValue value && value.TryGetValue<string>(out var s))
+                        {
+                            var replaced = Replace(name, s);
+                            if (!string.Equals(replaced, s, StringComparison.Ordinal)) { next = JsonValue.Create(replaced); changed = true; }
+                        }
+                        else if (child is not null) changed |= Walk(child, name);
                         // An id can be a property name too: a contextual confirmation's fingerprints are keyed by candidate (PR260-F7).
                         var key = Leaf(name);
-                        if (!string.Equals(key, name, StringComparison.Ordinal)) { obj.Remove(name); obj[key] = next; }
+                        if (!string.Equals(key, name, StringComparison.Ordinal)) { obj.Remove(name); obj[key] = next; changed = true; }
                         else if (!ReferenceEquals(next, child)) obj[name] = next;
                     }
                     break;
                 case JsonArray array:
                     for (var i = 0; i < array.Count; i++)
                     {
-                        if (array[i] is JsonValue value && value.TryGetValue<string>(out var s)) array[i] = Replace(property, s);
-                        else if (array[i] is { } child) Walk(child, property);
+                        if (array[i] is JsonValue value && value.TryGetValue<string>(out var s))
+                        {
+                            var replaced = Replace(property, s);
+                            if (!string.Equals(replaced, s, StringComparison.Ordinal)) { array[i] = JsonValue.Create(replaced); changed = true; }
+                        }
+                        else if (array[i] is { } child) changed |= Walk(child, property);
                     }
                     break;
             }
+            return changed;
         }
 
         // JSON kept as a string inside JSON (a decision's receipt) is rewritten too (PR260-F7).
-        private JsonNode Replace(string? property, string text)
+        private string Replace(string? property, string text)
         {
-            if (property is not null && IsOwner(property) && text == oldOwner) return JsonValue.Create(newOwner)!;
+            if (property is not null && IsOwner(property) && text == oldOwner) return newOwner;
             var leaf = Leaf(text);
-            if (!string.Equals(leaf, text, StringComparison.Ordinal)) return JsonValue.Create(leaf)!;
-            return JsonValue.Create(text.Length > 1 && text[0] is '{' or '[' ? Json(text) : text)!;
+            if (!string.Equals(leaf, text, StringComparison.Ordinal)) return leaf;
+            return text.Length > 1 && text[0] is '{' or '[' ? Json(text) : text;
         }
 
         private static bool IsOwner(string property) =>

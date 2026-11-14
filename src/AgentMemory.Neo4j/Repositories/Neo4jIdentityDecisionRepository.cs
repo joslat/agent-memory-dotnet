@@ -470,8 +470,11 @@ internal sealed partial class Neo4jIdentityDecisionRepository(INeo4jTransactionR
         cancellationToken.ThrowIfCancellationRequested();
         if (!IsEnabled) throw new InvalidOperationException("Enable and migrate identity-evidence before using durable identity decisions.");
     }
-    private static string BindingId(string decisionId, IdentityFactBinding binding) => Convert.ToHexString(SHA256.HashData(
-        Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new[] { decisionId, binding.FactId, binding.Role.ToString() }))));
+    private static string BindingId(string decisionId, IdentityFactBinding binding) => BindingId(decisionId, binding.FactId, binding.Role.ToString());
+
+    /// <summary>A binding's id follows its decision, fact and role; owner import derives it the same way (REV1-S1).</summary>
+    internal static string BindingId(string decisionId, string factId, string role) => Convert.ToHexString(SHA256.HashData(
+        Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new[] { decisionId, factId, role }))));
     private static string Scope(string? ownerId) => ownerId is null ? "shared" : "owned:" + ownerId;
     private static IEnumerable<string> Scopes(string? ownerId, bool includeShared) => ownerId is not null && includeShared ? [Scope(ownerId), Scope(null)] : [Scope(ownerId)];
     private static void Text(string? value)

@@ -168,6 +168,23 @@ public sealed class RequestReachesTheConfiguredHostTests
         host.LastBody.Should().Contain("\"reasoning_effort\":\"medium\"");
     }
 
+    /// <summary>REV1-L15: an operator's effort is a parameter of the configured provider; a judge on another provider gets none.</summary>
+    [Fact]
+    public async Task AJudgeOnAnotherProviderGetsNoEffort()
+    {
+        await using var host = new FakeHost();
+        var settings = Settings(host.Endpoint) with
+        {
+            Provider = InferenceProvider.Bitdeer, ReasoningEffort = ReasoningEffort.Medium, ReasoningEffortModel = null,
+            JudgeProvider = InferenceProvider.OpenAICompatible, JudgeEndpoint = host.Endpoint, JudgeApiKey = "sk-test-key-value", JudgeModel = "a-judge",
+        };
+
+        InferenceClientFactory.TryCreateJudgeChatClient(settings, out var client, out var diagnostic).Should().BeTrue(diagnostic);
+        await client!.GetResponseAsync([new ChatMessage(ChatRole.User, "hello")]);
+
+        host.LastBody.Should().NotContain("reasoning_effort");
+    }
+
     /// <summary>A caller that chooses its own effort keeps it.</summary>
     [Fact]
     public async Task ACallersOwnReasoningEffortWins()

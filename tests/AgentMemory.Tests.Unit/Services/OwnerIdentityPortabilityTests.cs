@@ -88,6 +88,16 @@ public sealed class OwnerIdentityPortabilityTests
     }
 
     [Fact]
+    public void Json_with_nothing_to_rewrite_keeps_its_exact_text()
+    {
+        // REV1-L7: an evidence payload is hashed into its assertion's id; writing it again with other escaping would make the
+        // same key asserted after the import a different record.
+        const string payload = """{"phone":"\u002B41791234567","name":"Jos\u00E9"}""";
+        Remap().Value("payload", Text(payload)).Text.Should().Be(payload);
+        Remap().Value("payload", Text("[ \"spaced\" , 1 ]")).Text.Should().Be("[ \"spaced\" , 1 ]");
+    }
+
+    [Fact]
     public void Every_value_keeps_its_type_through_the_round_trip()
     {
         var at = new ZonedDateTime(new DateTimeOffset(2026, 11, 13, 21, 30, 5, TimeSpan.Zero));

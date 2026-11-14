@@ -81,7 +81,7 @@ Important cross-cutting properties:
 - `valid_from`, `valid_until`: valid-time window for facts and relationships.
 - `valid_from_precision`, `valid_until_precision` (facts): how precisely each date was stated, as `"year"`, `"month"`, `"day"` or `"instant"` (`DatePrecision`); absent means unspecified (rows written before precision was recorded) and renders as a day. "March 2024" is stored as 2024-03-01 with precision `"month"` and renders `2024-03`.
 - `occurred_on`, `occurred_on_precision` (facts): the day a one-off event happened ("yesterday I went hiking"), written under `TemporalValidityMode.Extract`; absent for a state. An event keeps no validity window of its own and renders `(on 2026-09-26)`.
-- `source_message_ids`: extracted-memory provenance list.
+- `source_message_ids`: extracted-memory provenance list (a fact said again keeps the latest messages it was said in).
 - `last_accessed_at`, `access_count`: long-term access reinforcement fields used by decay/reranking.
 - `kind`, `memory_id`, `read_at`: read-audit fields on `MemoryReadAudit`; `owner_id` is copied from the read memory node.
 

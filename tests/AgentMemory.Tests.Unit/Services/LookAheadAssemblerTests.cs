@@ -199,6 +199,52 @@ public sealed class LookAheadAssemblerTests
     }
 
     [Fact]
+    public async Task A_value_a_begun_plan_replaced_does_not_come_back_with_a_persons_details()
+    {
+        // PR260-N3: details are added after the hand-over to current values; Valentina's move to Madrid has begun, so the
+        // Córdoba her details bring is no longer current and stays out.
+        var cordoba = new Fact { FactId = "cordoba", Subject = "Valentina", Predicate = "lives in", Object = "Córdoba", Confidence = 0.9,
+            CreatedAtUtc = new(2026, 3, 1, 10, 0, 0, TimeSpan.Zero), ValidFrom = new(2026, 3, 1, 0, 0, 0, TimeSpan.Zero) };
+        var madrid = new Fact { FactId = "madrid", Subject = "Valentina", Predicate = "lives in", Object = "Madrid", Confidence = 0.9,
+            CreatedAtUtc = new(2026, 10, 1, 10, 0, 0, TimeSpan.Zero), ValidFrom = new(2026, 12, 1, 0, 0, 0, TimeSpan.Zero) };
+        _relevant = [madrid];
+        People(Person("valentina", "Valentina"));
+        _longTerm.GetPersonDetailsAsync(Arg.Any<IReadOnlyList<string>>(), Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<int>(),
+            Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>()).Returns(Task.FromResult<IReadOnlyList<Fact>>([cordoba]));
+
+        var context = await AskAsync("Where does Valentina live now?", RecallOptions.Default with { PersonDetails = true });
+
+        await _longTerm.ReceivedWithAnyArgs(1).GetPersonDetailsAsync(default!, default!, default, default, default);
+        context.RelevantFacts.Items.Select(f => f.FactId).Should().Contain("madrid").And.NotContain("cordoba");
+    }
+
+    [Fact]
+    public async Task A_value_a_begun_plan_found_by_date_replaced_is_dropped_with_or_without_details()
+    {
+        // REV1-L10: what is dropped no longer depends on whether a detail happened to be added.
+        var cordoba = new Fact { FactId = "cordoba", Subject = "Bruna", Predicate = "lives in", Object = "Córdoba", Confidence = 0.9,
+            CreatedAtUtc = new(2026, 3, 1, 10, 0, 0, TimeSpan.Zero), ValidFrom = new(2026, 3, 1, 0, 0, 0, TimeSpan.Zero) };
+        var mendoza = new Fact { FactId = "mendoza", Subject = "Bruna", Predicate = "lives in", Object = "Mendoza", Confidence = 0.9,
+            CreatedAtUtc = new(2026, 10, 1, 10, 0, 0, TimeSpan.Zero), ValidFrom = new(2026, 12, 1, 0, 0, 0, TimeSpan.Zero) };
+        _relevant = [cordoba];
+        _longTerm.GetFactsInWindowAsync(Arg.Any<DateTimeOffset>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Fact>>([mendoza]));
+
+        var context = await AskAsync("What do I have between December 1 and December 3?", RecallOptions.Default with { TimeWindows = true });
+
+        context.RelevantFacts.Items.Select(f => f.FactId).Should().NotContain("cordoba", "the move to Mendoza, found by date, has begun");
+    }
+
+    [Fact]
+    public async Task A_person_whose_names_were_cut_off_may_hide_a_namesake_so_no_facts_are_read()
+    {
+        // PR260-N4: each person's names are read up to a bound; one whose list was cut could carry this name too.
+        People(Person("valentina", "Valentina"), new PersonIdentity { EntityId = "other", Surfaces = ["Vale"], Complete = false });
+        await AskAsync("I have my mentoring session with Valentina tomorrow.", RecallOptions.Default with { PersonDetails = true });
+        await _longTerm.DidNotReceiveWithAnyArgs().GetPersonDetailsAsync(default!, default!, default, default, default);
+    }
+
+    [Fact]
     public async Task A_full_page_of_people_may_hide_a_namesake_so_no_facts_are_read()
     {
         // The read is bounded to 1,000 people ordered by id: when it comes back full, a second Valentina may be past the

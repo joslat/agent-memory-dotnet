@@ -16,13 +16,12 @@ also named its own limits: recall still found people by similarity, export and i
 identity's history, and hosts running GLM-5.3-Flash through `AgentMemory.Inference` ran it at maximum reasoning effort.
 Those were meant for 2.2 and missed it; 2.3.0 brings all three.
 
-Checking the release also found two critical bugs, both in how the database schema reaches an application. The migration
-scripts did not reach applications that install the `AgentMemory` package, and nothing in the library ran them at
-startup anyway, so identity has run without its unique constraints and lookup indexes. Both are fixed: the scripts ship
-inside the library, and schema bootstrap applies them. If you run 2.2.0, upgrade.
-
-A review of this release found a third, in 2.2.0 too: owner import trusted the ids in the file it was given, so a crafted
-export could link imported memories to another owner's entities. Import now checks every one before it writes anything.
+It also carries three critical fixes. Checking the release found two, both in how the database schema reaches an
+application: the migration scripts did not reach applications that install the `AgentMemory` package, and nothing in the
+library ran them at startup anyway, so identity has run without its unique constraints and lookup indexes. The scripts
+now ship inside the library, and schema bootstrap applies them. A review of this release found the third, in 2.2.0 too:
+owner import trusted the ids in the file it was given, so a crafted export could link imported memories to another
+owner's entities. Import now checks every one before it writes anything. If you run 2.2.0, upgrade.
 
 Thank you again, Pablo: your scenario is now the benchmark every identity change is measured against, this one included.
 
@@ -35,9 +34,11 @@ Thank you again, Pablo: your scenario is now the benchmark every identity change
 - Owner exports from identity stores are now `agentmemory-export/2`. 2.3.0 imports both formats; 2.2.0 and earlier
   refuse format 2 rather than drop its identity state.
 - `AgentMemory.Inference` on Bitdeer's GLM-5.3-Flash now asks for low reasoning effort; `AI_REASONING_EFFORT` changes it.
-- Owner import refuses a file that links to entities another owner holds in this store, before writing anything, and
-  leaves out a link to an entity this store does not hold instead of creating a bare node. The result's `Written` counts
-  what was left out (`skipped:*`).
+- Owner import refuses a file that links to entities another owner holds in this store, or that names no owner, before
+  writing anything, and leaves out a link to an entity this store does not hold instead of creating a bare node. The
+  result's `Written` counts what was left out (`skipped:*`), and says when a store without identity storage kept a file's
+  identity state out (`identity:state-not-imported`). Source message ids that are not the importing owner's own messages
+  become markers.
 
 ### Added
 
@@ -46,7 +47,10 @@ Thank you again, Pablo: your scenario is now the benchmark every identity change
   words resemble the question: up to 8 live facts bound to the person through identity decisions, newest first. A name
   counts as whole words, case and accents aside, and only when one person in the store has it: a name two people share
   expands nothing, never a guess, whether the other is confirmed, an open proposal (never followed) or a person with no
-  bound facts. At most 3 people per question; a store whose read of people comes back full (1,000) expands nobody. Two
+  bound facts. A name inside a longer name the question says ("Ana" in "Ana García") is part of it, and a single-word
+  name that is also an everyday word ("Will", "May") counts only written as a name, capitalised and not starting a
+  sentence. At most 3 people per question; a store whose read of people comes back full (1,000), or a person with more
+  names than are read (32, spellings that differ only in case counted once), expands nobody. Two
   bounded reads, no model call; the facts share the context budget. Follows identity like `EventDetails`: on where
   evidence-based identity runs, off and unchanged elsewhere. Point-in-time recall refuses an explicit `true`.
 - **Owner export and import carry identity whole** (`agentmemory-export/2`). With identity storage the export adds
@@ -56,7 +60,9 @@ Thank you again, Pablo: your scenario is now the benchmark every identity change
   the new owner as a copy of its own: every reference is rewritten (inside stored JSON, JSON nested in it and ids used as
   keys), each observation gets a key new to the owner and the import, and each source message id becomes a marker of the
   importing owner, so open proposals can be reviewed, review history and event details work as before, and a confirmation current
-  at export gets its imported target's fingerprint. The same file can be imported into several owners, or twice into one.
+  at export gets its imported target's fingerprint. Evidence assertions keep the content-derived ids asserting gives
+  them, so asserting the same key again is the same evidence, and each decision's observation gets the destination
+  model's vector (its history none). The same file can be imported into several owners, or twice into one.
   Messages stay out: decisions keep their quotes. A format-1 export, or an import into a store without identity, comes
   back as the current state, as in 2.2.0. An importer that knows only format 1 refuses format 2 rather than dropping its
   identity state.
@@ -77,11 +83,27 @@ Thank you again, Pablo: your scenario is now the benchmark every identity change
 
 ### Fixed
 
+- **Reviewing an identity decision works after its fact is said again.** A fact keeps only the latest message it was
+  said in, and review checked the decision's own messages against it, so confirming or revoking a decision failed once
+  its fact had been restated, or after the store was imported into its own owner. A binding that already ties the fact to
+  the decision now carries its provenance, which was checked when it was made.
+- **Event and person details no longer bring back a replaced value.** They were added after recall hands over to
+  current values, so a value a begun plan had replaced (the old city after a move) could come back with them; event
+  details have done so since 2.2.0. Recall now hands over again after the details, with the dated sections' facts as
+  competitors, every time.
 - **Owner import trusts nothing in the file it cannot verify** (also in 2.2.0). An entity a file names but the import
   does not create must be a shared entity in this store: one that belongs to an owner refuses the whole import before
   anything is written, and a missing one leaves its link out, where 2.2.0 made the link to whatever the id named and
   created a bare node if nothing had it. Identity records always belong to the importing owner and carry only the
-  properties their schema declares; entities take only the three identity properties; identity links carry none.
+  properties their schema declares; entities take only the three identity properties; identity links carry none. An
+  entity a current decision's record names without a link (its target, candidates or observation) is checked the same
+  way, and a malformed value is refused before anything is written. A file must name its owner, and each decision
+  record's own ids and owner are the copy's, whatever the file says, so a revocation can never create an entity at an id
+  another owner reserved.
+- **Imported memories point only at the importing owner's own messages** (also in 2.2.0 and earlier). In every format, a
+  source message id stays only when it is a message of the importing owner in this store; any other becomes a marker of
+  the importing owner. Before, a file could name another owner's messages, and recall's source quotes and date grounding
+  then read them.
 - **The Cypher migrations reach every application, including those that install the `AgentMemory` meta-package.** 2.2.0
   copied them next to an application that references `AgentMemory.Neo4j` directly, but NuGet does not pass a dependency's
   content files on, so an application that installed `AgentMemory`, as the README says, still got no
@@ -94,7 +116,8 @@ Thank you again, Pablo: your scenario is now the benchmark every identity change
   measurement ran it; at its default, maximum effort it could spend its whole reply budget thinking and answer nothing,
   which left the identity writer with empty replies in the samples. No other model gets an effort it did not ask for: the
   automatic `low` reaches only clients built on that model, never an extraction or judge override on another, while an
-  effort the operator sets applies to every client. A request that chooses its own effort keeps it.
+  effort the operator sets applies to every client on the configured provider (a judge on another provider gets none).
+  A request that chooses its own effort keeps it.
 - The release pipeline installs the freshly packed meta-package into a clean consumer and fails unless the installed
   `AgentMemory.Neo4j` embeds every migration in the source tree (`eng/verify-packages-install.sh`). Run against the
   published 2.2.0 it fails with 0 of 18, which is the bug.

@@ -19,4 +19,10 @@ public sealed record PersonIdentity
     /// not yet known who this is) and for a person with no bound facts.
     /// </summary>
     public bool Confirmed { get; init; } = true;
+
+    /// <summary>
+    /// False when the person has more names than were read (<see cref="Surfaces"/> is bounded): any name could then be
+    /// theirs too, so recall names nobody rather than guess.
+    /// </summary>
+    public bool Complete { get; init; } = true;
 }

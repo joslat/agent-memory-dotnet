@@ -14,9 +14,16 @@ internal static class PersonDetailQueries
     /// confirmed as another person is not a person of its own.
     /// </summary>
     public const string Identities = """
-        MATCH (p:Entity)
-        WHERE (NOT $hasOwner OR p.owner_id=$ownerId OR ($includeShared AND p.owner_id IS NULL))
-          AND toUpper(p.type)='PERSON' AND p.invalidated_at IS NULL AND p.merged_into IS NULL
+        CALL {
+          // REV1-M4: each scope is its own index seek (owner_id, or owner_key '*' for shared); an OR over them is a scan
+          // of every owner's entities on every recall.
+          MATCH (p:Entity) WHERE $hasOwner AND p.owner_id=$ownerId RETURN p
+          UNION
+          MATCH (p:Entity) WHERE $hasOwner AND $includeShared AND p.owner_key='*' RETURN p
+          UNION
+          MATCH (p:Entity) WHERE NOT $hasOwner RETURN p
+        }
+        WITH p WHERE toUpper(p.type)='PERSON' AND p.invalidated_at IS NULL AND p.merged_into IS NULL
           AND NOT EXISTS {
             MATCH (o:IdentityDecision)-[:RESOLVES_TO]->(t:Entity)
             WHERE p.identity_observation_key IS NOT NULL AND o.identity_observation_key=p.identity_observation_key
@@ -27,9 +34,13 @@ internal static class PersonDetailQueries
         WHERE b.identity_decision_id=d.id AND b.owner_scope=d.owner_scope
           AND (NOT $hasOwner OR b.owner_id=$ownerId OR ($includeShared AND b.owner_id IS NULL))
         WITH p, b, CASE WHEN d IS NULL THEN false ELSE NOT EXISTS { (d)-[:POSSIBLE_SAME_AS]->() } END AS decided
-        WITH p, collect(DISTINCT b.identity_observed_surface)[..20] AS observed, any(flag IN collect(decided) WHERE flag) AS confirmed
-        RETURN p.id AS id, [name IN [p.name] + coalesce(p.aliases, []) + observed WHERE name IS NOT NULL][..32] AS surfaces,
-               confirmed
+        WITH p, collect(DISTINCT b.identity_observed_surface) AS observed, any(flag IN collect(decided) WHERE flag) AS confirmed
+        WITH p, confirmed, [spelling IN [p.name] + coalesce(p.aliases, []) + observed WHERE spelling IS NOT NULL] AS spellings
+        // REV1-L12: spellings that differ only in case are one name (the first is kept, the primary name first). toString
+        // because the planner cannot tell the collected names are strings.
+        WITH p, confirmed, [i IN range(0, size(spellings) - 1)
+            WHERE NOT toLower(toString(spellings[i])) IN [j IN range(0, i - 1) | toLower(toString(spellings[j]))] | spellings[i]] AS names
+        RETURN p.id AS id, names[..32] AS surfaces, size(names) <= 32 AS complete, confirmed
         ORDER BY id
         """;
 

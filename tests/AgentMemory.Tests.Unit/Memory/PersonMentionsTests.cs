@@ -35,6 +35,27 @@ public sealed class PersonMentionsTests
             .Should().Equal("colleague");
 
     [Fact]
+    public void A_name_inside_a_longer_name_the_question_says_is_part_of_it()
+    {
+        // REV1-M3: "Ana" is someone else; "Ana García" names only Ana García.
+        PersonMentions.Named("Where does Ana García work?", [P("ana", "Ana"), P("ana-garcia", "Ana García")]).Should().Equal("ana-garcia");
+        PersonMentions.Named("Ana met Ana García.", [P("ana", "Ana"), P("ana-garcia", "Ana García")]).Should().Equal("ana", "ana-garcia");
+        PersonMentions.Named("Where does Ana García work?", [P("ana", "Ana"), P("ag1", "Ana García"), P("ag2", "Ana García")])
+            .Should().BeEmpty("the longer name is ambiguous, and the shorter one is only part of it");
+    }
+
+    [Fact]
+    public void A_name_that_is_an_everyday_word_counts_only_written_as_a_name()
+    {
+        // REV1-L11.
+        PersonMentions.Named("Will it rain tomorrow?", [P("will", "Will")]).Should().BeEmpty();
+        PersonMentions.Named("may I ask about the invoices?", [P("may", "May")]).Should().BeEmpty();
+        PersonMentions.Named("I met Will yesterday. What did he say?", [P("will", "Will")]).Should().Equal("will");
+        PersonMentions.Named("valentina called", [P("v", "Valentina")]).Should().Equal(["v"], "an ordinary name still matches in any case");
+        PersonMentions.Named("Will Smith called.", [P("ws", "Will Smith")]).Should().Equal(["ws"], "a longer name is not an everyday word");
+    }
+
+    [Fact]
     public void Part_of_a_word_is_not_a_name() =>
         PersonMentions.Named("Valentinas and Tomásito are not here.", [P("v", "Valentina"), P("t", "Tomás")]).Should().BeEmpty();
 
