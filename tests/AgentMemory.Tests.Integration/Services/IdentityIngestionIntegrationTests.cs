@@ -1159,10 +1159,10 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
     }
 
     [Fact]
-    public async Task A_restore_into_the_same_owner_keeps_its_keys_so_ingesting_the_message_again_replays()
+    public async Task A_restore_into_the_same_owner_gets_new_keys_so_ingesting_a_message_again_decides_afresh()
     {
-        // REV2-4: restored after an erasure, with the transcript back first, a decision keeps its key; ingesting the same
-        // message again then replays it instead of making a second decision.
+        // Owner decision 11-14 (REV2-4 removed): every import gets new keys, a restore into the same owner included, so the
+        // documented limit holds: ingesting a restored message again makes a second decision, and does not fail.
         using var host = Host(); using var scope = host.CreateScope(); var services = scope.ServiceProvider;
         await Seed(services, "Acme go live");
         await Ingest(services, Input());
@@ -1174,9 +1174,9 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
 
         var imported = await owners.ImportAsync(file, "pablito");
 
-        imported.Ids[original.DecisionId].Should().Be(original.DecisionId, "the key is free here and its sources are the owner's own");
-        await Ingest(services, Input());
-        (await Count("(d:IdentityDecision {owner_id:'pablito'})")).Should().Be(1, "ingesting the restored message again replays its decision");
+        imported.Ids[original.DecisionId].Should().NotBe(original.DecisionId);
+        await services.Invoking(s => Ingest(s, Input())).Should().NotThrowAsync();
+        (await Count("(d:IdentityDecision {owner_id:'pablito'})")).Should().Be(2, "the restored decision and the new one");
     }
 
     [Fact]
@@ -1345,7 +1345,7 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
     [Fact]
     public async Task A_restore_whose_messages_stayed_behind_can_ingest_them_again()
     {
-        // REV3-4: restored without its transcript, every source becomes a marker, so no decision or relationship
+        // REV3-4: restored without its transcript, every source becomes a marker and no decision or relationship
         // observation keeps its original id; when the message comes back and is ingested again, it decides afresh instead
         // of finding a record with other sources and failing.
         using var host = Host(); using var scope = host.CreateScope(); var services = scope.ServiceProvider;
@@ -1366,33 +1366,6 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
         (await Count($"(:IdentityRelationshipObservation {{id:'{original}'}})")).Should().Be(0, "its sources are markers now");
         await fixture.TransactionRunner.WriteAsync(async runner => { await runner.RunAsync("MERGE (c:Conversation {id:'conversation'}) SET c.user_id = 'pablito' MERGE (m:Message {id:'source'}) SET m.conversation_id = 'conversation', m.content = 'The Acme go live is on December 12, 2026', m.session_id = 'scenario' MERGE (c)-[:HAS_MESSAGE]->(m)"); });
         await services.Invoking(s => Ingest(s, input)).Should().NotThrowAsync();
-    }
-
-    [Fact]
-    public async Task A_restore_keeps_only_keys_it_derives_again_for_the_owner()
-    {
-        // REV3-8: a key is kept only when it is the key ingestion makes for this owner from the decision's own words and
-        // messages; one that is not (here the record's words were changed) is never looked up and gets a new key.
-        using var host = Host(); using var scope = host.CreateScope(); var services = scope.ServiceProvider;
-        await Seed(services, "Acme go live");
-        await Ingest(services, Input());
-        var original = await StoredDecision();
-        var owners = services.GetRequiredService<IMemoryOwnerDataService>();
-        var file = await ExportFile(services);
-        await owners.EraseAsync("pablito");
-        await fixture.TransactionRunner.WriteAsync(async runner => { await runner.RunAsync("CREATE (c:Conversation {id:'conversation', user_id:'pablito'}), (m:Message {id:'source', conversation_id:'conversation', content:'The Acme go live is on December 12, 2026', session_id:'scenario'}), (c)-[:HAS_MESSAGE]->(m)"); });
-        var state = file.IdentityState!;
-        var reworded = file with { IdentityState = state with { Nodes = [.. state.Nodes.Select(node => node.Label != "IdentityDecision" ? node : node with
-        {
-            Properties = new Dictionary<string, OwnerGraphValue>(node.Properties)
-            { ["identity_record_json"] = GraphText(node.Properties["identity_record_json"].Text!.Replace("\"Name\":\"Acme go live\"", "\"Name\":\"Acme go-live\"")) },
-        })] } };
-        reworded.IdentityState!.Nodes.First(node => node.Label == "IdentityDecision").Properties["identity_record_json"].Text
-            .Should().Contain("Acme go-live", "precondition: the record's words changed");
-
-        var imported = await owners.ImportAsync(reworded, "pablito");
-
-        imported.Ids[original.DecisionId].Should().NotBe(original.DecisionId);
     }
 
     [Fact]

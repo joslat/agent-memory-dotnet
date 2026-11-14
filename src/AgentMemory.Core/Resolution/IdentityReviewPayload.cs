@@ -25,12 +25,8 @@ internal static class IdentityReviewPayload
         Convert.ToHexString(SHA256.HashData(IdentityDecisionPayload.Serialize(new { ownerId,includeShared,request })));
 
     internal static string RevisionId(IdentityReviewRequest request,string? ownerId) =>
-        RevisionId(request.DecisionId,request.OperationId,ownerId);
-
-    /// <summary>A review revision's id; one derivation for review and for a restore into the same owner (REV3-8).</summary>
-    internal static string RevisionId(string decisionId,string operationId,string? ownerId) =>
-        decisionId+"/review/"+Convert.ToHexString(SHA256.HashData(
-            IdentityDecisionPayload.Serialize(new { ownerId,OperationId=operationId })));
+        request.DecisionId+"/review/"+Convert.ToHexString(SHA256.HashData(
+            IdentityDecisionPayload.Serialize(new { ownerId,request.OperationId })));
 
     private static void Text(string? value)
     { if(string.IsNullOrWhiteSpace(value)||value.Length>4096) throw new ArgumentException("Review text needs 1–4096 characters."); }

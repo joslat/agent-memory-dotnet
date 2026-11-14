@@ -303,13 +303,9 @@ Import into a store with identity storage brings the owner back whole, and the c
 - **Every import is its own copy.** Each observation gets a key new to this owner and this import (the same shape, so
   its decision and entity ids follow it as the ingestion makes them, including the entity id a confirmed decision
   reserves before a revocation creates it), and every other record a new id. Importing the same file into the same
-  owner twice gives two copies. The exception is a restore into the owner the file came from: a decision keeps its key,
-  and the ids that follow it, when the import derives that key again for this owner (as ingestion does, from the
-  owner, the source messages and the observation's own words), this store does not hold it, and its source messages are
-  the owner's own here. Its review revisions keep theirs on the same terms (derived again from the decision and the
-  review's operation), and so does a relationship observation whose messages stayed the owner's own and whose
-  decisions kept theirs. A key or id that is not derived for this owner is never looked up. Ingesting the restored
-  message again then replays the decision instead of making a second one.
+  owner twice gives two copies. A restore into the owner the file came from is no exception, and that is a limit:
+  replay needs a decision's original key, so a restored message ingested again makes a second decision rather than
+  replaying the first.
 - **Every reference is rewritten**, inside stored JSON too, including JSON stored inside it (a decision's receipt) and ids
   used as property names: record, entity and fact ids, observation keys and the owner's scope; the owner itself only
   where a property names the owner. A value is a reference only under a property whose name says so (`id`, `ids`,
@@ -374,10 +370,10 @@ operations on a source owner and on its copy in one store and requires the same 
 | A replaced value is a closed period (its period key is its own id), so the same value said again is a new fact | fact write (merges on the open period only) | each supersession loser in the file is closed out of the open period |
 | A confirmed decision and its bindings resolve to a live target the owner may use | review (revoke, confirm another) | a target the store does not hold leaves the decision New on its own observation, as revocation does |
 | One binding per decision, fact and role | `identity_binding_id` constraint | a second record with the same derived id is left out |
-| Re-ingesting a message replays its decision instead of deciding again | replay (`identity_decision_observation`) | a restore into the same owner keeps each free key whose messages are the owner's own; any other copy gets new keys, so its messages are not the original's |
+| Re-ingesting a message replays its decision instead of deciding again | replay (`identity_decision_observation`) | not kept across an import: every copy gets new keys, so a message ingested again after a restore makes a second decision (a documented limit) |
 | Recall follows only decided bindings, and hands over to current values after adding details | recall | unchanged by import |
 
-Two kinds of id are new in a copy on purpose (a restore into the same owner aside, above). A review revision's id
+Two kinds of id are new in a copy on purpose. A review revision's id
 follows its owner and operation id, and a relationship observation's id follows its owner and source messages; no
 operation in the copy derives either again, so each gets a fresh id. A review operation applied before the import is therefore history in the copy: sending it again
 there is refused as stale, not reported as already applied. A decision confirmed from context alone keeps its

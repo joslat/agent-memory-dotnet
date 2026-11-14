@@ -184,18 +184,6 @@ public static class OwnerDataQueries
         ["IdentityRelationshipObservation"] = "UNWIND $rows AS row MATCH (n:IdentityRelationshipObservation {id: row.id}) WHERE n.owner_id = $ownerId DETACH DELETE n",
     };
 
-    /// <summary>REV2-4: which original observation keys this store already holds, in the owner's scope or by the ids they give.</summary>
-    public const string TakenObservationKeys = @"
-            UNWIND $keys AS key
-            RETURN key, EXISTS { MATCH (d:IdentityDecision {owner_scope: $ownerScope, identity_observation_key: key}) }
-                OR EXISTS { MATCH (d:IdentityDecision {id: 'identity-decision-' + key}) }
-                OR EXISTS { MATCH (e:Entity {id: 'identity-observation-' + key}) } AS taken";
-
-    /// <summary>REV2-4: which revision and relationship-observation ids this store already holds.</summary>
-    public const string TakenIdentityRecordIds = @"
-            UNWIND $ids AS id
-            RETURN id, EXISTS { MATCH (r:IdentityDecisionRevision {id: id}) } OR EXISTS { MATCH (o:IdentityRelationshipObservation {id: id}) } AS taken";
-
     /// <summary>REV2-10: how many of these ids already exist as messages.</summary>
     public const string ExistingMessages = @"
             UNWIND $ids AS id

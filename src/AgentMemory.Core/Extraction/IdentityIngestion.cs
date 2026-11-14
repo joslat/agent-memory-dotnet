@@ -94,7 +94,13 @@ internal sealed partial class IdentityIngestion
             initial = IdentityHostContext.Apply(initial, evidence, owner);
         }
         original = initial.Decision.Observation;
-        var key = ObservationKey(owner, roots, original);
+        var key = Convert.ToHexString(SHA256.HashData(IdentityDecisionPayload.Serialize(new
+        {
+            owner, roots = roots.Order(StringComparer.Ordinal).ToArray(), original.Name, original.Type,
+            original.Subtype, original.Description,
+            attributes = original.Attributes.OrderBy(pair => pair.Key, StringComparer.Ordinal)
+                .Select(pair => new { pair.Key, Value = CanonicalHashValue(pair.Value) }).ToArray()
+        }))).ToLowerInvariant();
         original = original with { EntityId = "identity-observation-" + key };
         mention = mention with { Name = original.Name, Type = original.Type, Subtype = original.Subtype,
             Description = original.Description, Attributes = original.Attributes, Aliases = original.Aliases };
@@ -132,19 +138,6 @@ internal sealed partial class IdentityIngestion
     }
 
     private const string ObservationPrefix = "identity-observation-";
-
-    /// <summary>
-    /// An observation's key: its owner, its source messages and its own words. One derivation for ingestion and for a
-    /// restore into the same owner, which keeps an original key only when it derives it again here (REV3-8).
-    /// </summary>
-    internal static string ObservationKey(string? owner, IEnumerable<string> roots, Entity observation) =>
-        Convert.ToHexString(SHA256.HashData(IdentityDecisionPayload.Serialize(new
-        {
-            owner, roots = roots.Order(StringComparer.Ordinal).ToArray(), observation.Name, observation.Type,
-            observation.Subtype, observation.Description,
-            attributes = observation.Attributes.OrderBy(pair => pair.Key, StringComparer.Ordinal)
-                .Select(pair => new { pair.Key, Value = CanonicalHashValue(pair.Value) }).ToArray()
-        }))).ToLowerInvariant();
     private const string DecisionPrefix = "identity-decision-";
 
     /// <summary>

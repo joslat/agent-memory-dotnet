@@ -72,9 +72,9 @@ Thank you again, Pablo: your scenario is now the benchmark every identity change
   importing owner, so open proposals can be reviewed, review history and event details work as before, and a confirmation current
   at export gets its imported target's fingerprint. Evidence assertions keep the content-derived ids asserting gives
   them, so asserting the same key again is the same evidence, and each decision's observation gets the destination
-  model's vector (its history none). The same file can be imported into several owners, or twice into one. Restored
-  into the owner it came from, a decision keeps its key where the import derives that key again for the owner, this
-  store does not hold it, and its messages are the owner's own, so ingesting the restored message again replays it. A
+  model's vector (its history none). The same file can be imported into several owners, or twice into one. Every
+  import gets new keys, a restore into the owner the file came from included, so a restored message ingested again makes
+  a second decision rather than replaying the first. A
   proposal whose candidates the store does not hold becomes New, and a confirmation whose target it does not hold (a
   shared entity, in another database) comes back as a revocation leaves it, New on its own observation; both say why.
   A binding must tie a fact said about its observed name to a decision whose sources it shares, or it is left out.

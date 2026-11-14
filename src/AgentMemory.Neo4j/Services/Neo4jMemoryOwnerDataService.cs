@@ -164,12 +164,6 @@ internal sealed class Neo4jMemoryOwnerDataService(
         // reach someone else's conversation.
         if (await AnyMessageAsync(messages.Values, cancellationToken).ConfigureAwait(false))
             throw new ArgumentException("A message id this import would use already exists in this store; nothing was imported.", nameof(export));
-        // REV2-4: a restore into the same owner keeps each original key, and the ids that follow it, where this store does
-        // not already hold them and the decision's own messages are the owner's here, so re-ingesting the restored transcript
-        // replays those decisions instead of duplicating them.
-        var keep = new HashSet<string>(StringComparer.Ordinal);
-        if (state is not null && string.Equals(export.OwnerId, ownerId, StringComparison.Ordinal))
-            (keys, keep) = await KeepOriginalsAsync(state, keys, messages, ownerId, cancellationToken).ConfigureAwait(false);
         IReadOnlyList<string> Sources(IReadOnlyList<string> original) =>
             messages.Count == 0 ? original : [.. original.Select(id => messages.GetValueOrDefault(id, id))];
         var joined = state is not null ? new Dictionary<string, string>(StringComparer.Ordinal) : Joined(export);
@@ -303,7 +297,7 @@ internal sealed class Neo4jMemoryOwnerDataService(
             Count("about");
         }
         if (state is not null)
-            await ImportIdentityAsync(state, export, ownerId, map, keys, keep, messages, missing, written, created, cancellationToken).ConfigureAwait(false);
+            await ImportIdentityAsync(state, export, ownerId, map, keys, messages, missing, written, created, cancellationToken).ConfigureAwait(false);
         return new OwnerImportResult { OwnerId = ownerId, Written = written, Ids = map };
     }
 
@@ -562,71 +556,6 @@ internal sealed class Neo4jMemoryOwnerDataService(
             .ToDictionary(id => id, id => OwnerIdentityPortability.NewMessageId(ownerId, id), StringComparer.Ordinal);
     }
 
-    /// <summary>
-    /// REV2-4: for a restore into the same owner, the original observation keys, review revisions and relationship
-    /// observations that keep their ids, so re-ingesting a restored message replays instead of deciding again. REV3-8: an
-    /// id is kept only when it is derived again here, the way ingestion and review derive it, for this owner (so a key or
-    /// id naming another owner's record is never looked up); REV2-4, REV3-4: only when none of its messages became a
-    /// marker and, for a revision or relationship observation, its decisions kept theirs; and only when this store does
-    /// not hold it.
-    /// </summary>
-    private async Task<(Dictionary<string, string> Keys, HashSet<string> Keep)> KeepOriginalsAsync(OwnerIdentityState state,
-        Dictionary<string, string> keys, IReadOnlyDictionary<string, string> messages, string ownerId, CancellationToken cancellationToken)
-    {
-        bool Translated(IEnumerable<string> sources) => sources.Any(messages.ContainsKey);
-        static string? Record(OwnerGraphNode node) =>
-            node.Properties.TryGetValue("identity_record_json", out var json) ? json.Text : null;
-        var candidates = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var node in state.Nodes.Where(node => node.Label == "IdentityDecision"))
-        {
-            var decision = IdentityDecisionPayload.Decode(Record(node)!);
-            var key = node.Properties["identity_observation_key"].Text!;
-            if (!Translated(decision.Context.SourceMessageIds.Concat(decision.Observation.SourceMessageIds)
-                    .Concat(decision.Context.Sources.SelectMany(source => source.OriginIds.Append(source.SourceId)))) &&
-                AgentMemory.Core.Extraction.IdentityIngestion.ObservationKey(ownerId, decision.Context.SourceMessageIds, decision.Observation) == key)
-                candidates.Add(key);
-        }
-        var takenKeys = candidates.Count == 0 ? new HashSet<string>(StringComparer.Ordinal) : await tx.ReadAsync(async runner =>
-            (await (await runner.RunAsync(OwnerDataQueries.TakenObservationKeys, new Dictionary<string, object?>
-                { ["keys"] = candidates.ToArray(), ["ownerScope"] = "owned:" + ownerId }).ConfigureAwait(false)).ToListAsync().ConfigureAwait(false))
-                .Where(row => row["taken"].As<bool>()).Select(row => row["key"].As<string>()).ToHashSet(StringComparer.Ordinal),
-            cancellationToken).ConfigureAwait(false);
-        var kept = keys.ToDictionary(pair => pair.Key, pair => candidates.Contains(pair.Key) && !takenKeys.Contains(pair.Key) ? pair.Key : pair.Value,
-            StringComparer.Ordinal);
-        bool Kept(string decisionId) => decisionId.StartsWith(OwnerIdentityPortability.DecisionPrefix, StringComparison.Ordinal) &&
-            kept.TryGetValue(decisionId[OwnerIdentityPortability.DecisionPrefix.Length..], out var key) &&
-            key == decisionId[OwnerIdentityPortability.DecisionPrefix.Length..];
-        var revisionOf = state.Edges.Where(edge => edge.Type == "HAS_IDENTITY_REVISION")
-            .GroupBy(edge => edge.To, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First().From, StringComparer.Ordinal);
-        var records = new List<string>();
-        foreach (var node in state.Nodes)
-        {
-            if (node.Label == "IdentityDecisionRevision" && revisionOf.TryGetValue(node.Key, out var decisionId) && Kept(decisionId) &&
-                Record(node) is { } revisionJson)
-            {
-                var revision = IdentityDecisionPayload.Decode(revisionJson);
-                if (node.Key == decisionId + "/1" || revision.LatestReview is { } review &&
-                    node.Key == AgentMemory.Core.Resolution.IdentityReviewPayload.RevisionId(decisionId, review.OperationId, ownerId))
-                    records.Add(node.Key);
-            }
-            else if (node.Label == "IdentityRelationshipObservation" && Record(node) is { } relationshipJson)
-            {
-                var observation = IdentityRelationshipPayload.Decode(relationshipJson);
-                if (!Translated(observation.SourceMessageIds) &&
-                    new[] { observation.SourceDecisionId, observation.TargetDecisionId }.OfType<string>().All(Kept) &&
-                    node.Key == "identity-relationship-observation-" +
-                        IdentityRelationshipPayload.Fingerprint(observation with { OwnerId = ownerId }).ToLowerInvariant())
-                    records.Add(node.Key);
-            }
-        }
-        var takenIds = records.Count == 0 ? new HashSet<string>(StringComparer.Ordinal) : await tx.ReadAsync(async runner =>
-            (await (await runner.RunAsync(OwnerDataQueries.TakenIdentityRecordIds, new Dictionary<string, object?> { ["ids"] = records.ToArray() })
-                .ConfigureAwait(false)).ToListAsync().ConfigureAwait(false))
-                .Where(row => row["taken"].As<bool>()).Select(row => row["id"].As<string>()).ToHashSet(StringComparer.Ordinal),
-            cancellationToken).ConfigureAwait(false);
-        return (kept, records.Where(id => !takenIds.Contains(id)).ToHashSet(StringComparer.Ordinal));
-    }
-
     /// <summary>REV2-10: whether any of these ids already exists as a message.</summary>
     private async Task<bool> AnyMessageAsync(IEnumerable<string> messageIds, CancellationToken cancellationToken)
     {
@@ -694,7 +623,7 @@ internal sealed class Neo4jMemoryOwnerDataService(
     /// and carries only the properties its schema declares; each link's ends are checked again where it is made.
     /// </summary>
     private async Task ImportIdentityAsync(OwnerIdentityState state, OwnerMemoryExport export, string ownerId,
-        Dictionary<string, string> map, IReadOnlyDictionary<string, string> keys, IReadOnlySet<string> keep,
+        Dictionary<string, string> map, IReadOnlyDictionary<string, string> keys,
         IReadOnlyDictionary<string, string> messages, IReadOnlySet<string> missing, Dictionary<string, int> written,
         List<(string Label, string Id, string? From)> created, CancellationToken cancellationToken)
     {
@@ -709,12 +638,8 @@ internal sealed class Neo4jMemoryOwnerDataService(
                             keys.TryGetValue(node.Key[OwnerIdentityPortability.DecisionPrefix.Length..], out var key)
                 ? OwnerIdentityPortability.DecisionPrefix + key
                 : ids.GenerateId();
-        // REV2-4: a revision or relationship observation keeps its id in a restore into the same owner when it is free here
-        // and its decision kept its own.
         foreach (var node in state.Nodes.Where(node => node.Label != "IdentityDecision"))
-            map[node.Key] = keep.Contains(node.Key) &&
-                (node.Label != "IdentityDecisionRevision" || revisionOf.TryGetValue(node.Key, out var owner) && map.GetValueOrDefault(owner) == owner)
-                ? node.Key : ids.GenerateId();
+            map[node.Key] = ids.GenerateId();
         // PR260-F6: an observation's entity id follows its key whether or not the entity exists yet: a confirmed decision
         // reserves it, and a later revocation creates it.
         foreach (var (old, renewed) in keys)
