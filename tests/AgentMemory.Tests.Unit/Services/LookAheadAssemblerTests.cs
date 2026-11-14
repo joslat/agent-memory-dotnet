@@ -199,6 +199,16 @@ public sealed class LookAheadAssemblerTests
     }
 
     [Fact]
+    public async Task A_full_page_of_people_may_hide_a_namesake_so_no_facts_are_read()
+    {
+        // The read is bounded to 1,000 people ordered by id: when it comes back full, a second Valentina may be past the
+        // bound, so "Valentina" is not known to be unique and nobody is expanded.
+        People([Person("valentina", "Valentina"), .. Enumerable.Range(1, 999).Select(i => Person($"person-{i:D4}", $"Person {i}"))]);
+        await AskAsync("I have my mentoring session with Valentina tomorrow.", RecallOptions.Default with { PersonDetails = true });
+        await _longTerm.DidNotReceiveWithAnyArgs().GetPersonDetailsAsync(default!, default!, default, default, default);
+    }
+
+    [Fact]
     public async Task Person_details_are_not_read_while_off_or_with_no_fact_budget()
     {
         People(Person("valentina", "Valentina"));

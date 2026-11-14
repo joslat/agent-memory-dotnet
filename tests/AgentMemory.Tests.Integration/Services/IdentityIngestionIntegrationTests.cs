@@ -7,6 +7,7 @@ using AgentMemory.Abstractions.Services;
 using AgentMemory.Core;
 using AgentMemory.Core.Extraction;
 using AgentMemory.Neo4j.Infrastructure;
+using AgentMemory.Neo4j.Repositories;
 using AgentMemory.Tests.Integration.Fixtures;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
@@ -54,10 +55,11 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
         Entities = [new ExtractedEntity { Name = name, Type = type, Confidence = 1 }],
         Facts = [new ExtractedFact { Subject = name, Predicate = "is on", Object = "December 12, 2026", Confidence = 1 }]
     };
-    private static async Task<PersistenceResult> Ingest(IServiceProvider services, UnifiedExtractionResult input, MemoryScope? requestedScope = null)
+    private static async Task<PersistenceResult> Ingest(IServiceProvider services, UnifiedExtractionResult input, MemoryScope? requestedScope = null,
+        string messageId = "source")
     {
         var effectiveScope = requestedScope ?? Scope;
-        var message = new Message { MessageId = "source", ConversationId = "conversation", SessionId = "scenario", Role = "user", Content = "The Acme go live is on December 12, 2026", TimestampUtc = DateTimeOffset.Parse("2026-11-09T12:00:00Z") };
+        var message = new Message { MessageId = messageId, ConversationId = "conversation", SessionId = "scenario", Role = "user", Content = "The Acme go live is on December 12, 2026", TimestampUtc = DateTimeOffset.Parse("2026-11-09T12:00:00Z") };
         var staged = await services.GetRequiredService<IExtractionStage>().ProcessUnifiedAsync([message], input, ExtractionTypes.All, effectiveScope);
         return await services.GetRequiredService<IPersistenceStage>().PersistAsync(staged, effectiveScope.OwnerId);
     }
@@ -449,8 +451,9 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
         var people = await facts.GetPersonIdentitiesAsync(1000, Scope);
         var valentina = people.Where(p => p.Confirmed).Should().ContainSingle().Subject;
         valentina.Surfaces.Should().Contain("Valentina");
-        var proposal = people.Where(p => !p.Confirmed).Should().ContainSingle("an open proposal is listed, unconfirmed").Subject;
-        proposal.Surfaces.Should().Contain("Tomás Pérez");
+        // The open proposal's observation and the person it may be (seeded, no bound facts) are both listed, unconfirmed.
+        people.Where(p => !p.Confirmed).Should().HaveCount(2).And.OnlyContain(p => p.Surfaces.Contains("Tomás Pérez"));
+        var proposal = people.Single(p => !p.Confirmed && p.EntityId != "existing");
         (await facts.GetPersonDetailsAsync([proposal.EntityId], [], 8, Scope)).Should().BeEmpty("an open proposal's facts are never read");
         var details = await facts.GetPersonDetailsAsync([valentina.EntityId], [], 8, Scope);
         details.Select(f => f.Object).Should().BeEquivalentTo("the invoice queue remotely", "a video tutorial for the clerks");
@@ -464,6 +467,35 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
         { await runner.RunAsync("MATCH (e:Entity {id:$id}) SET e.invalidated_at=datetime()", new { id = valentina.EntityId }); });
         (await facts.GetPersonIdentitiesAsync(1000, Scope)).Should().NotContain(p => p.EntityId == valentina.EntityId);
         (await facts.GetPersonDetailsAsync([valentina.EntityId], [], 8, Scope)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Every_live_person_makes_a_name_ambiguous_but_a_reviewed_proposal_s_observation_does_not()
+    {
+        // PR260-F4: a namesake with no bound facts (here an entity-only open proposal) still makes the name ambiguous; once
+        // the proposal is confirmed by review, its leftover observation is not a person of its own.
+        using var host = Host(); using var scope = host.CreateScope(); var services = scope.ServiceProvider;
+        await fixture.TransactionRunner.WriteAsync(async runner => { await runner.RunAsync("MATCH (c:Conversation {id:'conversation'}) CREATE (m:Message {id:'source-2', conversation_id:'conversation', content:'Alex Kim called', session_id:'scenario'}), (c)-[:HAS_MESSAGE]->(m)"); });
+        await Ingest(services, new UnifiedExtractionResult
+        {
+            Entities = [new() { Name = "Alex Kim", Type = "PERSON", Confidence = 1 }],
+            Facts = [new() { Subject = "Alex Kim", Predicate = "is moving to", Object = "Buenos Aires", Confidence = 1 }]
+        });
+        await Ingest(services, new UnifiedExtractionResult { Entities = [new() { Name = "Alex Kim", Type = "PERSON", Confidence = 1 }] },
+            messageId: "source-2");
+        var facts = services.GetRequiredService<IFactRepository>();
+        var decisions = services.GetRequiredService<IIdentityDecisionRepository>();
+        var proposal = (await decisions.ListPendingAsync("pablito", 10)).Should().ContainSingle("precondition: the second Alex Kim is an open proposal").Subject;
+
+        var people = (await facts.GetPersonIdentitiesAsync(1000, Scope)).Where(p => p.Surfaces.Contains("Alex Kim")).ToList();
+        people.Should().HaveCount(2, "the entity-only proposal has no bound facts but is a person all the same");
+        var cousin = people.Should().ContainSingle(p => p.Confirmed).Subject;
+
+        await decisions.ReviewAsync(new() { DecisionId = proposal.DecisionId, OperationId = "confirm-alex", ExpectedVersion = proposal.Version,
+            Action = IdentityReviewAction.Confirm, CandidateEntityId = cousin.EntityId, Actor = "fixture:owner", Reason = "the same cousin" }, "pablito");
+
+        (await facts.GetPersonIdentitiesAsync(1000, Scope)).Where(p => p.Surfaces.Contains("Alex Kim"))
+            .Should().ContainSingle("a confirmed proposal's observation is the person it was confirmed as").Which.EntityId.Should().Be(cousin.EntityId);
     }
 
     [Fact]
@@ -505,6 +537,155 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
         await owners.Invoking(o => o.ImportAsync(file, "third-owner")).Should().NotThrowAsync("each copy gets its own keys");
         var empty = await owners.ExportAsync("empty-owner");
         empty.IdentityState!.Nodes.Should().BeEmpty(); empty.Entities.Should().BeEmpty();
+    }
+
+    /// <summary>Links between one owner's nodes and another's, either way: an import must never make one.</summary>
+    private Task<long> CrossOwnerLinks(string ownerA, string ownerB) =>
+        Count($"(a)-[r]-(b) WHERE a.owner_id = '{ownerA}' AND b.owner_id = '{ownerB}'");
+
+    [Fact]
+    public async Task An_imported_store_can_be_imported_twice_reviewed_and_revoked_in_the_same_database()
+    {
+        // PR260-F5: a second import of the same file into the same owner is a second copy, not a failure half-way.
+        // PR260-F8: an imported proposal can be reviewed: its source messages stayed behind, and the original owner's
+        // messages in this database are not its review roots.
+        using var host = Host(); using var scope = host.CreateScope(); var services = scope.ServiceProvider;
+        await Seed(services, "Acme go live");
+        await Ingest(services, Input());
+        var decisions = services.GetRequiredService<IIdentityDecisionRepository>();
+        var owners = services.GetRequiredService<IMemoryOwnerDataService>();
+        var file = JsonSerializer.Deserialize<OwnerMemoryExport>(JsonSerializer.Serialize(await owners.ExportAsync("pablito")))!;
+
+        var first = await owners.ImportAsync(file, "copy-owner");
+        var second = await owners.ImportAsync(file, "copy-owner");
+
+        var pending = await decisions.ListPendingAsync("copy-owner", 10);
+        pending.Should().HaveCount(2, "each import is its own copy");
+        var sourceDecisionId = (await StoredDecision()).DecisionId;
+        var proposal = pending.Single(d => d.DecisionId == first.Ids[sourceDecisionId]);
+        var reviewed = await decisions.ReviewAsync(new() { DecisionId = proposal.DecisionId, OperationId = "confirm-copy",
+            ExpectedVersion = proposal.Version, Action = IdentityReviewAction.Confirm, CandidateEntityId = first.Ids["existing"],
+            Actor = "fixture:owner", Reason = "the same go-live" }, "copy-owner");
+        reviewed.CurrentDecision.Status.Should().Be(IdentityDecisionKind.Confirmed);
+        await decisions.ReviewAsync(new() { DecisionId = proposal.DecisionId, OperationId = "revoke-copy",
+            ExpectedVersion = reviewed.CurrentDecision.Version, Action = IdentityReviewAction.Revoke,
+            Actor = "fixture:owner", Reason = "not the same after all" }, "copy-owner");
+        second.Ids["existing"].Should().NotBe(first.Ids["existing"]);
+        (await CrossOwnerLinks("copy-owner", "pablito")).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task An_imported_confirmation_keeps_its_own_reserved_observation_target_fingerprint_and_receipt()
+    {
+        // PR260-F6: a confirmed decision reserves its observation's entity id without creating it; the copy reserves its
+        // own, so revoking both never collides. PR260-F7: the target fingerprint and the receipt describe the imported
+        // target, not the source's.
+        using var provider = Host(hostContext: HostProvider(HostProof()), identityPolicy: EventIdentityPolicy);
+        using var scope = provider.CreateScope(); var services = scope.ServiceProvider;
+        await Seed(services, "Acme billing cutover");
+        await services.GetRequiredService<IIdentityEvidenceRepository>().AssertKeyAsync("existing", HostProof().Keys[0], ["eventId"], "pablito");
+        await Ingest(services, Input());
+        var original = await StoredDecision();
+        original.Status.Should().Be(IdentityDecisionKind.Confirmed, "precondition: a host key confirms the existing event");
+        var owners = services.GetRequiredService<IMemoryOwnerDataService>();
+        var decisions = services.GetRequiredService<IIdentityDecisionRepository>();
+        var file = JsonSerializer.Deserialize<OwnerMemoryExport>(JsonSerializer.Serialize(await owners.ExportAsync("pablito")))!;
+
+        var imported = await owners.ImportAsync(file, "copy-owner");
+
+        var copy = (await decisions.GetAsync(imported.Ids[original.DecisionId], "copy-owner"))!;
+        copy.ConfirmedEntityId.Should().Be(imported.Ids["existing"]);
+        copy.Observation.EntityId.Should().Be("identity-observation-" + copy.ObservationKey);
+        copy.EvidenceJson.Should().NotContain("\"existing\"").And.Contain(imported.Ids["existing"]);
+        var stored = await fixture.TransactionRunner.ReadAsync(async runner => ValueExtensions.As<string>((await (await runner.RunAsync(
+            "MATCH (d:IdentityDecision {id:$id}) RETURN d.identity_target_snapshot AS s", new { id = copy.DecisionId })).SingleAsync())["s"]));
+        var current = await fixture.TransactionRunner.ReadAsync(runner =>
+            Neo4jIdentityDecisionRepository.TargetSnapshotAsync(runner, copy, copy.ConfirmedEntityId!, CancellationToken.None));
+        stored.Should().Be(current, "the copy's fingerprint is its imported target's");
+
+        foreach (var (decision, owner) in new[] { (copy, "copy-owner"), (original, "pablito") })
+            await decisions.ReviewAsync(new() { DecisionId = decision.DecisionId, OperationId = "revoke-" + owner, ExpectedVersion = decision.Version,
+                Action = IdentityReviewAction.Revoke, Actor = "fixture:owner", Reason = "revoke" }, owner);
+        (await Count("(e:Entity {owner_id:'copy-owner'}) WHERE e.id = 'identity-observation-' + e.identity_observation_key")).Should().Be(1);
+        (await CrossOwnerLinks("copy-owner", "pablito")).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task An_identity_link_to_a_retired_entity_comes_back_to_a_retired_copy_never_to_the_source()
+    {
+        // PR260-F1: the open proposal's candidate was retired after the proposal; the export carries it as retired, and the
+        // copy's proposal points at the copy's retired entity, never at the source owner's.
+        using var host = Host(); using var scope = host.CreateScope(); var services = scope.ServiceProvider;
+        await Seed(services, "Acme go live");
+        await Ingest(services, Input());
+        await fixture.TransactionRunner.WriteAsync(async runner => { await runner.RunAsync("MATCH (e:Entity {id:'existing'}) SET e.invalidated_at = datetime()"); });
+        var owners = services.GetRequiredService<IMemoryOwnerDataService>();
+        var file = JsonSerializer.Deserialize<OwnerMemoryExport>(JsonSerializer.Serialize(await owners.ExportAsync("pablito")))!;
+
+        var imported = await owners.ImportAsync(file, "copy-owner");
+
+        (await CrossOwnerLinks("copy-owner", "pablito")).Should().Be(0);
+        (await Count("(:IdentityDecision {owner_id:'copy-owner'})-[:POSSIBLE_SAME_AS]->(e:Entity {owner_id:'copy-owner'}) WHERE e.invalidated_at IS NOT NULL"))
+            .Should().Be(1, "the proposal keeps its retired candidate, copied");
+        imported.Ids.Should().ContainKey("existing");
+    }
+
+    [Fact]
+    public async Task A_crafted_export_cannot_reach_another_owner()
+    {
+        // PR260-F9 and F10: import trusts no owner field, property or endpoint in the file. Owner fields are the
+        // destination's, entities take identity properties only, and an endpoint that is neither imported nor shared stops
+        // the import before anything is written, in either format.
+        using var host = Host(); using var scope = host.CreateScope(); var services = scope.ServiceProvider;
+        await Seed(services, "Acme go live");
+        await Ingest(services, Input());
+        await services.GetRequiredService<IEntityRepository>().UpsertAsync(new()
+        { EntityId = "victim-entity", Name = "Victim", Type = "PERSON", OwnerId = "victim", Confidence = 1, CreatedAtUtc = DateTimeOffset.UnixEpoch });
+        var owners = services.GetRequiredService<IMemoryOwnerDataService>();
+        var honest = JsonSerializer.Deserialize<OwnerMemoryExport>(JsonSerializer.Serialize(await owners.ExportAsync("pablito")))!;
+        var state = honest.IdentityState!;
+        static OwnerGraphValue Text(string value) => new() { Kind = OwnerGraphValue.String, Text = value };
+
+        var forged = honest with { IdentityState = state with
+        {
+            EntityProperties = [.. state.EntityProperties.Select(node => node with { Properties = new Dictionary<string, OwnerGraphValue>(node.Properties)
+                { ["owner_id"] = Text("victim"), ["name"] = Text("Hijacked") } })],
+            Nodes = [.. state.Nodes.Select(node => node.Label != "IdentityDecision" ? node : node with { Properties =
+                new Dictionary<string, OwnerGraphValue>(node.Properties) { ["owner_id"] = Text("victim"), ["owner_scope"] = Text("owned:victim") } })],
+        } };
+        state.EntityProperties.Should().NotBeEmpty("precondition: an entity carries identity properties");
+        await owners.ImportAsync(forged, "crafted-owner");
+        (await Count("(e:Entity) WHERE e.name = 'Hijacked' OR (e.owner_id = 'victim' AND e.id <> 'victim-entity')")).Should().Be(0);
+        (await Count("(d:IdentityDecision {owner_id:'victim'})")).Should().Be(0);
+        (await Count("(d:IdentityDecision {owner_id:'crafted-owner', owner_scope:'owned:crafted-owner'})")).Should().Be(1);
+
+        var decision = state.Nodes.First(node => node.Label == "IdentityDecision").Key;
+        var linked = honest with { IdentityState = state with { Edges = [.. state.Edges,
+            new() { Type = "POSSIBLE_SAME_AS", FromLabel = "IdentityDecision", From = decision, ToLabel = "Entity", To = "victim-entity",
+                Properties = new Dictionary<string, OwnerGraphValue>() }] } };
+        await owners.Invoking(o => o.ImportAsync(linked, "crafted-owner-2")).Should().ThrowAsync<ArgumentException>();
+        var plain = honest with
+        {
+            IdentityState = null, Format = OwnerMemoryExport.CurrentFormat,
+            Relationships = [.. honest.Relationships, new() { RelationshipId = "forged", SourceEntityId = "existing", TargetEntityId = "victim-entity",
+                RelationshipType = "KNOWS", Confidence = 1, OwnerId = "pablito", CreatedAtUtc = DateTimeOffset.UnixEpoch }],
+        };
+        await owners.Invoking(o => o.ImportAsync(plain, "crafted-owner-3")).Should().ThrowAsync<ArgumentException>();
+        var about = honest with { IdentityState = null, Format = OwnerMemoryExport.CurrentFormat,
+            About = [.. honest.About, new MemoryLink(honest.Facts[0].FactId, "victim-entity")] };
+        await owners.Invoking(o => o.ImportAsync(about, "crafted-owner-4")).Should().ThrowAsync<ArgumentException>();
+        // A decision whose own record names another owner would make the copy's reviews read that owner's scope.
+        var renamed = honest with { IdentityState = state with { Nodes = [.. state.Nodes.Select(node => node.Label != "IdentityDecision" ? node : node with
+        {
+            Properties = new Dictionary<string, OwnerGraphValue>(node.Properties)
+            { ["identity_record_json"] = Text(node.Properties["identity_record_json"].Text!.Replace("\"OwnerId\":\"pablito\"", "\"OwnerId\":\"victim\"")) },
+        })] } };
+        renamed.IdentityState!.Nodes.First(node => node.Label == "IdentityDecision").Properties["identity_record_json"].Text
+            .Should().Contain("\"OwnerId\":\"victim\"", "precondition: the record names its owner");
+        await owners.Invoking(o => o.ImportAsync(renamed, "crafted-owner-5")).Should().ThrowAsync<ArgumentException>();
+        foreach (var owner in new[] { "crafted-owner-2", "crafted-owner-3", "crafted-owner-4", "crafted-owner-5" })
+            (await Count($"(n {{owner_id:'{owner}'}})")).Should().Be(0, $"{owner}: nothing is written before the endpoints are checked");
+        (await Count("(a)-[r]-(:Entity {id:'victim-entity'})")).Should().Be(0);
     }
 
     private static IdentityHostEvidence HostProof(string eventId = "ACME-2026") => new()

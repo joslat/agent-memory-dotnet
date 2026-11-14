@@ -7,19 +7,30 @@ namespace AgentMemory.Neo4j.Queries;
 /// </summary>
 internal static class PersonDetailQueries
 {
-    /// <summary>The PERSON identities in scope, the names they are known by and whether they are confirmed, bounded.</summary>
+    /// <summary>
+    /// Every live person in scope, the names they are known by and whether facts are bound to them through a decided
+    /// identity (confirmed), bounded. A person with no bound facts is listed too, unconfirmed (PR260-F4): an entity-only
+    /// open proposal or an entity written outside identity still makes its name ambiguous. The observation of a decision
+    /// confirmed as another person is not a person of its own.
+    /// </summary>
     public const string Identities = """
         MATCH (p:Entity)
         WHERE (NOT $hasOwner OR p.owner_id=$ownerId OR ($includeShared AND p.owner_id IS NULL))
           AND toUpper(p.type)='PERSON' AND p.invalidated_at IS NULL AND p.merged_into IS NULL
-        MATCH (p)<-[:RESOLVES_TO]-(b:IdentityFactBinding)-[:DECIDED_BY]->(d:IdentityDecision)
+          AND NOT EXISTS {
+            MATCH (o:IdentityDecision)-[:RESOLVES_TO]->(t:Entity)
+            WHERE p.identity_observation_key IS NOT NULL AND o.identity_observation_key=p.identity_observation_key
+              AND o.owner_scope=CASE WHEN p.owner_id IS NULL THEN 'shared' ELSE 'owned:'+p.owner_id END
+              AND t.id<>p.id AND NOT EXISTS { (o)-[:POSSIBLE_SAME_AS]->() } }
+        WITH p ORDER BY p.id LIMIT $limit
+        OPTIONAL MATCH (p)<-[:RESOLVES_TO]-(b:IdentityFactBinding)-[:DECIDED_BY]->(d:IdentityDecision)
         WHERE b.identity_decision_id=d.id AND b.owner_scope=d.owner_scope
           AND (NOT $hasOwner OR b.owner_id=$ownerId OR ($includeShared AND b.owner_id IS NULL))
-        WITH p, b, NOT EXISTS { (d)-[:POSSIBLE_SAME_AS]->() } AS decided
+        WITH p, b, CASE WHEN d IS NULL THEN false ELSE NOT EXISTS { (d)-[:POSSIBLE_SAME_AS]->() } END AS decided
         WITH p, collect(DISTINCT b.identity_observed_surface)[..20] AS observed, any(flag IN collect(decided) WHERE flag) AS confirmed
-        ORDER BY p.id LIMIT $limit
         RETURN p.id AS id, [name IN [p.name] + coalesce(p.aliases, []) + observed WHERE name IS NOT NULL][..32] AS surfaces,
                confirmed
+        ORDER BY id
         """;
 
     /// <summary>The live facts bound to the named people, newest first, taken in turn from each person.</summary>

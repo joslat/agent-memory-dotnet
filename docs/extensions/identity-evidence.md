@@ -262,13 +262,16 @@ details. See [current evidence and limits](../evidence-based-identity-implementa
 ### Recall for people
 
 `RecallOptions.PersonDetails` (null follows identity, like `EventDetails`) adds the facts about a confirmed person the
-question names. The owner's confirmed PERSON identities are read with the names each is known by (its name, its aliases
-and the names facts bound to it used), at most 1,000. A name appears in the question as whole words, case and accents
-aside; a name two identities share names neither, a one-letter name or a pronoun names nobody, and at most 3 people are
-taken in the order the question names them. Their live facts come through decision-owned fact bindings, newest first
-and taken in turn from each person, at most `MaxPersonDetailFacts` (8; 0..64), excluding facts already in the context.
-A decision that still has `POSSIBLE_SAME_AS` candidates (an open proposal) is never followed, but its name counts:
-a confirmed person whose name an open proposal shares is ambiguous too. The facts carry no
+question names. Every live PERSON entity of the owner is read with the names it is known by (its name, its aliases and
+the names facts bound to it used), at most 1,000; one is confirmed when facts are bound to it through a decided identity.
+A name appears in the question as whole words, case and accents aside; a name two people share names neither, a
+one-letter name or a pronoun names nobody, and at most 3 people are taken in the order the question names them. Only a
+confirmed person is expanded, but every person's name counts: an open proposal's observation (a decision that still has
+`POSSIBLE_SAME_AS` candidates), a person with no bound facts and a person written outside identity all make a namesake
+ambiguous. The observation of a decision confirmed as another person is that person, not a second one. When the read
+comes back full (1,000 people), a namesake may lie past the bound, so nobody is expanded. Expanded people's live facts
+come through decision-owned fact bindings, newest first and taken in turn from each person, at most
+`MaxPersonDetailFacts` (8; 0..64), excluding facts already in the context. The facts carry no
 invented similarity score and share the context budget and the latency allowance. Choosing between two people with the
 same name from the question's context, and questions that name nobody ("what does she like?"), are out of scope.
 
@@ -277,13 +280,35 @@ same name from the question's context, and questions that name nobody ("what doe
 With `identity-evidence` enabled, export writes format `agentmemory-export/2`: the memories as in format 1, plus
 `IdentityState`, the owner's identity records as stored (decisions with their evidence and quotes, review revisions,
 fact bindings, host assertions and relationship observations), the links between them and to the exported entities and
-facts, and the entities' identity properties, each value with its type. Messages stay out: decisions keep their quotes,
-and their links back to the messages point nowhere after a move. Import into a store with identity storage brings the
-owner back whole: each observation gets a new key for the new owner (the same shape, so its decision and entity ids
-follow it as the ingestion makes them), every other record a new id, and every reference is rewritten, inside stored
-JSON too: record, entity and fact ids, observation keys and the owner's scope; the owner itself only where a property
-names the owner. Open proposals, review history and event details work as they did. A link to an entity that was not
-imported (a shared one) is made to it as it is. Importing the same export into several owners gives each its own keys.
+facts, the entities' identity properties, each value with its type, and the merged-away or forgotten entities the
+identity records still point at (`RetiredEntities`, with how each was retired), so those links come back to a retired
+copy. Messages stay out: decisions keep their quotes.
+
+Import into a store with identity storage brings the owner back whole, and the copy behaves as the original:
+
+- **Every import is its own copy.** Each observation gets a key new to this owner and this import (the same shape, so
+  its decision and entity ids follow it as the ingestion makes them, including the entity id a confirmed decision
+  reserves before a revocation creates it), and every other record a new id. Importing the same file into the same
+  owner twice gives two copies.
+- **Every reference is rewritten**, inside stored JSON too, including JSON stored inside it (a decision's receipt) and ids
+  used as property names: record, entity and fact ids, observation keys and the owner's scope; the owner itself only
+  where a property names the owner.
+- **Source messages become the copy's own.** Each source message id is replaced by an `imported-message-` marker of the
+  importing owner, in the facts, entities, decisions, bindings and relationship observations alike, so they still agree with one
+  another and the original owner's messages, which may be in the same store, are never the copy's review roots. An
+  imported open proposal can be reviewed (confirmed, rejected, revoked) as in the source.
+- **Fingerprints follow the target.** A confirmed decision whose target still matched its fingerprint at export
+  (`CurrentConfirmations`) gets the fingerprint of its imported target, and a contextual confirmation its imported
+  candidates' fingerprints. Any other keeps a fingerprint no target matches, so it needs re-evaluation, as in the source.
+  A decision confirmed from context alone still cannot be replayed after a move, because its source messages stay
+  behind.
+- **The file is not trusted.** Every identity record belongs to the importing owner whatever the file says, and carries
+  only the properties the schema declares for it (others are dropped and counted, `identity:properties-dropped`);
+  entities take only the three identity properties; identity links carry no properties. An entity the file names but
+  the import does not create must be a shared entity in this store: one that belongs to an owner refuses the whole
+  import before anything is written (`ArgumentException`), and one that is missing leaves its link out
+  (`skipped:*` counts). A fact or identity record a link names must be in the file. The same check applies to format 1:
+  2.2.0 made a relationship or ABOUT link to whatever id a file named, creating a bare node if none existed.
 
 A format-1 export of an identity store (2.2.0), or a format-2 export imported into a store without identity storage,
 comes back as the current state: each mention's entity is folded into its confirmed identity, which keeps the mention's

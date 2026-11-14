@@ -2178,11 +2178,12 @@ have explicit fact-role support for that event; missing extraction/binding evide
 This increment does not expand undated relationship-only claims or infer an event from words buried
 inside a sentence. The representative model cases will measure this coverage and any required fix.
 
-`RecallOptions.PersonDetails` (ILC-33, also following identity) does the same for people. The owner's confirmed `PERSON`
-identities are read with the names each is known by (at most 1,000); a name that appears in the question as whole words,
-case and accents aside, and belongs to one identity only, names that person (at most 3). Their live facts come through
-the same bindings, newest first, at most `MaxPersonDetailFacts` (default 8, maximum 64). A name two people share expands
-nothing, and an open proposal is never followed. See
+`RecallOptions.PersonDetails` (ILC-33, also following identity) does the same for people. Every live `PERSON` entity of
+the owner is read with the names it is known by (at most 1,000); a name that appears in the question as whole words,
+case and accents aside, and belongs to one person only, names that person (at most 3), who is expanded when facts are
+bound to them through a decided identity. Their live facts come through the same bindings, newest first, at most
+`MaxPersonDetailFacts` (default 8, maximum 64). A name two people share expands nothing, whether the other is confirmed,
+an open proposal (never followed) or a person with no bound facts; a full read of 1,000 people expands nobody. See
 [the identity extension](extensions/identity-evidence.md#recall-for-people).
 
 Extra facts enter `RelevantFacts` without invented vector scores, are de-duplicated against the date
@@ -2198,8 +2199,11 @@ details. See [current evidence and limits](evidence-based-identity-implementatio
 ### Identity portability boundary
 
 With `identity-evidence` enabled, export writes `agentmemory-export/2`, which carries the owner's identity state
-(decisions, evidence, review history, fact bindings, open proposals) beside the memories; import into an identity store
-recreates it for the new owner with every reference rewritten. A format-1 export, or an import into a store without
+(decisions, evidence, review history, fact bindings, open proposals, and the retired entities they point at) beside the
+memories; import into an identity store recreates it for the new owner as a copy of its own, with every reference
+rewritten and source messages replaced by markers of the importing owner, so imported proposals can be reviewed. Import trusts
+nothing in the file it cannot verify: records belong to the importing owner, and an entity the file names but does not
+carry must be shared here, or nothing is written. A format-1 export, or an import into a store without
 identity, comes back as the current state, each mention folded into its confirmed identity. Imports never join what they
 bring to what the destination holds. Owner erasure remains supported. See
 [the identity extension](extensions/identity-evidence.md#identity-portability-boundary).

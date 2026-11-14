@@ -121,8 +121,9 @@ public sealed class IdentityOwnerCompatibilityTests
         export.IdentityState.Should().NotBeNull();
         export.IdentityStateOmitted.Should().BeFalse("nothing is left out any more");
         export.IdentityResolutions.Should().NotBeNull();
-        f.Queries.Count.Should().Be(6 + 1 + 5 + 1 + 9,
-            "the six memory queries, the resolutions, the five identity records, the entities' identity properties and the nine links");
+        f.Queries.Count.Should().Be(6 + 1 + 5 + 1 + 9 + 1,
+            "the six memory queries, the resolutions, the five identity records, the entities' identity properties, the nine links " +
+            "and the retired entities identity records point at");
         f.Embeddings.ReceivedCalls().Should().BeEmpty();
     }
 

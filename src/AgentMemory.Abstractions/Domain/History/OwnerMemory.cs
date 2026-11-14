@@ -76,9 +76,10 @@ public sealed record OwnerMemoryExport
 
     /// <summary>
     /// ILC-30: the owner's identity state, so a moved or restored store behaves as the original: decisions with their
-    /// evidence and quotes, review history, open proposals, fact bindings, host assertions and relationship observations.
-    /// Messages stay out (decisions keep their quotes; links back to the messages point nowhere after a move). Null, and
-    /// not serialized, when the store keeps no identity state.
+    /// evidence and quotes, review history, open proposals, fact bindings, host assertions and relationship observations,
+    /// and the retired entities they point at. Messages stay out: decisions keep their quotes, and on import every source
+    /// message id becomes an imported marker of the destination's own, so the original owner's messages are never the
+    /// copy's sources. Null, and not serialized, when the store keeps no identity state.
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public OwnerIdentityState? IdentityState { get; init; }
@@ -98,6 +99,21 @@ public sealed record OwnerIdentityState
 
     /// <summary>The identity properties of exported entities (observation key, evidence version, calendar key).</summary>
     public IReadOnlyList<OwnerGraphNode> EntityProperties { get; init; } = [];
+
+    /// <summary>
+    /// The owner's merged-away or forgotten entities that identity records still point at (an open proposal's candidate
+    /// that was retired later, say), so those links come back to a retired copy rather than to nothing or to the source.
+    /// </summary>
+    public IReadOnlyList<Entity> RetiredEntities { get; init; } = [];
+
+    /// <summary>How each of <see cref="RetiredEntities"/> was retired: <c>invalidated_at</c> and <c>merged_into</c>, by id.</summary>
+    public IReadOnlyList<OwnerGraphNode> Retirements { get; init; } = [];
+
+    /// <summary>
+    /// The confirmed decisions whose target still matched its fingerprint at export. Import gives these the fingerprint of
+    /// their imported target; any other keeps a fingerprint no target matches, so it needs re-evaluation, as in the source.
+    /// </summary>
+    public IReadOnlyList<string> CurrentConfirmations { get; init; } = [];
 }
 
 /// <summary>One stored record: its label, its id and its properties.</summary>

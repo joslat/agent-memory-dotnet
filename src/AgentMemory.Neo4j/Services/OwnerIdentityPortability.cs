@@ -18,14 +18,25 @@ internal static class OwnerIdentityPortability
 {
     internal const string ObservationPrefix = "identity-observation-";
     internal const string DecisionPrefix = "identity-decision-";
+    internal const string ImportedMessagePrefix = "imported-message-";
 
     /// <summary>
-    /// The imported observation's key: the same 64-hex shape as a key the ingestion makes, reproducible for one import
-    /// and different for each owner, so two owners' copies never collide on (owner_scope, observation key) or on ids.
+    /// The imported observation's key: the same 64-hex shape as a key the ingestion makes, reproducible within one import
+    /// and different for each owner and each import, so two copies (two owners, or the same file imported twice) never
+    /// collide on (owner_scope, observation key) or on ids (PR260-F5).
     /// </summary>
-    internal static string NewObservationKey(string newOwnerId, string oldKey) =>
-        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new[] { newOwnerId, oldKey }))))
-            .ToLowerInvariant();
+    internal static string NewObservationKey(string newOwnerId, string importId, string oldKey) => Hash(newOwnerId, importId, oldKey);
+
+    /// <summary>
+    /// The importing owner's own marker for a source message the export does not carry (PR260-F8): a copy's decisions,
+    /// facts and bindings keep pointing at one another, and never at the original owner's messages, which may live in the
+    /// same store. One per owner, not per import: facts are matched by content, so two imports of one file into one owner
+    /// share their facts, and both copies' decisions must still find their sources on them.
+    /// </summary>
+    internal static string NewMessageId(string newOwnerId, string oldMessageId) => ImportedMessagePrefix + Hash(newOwnerId, oldMessageId);
+
+    private static string Hash(params string[] parts) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(parts)))).ToLowerInvariant();
 
     internal static OwnerGraphValue ToValue(object? value) => value switch
     {
@@ -104,8 +115,13 @@ internal static class OwnerIdentityPortability
                 case JsonObject obj:
                     foreach (var (name, child) in obj.ToList())
                     {
-                        if (child is JsonValue value && value.TryGetValue<string>(out var s)) obj[name] = Replace(name, s);
+                        var next = child;
+                        if (child is JsonValue value && value.TryGetValue<string>(out var s)) next = Replace(name, s);
                         else if (child is not null) Walk(child, name);
+                        // An id can be a property name too: a contextual confirmation's fingerprints are keyed by candidate (PR260-F7).
+                        var key = Leaf(name);
+                        if (!string.Equals(key, name, StringComparison.Ordinal)) { obj.Remove(name); obj[key] = next; }
+                        else if (!ReferenceEquals(next, child)) obj[name] = next;
                     }
                     break;
                 case JsonArray array:
@@ -118,8 +134,14 @@ internal static class OwnerIdentityPortability
             }
         }
 
-        private JsonNode Replace(string? property, string text) =>
-            JsonValue.Create(property is not null && IsOwner(property) && text == oldOwner ? newOwner : Leaf(text))!;
+        // JSON kept as a string inside JSON (a decision's receipt) is rewritten too (PR260-F7).
+        private JsonNode Replace(string? property, string text)
+        {
+            if (property is not null && IsOwner(property) && text == oldOwner) return JsonValue.Create(newOwner)!;
+            var leaf = Leaf(text);
+            if (!string.Equals(leaf, text, StringComparison.Ordinal)) return JsonValue.Create(leaf)!;
+            return JsonValue.Create(text.Length > 1 && text[0] is '{' or '[' ? Json(text) : text)!;
+        }
 
         private static bool IsOwner(string property) =>
             property.Equals("owner_id", StringComparison.OrdinalIgnoreCase) || property.Equals("ownerId", StringComparison.OrdinalIgnoreCase) ||

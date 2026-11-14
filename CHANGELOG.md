@@ -21,6 +21,9 @@ scripts did not reach applications that install the `AgentMemory` package, and n
 startup anyway, so identity has run without its unique constraints and lookup indexes. Both are fixed: the scripts ship
 inside the library, and schema bootstrap applies them. If you run 2.2.0, upgrade.
 
+A review of this release found a third, in 2.2.0 too: owner import trusted the ids in the file it was given, so a crafted
+export could link imported memories to another owner's entities. Import now checks every one before it writes anything.
+
 Thank you again, Pablo: your scenario is now the benchmark every identity change is measured against, this one included.
 
 ### Upgrading
@@ -32,25 +35,31 @@ Thank you again, Pablo: your scenario is now the benchmark every identity change
 - Owner exports from identity stores are now `agentmemory-export/2`. 2.3.0 imports both formats; 2.2.0 and earlier
   refuse format 2 rather than drop its identity state.
 - `AgentMemory.Inference` on Bitdeer's GLM-5.3-Flash now asks for low reasoning effort; `AI_REASONING_EFFORT` changes it.
+- Owner import refuses a file that links to entities another owner holds in this store, before writing anything, and
+  leaves out a link to an entity this store does not hold instead of creating a bare node. The result's `Written` counts
+  what was left out (`skipped:*`).
 
 ### Added
 
 - **Identity-aware recall for people** (`RecallOptions.PersonDetails`, `MaxPersonDetailFacts`). A question that names
   a confirmed person ("my mentoring session with Valentina") now brings that person's facts, not only the ones whose
   words resemble the question: up to 8 live facts bound to the person through identity decisions, newest first. A name
-  counts as whole words, case and accents aside, and only when one confirmed person has it: a name two people share
-  (two Alex Kims, or one and an open proposal about another) expands nothing, never a guess. Open proposals are
-  never followed; at most 3 people per question. Two
+  counts as whole words, case and accents aside, and only when one person in the store has it: a name two people share
+  expands nothing, never a guess, whether the other is confirmed, an open proposal (never followed) or a person with no
+  bound facts. At most 3 people per question; a store whose read of people comes back full (1,000) expands nobody. Two
   bounded reads, no model call; the facts share the context budget. Follows identity like `EventDetails`: on where
   evidence-based identity runs, off and unchanged elsewhere. Point-in-time recall refuses an explicit `true`.
 - **Owner export and import carry identity whole** (`agentmemory-export/2`). With identity storage the export adds
   `OwnerMemoryExport.IdentityState`: the owner's decisions with their evidence and quotes, review revisions, fact
   bindings, host assertions, relationship observations, their links, and the entities' identity properties, each value
-  with its type. Import into an identity store recreates them for the new owner, with every reference rewritten (inside
-  stored JSON too) and each observation under a new key of the same shape, so open proposals, review history and event
-  details work as before; one export can be imported into several owners. Messages stay out: decisions keep their
-  quotes. A format-1 export, or an import into a store without identity, comes back as the current state, as in 2.2.0.
-  An importer that knows only format 1 refuses format 2 rather than dropping its identity state.
+  with its type, and the retired entities those records still point at. Import into an identity store recreates them for
+  the new owner as a copy of its own: every reference is rewritten (inside stored JSON, JSON nested in it and ids used as
+  keys), each observation gets a key new to the owner and the import, and each source message id becomes a marker of the
+  importing owner, so open proposals can be reviewed, review history and event details work as before, and a confirmation current
+  at export gets its imported target's fingerprint. The same file can be imported into several owners, or twice into one.
+  Messages stay out: decisions keep their quotes. A format-1 export, or an import into a store without identity, comes
+  back as the current state, as in 2.2.0. An importer that knows only format 1 refuses format 2 rather than dropping its
+  identity state.
 
 ### Changed
 
@@ -68,6 +77,11 @@ Thank you again, Pablo: your scenario is now the benchmark every identity change
 
 ### Fixed
 
+- **Owner import trusts nothing in the file it cannot verify** (also in 2.2.0). An entity a file names but the import
+  does not create must be a shared entity in this store: one that belongs to an owner refuses the whole import before
+  anything is written, and a missing one leaves its link out, where 2.2.0 made the link to whatever the id named and
+  created a bare node if nothing had it. Identity records always belong to the importing owner and carry only the
+  properties their schema declares; entities take only the three identity properties; identity links carry none.
 - **The Cypher migrations reach every application, including those that install the `AgentMemory` meta-package.** 2.2.0
   copied them next to an application that references `AgentMemory.Neo4j` directly, but NuGet does not pass a dependency's
   content files on, so an application that installed `AgentMemory`, as the README says, still got no
@@ -78,8 +92,9 @@ Thank you again, Pablo: your scenario is now the benchmark every identity change
 - `AgentMemory.Inference` sends a reasoning effort: `AI_REASONING_EFFORT` (`none`, `low`, `medium`, `high`, `extra-high`,
   or `default` for none; a misspelling fails closed). Unset, Bitdeer's default model, GLM-5.3-Flash, gets `low`, as every
   measurement ran it; at its default, maximum effort it could spend its whole reply budget thinking and answer nothing,
-  which left the identity writer with empty replies in the samples. No other model gets an effort it did not ask for.
-  A request that chooses its own effort keeps it.
+  which left the identity writer with empty replies in the samples. No other model gets an effort it did not ask for: the
+  automatic `low` reaches only clients built on that model, never an extraction or judge override on another, while an
+  effort the operator sets applies to every client. A request that chooses its own effort keeps it.
 - The release pipeline installs the freshly packed meta-package into a clean consumer and fails unless the installed
   `AgentMemory.Neo4j` embeds every migration in the source tree (`eng/verify-packages-install.sh`). Run against the
   published 2.2.0 it fails with 0 of 18, which is the bug.

@@ -32,6 +32,8 @@ internal sealed partial class MemoryContextAssembler
         {
             var people = await TimedAsync("memory.recall.person-identities", () => _longTerm.GetPersonIdentitiesAsync(
                 PersonMentions.MaxPeopleRead, scope, token)).ConfigureAwait(false);
+            // A full page may leave a namesake past the bound, so no name is known to be unique: expand nobody.
+            if (people.Count >= PersonMentions.MaxPeopleRead) return facts;
             var named = PersonMentions.Named(question,
                 people.Select(person => new PersonMentions.Person(person.EntityId, person.Surfaces, person.Confirmed)).ToArray());
             if (named.Count == 0) return facts;

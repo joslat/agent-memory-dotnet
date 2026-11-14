@@ -130,9 +130,14 @@ The synthetic arm composes these options explicitly and is not full Recommended/
 
 With identity-evidence enabled, export writes `agentmemory-export/2` (ILC-30): `IdentityState` carries the five
 identity record types, the nine identity link types and the entities' identity properties, typed. Import into an
-identity store recreates them for the new owner: each observation key becomes `sha256(newOwner, oldKey)` (same shape, so
-decision and observation ids follow it), other records get new ids, and references are rewritten by exact value, inside
-stored JSON too; the owner only in owner-named properties. Messages are not carried. A format-1 export (ILC-18) or an
+identity store recreates them for the new owner: each observation key becomes `sha256(newOwner, importId, oldKey)` (same
+shape, so decision and observation ids follow it, reserved ones included; a new copy for every import), other records get
+new ids, and references are rewritten by exact value, inside stored JSON too, JSON nested in it and ids used as keys; the
+owner only in owner-named properties. Messages are not carried: source message ids become `imported-message-` markers of
+the importing owner everywhere, so an imported proposal can be reviewed in the same store as its source. Retired entities the
+records point at come back retired; confirmations current at export get their imported target's fingerprints. Records
+are forced to the importing owner and to their declared properties, and an endpoint the import does not create must be
+a shared entity, checked before any write (format 1 too). A format-1 export (ILC-18) or an
 import into a store without identity folds each mention into its confirmed identity (ILC-26). Extension-off behavior
 remains unchanged. Owner erasure is supported.
 
