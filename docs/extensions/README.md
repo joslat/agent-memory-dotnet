@@ -59,9 +59,18 @@ Three behaviours worth knowing:
 
 ## Who runs the DDL
 
-**Registering an extension in code does not create its schema.** The two are deliberately separate:
-application startup should not be allowed to run DDL against a shared database. So an extension's
-`ext/<id>/000N` scripts are applied by whoever owns the deployment's schema, with the operational CLI:
+**Schema bootstrap applies it, unless an operator owns the schema.** Registering an extension in code does no
+database work. Since 2.3.0, `ISchemaBootstrapper.BootstrapAsync()`, the startup step every application runs, also runs
+the migration scripts: the base sequence, then each active extension's `ext/<id>/000N` scripts. Each script runs once
+per database and is recorded in a `(:Migration)` node, so later starts only check. A script the database refuses (for
+example a unique constraint over nodes that were already duplicated) is logged as an error and bootstrap completes as
+before; the next start tries again. Before 2.3.0 nothing in the library ran the scripts, so an installed application
+never got an extension's schema, identity's unique constraints and lookup indexes included.
+
+Where an operator owns the database's schema and application startup must not run DDL against it, set
+`Neo4jOptions.ApplyMigrationsOnBootstrap = false` and apply the scripts out of band, with
+`IMigrationRunner.RunMigrationsAsync()` or this repository's operational CLI (`tools/AgentMemory.Cli`, not published as a
+package):
 
 ```bash
 # base only — what `migrate` has always done
@@ -78,8 +87,11 @@ agentmemory schema-check --extensions arithmetic,delta-recall
 `Neo4j:Extensions` > `NEO4J_EXTENSIONS` > empty — and applies to **every** database-backed command, so
 `schema-check` reports on the same set `migrate` applied rather than a different one.
 
-**Forgetting this step does not produce an error**, which is exactly why it has its own section. An
-application that enables `arithmetic` against a database whose `ext/arithmetic/0001` was never applied
+A database the library provisions per application (`MemoryStorageStrategy.DatabasePerApplication` with auto-provision)
+gets the schema statements but not yet the scripts; that is a known gap.
+
+**With bootstrap migrations off, forgetting this step does not produce an error**, which is exactly why it has its own
+section. An application that enables `arithmetic` against a database whose `ext/arithmetic/0001` was never applied
 keeps working: the MERGE still converges on one node, the queries still return correct results, and the
 only symptom is a full scan where an index seek belonged. Nothing fails, so nothing gets investigated.
 

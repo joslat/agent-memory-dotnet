@@ -60,6 +60,12 @@ Behaviour with no switch:
   and as-of recall of the time between is right; facts carry `period_key`, backfilled at bootstrap.
 - A plan that has begun takes over from the value it was planned to replace in recall, at the recall's instant.
 
+### Schema
+
+| Option | Default | What it does |
+|---|---|---|
+| `Neo4jOptions.ApplyMigrationsOnBootstrap` | `true` | Schema bootstrap also applies the migration scripts: the base sequence, then each active schema extension's (identity's where evidence-based identity runs), each once per database. A script the database refuses is logged as an error and startup continues. Set `false` where an operator owns the schema and applies the scripts with `IMigrationRunner`. New in 2.3.0; before, nothing in the library ran them. |
+
 ### Newer Neo4j servers
 
 | Option | Default | What it does |

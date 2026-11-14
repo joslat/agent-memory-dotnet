@@ -192,8 +192,10 @@ Live recall excludes invalidated records. As-of recall can answer what was belie
 
 ## Schema Operations
 
-- `ISchemaBootstrapper.BootstrapAsync()` creates constraints/indexes idempotently and validates vector dimensions.
-- `IMigrationRunner` applies versioned `.cypher` migrations and records applied versions.
+- `ISchemaBootstrapper.BootstrapAsync()` creates constraints/indexes idempotently, applies the migration scripts (since
+  2.3.0; `Neo4jOptions.ApplyMigrationsOnBootstrap`, default true) and validates vector dimensions.
+- `IMigrationRunner` applies versioned `.cypher` migrations (the base sequence, then each active extension's) and records
+  applied versions in `(:Migration)` nodes; bootstrap calls it, and an operator who owns the schema calls it directly.
 - `agentmemory schema-check` compares live database objects with `SchemaConformance.ExpectedObjectNames(dimensions)`.
 - `agentmemory schema-parity` compares the .NET schema descriptor against embedded upstream Python snapshots.
 

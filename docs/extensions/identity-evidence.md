@@ -3,8 +3,9 @@
 Host assertion storage, bounded candidate lookup and identity decisions. Registration does no database work.
 Since 2.2 the extension follows evidence-based identity: it is added wherever identity runs, which by default is
 wherever the store-aware writer runs on Neo4j (`IdentityResolutionOptions.Enabled` null; `true` always, `false` never),
-and applied by the same `IMigrationRunner` step as the rest of the schema. Adding it by hand does not by itself switch
-identity on. See [identity on by default](../getting-started.md#evidence-based-identity-is-on-by-default-22) and the
+and its scripts are applied by schema bootstrap with the rest of the migrations (since 2.3.0; before, only by an explicit
+`IMigrationRunner` call, which nothing in the library made, so installed applications ran identity without its unique
+constraints and lookup indexes). Adding it by hand does not by itself switch identity on. See [identity on by default](../getting-started.md#evidence-based-identity-is-on-by-default-22) and the
 [versioned implementation checkpoints](../evidence-based-identity-implementation.md).
 
 ## Shape
