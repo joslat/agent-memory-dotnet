@@ -1234,7 +1234,8 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
 
         var imported = await services.GetRequiredService<IMemoryOwnerDataService>().ImportAsync(closed, "pablito");
 
-        imported.Written.Should().Contain("facts:already-held", 1);
+        // REV5-2: the file's fact is closed, so it is history whose value the owner holds: left out, the owner's left as it is.
+        imported.Written.Should().Contain("facts:history-left-out", 1);
         var fact = (await services.GetRequiredService<IFactRepository>().GetBySubjectAsync("Acme go live", Scope)).Single();
         fact.InvalidatedAtUtc.Should().BeNull();
         fact.SourceMessageIds.Should().Equal(["source"]);
@@ -1505,6 +1506,119 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
         await messages.Invoking(m => m.AddAsync(planted)).Should().ThrowAsync<ArgumentException>();
         await messages.Invoking(m => m.AddBatchAsync([planted])).Should().ThrowAsync<ArgumentException>();
         (await Count($"(m:Message {{id:'{marker}'}})")).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_relationship_end_that_is_not_an_entity_leaves_the_edge_out()
+    {
+        // REV5-1: a file whose relationship names one of its own facts as an entity must not make an ownerless entity
+        // with that fact's new id: the edge is left out.
+        using var host = Host(); using var scope = host.CreateScope(); var services = scope.ServiceProvider;
+        await Seed(services, "Acme go live");
+        await Ingest(services, Input());
+        var file = await ExportFile(services);
+        var factId = file.Facts[0].FactId;
+        var crafted = file with
+        {
+            IdentityState = null, Format = OwnerMemoryExport.CurrentFormat,
+            Relationships = [.. file.Relationships, new() { RelationshipId = "to-a-fact", SourceEntityId = factId, TargetEntityId = "existing",
+                RelationshipType = "KNOWS", Confidence = 1, OwnerId = "pablito", CreatedAtUtc = DateTimeOffset.UnixEpoch }],
+        };
+        var ownerless = await Count("(e:Entity) WHERE e.owner_id IS NULL");
+
+        var imported = await services.GetRequiredService<IMemoryOwnerDataService>().ImportAsync(crafted, "copy-owner");
+
+        imported.Written.Should().ContainKey("skipped:relationships");
+        (await Count("(e:Entity) WHERE e.owner_id IS NULL")).Should().Be(ownerless);
+        (await Count($"(e:Entity {{id:'{imported.Ids[factId]}'}})")).Should().Be(0);
+    }
+
+    private async Task<OwnerMemoryExport> MadridThenParis(IServiceProvider services)
+    {
+        var facts = services.GetRequiredService<IFactRepository>();
+        async Task<Fact> Said(string city, int day) => await facts.UpsertAsync(new()
+        {
+            FactId = "lives-" + city, Subject = "Alice", Predicate = "lives in", Object = city, Confidence = 1, OwnerId = "pablito",
+            CreatedAtUtc = new DateTimeOffset(2025, 1, day, 0, 0, 0, TimeSpan.Zero),
+        });
+        var madrid = await Said("Madrid", 1);
+        var paris = await Said("Paris", 2);
+        (await facts.SupersedeAsync(madrid.FactId, paris.FactId, Scope)).Should().BeTrue();
+        return await ExportFile(services);
+    }
+
+    [Fact]
+    public async Task Importing_the_same_file_again_adds_no_second_history()
+    {
+        // REV5-2: the second import holds Paris (the owner has it now); Madrid, replaced by Paris, is history the owner
+        // already has, so it is not written again as a second closed Madrid.
+        using var host = Host(); using var scope = host.CreateScope(); var services = scope.ServiceProvider;
+        var file = await MadridThenParis(services);
+        var owners = services.GetRequiredService<IMemoryOwnerDataService>();
+        await owners.ImportAsync(file, "copy-owner");
+
+        var again = await owners.ImportAsync(file, "copy-owner");
+
+        again.Written.Should().Contain("facts:already-held", 1).And.Contain("facts:history-left-out", 1);
+        (await Count("(f:Fact {owner_id:'copy-owner', object:'Madrid'})")).Should().Be(1);
+        (await Count("(:Fact {owner_id:'copy-owner'})-[:SUPERSEDED_BY]->(:Fact {owner_id:'copy-owner'})")).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task A_closed_fact_whose_value_the_owner_holds_live_is_left_out()
+    {
+        // REV5-2: the owner lives in Madrid now; the file says Madrid was replaced by Paris. The file's closed Madrid is
+        // not the owner's live Madrid: it is left out, not taken as held, and the owner's fact is untouched.
+        using var host = Host(); using var scope = host.CreateScope(); var services = scope.ServiceProvider;
+        var file = await MadridThenParis(services);
+        var facts = services.GetRequiredService<IFactRepository>();
+        var own = await facts.UpsertAsync(new()
+        {
+            FactId = "own-madrid", Subject = "Alice", Predicate = "lives in", Object = "Madrid", Confidence = 1, OwnerId = "copy-owner",
+            CreatedAtUtc = new DateTimeOffset(2025, 3, 1, 0, 0, 0, TimeSpan.Zero),
+        });
+
+        var imported = await services.GetRequiredService<IMemoryOwnerDataService>().ImportAsync(file, "copy-owner");
+
+        imported.Written.Should().NotContainKey("facts:already-held");
+        imported.Written.Should().Contain("facts:history-left-out", 1);
+        (await Count($"(f:Fact {{id:'{own.FactId}'}}) WHERE f.invalidated_at IS NULL AND NOT (f)-[:SUPERSEDED_BY]->()")).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task An_imported_entity_links_to_the_owners_own_source_messages()
+    {
+        // REV5-6 (checked, already held): identity nominates candidates through an entity's links to its messages; the entity
+        // write makes them for every source that is a message here, so a copy whose ids stayed the owner's own has them.
+        using var host = Host(); using var scope = host.CreateScope(); var services = scope.ServiceProvider;
+        await Seed(services, "Acme go live");
+        await Ingest(services, Input());
+        var file = await ExportFile(services);
+        var sourced = file.Entities.First(entity => entity.SourceMessageIds.Contains("source"));
+
+        var imported = await services.GetRequiredService<IMemoryOwnerDataService>().ImportAsync(file, "pablito");
+
+        (await Count($"(:Entity {{id:'{imported.Ids[sourced.EntityId]}'}})-[:EXTRACTED_FROM]->(:Message {{id:'source'}})")).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task A_binding_with_an_unknown_role_is_left_out()
+    {
+        // REV5-7: a role is Subject or Object, as binding writes it; another would make every later review of the decision fail.
+        using var host = Host(); using var scope = host.CreateScope(); var services = scope.ServiceProvider;
+        await Seed(services, "Acme go live");
+        await Ingest(services, Input());
+        var file = await ExportFile(services);
+        var state = file.IdentityState!;
+        var bindings = state.Nodes.Count(node => node.Label == "IdentityFactBinding");
+        var crafted = file with { IdentityState = state with { Nodes = [.. state.Nodes.Select(node => node.Label != "IdentityFactBinding" ? node : node with
+        {
+            Properties = new Dictionary<string, OwnerGraphValue>(node.Properties) { ["identity_fact_role"] = GraphText("Foo") },
+        })] } };
+
+        var imported = await services.GetRequiredService<IMemoryOwnerDataService>().ImportAsync(crafted, "copy-owner");
+
+        imported.Written.Should().Contain("identity:bindings-dropped", bindings);
     }
 
     private static IdentityHostEvidence HostProof(string eventId = "ACME-2026") => new()

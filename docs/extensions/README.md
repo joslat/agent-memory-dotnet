@@ -89,7 +89,9 @@ agentmemory schema-check --extensions arithmetic,delta-recall
 `schema-check` reports on the same set `migrate` applied rather than a different one.
 
 A database the library provisions per application (`MemoryStorageStrategy.DatabasePerApplication` with auto-provision)
-gets the schema statements but not yet the scripts; that is a known gap.
+gets the same scripts when it is provisioned, recorded in that database, unless `ApplyMigrationsOnBootstrap` is off.
+A refused script is logged and provisioning completes; the next provisioning of that database in a new process tries it
+again.
 
 **With bootstrap migrations off, forgetting this step does not produce an error**, which is exactly why it has its own
 section. An application that enables `arithmetic` against a database whose `ext/arithmetic/0001` was never applied

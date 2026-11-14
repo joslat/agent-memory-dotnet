@@ -305,7 +305,8 @@ Import into a store with identity storage brings the owner back whole, and the c
 - **Every import is its own copy.** Each observation gets a key new to this owner and this import (the same shape, so
   its decision and entity ids follow it as the ingestion makes them, including the entity id a confirmed decision
   reserves before a revocation creates it), and every other record a new id. Importing the same file into the same
-  owner twice gives two copies. A restore into the owner the file came from is no exception, and that is a limit:
+  owner twice gives two copies of its entities and identity records; facts the owner already holds, and their history,
+  are not written again. A restore into the owner the file came from is no exception, and that is a limit:
   replay needs a decision's original key, so a restored message ingested again makes a second decision rather than
   replaying the first.
 - **Every reference is rewritten**, inside stored JSON too, including JSON stored inside it (a decision's receipt) and ids
@@ -383,6 +384,9 @@ operations on a source owner and on its copy in one store and requires the same 
 | A replaced value is a closed period (its period key is its own id), so the same value said again is a new fact | fact write (merges on the open period only) | each supersession loser in the file is closed out of the open period |
 | A confirmed decision and its bindings resolve to a live target the owner may use | review (revoke, confirm another) | a target the store does not hold leaves the decision New on its own observation, as revocation does |
 | One binding per decision, fact and role | `identity_binding_id` constraint | a second record with the same derived id is left out |
+| An entity is linked to the messages it was extracted from | candidate nomination by context | the entity write links an imported entity to its sources that are messages here (the owner's own); a marker names none |
+| A relationship or ABOUT link joins entities only | relationship and fact writes | an end that is not an imported entity or a shared one here (a fact's id included) leaves the link out |
+| A binding's role is Subject or Object | review rewiring | any other role leaves the binding out |
 | Re-ingesting a message replays its decision instead of deciding again | replay (`identity_decision_observation`) | not kept across an import: every copy gets new keys, so a message ingested again after a restore makes a second decision (a documented limit) |
 | Recall follows only decided bindings, and hands over to current values after adding details | recall | unchanged by import |
 
@@ -399,7 +403,8 @@ into only when it is a shared entity here; one merged away since the export, or 
 entity. Either way imported entities are never joined
 to what the destination already holds, so an import cannot merge two different things. Import while the owner is not
 being written. A fact the owner already holds with the same subject, predicate and object in its open period, live or
-retracted, is left as it is,
+retracted, is left as it is (a closed fact in the file is history: when it leads to a fact the owner holds, or the
+owner holds its value in the open period, it is left out, `facts:history-left-out`, with its bindings),
 links included (`facts:already-held`). A replaced fact (a supersession's loser) comes back as a closed period, as in the
 source, so the same value said again later is its own fact. An import that fails part-way removes what it created
 (its entities, facts, preferences, relationships and identity records, with their links) before the failure is

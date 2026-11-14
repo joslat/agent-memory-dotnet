@@ -2,6 +2,7 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Neo4j.Queries;
+using AgentMemory.Neo4j.Schema.Extensions;
 using Neo4j.Driver;
 
 namespace AgentMemory.Neo4j.Infrastructure;
@@ -20,6 +21,9 @@ internal sealed class Neo4jMemoryStoreProvisioner : IMemoryStoreProvisioner
     private readonly int _embeddingDimensions;
     private readonly bool _validateVectorIndexDimensions;
     private readonly ILogger<Neo4jMemoryStoreProvisioner> _logger;
+    private readonly Neo4jOptions _neo4jOptions;
+    private readonly SchemaExtensionRegistry? _extensions;
+    private readonly ILogger<MigrationRunner> _migrationLogger;
 
     // Provisioned (database-name) set, so repeat requests for the same store skip the round-trip.
     private readonly ConcurrentDictionary<string, byte> _provisioned = new(StringComparer.Ordinal);
@@ -28,9 +32,14 @@ internal sealed class Neo4jMemoryStoreProvisioner : IMemoryStoreProvisioner
         INeo4jSessionFactory sessionFactory,
         IOptions<Neo4jOptions> neo4jOptions,
         IOptions<MemoryStoreOptions> storeOptions,
-        ILogger<Neo4jMemoryStoreProvisioner> logger)
+        ILogger<Neo4jMemoryStoreProvisioner> logger,
+        SchemaExtensionRegistry? extensions = null,
+        ILogger<MigrationRunner>? migrationLogger = null)
     {
         _sessionFactory = sessionFactory;
+        _neo4jOptions = neo4jOptions.Value;
+        _extensions = extensions;
+        _migrationLogger = migrationLogger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<MigrationRunner>.Instance;
         _storeOptions = storeOptions.Value;
         _embeddingDimensions = neo4jOptions.Value.EmbeddingDimensions;
         _validateVectorIndexDimensions = neo4jOptions.Value.ValidateVectorIndexDimensions;
@@ -64,6 +73,7 @@ internal sealed class Neo4jMemoryStoreProvisioner : IMemoryStoreProvisioner
 
         await CreateDatabaseAsync(database, cancellationToken).ConfigureAwait(false);
         await BootstrapDatabaseAsync(database, cancellationToken).ConfigureAwait(false);
+        await ApplyMigrationsAsync(database, cancellationToken).ConfigureAwait(false);
 
         _provisioned.TryAdd(database, 0);
         _logger.LogInformation("Provisioned memory store database '{Database}' for application '{App}'.",
@@ -107,6 +117,28 @@ internal sealed class Neo4jMemoryStoreProvisioner : IMemoryStoreProvisioner
     {
         var cursor = await tx.RunAsync(statement).ConfigureAwait(false);
         await cursor.ConsumeAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// REV5-3: the migration scripts, base and every active extension's, applied to the provisioned database as schema
+    /// bootstrap applies them to the default one (each once, recorded in that database); <see cref="Neo4jOptions.ApplyMigrationsOnBootstrap"/>
+    /// turns both off. A refused script is logged and provisioning completes, as at bootstrap; the next provisioning of
+    /// that database in a new process tries it again.
+    /// </summary>
+    private async Task ApplyMigrationsAsync(string database, CancellationToken cancellationToken)
+    {
+        if (!_neo4jOptions.ApplyMigrationsOnBootstrap) return;
+        var runner = new MigrationRunner(new DatabaseTransactionRunner(_sessionFactory, database), _migrationLogger,
+            EmbeddedMigrationScripts.Shipped, _extensions?.Active(_neo4jOptions) ?? []);
+        try
+        {
+            await runner.RunMigrationsAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Neo4jException exception)
+        {
+            _logger.LogError(exception, "Database {Database}: a migration script could not be applied ({Message}); it is tried again " +
+                "the next time this database is provisioned.", database, exception.Message);
+        }
     }
 
     private async Task BootstrapDatabaseAsync(string database, CancellationToken cancellationToken)

@@ -8,12 +8,10 @@ namespace AgentMemory.Neo4j.Queries;
 internal static class PersonDetailQueries
 {
     /// <summary>
-    /// Every live person in scope, the names they are known by and whether facts are bound to them through a decided
-    /// identity (confirmed), bounded. A person with no bound facts is listed too, unconfirmed (PR260-F4): an entity-only
-    /// open proposal or an entity written outside identity still makes its name ambiguous. The observation of a decision
-    /// confirmed as another person is not a person of its own.
+    /// REV5-4: the people both reads see, defined once, so the light read never stops at a different person than the
+    /// full read would: every live person in scope, without the observation of a decision confirmed as another person.
     /// </summary>
-    public const string Identities = """
+    private const string LivePeople = """
         CALL {
           // REV1-M4: each scope is its own index seek (owner_id, or owner_key '*' for shared); an OR over them is a scan
           // of every owner's entities on every recall.
@@ -29,6 +27,15 @@ internal static class PersonDetailQueries
             WHERE p.identity_observation_key IS NOT NULL AND o.identity_observation_key=p.identity_observation_key
               AND o.owner_scope=CASE WHEN p.owner_id IS NULL THEN 'shared' ELSE 'owned:'+p.owner_id END
               AND t.id<>p.id AND NOT EXISTS { (o)-[:POSSIBLE_SAME_AS]->() } }
+        """;
+
+    /// <summary>
+    /// Every live person in scope, the names they are known by and whether facts are bound to them through a decided
+    /// identity (confirmed), bounded. A person with no bound facts is listed too, unconfirmed (PR260-F4): an entity-only
+    /// open proposal or an entity written outside identity still makes its name ambiguous. The observation of a decision
+    /// confirmed as another person is not a person of its own.
+    /// </summary>
+    public const string Identities = LivePeople + "\n" + """
         // REV2-2: read no further than the bound (the caller names nobody from a full page).
         WITH p LIMIT $limit
         OPTIONAL MATCH (p)<-[:RESOLVES_TO]-(b:IdentityFactBinding)-[:DECIDED_BY]->(d:IdentityDecision)
@@ -50,15 +57,7 @@ internal static class PersonDetailQueries
     /// names facts bound to a person used), distinct, at most <c>$limit</c>. No per-person grouping and no decision checks;
     /// recall reads <see cref="Identities"/> only when one of these is in the question, or when this page comes back full.
     /// </summary>
-    public const string Names = """
-        CALL {
-          MATCH (p:Entity) WHERE $hasOwner AND p.owner_id=$ownerId RETURN p
-          UNION
-          MATCH (p:Entity) WHERE $hasOwner AND $includeShared AND p.owner_key='*' RETURN p
-          UNION
-          MATCH (p:Entity) WHERE NOT $hasOwner RETURN p
-        }
-        WITH p WHERE toUpper(p.type)='PERSON' AND p.invalidated_at IS NULL AND p.merged_into IS NULL
+    public const string Names = LivePeople + "\n" + """
         // REV4-1: no further than the people bound: with that many people nobody is named anyway.
         WITH p LIMIT $people
         // REV3-5: a person's bound names are found from the person, through its own bindings, never by reading every

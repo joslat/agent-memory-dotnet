@@ -76,11 +76,15 @@ public sealed class Neo4jMemoryStoreProvisionerTests
         });
 
         await provisioner.EnsureStoreAsync("Acme");
+        var opened = factory.ReceivedCalls().Count();
         await provisioner.EnsureStoreAsync("Acme"); // cached → no second round-trip
+        factory.ReceivedCalls().Count().Should().Be(opened, "a provisioned store is cached");
 
-        // CREATE DATABASE runs against system; schema bootstrap runs against the store database.
+        // CREATE DATABASE runs against system; schema bootstrap, then (REV5-3) each migration transaction, against the
+        // store database and never another.
         factory.Received(1).OpenSession("system", AccessMode.Write);
-        factory.Received(1).OpenSession("mem-acme", AccessMode.Write);
+        factory.ReceivedCalls().Select(call => (string)call.GetArguments()[0]!).Where(database => database != "system")
+            .Should().NotBeEmpty().And.OnlyContain(database => database == "mem-acme");
     }
 
     [Fact]

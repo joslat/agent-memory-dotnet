@@ -209,22 +209,53 @@ internal sealed class Neo4jMemoryOwnerDataService(
         if (state is not null) await RestoreRetirementsAsync(state, map, ownerId, written, cancellationToken).ConfigureAwait(false);
         // An identity not in the export is a shared entity (checked above): the mention goes to it as it is.
         foreach (var (mention, identity) in joined) map[mention] = map.GetValueOrDefault(identity, identity);
+        // REV5-1: a relationship's or ABOUT link's entity end resolves only through the import's own entities, or to a shared
+        // entity present here; any other id (missing, another owner's, or a fact's or preference's key) leaves the link out,
+        // never a bare node.
+        var entityEnds = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var entity in export.Entities.Concat(state?.RetiredEntities ?? []))
+            if (map.TryGetValue(entity.EntityId, out var mapped)) entityEnds[entity.EntityId] = mapped;
+        string? EntityEnd(string id) => entityEnds.TryGetValue(id, out var mapped) ? mapped : missing.Contains(id) ? null : id;
         var held = new HashSet<string>(StringComparer.Ordinal);
         // REV3-1: a replaced value is a closed period in the store (its period key is its own id), so the same value said
         // again later starts a new period. The file's supersession losers get that back as they are closed; otherwise a later
         // live copy of the same fact in the file would land on the closed one.
         var losers = export.Supersessions.Select(link => link.From).ToHashSet(StringComparer.Ordinal);
         var importedFacts = new HashSet<string>(StringComparer.Ordinal);
+        // REV2-14, REV4-3, REV5-2: an open fact in the file that the destination owner already holds in its open period,
+        // live or retracted (a restore into a non-empty owner, or the same file again), is the owner's: the import points
+        // at it and leaves it as it is. Read before anything is written, so the import's own facts are never "held".
+        var heldOpen = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var fact in export.Facts.Where(fact => fact.InvalidatedAtUtc is null))
+            if (await HeldFactAsync(fact, ownerId, cancellationToken).ConfigureAwait(false) is { } existing)
+                heldOpen[fact.FactId] = existing;
+        // A closed fact is history. History that leads to a fact the owner holds is the owner's history of it, not the
+        // file's to add again; history whose value the owner holds in its open period would land on that fact. Both are
+        // left out, counted.
+        var winnerOf = export.Supersessions.GroupBy(link => link.From, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First().To, StringComparer.Ordinal);
+        bool LeadsToHeld(string factId)
+        {
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            while (seen.Add(factId) && winnerOf.TryGetValue(factId, out var next))
+            {
+                if (heldOpen.ContainsKey(next)) return true;
+                factId = next;
+            }
+            return false;
+        }
         foreach (var fact in export.Facts)
         {
-            // REV2-14, REV4-3: the destination owner already holds this fact in its open period, live or retracted (a
-            // restore into a non-empty owner): the import points at it and leaves it as it is. Upserting would replace its
-            // sources, reopen a fact the owner retracted, or close it. The import's own facts are not "held".
-            if (await HeldFactAsync(fact, ownerId, cancellationToken).ConfigureAwait(false) is { } existing && !importedFacts.Contains(existing))
+            if (heldOpen.TryGetValue(fact.FactId, out var existing))
             {
                 map[fact.FactId] = existing;
                 held.Add(fact.FactId);
                 Count("facts:already-held");
+                continue;
+            }
+            if (fact.InvalidatedAtUtc is not null && (LeadsToHeld(fact.FactId) ||
+                    await HeldFactAsync(fact, ownerId, cancellationToken).ConfigureAwait(false) is { } taken && !importedFacts.Contains(taken)))
+            {
+                Count("facts:history-left-out");
                 continue;
             }
             var requestedFact = ids.GenerateId();
@@ -262,9 +293,8 @@ internal sealed class Neo4jMemoryOwnerDataService(
         {
             // An end not in the export is a shared entity (checked above): the edge goes to it as it is, or, when this store
             // does not hold it, is left out rather than made to a bare node.
-            var source = map.GetValueOrDefault(relationship.SourceEntityId, relationship.SourceEntityId);
-            var target = map.GetValueOrDefault(relationship.TargetEntityId, relationship.TargetEntityId);
-            if (missing.Contains(source) || missing.Contains(target)) { Count("skipped:relationships"); continue; }
+            if (EntityEnd(relationship.SourceEntityId) is not { } source || EntityEnd(relationship.TargetEntityId) is not { } target)
+            { Count("skipped:relationships"); continue; }
             // A mention related to its own identity becomes no edge once the two are one entity.
             if (string.Equals(source, target, StringComparison.Ordinal) &&
                 !string.Equals(relationship.SourceEntityId, relationship.TargetEntityId, StringComparison.Ordinal)) continue;
@@ -292,8 +322,7 @@ internal sealed class Neo4jMemoryOwnerDataService(
         {
             if (held.Contains(link.From) || !map.TryGetValue(link.From, out var fact)) continue;
             // An entity not in the export is a shared one (checked above): the link goes to it as it is, if this store has it.
-            var entity = map.GetValueOrDefault(link.To, link.To);
-            if (missing.Contains(entity)) { Count("skipped:about"); continue; }
+            if (EntityEnd(link.To) is not { } entity) { Count("skipped:about"); continue; }
             await facts.CreateAboutRelationshipAsync(fact, entity, cancellationToken).ConfigureAwait(false);
             Count("about");
         }
@@ -750,12 +779,15 @@ internal sealed class Neo4jMemoryOwnerDataService(
         var invalid = new HashSet<string>(StringComparer.Ordinal);
         foreach (var node in state.Nodes.Where(node => node.Label == "IdentityFactBinding"))
         {
+            // REV5-2: a fact the import left out takes its bindings with it. REV5-7: a role is Subject or Object, as binding
+            // writes it; any other would fail every later review of the decision.
             var consistent = linkTo.TryGetValue(("HAS_IDENTITY_BINDING", node.Key), out var boundFact) && factsById.TryGetValue(boundFact.From, out var fact) &&
+                map.ContainsKey(boundFact.From) &&
                 node.Properties.TryGetValue("identity_decision_id", out var decided) && decided.Text is { } decisionKey &&
                 decisionRoots.TryGetValue(decisionKey, out var roots) &&
                 node.Properties.TryGetValue("identity_source_ids", out var sources) && (sources.Items ?? []).Any(item => item.Text is { } id && roots.Contains(id)) &&
                 node.Properties.TryGetValue("identity_observed_surface", out var surface) && surface.Text is { } observed &&
-                node.Properties.TryGetValue("identity_fact_role", out var role) &&
+                node.Properties.TryGetValue("identity_fact_role", out var role) && role.Text is "Subject" or "Object" &&
                 AgentMemory.Core.Memory.MemoryTripleCanonicalizer.CanonicalValue(role.Text == "Object" ? fact.Object : fact.Subject) ==
                     AgentMemory.Core.Memory.MemoryTripleCanonicalizer.CanonicalValue(observed);
             if (!consistent) invalid.Add(node.Key);

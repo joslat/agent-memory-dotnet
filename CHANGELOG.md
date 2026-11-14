@@ -38,7 +38,8 @@ Thank you again, Pablo: your scenario is now the benchmark every identity change
 - Owner import refuses a file that names no owner, or that is malformed, before writing anything, and never links to
   an entity another owner holds or this store lacks: such a link is left out and counted, the same either way, where
   2.2.0 created a bare node. The result's `Written` counts what was left out (`skipped:*`), a fact the owner already
-  held (`facts:already-held`), bindings that did not fit their fact or decision (`identity:bindings-dropped`),
+  held (`facts:already-held`) and closed facts that are history the owner already holds (`facts:history-left-out`),
+  bindings that did not fit their fact or decision (`identity:bindings-dropped`),
   proposals whose candidates the store does not hold (`identity:candidates-not-in-store`,
   `identity:proposals-without-candidates`) and confirmations whose target it does not hold
   (`identity:confirmations-without-target`), and says when a store without identity storage kept a file's identity
@@ -96,8 +97,9 @@ Thank you again, Pablo: your scenario is now the benchmark every identity change
   nodes that were already duplicated, is logged as an error and startup continues as before; the next start tries
   again. Every shipped statement is independent, so the others, in the same script and after it, still apply; only
   the refused script stays unrecorded. Where an operator owns the schema and startup must not run DDL, set
-  `Neo4jOptions.ApplyMigrationsOnBootstrap = false` and apply the scripts with `IMigrationRunner`. A database provisioned
-  per application (`DatabasePerApplication`) does not get the scripts yet.
+  `Neo4jOptions.ApplyMigrationsOnBootstrap = false` and apply the scripts with `IMigrationRunner`. A database the store
+  provisions per application (`DatabasePerApplication` with `AutoProvision`) gets the same scripts when it is
+  provisioned; one an operator provisions gets them from the operator.
 
 ### Fixed
 
