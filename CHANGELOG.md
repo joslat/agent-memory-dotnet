@@ -29,19 +29,21 @@ Thank you again, Pablo: your scenario is now the benchmark every identity change
 
 - **The first start applies the migration scripts the database is missing**, identity's among them, and later starts
   only check. If the log shows an error about a constraint, the store holds duplicates written without it: it keeps
-  running as before, and the next start adds the constraint once they are removed. Only the later scripts of that
-  same sequence wait for it; every other sequence still applies. Where an operator owns the schema,
+  running as before, and the next start adds the constraint once they are removed. Every other statement still
+  applies. Where an operator owns the schema,
   set `Neo4jOptions.ApplyMigrationsOnBootstrap = false` and apply the scripts with `IMigrationRunner`.
 - Owner exports that carry identity records are now `agentmemory-export/2`; an owner with none still exports format 1,
   which 2.2.0 reads. 2.3.0 imports both formats; 2.2.0 and earlier refuse format 2 rather than drop its identity state.
 - `AgentMemory.Inference` on Bitdeer's GLM-5.3-Flash now asks for low reasoning effort; `AI_REASONING_EFFORT` changes it.
-- Owner import refuses a file that links to entities another owner holds in this store, or that names no owner, before
-  writing anything, and leaves out a link to an entity this store does not hold instead of creating a bare node. The
-  result's `Written` counts what was left out (`skipped:*`), a fact the owner already held (`facts:already-held`),
-  bindings that did not fit their fact or decision (`identity:bindings-dropped`) and proposals whose candidates the
-  store does not hold (`identity:candidates-not-in-store`, `identity:proposals-without-candidates`), and says when a
-  store without identity storage kept a file's identity state out (`identity:state-not-imported`). Source message ids that are not the importing owner's own messages
-  become markers.
+- Owner import refuses a file that names no owner, or that is malformed, before writing anything, and never links to
+  an entity another owner holds or this store lacks: such a link is left out and counted, the same either way, where
+  2.2.0 created a bare node. The result's `Written` counts what was left out (`skipped:*`), a fact the owner already
+  held (`facts:already-held`), bindings that did not fit their fact or decision (`identity:bindings-dropped`),
+  proposals whose candidates the store does not hold (`identity:candidates-not-in-store`,
+  `identity:proposals-without-candidates`) and confirmations whose target it does not hold
+  (`identity:confirmations-without-target`), and says when a store without identity storage kept a file's identity
+  state out (`identity:state-not-imported`). Source message ids that are not the importing owner's own messages become
+  markers. An import that fails part-way removes what it created before the failure is reported, so it can be retried.
 
 ### Added
 
@@ -57,7 +59,8 @@ Thank you again, Pablo: your scenario is now the benchmark every identity change
   names than are read (32, spellings that differ only in case counted once), expands nobody. A light read of every
   spelling people are known by comes first; the people and their facts are read only when one of them is in the
   question. No model call; the facts share the context budget, and facts said about one person under different
-  spellings ("Ana", "Ana García") compete as one when recall hands over to current values. Follows identity like `EventDetails`: on where
+  spellings ("Ana", "Ana García") compete as one when recall hands over to current values, unless another person has
+  that spelling too. Follows identity like `EventDetails`: on where
   evidence-based identity runs, off and unchanged elsewhere. Point-in-time recall refuses an explicit `true`.
 - **Owner export and import carry identity whole** (`agentmemory-export/2`). With identity storage the export adds
   `OwnerMemoryExport.IdentityState`: the owner's decisions with their evidence and quotes, review revisions, fact
@@ -70,10 +73,11 @@ Thank you again, Pablo: your scenario is now the benchmark every identity change
   at export gets its imported target's fingerprint. Evidence assertions keep the content-derived ids asserting gives
   them, so asserting the same key again is the same evidence, and each decision's observation gets the destination
   model's vector (its history none). The same file can be imported into several owners, or twice into one. Restored
-  into the owner it came from, a decision keeps its key where this store does not hold it and its messages are the
-  owner's own, so ingesting the restored message again replays it. A proposal whose candidates the store does not hold
-  becomes New and says why, and a binding must tie a fact said about its observed name to a decision whose sources it
-  shares, or it is left out.
+  into the owner it came from, a decision keeps its key where the import derives that key again for the owner, this
+  store does not hold it, and its messages are the owner's own, so ingesting the restored message again replays it. A
+  proposal whose candidates the store does not hold becomes New, and a confirmation whose target it does not hold (a
+  shared entity, in another database) comes back as a revocation leaves it, New on its own observation; both say why.
+  A binding must tie a fact said about its observed name to a decision whose sources it shares, or it is left out.
   Messages stay out: decisions keep their quotes. A format-1 export, or an import into a store without identity, comes
   back as the current state, as in 2.2.0. An importer that knows only format 1 refuses format 2 rather than dropping its
   identity state.
@@ -88,8 +92,8 @@ Thank you again, Pablo: your scenario is now the benchmark every identity change
   identity on, it has run without its unique constraints (among them the one its per-owner lock relies on) and lookup
   indexes. Upgrading applies them on the next start. A script the database refuses, for example a unique constraint over
   nodes that were already duplicated, is logged as an error and startup continues as before; the next start tries
-  again. Only the later scripts of its own sequence wait for it (they may build on it); every other sequence still
-  applies. Where an operator owns the schema and startup must not run DDL, set
+  again. Every shipped statement is independent, so the others, in the same script and after it, still apply; only
+  the refused script stays unrecorded. Where an operator owns the schema and startup must not run DDL, set
   `Neo4jOptions.ApplyMigrationsOnBootstrap = false` and apply the scripts with `IMigrationRunner`. A database provisioned
   per application (`DatabasePerApplication`) does not get the scripts yet.
 
@@ -104,9 +108,9 @@ Thank you again, Pablo: your scenario is now the benchmark every identity change
   details have done so since 2.2.0. Recall now hands over again after the details, with the dated sections' facts as
   competitors, every time.
 - **Owner import trusts nothing in the file it cannot verify** (also in 2.2.0). An entity a file names but the import
-  does not create must be a shared entity in this store: one that belongs to an owner refuses the whole import before
-  anything is written, and a missing one leaves its link out, where 2.2.0 made the link to whatever the id named and
-  created a bare node if nothing had it. Identity records always belong to the importing owner and carry only the
+  does not create is linked to only when it is a shared entity in this store: one that belongs to an owner is left out
+  exactly as a missing one is, so the result never tells whether another owner holds an id, where 2.2.0 made the link
+  to whatever the id named and created a bare node if nothing had it. Identity records always belong to the importing owner and carry only the
   properties their schema declares; entities take only the three identity properties; identity links carry none. An
   entity a current decision's record names without a link (its target, candidates or observation) is checked the same
   way, and a malformed value is refused before anything is written. A file must name its owner, and each decision
@@ -117,6 +121,10 @@ Thank you again, Pablo: your scenario is now the benchmark every identity change
   wrote each fact with the store's usual write, which lands on the owner's live fact with the same subject, predicate
   and object: the file's sources replaced the owner's, and a fact the file had closed closed the owner's live one.
   Import now points at the owner's fact and leaves it, its links included.
+- **An imported replaced value stays a closed period** (also in 2.2.0 and earlier). Import closed a replaced fact but
+  left it where a live one sits, so the same value said again in the file (Paris, then Berlin, then Paris) landed on
+  the closed fact instead of being its own, and the owner's next "Paris" reopened it. A replaced fact now leaves the open
+  period in the copy, as in the source.
 - **Imported memories point only at the importing owner's own messages** (also in 2.2.0 and earlier). In every format, a
   source message id stays only when it is a message of the importing owner in this store; any other becomes a marker of
   the importing owner. Before, a file could name another owner's messages, and recall's source quotes and date grounding

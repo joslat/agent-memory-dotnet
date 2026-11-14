@@ -43,6 +43,24 @@ internal static class PersonMentions
         "rey", "leon", "lucero", "estrella", "paloma", "fe", "esperanza", "consuelo", "amparo", "soledad", "dolores",
     };
 
+    /// <summary>
+    /// REV3-2: the spellings of <paramref name="personId"/> that no other of these people has, by the same whole-word key
+    /// <see cref="Named"/> uses. A spelling two people share is neither's in the hand-over to current values.
+    /// </summary>
+    internal static IReadOnlyList<string> OwnSpellings(IReadOnlyList<Person> people, string personId)
+    {
+        var holders = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        foreach (var person in people)
+            foreach (var surface in person.Surfaces)
+                if (Key(surface) is { } key)
+                {
+                    if (!holders.TryGetValue(key, out var ids)) holders[key] = ids = new HashSet<string>(StringComparer.Ordinal);
+                    ids.Add(person.Id);
+                }
+        return [.. people.Where(person => person.Id == personId).SelectMany(person => person.Surfaces)
+            .Where(surface => Key(surface) is { } key && holders[key].Count == 1)];
+    }
+
     /// <summary>Titles that may stand before a name without making it part of a longer one.</summary>
     private static readonly HashSet<string> Titles = new(StringComparer.Ordinal)
     {

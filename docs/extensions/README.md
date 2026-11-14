@@ -64,7 +64,8 @@ database work. Since 2.3.0, `ISchemaBootstrapper.BootstrapAsync()`, the startup 
 the migration scripts: the base sequence, then each active extension's `ext/<id>/000N` scripts. Each script runs once
 per database and is recorded in a `(:Migration)` node, so later starts only check. A script the database refuses (for
 example a unique constraint over nodes that were already duplicated) is logged as an error and bootstrap completes as
-before; the next start tries again. Before 2.3.0 nothing in the library ran the scripts, so an installed application
+before; every other statement, in that script and after it, still applies, and the next start tries the refused
+script again. Before 2.3.0 nothing in the library ran the scripts, so an installed application
 never got an extension's schema, identity's unique constraints and lookup indexes included.
 
 Where an operator owns the database's schema and application startup must not run DDL against it, set

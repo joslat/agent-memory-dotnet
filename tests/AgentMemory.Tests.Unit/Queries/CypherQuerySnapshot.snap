@@ -1094,7 +1094,7 @@ UNWIND $ids AS id
 
 ## OwnerDataQueries.HeldFact
 MATCH (f:Fact {subject_key: $subjectKey, predicate_key: $predicateKey, object_key: $objectKey, owner_key: $ownerKey, period_key: ''})
-            WHERE f.owner_id = $ownerId
+            WHERE f.owner_id = $ownerId AND f.invalidated_at IS NULL
             RETURN f.id AS id LIMIT 1
 
 ## OwnerDataQueries.ImportEntityIdentity
@@ -1131,7 +1131,9 @@ UNWIND $rows AS row
 
 ## OwnerDataQueries.RestoreFactClosing
 MATCH (f:Fact {id: $id})
-            SET f.invalidated_at = datetime($invalidatedAt), f.invalidated_reason = $reason
+            SET f.invalidated_at = datetime($invalidatedAt), f.invalidated_reason = $reason,
+                // REV3-1: a replaced value leaves the open period, as superseding it does.
+                f.period_key = CASE WHEN $closesPeriod THEN f.id ELSE f.period_key END
 
 ## OwnerDataQueries.RestorePreferenceClosing
 MATCH (p:Preference {id: $id})
@@ -1180,24 +1182,20 @@ ORDER BY id
 
 ## PersonDetailQueries.Names
 CALL {
-  CALL {
-    MATCH (p:Entity) WHERE $hasOwner AND p.owner_id=$ownerId RETURN p
-    UNION
-    MATCH (p:Entity) WHERE $hasOwner AND $includeShared AND p.owner_key='*' RETURN p
-    UNION
-    MATCH (p:Entity) WHERE NOT $hasOwner RETURN p
-  }
-  WITH p WHERE toUpper(p.type)='PERSON' AND p.invalidated_at IS NULL AND p.merged_into IS NULL
-  UNWIND [p.name] + coalesce(p.aliases, []) AS spelling
-  RETURN spelling
+  MATCH (p:Entity) WHERE $hasOwner AND p.owner_id=$ownerId RETURN p
   UNION
-  CALL {
-    MATCH (b:IdentityFactBinding) WHERE $hasOwner AND b.owner_id=$ownerId RETURN b
-    UNION
-    MATCH (b:IdentityFactBinding) WHERE $hasOwner AND $includeShared AND b.owner_id IS NULL RETURN b
-    UNION
-    MATCH (b:IdentityFactBinding) WHERE NOT $hasOwner RETURN b
-  }
+  MATCH (p:Entity) WHERE $hasOwner AND $includeShared AND p.owner_key='*' RETURN p
+  UNION
+  MATCH (p:Entity) WHERE NOT $hasOwner RETURN p
+}
+WITH p WHERE toUpper(p.type)='PERSON' AND p.invalidated_at IS NULL AND p.merged_into IS NULL
+// REV3-5: a person's bound names are found from the person, through its own bindings, never by reading every
+// binding in the store.
+CALL {
+  WITH p UNWIND [p.name] + coalesce(p.aliases, []) AS spelling RETURN spelling
+  UNION
+  WITH p MATCH (p)<-[:RESOLVES_TO]-(b:IdentityFactBinding)
+  WHERE NOT $hasOwner OR b.owner_id=$ownerId OR ($includeShared AND b.owner_id IS NULL)
   RETURN b.identity_observed_surface AS spelling
 }
 WITH DISTINCT spelling WHERE spelling IS NOT NULL

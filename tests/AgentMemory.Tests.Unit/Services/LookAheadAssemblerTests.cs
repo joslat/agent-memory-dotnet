@@ -224,6 +224,25 @@ public sealed class LookAheadAssemblerTests
     }
 
     [Fact]
+    public async Task A_spelling_two_people_share_is_neither_persons_in_the_hand_over()
+    {
+        // REV3-2: "Ana" is both Ana García's and Ana López's. The question names Ana García; the newer "Ana lives in Madrid"
+        // may be López's, so it must not replace García's Paris.
+        var paris = new Fact { FactId = "paris", Subject = "Ana García", Predicate = "lives in", Object = "Paris", Confidence = 0.9,
+            CreatedAtUtc = new(2025, 1, 1, 10, 0, 0, TimeSpan.Zero), ValidFrom = new(2025, 1, 1, 0, 0, 0, TimeSpan.Zero) };
+        var madrid = new Fact { FactId = "madrid", Subject = "Ana", Predicate = "lives in", Object = "Madrid", Confidence = 0.9,
+            CreatedAtUtc = new(2025, 6, 1, 10, 0, 0, TimeSpan.Zero), ValidFrom = new(2025, 6, 1, 0, 0, 0, TimeSpan.Zero) };
+        _relevant = [madrid];
+        People(Person("garcia", "Ana García", "Ana"), Person("lopez", "Ana López", "Ana"));
+        _longTerm.GetPersonDetailsAsync(Arg.Any<IReadOnlyList<string>>(), Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<int>(),
+            Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>()).Returns(Task.FromResult<IReadOnlyList<Fact>>([paris]));
+
+        var context = await AskAsync("Where does Ana García live?", RecallOptions.Default with { PersonDetails = true });
+
+        context.RelevantFacts.Items.Select(f => f.FactId).Should().Contain("paris");
+    }
+
+    [Fact]
     public async Task One_persons_older_value_under_another_spelling_gives_way_to_the_newer()
     {
         // REV2-5: "Ana García lives in Paris" and "Ana lives in Berlin" are about one person; the newer value is current.

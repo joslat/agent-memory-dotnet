@@ -136,14 +136,16 @@ public sealed class MigrationRunnerTests
     // ── A script the database refuses ──
 
     [Fact]
-    public async Task A_refused_script_stops_its_own_sequence_only_and_is_reported()
+    public async Task A_refused_statement_stops_nothing_else_and_its_script_is_tried_again()
     {
-        // REV2-7: base 0002 is refused; base 0003 builds on it and is skipped; the working-memory extension still runs.
+        // REV2-7, REV3-7: the first statement of base 0002 is refused. Its second statement, base 0003 and the extension still
+        // apply; 0002 is not recorded, so the next start tries it again; the failure is reported.
         var dir = Path.Combine(Path.GetTempPath(), "agentmemory-migtest-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(dir, "ext", "working-memory"));
         try
         {
-            await File.WriteAllTextAsync(Path.Combine(dir, "0002_refused.cypher"), "CREATE CONSTRAINT refused_idx IF NOT EXISTS FOR (n:A) REQUIRE n.x IS UNIQUE;");
+            await File.WriteAllTextAsync(Path.Combine(dir, "0002_refused.cypher"),
+                "CREATE CONSTRAINT refused_idx IF NOT EXISTS FOR (n:A) REQUIRE n.x IS UNIQUE;\nCREATE INDEX sibling_idx IF NOT EXISTS FOR (n:A) ON (n.w);");
             await File.WriteAllTextAsync(Path.Combine(dir, "0003_after.cypher"), "CREATE INDEX after_idx IF NOT EXISTS FOR (n:B) ON (n.y);");
             await File.WriteAllTextAsync(Path.Combine(dir, "ext", "working-memory", "0001_user.cypher"), "CREATE INDEX user_idx IF NOT EXISTS FOR (n:User) ON (n.z);");
             var executed = new List<string>();
@@ -173,7 +175,9 @@ public sealed class MigrationRunnerTests
             await migrations.Invoking(m => m.RunMigrationsAsync()).Should().ThrowAsync<ClientException>();
 
             executed.Should().Contain(s => s.Contains("user_idx"), "another sequence still runs");
-            executed.Should().NotContain(s => s.Contains("after_idx"), "a later script of the refused sequence may build on it");
+            executed.Should().Contain(s => s.Contains("sibling_idx"), "the refused statement's script goes on");
+            executed.Should().Contain(s => s.Contains("after_idx"), "every shipped statement is independent, so later scripts still run");
+            executed.Where(s => s.Contains("MERGE (m:Migration")).Should().HaveCount(2, "0003 and the extension are recorded, 0002 is not");
         }
         finally
         {

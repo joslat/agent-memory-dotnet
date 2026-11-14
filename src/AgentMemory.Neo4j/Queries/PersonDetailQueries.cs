@@ -52,24 +52,20 @@ internal static class PersonDetailQueries
     /// </summary>
     public const string Names = """
         CALL {
-          CALL {
-            MATCH (p:Entity) WHERE $hasOwner AND p.owner_id=$ownerId RETURN p
-            UNION
-            MATCH (p:Entity) WHERE $hasOwner AND $includeShared AND p.owner_key='*' RETURN p
-            UNION
-            MATCH (p:Entity) WHERE NOT $hasOwner RETURN p
-          }
-          WITH p WHERE toUpper(p.type)='PERSON' AND p.invalidated_at IS NULL AND p.merged_into IS NULL
-          UNWIND [p.name] + coalesce(p.aliases, []) AS spelling
-          RETURN spelling
+          MATCH (p:Entity) WHERE $hasOwner AND p.owner_id=$ownerId RETURN p
           UNION
-          CALL {
-            MATCH (b:IdentityFactBinding) WHERE $hasOwner AND b.owner_id=$ownerId RETURN b
-            UNION
-            MATCH (b:IdentityFactBinding) WHERE $hasOwner AND $includeShared AND b.owner_id IS NULL RETURN b
-            UNION
-            MATCH (b:IdentityFactBinding) WHERE NOT $hasOwner RETURN b
-          }
+          MATCH (p:Entity) WHERE $hasOwner AND $includeShared AND p.owner_key='*' RETURN p
+          UNION
+          MATCH (p:Entity) WHERE NOT $hasOwner RETURN p
+        }
+        WITH p WHERE toUpper(p.type)='PERSON' AND p.invalidated_at IS NULL AND p.merged_into IS NULL
+        // REV3-5: a person's bound names are found from the person, through its own bindings, never by reading every
+        // binding in the store.
+        CALL {
+          WITH p UNWIND [p.name] + coalesce(p.aliases, []) AS spelling RETURN spelling
+          UNION
+          WITH p MATCH (p)<-[:RESOLVES_TO]-(b:IdentityFactBinding)
+          WHERE NOT $hasOwner OR b.owner_id=$ownerId OR ($includeShared AND b.owner_id IS NULL)
           RETURN b.identity_observed_surface AS spelling
         }
         WITH DISTINCT spelling WHERE spelling IS NOT NULL

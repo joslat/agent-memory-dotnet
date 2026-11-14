@@ -84,6 +84,50 @@ internal sealed class Neo4jMemoryOwnerDataService(
 
     public async Task<OwnerImportResult> ImportAsync(OwnerMemoryExport export, string ownerId, CancellationToken cancellationToken = default)
     {
+        // REV3-6: an import writes in many transactions. When one fails, what this import wrote of its own is removed again
+        // before the failure is reported, so a retry starts from the store as it was rather than next to a half copy.
+        var created = new List<(string Label, string Id, string? From)>();
+        try
+        {
+            return await ImportCoreAsync(export, ownerId, created, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception failure) when (created.Count > 0)
+        {
+            await RemovePartialImportAsync(created, ownerId, failure).ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// REV3-6: removes what a failed import created (its entities, facts, preferences, relationships and identity
+    /// records, with their links), only the importing owner's. A fact the import merged into one the owner already had is
+    /// not undone. If the removal fails too, the original failure is still the one reported, and its <c>Data</c> says so.
+    /// </summary>
+    private async Task RemovePartialImportAsync(List<(string Label, string Id, string? From)> created, string ownerId, Exception failure)
+    {
+        try
+        {
+            foreach (var group in created.GroupBy(item => item.Label).OrderBy(group => group.Key == "RELATED_TO" ? 0 : 1))
+                foreach (var batch in group.Chunk(500))
+                    await tx.WriteAsync(async runner =>
+                    {
+                        var cursor = await runner.RunAsync(OwnerDataQueries.RemoveImported[group.Key], new Dictionary<string, object?>
+                        {
+                            ["rows"] = batch.Select(item => new Dictionary<string, object?> { ["id"] = item.Id, ["from"] = item.From }).ToArray(),
+                            ["ownerId"] = ownerId,
+                        }).ConfigureAwait(false);
+                        await cursor.ConsumeAsync().ConfigureAwait(false);
+                    }, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception cleanup) when (cleanup is not OutOfMemoryException)
+        {
+            failure.Data["AgentMemory.ImportCleanupFailed"] = cleanup.Message;
+        }
+    }
+
+    private async Task<OwnerImportResult> ImportCoreAsync(OwnerMemoryExport export, string ownerId,
+        List<(string Label, string Id, string? From)> created, CancellationToken cancellationToken)
+    {
         ArgumentNullException.ThrowIfNull(export);
         ArgumentException.ThrowIfNullOrWhiteSpace(ownerId);
         if (export.Format is not (OwnerMemoryExport.CurrentFormat or OwnerMemoryExport.IdentityFormat))
@@ -151,6 +195,7 @@ internal sealed class Neo4jMemoryOwnerDataService(
                 Embedding = await embeddings.EmbedAsync(entity.Name, cancellationToken).ConfigureAwait(false),
             }, cancellationToken).ConfigureAwait(false);
             map[entity.EntityId] = stored.EntityId;
+            created.Add(("Entity", stored.EntityId, null));
             Count("entities");
         }
         // PR260-F1: the retired entities identity records point at come back retired (below), so those links reach them.
@@ -163,6 +208,7 @@ internal sealed class Neo4jMemoryOwnerDataService(
                 SourceMessageIds = Sources(entity.SourceMessageIds), Embedding = null,
             }, cancellationToken).ConfigureAwait(false);
             map[entity.EntityId] = stored.EntityId;
+            created.Add(("Entity", stored.EntityId, null));
             Count("identity:retired-entities");
         }
         // REV1-M5: retired again at once, before anything else is written, so a failure later never leaves them live.
@@ -170,35 +216,49 @@ internal sealed class Neo4jMemoryOwnerDataService(
         // An identity not in the export is a shared entity (checked above): the mention goes to it as it is.
         foreach (var (mention, identity) in joined) map[mention] = map.GetValueOrDefault(identity, identity);
         var held = new HashSet<string>(StringComparer.Ordinal);
+        // REV3-1: a replaced value is a closed period in the store (its period key is its own id), so the same value said
+        // again later starts a new period. The file's supersession losers get that back as they are closed; otherwise a later
+        // live copy of the same fact in the file would land on the closed one.
+        var losers = export.Supersessions.Select(link => link.From).ToHashSet(StringComparer.Ordinal);
+        var importedFacts = new HashSet<string>(StringComparer.Ordinal);
         foreach (var fact in export.Facts)
         {
             // REV2-14: the destination owner already holds this fact in its open period (a restore into a non-empty owner):
             // the import points at it and leaves it as it is. Upserting would replace its sources, reopen it, or close it.
-            if (await HeldFactAsync(fact, ownerId, cancellationToken).ConfigureAwait(false) is { } existing)
+            if (await HeldFactAsync(fact, ownerId, cancellationToken).ConfigureAwait(false) is { } existing && !importedFacts.Contains(existing))
             {
                 map[fact.FactId] = existing;
                 held.Add(fact.FactId);
                 Count("facts:already-held");
                 continue;
             }
+            var requestedFact = ids.GenerateId();
             var stored = await facts.UpsertAsync(fact with
             {
-                FactId = ids.GenerateId(), OwnerId = ownerId, Metadata = Plain(fact.Metadata), SourceMessageIds = Sources(fact.SourceMessageIds),
+                FactId = requestedFact, OwnerId = ownerId, Metadata = Plain(fact.Metadata), SourceMessageIds = Sources(fact.SourceMessageIds),
                 Embedding = await embeddings.EmbedFactAsync(fact.Subject, fact.Predicate, fact.Object, cancellationToken).ConfigureAwait(false),
             }, cancellationToken).ConfigureAwait(false);
             map[fact.FactId] = stored.FactId;
+            importedFacts.Add(stored.FactId);
+            if (stored.FactId == requestedFact) created.Add(("Fact", requestedFact, null));
             if (fact.InvalidatedAtUtc is { } closedAt)
-                await RunAsync(OwnerDataQueries.RestoreFactClosing, new() { ["id"] = stored.FactId, ["invalidatedAt"] = Instant(closedAt), ["reason"] = fact.InvalidatedReason }, cancellationToken).ConfigureAwait(false);
+                await RunAsync(OwnerDataQueries.RestoreFactClosing, new()
+                {
+                    ["id"] = stored.FactId, ["invalidatedAt"] = Instant(closedAt), ["reason"] = fact.InvalidatedReason,
+                    ["closesPeriod"] = losers.Contains(fact.FactId),
+                }, cancellationToken).ConfigureAwait(false);
             Count("facts");
         }
         foreach (var preference in export.Preferences)
         {
+            var requestedPreference = ids.GenerateId();
             var stored = await preferences.UpsertAsync(preference with
             {
-                PreferenceId = ids.GenerateId(), OwnerId = ownerId, Metadata = Plain(preference.Metadata), SourceMessageIds = Sources(preference.SourceMessageIds),
+                PreferenceId = requestedPreference, OwnerId = ownerId, Metadata = Plain(preference.Metadata), SourceMessageIds = Sources(preference.SourceMessageIds),
                 Embedding = await embeddings.EmbedAsync(preference.PreferenceText, cancellationToken).ConfigureAwait(false),
             }, cancellationToken).ConfigureAwait(false);
             map[preference.PreferenceId] = stored.PreferenceId;
+            if (stored.PreferenceId == requestedPreference) created.Add(("Preference", requestedPreference, null));
             if (preference.InvalidatedAtUtc is { } closedAt)
                 await RunAsync(OwnerDataQueries.RestorePreferenceClosing, new() { ["id"] = stored.PreferenceId, ["invalidatedAt"] = Instant(closedAt) }, cancellationToken).ConfigureAwait(false);
             Count("preferences");
@@ -223,6 +283,7 @@ internal sealed class Neo4jMemoryOwnerDataService(
                 SourceMessageIds = Sources(relationship.SourceMessageIds),
             }, cancellationToken).ConfigureAwait(false);
             map[relationship.RelationshipId] = stored.RelationshipId;
+            created.Add(("RELATED_TO", stored.RelationshipId, source));
             Count("relationships");
         }
         foreach (var link in export.Supersessions)
@@ -242,14 +303,14 @@ internal sealed class Neo4jMemoryOwnerDataService(
             Count("about");
         }
         if (state is not null)
-            await ImportIdentityAsync(state, export, ownerId, map, keys, keep, messages, missing, written, cancellationToken).ConfigureAwait(false);
+            await ImportIdentityAsync(state, export, ownerId, map, keys, keep, messages, missing, written, created, cancellationToken).ConfigureAwait(false);
         return new OwnerImportResult { OwnerId = ownerId, Written = written, Ids = map };
     }
 
     /// <summary>
-    /// PR260-F9/F10: what a file names beyond what the import creates. An entity end must be a shared entity in this
-    /// store; any that belongs to an owner refuses the whole import, before anything is written. A missing one is returned,
-    /// and its links are left out. An identity link's fact end, and each identity record a record or a link names, must be
+    /// PR260-F9/F10: what a file names beyond what the import creates. Only a shared entity in this store is linked to.
+    /// REV3-8: one that belongs to an owner is returned with the missing ones, and its links are left out and counted the
+    /// same way, so an import never tells whether another owner holds an id. An identity link's fact end, and each identity record a record or a link names, must be
     /// in the file. A fold target that is missing is not folded into: the mention comes back as its own entity.
     /// </summary>
     private async Task<HashSet<string>> CheckEndpointsAsync(OwnerMemoryExport export, OwnerIdentityState? state,
@@ -260,8 +321,7 @@ internal sealed class Neo4jMemoryOwnerDataService(
         // REV2-1: a fold target the file does not carry is folded into only when it is shared here. One that is missing, or
         // an owner's (a retired identity an older export still names), leaves the mention as its own entity: nothing is
         // refused, and nothing is joined to an entity the import does not bring.
-        var folds = await ForeignAsync(joined.Values.Where(id => !created.Contains(id)).ToHashSet(StringComparer.Ordinal), refuseOwned: false)
-            .ConfigureAwait(false);
+        var folds = await ForeignAsync(joined.Values.Where(id => !created.Contains(id)).ToHashSet(StringComparer.Ordinal)).ConfigureAwait(false);
         foreach (var (mention, identity) in joined.ToList())
             if (folds.Contains(identity)) joined.Remove(mention);
 
@@ -340,7 +400,7 @@ internal sealed class Neo4jMemoryOwnerDataService(
             _ => false,
         };
 
-        async Task<HashSet<string>> ForeignAsync(HashSet<string> candidates, bool refuseOwned = true)
+        async Task<HashSet<string>> ForeignAsync(HashSet<string> candidates)
         {
             if (candidates.Count == 0) return new HashSet<string>(StringComparer.Ordinal);
             var rows = await tx.ReadAsync(async runner =>
@@ -349,10 +409,7 @@ internal sealed class Neo4jMemoryOwnerDataService(
                     new Dictionary<string, object?> { ["ids"] = candidates.ToArray() }).ConfigureAwait(false);
                 return await cursor.ToListAsync().ConfigureAwait(false);
             }, cancellationToken).ConfigureAwait(false);
-            if (refuseOwned && rows.Any(row => row["present"].As<bool>() && !row["shared"].As<bool>()))
-                throw new ArgumentException("The export links to entities that belong to an owner in this store and are not in the export; " +
-                    "nothing was imported.", nameof(export));
-            // Returned: what is missing here, and (when not refused) what an owner holds; neither is linked or folded into.
+            // Returned: what is missing here and what an owner holds; neither is linked or folded into.
             return rows.Where(row => !row["shared"].As<bool>()).Select(row => row["id"].As<string>()).ToHashSet(StringComparer.Ordinal);
         }
     }
@@ -506,35 +563,67 @@ internal sealed class Neo4jMemoryOwnerDataService(
     }
 
     /// <summary>
-    /// REV2-4: for a restore into the same owner, each original observation key this store does not hold (no decision with
-    /// it in the owner's scope, and neither the decision nor the observation entity id it gives taken), and the revision
-    /// and relationship-observation ids it does not hold. Those keep their original values.
+    /// REV2-4: for a restore into the same owner, the original observation keys, review revisions and relationship
+    /// observations that keep their ids, so re-ingesting a restored message replays instead of deciding again. REV3-8: an
+    /// id is kept only when it is derived again here, the way ingestion and review derive it, for this owner (so a key or
+    /// id naming another owner's record is never looked up); REV2-4, REV3-4: only when none of its messages became a
+    /// marker and, for a revision or relationship observation, its decisions kept theirs; and only when this store does
+    /// not hold it.
     /// </summary>
     private async Task<(Dictionary<string, string> Keys, HashSet<string> Keep)> KeepOriginalsAsync(OwnerIdentityState state,
         Dictionary<string, string> keys, IReadOnlyDictionary<string, string> messages, string ownerId, CancellationToken cancellationToken)
     {
-        // A decision whose sources became markers cannot keep its key: re-ingesting its message would find the key with
-        // other sources, and replay refuses that.
-        var marked = state.Nodes.Where(node => node.Label == "IdentityDecision").Select(node =>
+        bool Translated(IEnumerable<string> sources) => sources.Any(messages.ContainsKey);
+        static string? Record(OwnerGraphNode node) =>
+            node.Properties.TryGetValue("identity_record_json", out var json) ? json.Text : null;
+        var candidates = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var node in state.Nodes.Where(node => node.Label == "IdentityDecision"))
         {
-            var decision = IdentityDecisionPayload.Decode(node.Properties["identity_record_json"].Text!);
-            var translated = decision.Context.SourceMessageIds.Concat(decision.Observation.SourceMessageIds)
-                .Concat(decision.Context.Sources.SelectMany(source => source.OriginIds.Append(source.SourceId))).Any(messages.ContainsKey);
-            return translated ? decision.ObservationKey : null;
-        }).OfType<string>().ToHashSet(StringComparer.Ordinal);
-        var records = state.Nodes.Where(node => node.Label is "IdentityDecisionRevision" or "IdentityRelationshipObservation")
-            .Select(node => node.Key).ToArray();
-        var (takenKeys, takenIds) = await tx.ReadAsync(async runner =>
-        {
-            var byKey = await (await runner.RunAsync(OwnerDataQueries.TakenObservationKeys, new Dictionary<string, object?>
-                { ["keys"] = keys.Keys.ToArray(), ["ownerScope"] = "owned:" + ownerId }).ConfigureAwait(false)).ToListAsync().ConfigureAwait(false);
-            var byId = await (await runner.RunAsync(OwnerDataQueries.TakenIdentityRecordIds, new Dictionary<string, object?>
-                { ["ids"] = records }).ConfigureAwait(false)).ToListAsync().ConfigureAwait(false);
-            return (byKey.Where(row => row["taken"].As<bool>()).Select(row => row["key"].As<string>()).ToHashSet(StringComparer.Ordinal),
-                byId.Where(row => row["taken"].As<bool>()).Select(row => row["id"].As<string>()).ToHashSet(StringComparer.Ordinal));
-        }, cancellationToken).ConfigureAwait(false);
-        var kept = keys.ToDictionary(pair => pair.Key, pair => takenKeys.Contains(pair.Key) || marked.Contains(pair.Key) ? pair.Value : pair.Key,
+            var decision = IdentityDecisionPayload.Decode(Record(node)!);
+            var key = node.Properties["identity_observation_key"].Text!;
+            if (!Translated(decision.Context.SourceMessageIds.Concat(decision.Observation.SourceMessageIds)
+                    .Concat(decision.Context.Sources.SelectMany(source => source.OriginIds.Append(source.SourceId)))) &&
+                AgentMemory.Core.Extraction.IdentityIngestion.ObservationKey(ownerId, decision.Context.SourceMessageIds, decision.Observation) == key)
+                candidates.Add(key);
+        }
+        var takenKeys = candidates.Count == 0 ? new HashSet<string>(StringComparer.Ordinal) : await tx.ReadAsync(async runner =>
+            (await (await runner.RunAsync(OwnerDataQueries.TakenObservationKeys, new Dictionary<string, object?>
+                { ["keys"] = candidates.ToArray(), ["ownerScope"] = "owned:" + ownerId }).ConfigureAwait(false)).ToListAsync().ConfigureAwait(false))
+                .Where(row => row["taken"].As<bool>()).Select(row => row["key"].As<string>()).ToHashSet(StringComparer.Ordinal),
+            cancellationToken).ConfigureAwait(false);
+        var kept = keys.ToDictionary(pair => pair.Key, pair => candidates.Contains(pair.Key) && !takenKeys.Contains(pair.Key) ? pair.Key : pair.Value,
             StringComparer.Ordinal);
+        bool Kept(string decisionId) => decisionId.StartsWith(OwnerIdentityPortability.DecisionPrefix, StringComparison.Ordinal) &&
+            kept.TryGetValue(decisionId[OwnerIdentityPortability.DecisionPrefix.Length..], out var key) &&
+            key == decisionId[OwnerIdentityPortability.DecisionPrefix.Length..];
+        var revisionOf = state.Edges.Where(edge => edge.Type == "HAS_IDENTITY_REVISION")
+            .GroupBy(edge => edge.To, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First().From, StringComparer.Ordinal);
+        var records = new List<string>();
+        foreach (var node in state.Nodes)
+        {
+            if (node.Label == "IdentityDecisionRevision" && revisionOf.TryGetValue(node.Key, out var decisionId) && Kept(decisionId) &&
+                Record(node) is { } revisionJson)
+            {
+                var revision = IdentityDecisionPayload.Decode(revisionJson);
+                if (node.Key == decisionId + "/1" || revision.LatestReview is { } review &&
+                    node.Key == AgentMemory.Core.Resolution.IdentityReviewPayload.RevisionId(decisionId, review.OperationId, ownerId))
+                    records.Add(node.Key);
+            }
+            else if (node.Label == "IdentityRelationshipObservation" && Record(node) is { } relationshipJson)
+            {
+                var observation = IdentityRelationshipPayload.Decode(relationshipJson);
+                if (!Translated(observation.SourceMessageIds) &&
+                    new[] { observation.SourceDecisionId, observation.TargetDecisionId }.OfType<string>().All(Kept) &&
+                    node.Key == "identity-relationship-observation-" +
+                        IdentityRelationshipPayload.Fingerprint(observation with { OwnerId = ownerId }).ToLowerInvariant())
+                    records.Add(node.Key);
+            }
+        }
+        var takenIds = records.Count == 0 ? new HashSet<string>(StringComparer.Ordinal) : await tx.ReadAsync(async runner =>
+            (await (await runner.RunAsync(OwnerDataQueries.TakenIdentityRecordIds, new Dictionary<string, object?> { ["ids"] = records.ToArray() })
+                .ConfigureAwait(false)).ToListAsync().ConfigureAwait(false))
+                .Where(row => row["taken"].As<bool>()).Select(row => row["id"].As<string>()).ToHashSet(StringComparer.Ordinal),
+            cancellationToken).ConfigureAwait(false);
         return (kept, records.Where(id => !takenIds.Contains(id)).ToHashSet(StringComparer.Ordinal));
     }
 
@@ -607,7 +696,7 @@ internal sealed class Neo4jMemoryOwnerDataService(
     private async Task ImportIdentityAsync(OwnerIdentityState state, OwnerMemoryExport export, string ownerId,
         Dictionary<string, string> map, IReadOnlyDictionary<string, string> keys, IReadOnlySet<string> keep,
         IReadOnlyDictionary<string, string> messages, IReadOnlySet<string> missing, Dictionary<string, int> written,
-        CancellationToken cancellationToken)
+        List<(string Label, string Id, string? From)> created, CancellationToken cancellationToken)
     {
         var oldOwner = export.OwnerId;
         var entityKeys = export.Entities.Select(entity => entity.EntityId).ToList();
@@ -655,13 +744,17 @@ internal sealed class Neo4jMemoryOwnerDataService(
                 IdentityDecisionPayload.Decode(text).Observation is { Embedding: not null } observation)
                 vectors[node.Key] = await embeddings.EmbedAsync(observation.Name, cancellationToken).ConfigureAwait(false) is { Length: > 0 } vector
                     ? vector : null;
-        // REV1-S1: a binding's id follows its decision, fact and role, as binding makes it.
+        // REV1-S1: a binding's id follows its decision, fact and role, as binding makes it. REV3-1: two bindings that come to
+        // the same id (one decision, one fact, one role) are one binding in the store; the second is left out.
+        var bindingIds = new HashSet<string>(StringComparer.Ordinal);
+        var duplicateBindings = new HashSet<string>(StringComparer.Ordinal);
         foreach (var node in state.Nodes.Where(node => node.Label == "IdentityFactBinding"))
             if (linkTo.TryGetValue(("HAS_IDENTITY_BINDING", node.Key), out var bound) &&
                 node.Properties.TryGetValue("identity_decision_id", out var decisionId) && decisionId.Text is { } decided && map.TryGetValue(decided, out var newDecision) &&
                 node.Properties.TryGetValue("identity_fact_role", out var role) && role.Text is { } boundRole && map.TryGetValue(bound.From, out var newFact))
             {
                 var bindingId = Neo4jIdentityDecisionRepository.BindingId(newDecision, newFact, boundRole);
+                if (!bindingIds.Add(bindingId)) { duplicateBindings.Add(node.Key); continue; }
                 map[node.Key] = bindingId;
                 references[node.Key] = bindingId;
             }
@@ -671,6 +764,8 @@ internal sealed class Neo4jMemoryOwnerDataService(
             .Where(map.ContainsKey).Select(id => map[id]).ToHashSet(StringComparer.Ordinal);
         var decisionKeys = state.Nodes.Where(node => node.Label == "IdentityDecision")
             .ToDictionary(node => node.Key, node => keys[node.Properties["identity_observation_key"].Text!], StringComparer.Ordinal);
+        // REV3-3: confirmations whose target this store does not hold, and the decisions they become.
+        var standalone = new Dictionary<string, IdentityDecision>(StringComparer.Ordinal);
         string Owned(OwnerGraphNode node, string record)
         {
             if (node.Label == "IdentityRelationshipObservation")
@@ -699,11 +794,27 @@ internal sealed class Neo4jMemoryOwnerDataService(
                     Diagnostics = [.. decision.Diagnostics, "identity_import_candidates_not_in_store"],
                 };
             }
-            return IdentityDecisionPayload.Encode(decision with
+            var standsAlone = node.Label == "IdentityDecision" && decision.Status == IdentityDecisionKind.Confirmed &&
+                decision.ConfirmedEntityId is { } target && missing.Contains(target);
+            if (standsAlone)
+            {
+                // REV3-3: the confirmed identity (a shared entity) stayed behind. A confirmation without its target cannot be
+                // reviewed, so the copy holds what a revocation leaves: the observation as its own entity (made below),
+                // with the decision and its bindings resolved to it, and a diagnostic saying why.
+                written["identity:confirmations-without-target"] = written.GetValueOrDefault("identity:confirmations-without-target") + 1;
+                decision = decision with
+                {
+                    Status = IdentityDecisionKind.New, ConfirmedEntityId = null, PendingEntityIds = [], ContextualEvidence = null,
+                    Diagnostics = [.. decision.Diagnostics, "identity_import_target_not_in_store"],
+                };
+            }
+            var owned = decision with
             {
                 DecisionId = map[decisionNode], ObservationKey = key,
                 Observation = decision.Observation with { OwnerId = ownerId, EntityId = observationId, Embedding = vectors.GetValueOrDefault(node.Key) },
-            });
+            };
+            if (standsAlone) standalone[node.Key] = owned;
+            return IdentityDecisionPayload.Encode(owned);
         }
         var factsById = export.Facts.ToDictionary(fact => fact.FactId, StringComparer.Ordinal);
         var decisionRoots = state.Nodes.Where(node => node.Label == "IdentityDecision").ToDictionary(node => node.Key, node =>
@@ -725,6 +836,7 @@ internal sealed class Neo4jMemoryOwnerDataService(
                     AgentMemory.Core.Memory.MemoryTripleCanonicalizer.CanonicalValue(observed);
             if (!consistent) invalid.Add(node.Key);
         }
+        invalid.UnionWith(duplicateBindings);
         if (invalid.Count > 0) written["identity:bindings-dropped"] = invalid.Count;
         var dropped = 0;
         Dictionary<string, object?> Record(OwnerGraphNode node)
@@ -737,6 +849,7 @@ internal sealed class Neo4jMemoryOwnerDataService(
             if (node.Label is "IdentityDecision" or "IdentityDecisionRevision" or "IdentityRelationshipObservation" &&
                 values.GetValueOrDefault("identity_record_json") is string record)
                 values["identity_record_json"] = Owned(node, record);
+            if (standalone.ContainsKey(node.Key)) values.Remove("identity_target_snapshot");
             values["id"] = map[node.Key];
             values["owner_id"] = ownerId;
             values["owner_scope"] = "owned:" + ownerId;
@@ -744,8 +857,11 @@ internal sealed class Neo4jMemoryOwnerDataService(
         }
 
         foreach (var (label, queries) in OwnerDataQueries.IdentityRecords)
-            await WriteRowsAsync(queries.Import, "identity:" + label,
-                state.Nodes.Where(node => node.Label == label && !invalid.Contains(node.Key)).Select(node => (object)Record(node)).ToList()).ConfigureAwait(false);
+        {
+            var rows = state.Nodes.Where(node => node.Label == label && !invalid.Contains(node.Key)).Select(Record).ToList();
+            created.AddRange(rows.Select(row => (label, (string)row["id"]!, (string?)null)));
+            await WriteRowsAsync(queries.Import, "identity:" + label, [.. rows.Cast<object>()]).ConfigureAwait(false);
+        }
         if (dropped > 0) written["identity:properties-dropped"] = dropped;
         await WriteRowsAsync(OwnerDataQueries.ImportEntityIdentity, "identity:entity-properties",
             state.EntityProperties.Where(node => map.ContainsKey(node.Key))
@@ -754,11 +870,28 @@ internal sealed class Neo4jMemoryOwnerDataService(
                     ["key"] = map[node.Key],
                     ["props"] = node.Properties.ToDictionary(pair => pair.Key, pair => OwnerIdentityPortability.FromValue(remap.Value(pair.Key, pair.Value)), StringComparer.Ordinal),
                 }).ToList()).ConfigureAwait(false);
+        // REV3-3: each confirmation whose target stayed behind stands on its observation, made as a revocation makes it
+        // (unless the file brought it), and the decision and its bindings resolve to it.
+        var ownTarget = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (decisionNode, decision) in standalone)
+        {
+            ownTarget[map[decisionNode]] = decision.Observation.EntityId;
+            if (importedEntities.Contains(decision.Observation.EntityId)) continue;
+            created.Add(("Entity", decision.Observation.EntityId, null));
+            await tx.WriteAsync(runner => Neo4jIdentityDecisionRepository.MaterializeObservation(runner, decision.Observation, decision.ObservationKey,
+                includeShared: false, cancellationToken), cancellationToken).ConfigureAwait(false);
+        }
+        foreach (var node in state.Nodes.Where(node => node.Label == "IdentityFactBinding" && !invalid.Contains(node.Key)))
+            if (node.Properties.TryGetValue("identity_decision_id", out var decided) && decided.Text is { } decisionNode &&
+                standalone.TryGetValue(decisionNode, out var decision) && map.TryGetValue(node.Key, out var binding))
+                ownTarget[binding] = decision.Observation.EntityId;
         foreach (var link in OwnerDataQueries.IdentityLinks)
         {
             var edges = state.Edges.Where(edge => edge.Type == link.Type && edge.FromLabel == link.FromLabel && edge.ToLabel == link.ToLabel &&
                     !invalid.Contains(edge.From) && !invalid.Contains(edge.To))
-                .Select(edge => (From: remap.Id(edge.From), To: remap.Id(edge.To))).ToList();
+                .Select(edge => (From: remap.Id(edge.From), To: remap.Id(edge.To)))
+                .Select(edge => link.Type == "RESOLVES_TO" && missing.Contains(edge.To) && ownTarget.TryGetValue(edge.From, out var own)
+                    ? (edge.From, To: own) : edge).ToList();
             var left = edges.Count(edge => missing.Contains(edge.From) || missing.Contains(edge.To));
             if (left > 0) written["skipped:identity-links"] = written.GetValueOrDefault("skipped:identity-links") + left;
             await WriteRowsAsync(link.Import, "identity:links", edges.Where(edge => !missing.Contains(edge.From) && !missing.Contains(edge.To))

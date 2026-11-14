@@ -72,7 +72,9 @@ public static class OwnerDataQueries
     /// <summary>An imported fact's closing, as it was.</summary>
     public const string RestoreFactClosing = @"
             MATCH (f:Fact {id: $id})
-            SET f.invalidated_at = datetime($invalidatedAt), f.invalidated_reason = $reason";
+            SET f.invalidated_at = datetime($invalidatedAt), f.invalidated_reason = $reason,
+                // REV3-1: a replaced value leaves the open period, as superseding it does.
+                f.period_key = CASE WHEN $closesPeriod THEN f.id ELSE f.period_key END";
 
     /// <summary>An imported preference's closing, as it was.</summary>
     public const string RestorePreferenceClosing = @"
@@ -165,6 +167,23 @@ public static class OwnerDataQueries
             MATCH (c:Conversation {id: m.conversation_id}) WHERE c.user_id = $ownerId
             RETURN DISTINCT m.id AS id";
 
+    /// <summary>
+    /// REV3-6: removes what a failed import created, by kind, only the importing owner's; a relationship is found from its
+    /// source entity.
+    /// </summary>
+    public static readonly IReadOnlyDictionary<string, string> RemoveImported = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        ["RELATED_TO"] = "UNWIND $rows AS row MATCH (:Entity {id: row.from})-[r:RELATED_TO {id: row.id}]->() WHERE r.owner_id = $ownerId DELETE r",
+        ["Entity"] = "UNWIND $rows AS row MATCH (n:Entity {id: row.id}) WHERE n.owner_id = $ownerId DETACH DELETE n",
+        ["Fact"] = "UNWIND $rows AS row MATCH (n:Fact {id: row.id}) WHERE n.owner_id = $ownerId DETACH DELETE n",
+        ["Preference"] = "UNWIND $rows AS row MATCH (n:Preference {id: row.id}) WHERE n.owner_id = $ownerId DETACH DELETE n",
+        ["IdentityDecision"] = "UNWIND $rows AS row MATCH (n:IdentityDecision {id: row.id}) WHERE n.owner_id = $ownerId DETACH DELETE n",
+        ["IdentityDecisionRevision"] = "UNWIND $rows AS row MATCH (n:IdentityDecisionRevision {id: row.id}) WHERE n.owner_id = $ownerId DETACH DELETE n",
+        ["IdentityFactBinding"] = "UNWIND $rows AS row MATCH (n:IdentityFactBinding {id: row.id}) WHERE n.owner_id = $ownerId DETACH DELETE n",
+        ["IdentityEvidenceAssertion"] = "UNWIND $rows AS row MATCH (n:IdentityEvidenceAssertion {id: row.id}) WHERE n.owner_id = $ownerId DETACH DELETE n",
+        ["IdentityRelationshipObservation"] = "UNWIND $rows AS row MATCH (n:IdentityRelationshipObservation {id: row.id}) WHERE n.owner_id = $ownerId DETACH DELETE n",
+    };
+
     /// <summary>REV2-4: which original observation keys this store already holds, in the owner's scope or by the ids they give.</summary>
     public const string TakenObservationKeys = @"
             UNWIND $keys AS key
@@ -186,7 +205,7 @@ public static class OwnerDataQueries
     /// <summary>REV2-14: the owner's fact in its open period with these keys, the one a write would merge onto.</summary>
     public const string HeldFact = @"
             MATCH (f:Fact {subject_key: $subjectKey, predicate_key: $predicateKey, object_key: $objectKey, owner_key: $ownerKey, period_key: ''})
-            WHERE f.owner_id = $ownerId
+            WHERE f.owner_id = $ownerId AND f.invalidated_at IS NULL
             RETURN f.id AS id LIMIT 1";
 
     /// <summary>PR260-F7: an imported decision's record and target fingerprint, rebuilt for its imported target.</summary>
@@ -225,7 +244,7 @@ public static class OwnerDataQueries
             "UNWIND $rows AS row MATCH (a:IdentityDecision {id: row.from}) WHERE a.owner_id = $ownerId MATCH (b:Entity {id: row.to}) WHERE (b.owner_id = $ownerId OR b.owner_id IS NULL) MERGE (a)-[r:POSSIBLE_SAME_AS]->(b) RETURN count(r) AS written"),
         ("Entity", "HAS_IDENTITY_EVIDENCE", "IdentityEvidenceAssertion",
             "MATCH (a:Entity)-[r:HAS_IDENTITY_EVIDENCE]->(b:IdentityEvidenceAssertion) WHERE b.owner_id = $ownerId RETURN a.id AS from, b.id AS to, properties(r) AS props",
-            "UNWIND $rows AS row MATCH (a:Entity {id: row.from}) WHERE (a.owner_id = $ownerId OR a.owner_id IS NULL) MATCH (b:IdentityEvidenceAssertion {id: row.to}) WHERE b.owner_id = $ownerId MERGE (a)-[r:HAS_IDENTITY_EVIDENCE]->(b) RETURN count(r) AS written"),
+            "UNWIND $rows AS row MATCH (a:Entity {id: row.from}) WHERE a.owner_id = $ownerId MATCH (b:IdentityEvidenceAssertion {id: row.to}) WHERE b.owner_id = $ownerId MERGE (a)-[r:HAS_IDENTITY_EVIDENCE]->(b) RETURN count(r) AS written"),
         ("IdentityRelationshipObservation", "SOURCE_IDENTITY", "IdentityDecision",
             "MATCH (a:IdentityRelationshipObservation)-[r:SOURCE_IDENTITY]->(b:IdentityDecision) WHERE a.owner_id = $ownerId RETURN a.id AS from, b.id AS to, properties(r) AS props",
             "UNWIND $rows AS row MATCH (a:IdentityRelationshipObservation {id: row.from}) WHERE a.owner_id = $ownerId MATCH (b:IdentityDecision {id: row.to}) WHERE b.owner_id = $ownerId MERGE (a)-[r:SOURCE_IDENTITY]->(b) RETURN count(r) AS written"),

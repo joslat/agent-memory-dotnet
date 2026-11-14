@@ -32,22 +32,23 @@ internal sealed partial class MemoryContextAssembler
         var token = expiry?.Token ?? cancellationToken;
         IReadOnlyList<Fact> details;
         IReadOnlyList<PersonIdentity> people;
+        IReadOnlyList<PersonMentions.Person> known;
         IReadOnlyList<string> named;
         try
         {
             // REV2-2: first every spelling people are known by, a light read; the full read only when one of them is in
             // the question. A full page of spellings may leave one out, so it goes on to the full read: this step can
             // skip work, never a person.
-            var known = await TimedAsync("memory.recall.person-names", () => _longTerm.GetPersonNamesAsync(
+            var spellings = await TimedAsync("memory.recall.person-names", () => _longTerm.GetPersonNamesAsync(
                 PersonMentions.MaxSpellingsRead, scope, token)).ConfigureAwait(false);
-            if (known.Count < PersonMentions.MaxSpellingsRead && !PersonMentions.Mentions(question, known)) return none;
+            if (spellings.Count < PersonMentions.MaxSpellingsRead && !PersonMentions.Mentions(question, spellings)) return none;
             people = await TimedAsync("memory.recall.person-identities", () => _longTerm.GetPersonIdentitiesAsync(
                 PersonMentions.MaxPeopleRead, scope, token)).ConfigureAwait(false);
             // A full page may leave a namesake past the bound, and a person whose names were cut off may carry any name, so
             // no name is known to be unique: expand nobody (PR260-F2, N4).
             if (people.Count >= PersonMentions.MaxPeopleRead || people.Any(person => !person.Complete)) return none;
-            named = PersonMentions.Named(question,
-                people.Select(person => new PersonMentions.Person(person.EntityId, person.Surfaces, person.Confirmed)).ToArray());
+            known = people.Select(person => new PersonMentions.Person(person.EntityId, person.Surfaces, person.Confirmed)).ToArray();
+            named = PersonMentions.Named(question, known);
             if (named.Count == 0) return none;
             details = await TimedAsync("memory.recall.person-details", () => _longTerm.GetPersonDetailsAsync(
                 named, seen.Take(512).ToArray(), options.MaxPersonDetailFacts, scope, token)).ConfigureAwait(false);
@@ -61,11 +62,12 @@ internal sealed partial class MemoryContextAssembler
         var widened = new List<Fact>(facts);
         foreach (var detail in details.Take(options.MaxPersonDetailFacts))
             if (seen.Add(detail.FactId)) widened.Add(detail);
-        // REV2-5: every spelling of a named person, so the hand-over to current values treats "Ana" and "Ana García" as one.
+        // REV2-5: the spellings of a named person, so the hand-over to current values treats "Ana" and "Ana García" as one.
+        // REV3-2: only spellings no other person has; a fact about a shared "Ana" stays its own subject.
         var subjects = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var person in people.Where(person => named.Contains(person.EntityId, StringComparer.Ordinal)))
-            foreach (var surface in person.Surfaces)
-                subjects.TryAdd(MemoryTripleCanonicalizer.CanonicalValue(surface), person.EntityId);
+        foreach (var id in named)
+            foreach (var surface in PersonMentions.OwnSpellings(known, id))
+                subjects.TryAdd(MemoryTripleCanonicalizer.CanonicalValue(surface), id);
         return (widened, subjects);
     }
 }

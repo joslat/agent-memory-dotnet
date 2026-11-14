@@ -103,19 +103,14 @@ internal sealed class MigrationRunner : IMigrationRunner
 
         await EnsureMigrationConstraintAsync(cancellationToken).ConfigureAwait(false);
 
-        // REV2-7: a script the database refuses stops its own namespace only (the base sequence, or one extension), whose
-        // later scripts may build on it; every other namespace still runs. The first failure is rethrown at the end.
-        var failed = new Dictionary<string, Neo4jException>(StringComparer.Ordinal);
+        // REV2-7, REV3-7: every shipped statement is independent and idempotent (IF NOT EXISTS, or a backfill that sets a
+        // missing value), so a statement the database refuses (a unique constraint over duplicates) stops nothing else:
+        // the other statements of its script, and every later script, still run. A script is recorded only when all of
+        // its statements applied, so the next start tries it again. The first failure is rethrown at the end.
+        Neo4jException? first = null;
         foreach (var (version, name, extensionId) in migrationFiles)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var space = extensionId ?? string.Empty;
-            if (failed.ContainsKey(space))
-            {
-                _logger.LogError("Migration {Version} skipped: an earlier script of {Namespace} could not be applied.",
-                    version, extensionId ?? "the base sequence");
-                continue;
-            }
 
             if (await IsMigrationAppliedAsync(version, cancellationToken).ConfigureAwait(false))
             {
@@ -123,18 +118,10 @@ internal sealed class MigrationRunner : IMigrationRunner
                 continue;
             }
 
-            try
-            {
-                await ApplyMigrationAsync(version, name, extensionId, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Neo4jException exception)
-            {
-                _logger.LogError(exception, "Migration {Version} could not be applied ({Message}); the rest of {Namespace} is skipped.",
-                    version, exception.Message, extensionId ?? "the base sequence");
-                failed[space] = exception;
-            }
+            var refused = await ApplyMigrationAsync(version, name, extensionId, cancellationToken).ConfigureAwait(false);
+            first ??= refused;
         }
-        if (failed.Count > 0) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(failed.Values.First());
+        if (first is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(first);
     }
 
     /// <summary>
@@ -196,7 +183,8 @@ internal sealed class MigrationRunner : IMigrationRunner
         }, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task ApplyMigrationAsync(
+    /// <returns>The first statement the database refused, if any; the script is then not recorded.</returns>
+    private async Task<Neo4jException?> ApplyMigrationAsync(
         string version, string name, string? extensionId, CancellationToken cancellationToken)
     {
         var script = await _scripts.ReadAsync(name, cancellationToken).ConfigureAwait(false);
@@ -210,11 +198,22 @@ internal sealed class MigrationRunner : IMigrationRunner
         // per RUN, and Neo4j forbids mixing schema operations (CREATE INDEX/CONSTRAINT) with the
         // data write that records the migration below. Every shipped statement is idempotent
         // (IF NOT EXISTS), so a partial apply is safely resumable on the next run.
+        Neo4jException? refused = null;
         foreach (var statement in statements)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            await _txRunner.WriteAsync(async tx => { await tx.RunAsync(statement).ConfigureAwait(false); }, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await _txRunner.WriteAsync(async tx => { await tx.RunAsync(statement).ConfigureAwait(false); }, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Neo4jException exception)
+            {
+                _logger.LogError(exception, "A statement of migration {Version} could not be applied ({Message}); the script is not recorded " +
+                    "and is tried again at the next start.", version, exception.Message);
+                refused ??= exception;
+            }
         }
+        if (refused is not null) return refused;
 
         await _txRunner.WriteAsync(async tx =>
         {
@@ -224,6 +223,7 @@ internal sealed class MigrationRunner : IMigrationRunner
         }, cancellationToken).ConfigureAwait(false);
 
         _logger.LogInformation("Migration {Version} applied successfully.", version);
+        return null;
     }
 
     /// <summary>

@@ -56,6 +56,15 @@ public sealed class PersonMentionsTests
     }
 
     [Fact]
+    public void A_persons_own_spellings_leave_out_what_another_person_shares()
+    {
+        // REV3-2: by the same whole-word key as Named, case and accents aside.
+        var people = new[] { P("garcia", "Ana García", "Ana"), P("lopez", "Ana López", "ana") };
+        PersonMentions.OwnSpellings(people, "garcia").Should().Equal(["Ana García"]);
+        PersonMentions.OwnSpellings(people, "lopez").Should().Equal(["Ana López"]);
+    }
+
+    [Fact]
     public void Mentions_tells_whether_any_known_name_is_in_the_question_at_all()
     {
         // REV2-2: the cheap first test on names and aliases only.

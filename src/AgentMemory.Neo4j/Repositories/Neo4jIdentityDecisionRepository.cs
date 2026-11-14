@@ -432,7 +432,7 @@ internal sealed partial class Neo4jIdentityDecisionRepository(INeo4jTransactionR
             ? fragment.OriginIds : (IReadOnlyList<string>)[id]).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
     }
 
-    private static async Task MaterializeObservation(IAsyncQueryRunner runner, Entity observation, string observationKey, bool includeShared, CancellationToken cancellationToken)
+    internal static async Task MaterializeObservation(IAsyncQueryRunner runner, Entity observation, string observationKey, bool includeShared, CancellationToken cancellationToken)
     {
         var properties = new Dictionary<string, object?>
         {
