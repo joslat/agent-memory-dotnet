@@ -68,6 +68,21 @@ public class Neo4jOptions
     public bool FilteredVectorIndexes { get; set; }
 
     /// <summary>
+    /// When <see langword="true"/> (the default), schema bootstrap also applies the migration scripts: the base sequence,
+    /// then the scripts of every active schema extension (<see cref="Extensions"/>, identity's among them where
+    /// evidence-based identity runs). Each script runs once per database and is recorded in a <c>(:Migration)</c> node,
+    /// so later starts only check. Set <see langword="false"/> where an operator owns the database's schema and applies
+    /// the scripts with <see cref="IMigrationRunner"/> (or the repository's <c>agentmemory migrate</c>) instead.
+    /// </summary>
+    /// <remarks>
+    /// Before 2.3.0 nothing in the library ran the scripts, so an installed application never got an extension's schema:
+    /// identity ran without its unique constraints and lookup indexes. A script the database refuses (for example a unique
+    /// constraint over nodes that were already duplicated) is logged as an error and bootstrap completes as before; the
+    /// next start tries again.
+    /// </remarks>
+    public bool ApplyMigrationsOnBootstrap { get; set; } = true;
+
+    /// <summary>
     /// Ids of the optional schema extensions this deployment activates. Empty (the default) is today's
     /// base schema, byte-identical.
     /// </summary>

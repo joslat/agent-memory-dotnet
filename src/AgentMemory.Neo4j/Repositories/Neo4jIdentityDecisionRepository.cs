@@ -306,6 +306,27 @@ internal sealed partial class Neo4jIdentityDecisionRepository(INeo4jTransactionR
                 ? target : null;
     }
 
+    /// <summary>
+    /// The fingerprint a decision's target has now (<see cref="Snapshot"/>), or null when it is not visible. Owner import
+    /// uses it: a decision whose stored fingerprint matched its source target gets its imported target's.
+    /// </summary>
+    internal static async Task<string?> TargetSnapshotAsync(IAsyncQueryRunner runner, IdentityDecision decision, string targetId,
+        CancellationToken cancellationToken)
+    {
+        var target = (await Neo4jIdentityEvidenceRepository.Hydrate(runner, Query(decision, includeShared: true), [targetId],
+            new Dictionary<string, double>(), cancellationToken).ConfigureAwait(false)).SingleOrDefault(candidate => candidate.Entity.EntityId == targetId);
+        return target is null ? null : Snapshot(target, decision.Policy);
+    }
+
+    /// <summary>The fingerprints a contextual confirmation's candidates have now, by id; null when any is not visible.</summary>
+    internal static async Task<Dictionary<string, string>?> CandidateSnapshotsAsync(IAsyncQueryRunner runner, IdentityDecision decision,
+        IReadOnlyCollection<string> ids, CancellationToken cancellationToken)
+    {
+        var candidates = await Neo4jIdentityEvidenceRepository.Hydrate(runner, Query(decision, includeShared: true), [.. ids],
+            new Dictionary<string, double>(), cancellationToken).ConfigureAwait(false);
+        return candidates.Count == ids.Count ? CandidateSnapshots(candidates, decision.Policy) : null;
+    }
+
     private static Dictionary<string, string> CandidateSnapshots(IReadOnlyList<IdentityCandidate> candidates,
         EntityIdentityPolicy policy) => candidates.ToDictionary(candidate => candidate.Entity.EntityId,
             candidate => Snapshot(candidate, policy), StringComparer.Ordinal);
@@ -315,7 +336,7 @@ internal sealed partial class Neo4jIdentityDecisionRepository(INeo4jTransactionR
         candidates.All(candidate => snapshots.TryGetValue(candidate.Entity.EntityId, out var expected) &&
             Snapshot(candidate, policy) == expected);
 
-    private static Dictionary<string, string>? ReadContextualSnapshots(IdentityDecision decision)
+    internal static Dictionary<string, string>? ReadContextualSnapshots(IdentityDecision decision)
     {
         // Only called for an already committed decision read from storage. Initial caller JSON
         // is wrapped under suppliedReceipt and never read as backend confirmation authority.
@@ -411,7 +432,7 @@ internal sealed partial class Neo4jIdentityDecisionRepository(INeo4jTransactionR
             ? fragment.OriginIds : (IReadOnlyList<string>)[id]).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
     }
 
-    private static async Task MaterializeObservation(IAsyncQueryRunner runner, Entity observation, string observationKey, bool includeShared, CancellationToken cancellationToken)
+    internal static async Task MaterializeObservation(IAsyncQueryRunner runner, Entity observation, string observationKey, bool includeShared, CancellationToken cancellationToken)
     {
         var properties = new Dictionary<string, object?>
         {
@@ -449,8 +470,11 @@ internal sealed partial class Neo4jIdentityDecisionRepository(INeo4jTransactionR
         cancellationToken.ThrowIfCancellationRequested();
         if (!IsEnabled) throw new InvalidOperationException("Enable and migrate identity-evidence before using durable identity decisions.");
     }
-    private static string BindingId(string decisionId, IdentityFactBinding binding) => Convert.ToHexString(SHA256.HashData(
-        Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new[] { decisionId, binding.FactId, binding.Role.ToString() }))));
+    private static string BindingId(string decisionId, IdentityFactBinding binding) => BindingId(decisionId, binding.FactId, binding.Role.ToString());
+
+    /// <summary>A binding's id follows its decision, fact and role; owner import derives it the same way (REV1-S1).</summary>
+    internal static string BindingId(string decisionId, string factId, string role) => Convert.ToHexString(SHA256.HashData(
+        Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new[] { decisionId, factId, role }))));
     private static string Scope(string? ownerId) => ownerId is null ? "shared" : "owned:" + ownerId;
     private static IEnumerable<string> Scopes(string? ownerId, bool includeShared) => ownerId is not null && includeShared ? [Scope(ownerId), Scope(null)] : [Scope(ownerId)];
     private static void Text(string? value)

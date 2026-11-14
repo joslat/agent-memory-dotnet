@@ -145,6 +145,14 @@ await bootstrapper.BootstrapAsync();
 
 `ISchemaBootstrapper` is registered by `AddNeo4jAgentMemory()` — resolve it from the DI container rather than instantiating it directly.
 
+Bootstrap creates the constraints and indexes and, since 2.3.0, applies the migration scripts: the base sequence, then
+those of each active schema extension (identity's wherever evidence-based identity runs). Each script runs once per
+database and is recorded, so later starts only check; one the database refuses is logged as an error and startup
+continues. Before 2.3.0 nothing ran them unless the application called `IMigrationRunner` itself, so most applications
+ran identity without its unique constraints and lookup indexes: upgrading applies them on the next start. Where an
+operator owns the database's schema, set `Neo4jOptions.ApplyMigrationsOnBootstrap = false` and apply the scripts with
+`IMigrationRunner` instead ([who runs the DDL](extensions/README.md#who-runs-the-ddl)).
+
 ### 3.4 Multiple databases & instances (multi-tenant)
 
 The data model is three tiers — **store ⊃ owner ⊃ session**. How you isolate tenants depends on whether you want *logical* or *physical* separation, and whether your tenants share one Neo4j or live on different ones.
@@ -898,8 +906,8 @@ keeps them apart and leaves a proposal for review. The memory tiers line, logged
 (`IMemoryTiers`), says which one runs and why, for example `identity: evidence-based` or
 `identity: previous resolver (the store-aware writer is off; it can merge different things that share a name)`.
 
-Where it runs, identity brings what it was measured with: its Neo4j schema extension (`identity-evidence`, applied by the
-same `IMigrationRunner` step as the rest of the schema), at least 4 read-only context turns
+Where it runs, identity brings what it was measured with: its Neo4j schema extension (`identity-evidence`, applied at
+schema bootstrap with the rest of the migrations), at least 4 read-only context turns
 (`IdentityResolutionOptions.ContextTurns`), the writer's event identities, alias capture, event details at recall, and a
 second opinion on an uncertain mention from the extraction model (`AddIdentityAdjudication` gives it a dedicated model
 instead). The defaults of `IdentityResolutionOptions` are the measured configuration: 4 candidates, 2 second opinions of
@@ -945,7 +953,7 @@ and their dedicated regression runs; no final delivery claim is made here.
 
 ### Explicit host identity evidence
 
-Where identity runs its schema extension is added for you (apply migrations as usual). Register an application-owned
+Where identity runs its schema extension is added for you, and schema bootstrap applies it. Register an application-owned
 `IIdentityContextProvider` when the application can supply independently substantiated identifiers:
 
 ```csharp

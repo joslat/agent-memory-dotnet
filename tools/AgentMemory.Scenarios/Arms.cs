@@ -27,7 +27,8 @@ internal static class Arms
         // ILC-13: coreference ("the cutover" after "the go-live") needs the turns just before; read-only context, never
         // extracted from. Four turns, as the option documents; the frozen gold reaches 12 of 13 same-session follow-ups at 3.
         options.Extraction.ExtractionContextTurns = 4;
-        return options with { Recall = options.Recall with { EventDetails = true } };
+        // REV4-1: recall for people is opt-in; the identity arms measure it.
+        return options with { Recall = options.Recall with { EventDetails = true, PersonDetails = true } };
     }
 
     public static readonly IReadOnlyList<GraphArm> Graph =

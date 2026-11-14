@@ -42,6 +42,32 @@ public sealed class MigrationRunnerTests
         await act.Should().NotThrowAsync();
     }
 
+    /// <summary>
+    /// No migration scripts means the schema is never applied, which is what NuGet consumers of 2.1.0 and of the 2.2.0
+    /// meta-package got without a sign (the scripts never reached their build). It is a warning, and says where it looked.
+    /// </summary>
+    [Fact]
+    public async Task RunMigrationsAsync_NoMigrationFiles_WarnsThatTheSchemaWillNotBeApplied()
+    {
+        var logger = new RecordingLogger();
+        var runner = new MigrationRunner(Substitute.For<INeo4jTransactionRunner>(), logger, NonExistentDir);
+
+        await runner.RunMigrationsAsync();
+
+        var entry = logger.Entries.Should().ContainSingle().Which;
+        entry.Level.Should().Be(Microsoft.Extensions.Logging.LogLevel.Warning);
+        entry.Message.Should().Contain(NonExistentDir).And.Contain("will not be applied");
+    }
+
+    private sealed class RecordingLogger : Microsoft.Extensions.Logging.ILogger<MigrationRunner>
+    {
+        public List<(Microsoft.Extensions.Logging.LogLevel Level, string Message)> Entries { get; } = [];
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+        public void Log<TState>(Microsoft.Extensions.Logging.LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId, TState state,
+            Exception? exception, Func<TState, Exception?, string> formatter) => Entries.Add((logLevel, formatter(state, exception)));
+    }
+
     [Fact]
     public async Task RunMigrationsAsync_CancellationAlreadyRequested_CompletesEarly()
     {
@@ -105,6 +131,103 @@ public sealed class MigrationRunnerTests
         MigrationRunner.ParseStatements("").Should().BeEmpty();
         MigrationRunner.ParseStatements("   \n  ").Should().BeEmpty();
         MigrationRunner.ParseStatements("// just a comment\n// and another").Should().BeEmpty();
+    }
+
+    // ── A script the database refuses ──
+
+    [Fact]
+    public async Task A_refused_statement_stops_nothing_else_and_its_script_is_tried_again()
+    {
+        // REV2-7, REV3-7: the first statement of base 0002 is refused. Its second statement, base 0003 and the extension still
+        // apply; 0002 is not recorded, so the next start tries it again; the failure is reported.
+        var dir = Path.Combine(Path.GetTempPath(), "agentmemory-migtest-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(dir, "ext", "working-memory"));
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(dir, "0002_refused.cypher"),
+                "CREATE CONSTRAINT refused_idx IF NOT EXISTS FOR (n:A) REQUIRE n.x IS UNIQUE;\nCREATE INDEX sibling_idx IF NOT EXISTS FOR (n:A) ON (n.w);");
+            await File.WriteAllTextAsync(Path.Combine(dir, "0003_after.cypher"), "CREATE INDEX after_idx IF NOT EXISTS FOR (n:B) ON (n.y);");
+            await File.WriteAllTextAsync(Path.Combine(dir, "ext", "working-memory", "0001_user.cypher"), "CREATE INDEX user_idx IF NOT EXISTS FOR (n:User) ON (n.z);");
+            var executed = new List<string>();
+            var txRunner = Substitute.For<INeo4jTransactionRunner>();
+            txRunner.ReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task<bool>>>(), Arg.Any<CancellationToken>()).Returns(call =>
+            {
+                var runner = Substitute.For<IAsyncQueryRunner>();
+                runner.RunAsync(Arg.Any<string>(), Arg.Any<object>()).Returns(_ => Task.FromResult(Substitute.For<IResultCursor>()));
+                return call.Arg<Func<IAsyncQueryRunner, Task<bool>>>()(runner);
+            });
+            txRunner.WriteAsync(Arg.Any<Func<IAsyncQueryRunner, Task>>(), Arg.Any<CancellationToken>()).Returns(call =>
+            {
+                var runner = Substitute.For<IAsyncQueryRunner>();
+                Task<IResultCursor> Run(string statement)
+                {
+                    if (statement.Contains("refused_idx")) throw new ClientException("Neo.ClientError.Schema.ConstraintCreationFailed", "duplicates");
+                    executed.Add(statement);
+                    return Task.FromResult(Substitute.For<IResultCursor>());
+                }
+                runner.RunAsync(Arg.Any<string>()).Returns(ci => Run(ci.Arg<string>()));
+                runner.RunAsync(Arg.Any<string>(), Arg.Any<object>()).Returns(ci => Run(ci.Arg<string>()));
+                return call.Arg<Func<IAsyncQueryRunner, Task>>()(runner);
+            });
+            var migrations = new MigrationRunner(txRunner, NullLogger<MigrationRunner>.Instance, dir,
+                [new AgentMemory.Neo4j.Schema.Extensions.WorkingMemorySchemaExtension()]);
+
+            await migrations.Invoking(m => m.RunMigrationsAsync()).Should().ThrowAsync<ClientException>();
+
+            executed.Should().Contain(s => s.Contains("user_idx"), "another sequence still runs");
+            executed.Should().Contain(s => s.Contains("sibling_idx"), "the refused statement's script goes on");
+            executed.Should().Contain(s => s.Contains("after_idx"), "every shipped statement is independent, so later scripts still run");
+            executed.Where(s => s.Contains("MERGE (m:Migration")).Should().HaveCount(2, "0003 and the extension are recorded, 0002 is not");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task A_record_another_start_already_wrote_stops_nothing_else()
+    {
+        // REV4: two instances starting at once both apply a script; the second record write is refused. The runner goes on
+        // with the next scripts and reports the refusal.
+        var dir = Path.Combine(Path.GetTempPath(), "agentmemory-migtest-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(dir, "0002_first.cypher"), "CREATE INDEX first_idx IF NOT EXISTS FOR (n:A) ON (n.x);");
+            await File.WriteAllTextAsync(Path.Combine(dir, "0003_second.cypher"), "CREATE INDEX second_idx IF NOT EXISTS FOR (n:B) ON (n.y);");
+            var executed = new List<string>();
+            var records = 0;
+            var txRunner = Substitute.For<INeo4jTransactionRunner>();
+            txRunner.ReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task<bool>>>(), Arg.Any<CancellationToken>()).Returns(call =>
+            {
+                var runner = Substitute.For<IAsyncQueryRunner>();
+                runner.RunAsync(Arg.Any<string>(), Arg.Any<object>()).Returns(_ => Task.FromResult(Substitute.For<IResultCursor>()));
+                return call.Arg<Func<IAsyncQueryRunner, Task<bool>>>()(runner);
+            });
+            txRunner.WriteAsync(Arg.Any<Func<IAsyncQueryRunner, Task>>(), Arg.Any<CancellationToken>()).Returns(call =>
+            {
+                var runner = Substitute.For<IAsyncQueryRunner>();
+                Task<IResultCursor> Run(string statement)
+                {
+                    if (statement.Contains("MERGE (m:Migration") && ++records == 1)
+                        throw new ClientException("Neo.ClientError.Schema.ConstraintValidationFailed", "already recorded");
+                    executed.Add(statement);
+                    return Task.FromResult(Substitute.For<IResultCursor>());
+                }
+                runner.RunAsync(Arg.Any<string>()).Returns(ci => Run(ci.Arg<string>()));
+                runner.RunAsync(Arg.Any<string>(), Arg.Any<object>()).Returns(ci => Run(ci.Arg<string>()));
+                return call.Arg<Func<IAsyncQueryRunner, Task>>()(runner);
+            });
+
+            await CreateRunner(txRunner, dir).Invoking(m => m.RunMigrationsAsync()).Should().ThrowAsync<ClientException>();
+
+            executed.Should().Contain(s => s.Contains("second_idx"), "the next script still runs");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
     }
 
     // ── Applying a real multi-statement migration ──

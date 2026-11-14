@@ -12,6 +12,11 @@ namespace AgentMemory.Neo4j.Infrastructure;
 /// </summary>
 /// <remarks>
 /// <para>
+/// <b>Where the scripts come from.</b> They are embedded in this assembly at build time
+/// (<see cref="EmbeddedMigrationScripts"/>), so every installed application runs them however the package reached it; a
+/// folder is only the tests' seam (<see cref="DirectoryMigrationScripts"/>).
+/// </para>
+/// <para>
 /// <b>Two namespaces, one runner.</b> The base sequence lives at <c>Schema/Migrations/000N_name.cypher</c>
 /// and runs for everyone, always, first. Each <i>active</i> schema extension then runs its own scripts
 /// from <c>Schema/Migrations/ext/&lt;id&gt;/000N_name.cypher</c>, recorded under the namespaced version
@@ -35,14 +40,12 @@ namespace AgentMemory.Neo4j.Infrastructure;
 /// </remarks>
 internal sealed class MigrationRunner : IMigrationRunner
 {
-    private const string MigrationFolder = "Schema/Migrations";
-
-    /// <summary>The subfolder under <see cref="MigrationFolder"/> that holds per-extension namespaces.</summary>
+    /// <summary>The subfolder, under the scripts' root, that holds per-extension namespaces.</summary>
     internal const string ExtensionFolder = "ext";
 
     private readonly INeo4jTransactionRunner _txRunner;
     private readonly ILogger<MigrationRunner> _logger;
-    private readonly string _migrationsDirectory;
+    private readonly MigrationScripts _scripts;
     private readonly IReadOnlyList<ISchemaExtension> _activeExtensions;
 
     public MigrationRunner(
@@ -50,11 +53,7 @@ internal sealed class MigrationRunner : IMigrationRunner
         ILogger<MigrationRunner> logger,
         SchemaExtensionRegistry registry,
         IOptions<Neo4jOptions> options)
-        : this(
-            txRunner,
-            logger,
-            Path.Combine(AppContext.BaseDirectory, MigrationFolder),
-            ResolveActive(registry, options))
+        : this(txRunner, logger, EmbeddedMigrationScripts.Shipped, ResolveActive(registry, options))
     {
     }
 
@@ -65,10 +64,19 @@ internal sealed class MigrationRunner : IMigrationRunner
         ILogger<MigrationRunner> logger,
         string migrationsDirectory,
         IReadOnlyList<ISchemaExtension>? activeExtensions = null)
+        : this(txRunner, logger, new DirectoryMigrationScripts(migrationsDirectory), activeExtensions)
+    {
+    }
+
+    internal MigrationRunner(
+        INeo4jTransactionRunner txRunner,
+        ILogger<MigrationRunner> logger,
+        MigrationScripts scripts,
+        IReadOnlyList<ISchemaExtension>? activeExtensions = null)
     {
         _txRunner = txRunner;
         _logger = logger;
-        _migrationsDirectory = migrationsDirectory;
+        _scripts = scripts;
         _activeExtensions = activeExtensions ?? [];
     }
 
@@ -86,13 +94,21 @@ internal sealed class MigrationRunner : IMigrationRunner
 
         if (migrationFiles.Count == 0)
         {
-            _logger.LogInformation("No migration files found in {Folder}.", _migrationsDirectory);
+            // A warning, not information: no scripts means no schema, which is what NuGet consumers of 2.1.0 and of the
+            // 2.2.0 meta-package got in silence (the scripts never reached their build).
+            _logger.LogWarning("No migration scripts found in {Location}; the schema migrations will not be applied.",
+                _scripts.Location);
             return;
         }
 
         await EnsureMigrationConstraintAsync(cancellationToken).ConfigureAwait(false);
 
-        foreach (var (version, filePath, extensionId) in migrationFiles)
+        // REV2-7, REV3-7: every shipped statement is independent and idempotent (IF NOT EXISTS, or a backfill that sets a
+        // missing value), so a statement the database refuses (a unique constraint over duplicates) stops nothing else:
+        // the other statements of its script, and every later script, still run. A script is recorded only when all of
+        // its statements applied, so the next start tries it again. The first failure is rethrown at the end.
+        Neo4jException? first = null;
+        foreach (var (version, name, extensionId) in migrationFiles)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -102,8 +118,10 @@ internal sealed class MigrationRunner : IMigrationRunner
                 continue;
             }
 
-            await ApplyMigrationAsync(version, filePath, extensionId, cancellationToken).ConfigureAwait(false);
+            var refused = await ApplyMigrationAsync(version, name, extensionId, cancellationToken).ConfigureAwait(false);
+            first ??= refused;
         }
+        if (first is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(first);
     }
 
     /// <summary>
@@ -114,49 +132,39 @@ internal sealed class MigrationRunner : IMigrationRunner
     /// Internal so a test can assert the ORDER without a database. Order is the part that matters and
     /// the part a live test would prove slowest and least clearly.
     /// </remarks>
-    internal List<(string Version, string FilePath, string? ExtensionId)> DiscoverMigrations()
+    internal List<(string Version, string Name, string? ExtensionId)> DiscoverMigrations()
     {
         var plan = new List<(string, string, string?)>();
 
-        if (Directory.Exists(_migrationsDirectory))
-        {
-            // Base first, always. Note the top-level-only enumeration: ext/ is a subdirectory, so it
-            // is not swept up here even though it lives underneath.
-            plan.AddRange(Directory
-                .GetFiles(_migrationsDirectory, "*.cypher", SearchOption.TopDirectoryOnly)
-                .OrderBy(Path.GetFileNameWithoutExtension, StringComparer.Ordinal)
-                .Select(file => (Path.GetFileNameWithoutExtension(file), file, (string?)null)));
-        }
+        // Base first, always; a base name has no folder, so ext/ is never swept up with it.
+        plan.AddRange(_scripts.Base().Select(name => (Strip(name), name, (string?)null)));
 
         foreach (var extension in _activeExtensions)
         {
-            var directory = Path.Combine(_migrationsDirectory, ExtensionFolder, extension.Id);
-            if (!Directory.Exists(directory))
+            var scripts = _scripts.Extension(extension.Id);
+            if (scripts.Count == 0)
             {
                 if (extension.MigrationScripts.Count > 0)
                 {
-                    // Declared scripts with no folder is a packaging fault, not a configuration one:
+                    // Declared scripts that are not there is a packaging fault, not a configuration one:
                     // the extension believes it has schema and the database will never get it. Loud,
                     // because the failure would otherwise show up as a missing index much later.
                     _logger.LogWarning(
-                        "Schema extension {Extension} declares {Count} migration script(s) but "
-                        + "{Directory} does not exist; its schema will NOT be applied.",
-                        extension.Id, extension.MigrationScripts.Count, directory);
+                        "Schema extension {Extension} declares {Count} migration script(s) but {Location} has none "
+                        + "for it; its schema will NOT be applied.",
+                        extension.Id, extension.MigrationScripts.Count, _scripts.Location);
                 }
 
                 continue;
             }
 
-            plan.AddRange(Directory
-                .GetFiles(directory, "*.cypher", SearchOption.TopDirectoryOnly)
-                .OrderBy(Path.GetFileNameWithoutExtension, StringComparer.Ordinal)
-                .Select(file => (
-                    $"{ExtensionFolder}/{extension.Id}/{Path.GetFileNameWithoutExtension(file)}",
-                    file,
-                    (string?)extension.Id)));
+            plan.AddRange(scripts.Select(name => (Strip(name), name, (string?)extension.Id)));
         }
 
         return plan;
+
+        // The recorded version is the name without ".cypher": "0002_x" or "ext/<id>/0001_x", as before.
+        static string Strip(string name) => name[..^".cypher".Length];
     }
 
     private async Task EnsureMigrationConstraintAsync(CancellationToken cancellationToken)
@@ -175,34 +183,57 @@ internal sealed class MigrationRunner : IMigrationRunner
         }, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task ApplyMigrationAsync(
-        string version, string filePath, string? extensionId, CancellationToken cancellationToken)
+    /// <returns>The first statement the database refused, if any; the script is then not recorded.</returns>
+    private async Task<Neo4jException?> ApplyMigrationAsync(
+        string version, string name, string? extensionId, CancellationToken cancellationToken)
     {
-        var fileContent = await File.ReadAllTextAsync(filePath, cancellationToken).ConfigureAwait(false);
-        var statements = ParseStatements(fileContent);
+        var script = await _scripts.ReadAsync(name, cancellationToken).ConfigureAwait(false);
+        var statements = ParseStatements(script);
 
         _logger.LogInformation(
-            "Applying migration {Version} ({Count} statement(s)) from {File}.",
-            version, statements.Count, filePath);
+            "Applying migration {Version} ({Count} statement(s)) from {Location}.",
+            version, statements.Count, _scripts.Location);
 
         // Run each statement in its OWN transaction. The Bolt protocol executes one statement
         // per RUN, and Neo4j forbids mixing schema operations (CREATE INDEX/CONSTRAINT) with the
         // data write that records the migration below. Every shipped statement is idempotent
         // (IF NOT EXISTS), so a partial apply is safely resumable on the next run.
+        Neo4jException? refused = null;
         foreach (var statement in statements)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            await _txRunner.WriteAsync(async tx => { await tx.RunAsync(statement).ConfigureAwait(false); }, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await _txRunner.WriteAsync(async tx => { await tx.RunAsync(statement).ConfigureAwait(false); }, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Neo4jException exception)
+            {
+                _logger.LogError(exception, "A statement of migration {Version} could not be applied ({Message}); the script is not recorded " +
+                    "and is tried again at the next start.", version, exception.Message);
+                refused ??= exception;
+            }
+        }
+        if (refused is not null) return refused;
+
+        try
+        {
+            await _txRunner.WriteAsync(async tx =>
+            {
+                await tx.RunAsync(
+                    SchemaQueries.RecordMigration,
+                    new { version, appliedAtUtc = DateTime.UtcNow.ToString("O"), extensionId }).ConfigureAwait(false);
+            }, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Neo4jException exception)
+        {
+            // REV4: two instances starting at once may both record a script; the second write is refused. The script's
+            // statements are idempotent and applied, so the others still run, and the next start finds it recorded.
+            _logger.LogError(exception, "Migration {Version} applied but could not be recorded ({Message}).", version, exception.Message);
+            return exception;
         }
 
-        await _txRunner.WriteAsync(async tx =>
-        {
-            await tx.RunAsync(
-                SchemaQueries.RecordMigration,
-                new { version, appliedAtUtc = DateTime.UtcNow.ToString("O"), extensionId }).ConfigureAwait(false);
-        }, cancellationToken).ConfigureAwait(false);
-
         _logger.LogInformation("Migration {Version} applied successfully.", version);
+        return null;
     }
 
     /// <summary>

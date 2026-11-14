@@ -164,6 +164,185 @@ public sealed class LookAheadAssemblerTests
 
     private static RecallOptions AllOn => RecallOptions.Default with { Upcoming = true, TimeWindows = true, OverlapExpansion = true };
 
+    // ── ILC-33: person details ────────────────────────────────────────
+
+    private static readonly Fact Monitoring = Mate with { FactId = "monitoring", Subject = "Valentina", Predicate = "will monitor", Object = "the invoice queue remotely" };
+    private static readonly Fact Tutorial = Mate with { FactId = "tutorial", Subject = "Valentina", Predicate = "will prepare", Object = "a video tutorial for the clerks" };
+
+    private void People(params PersonIdentity[] people)
+    {
+        _longTerm.GetPersonNamesAsync(Arg.Any<int>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<string>>([.. people.SelectMany(person => person.Surfaces)]));
+        _longTerm.GetPersonIdentitiesAsync(Arg.Any<int>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<PersonIdentity>>(people));
+    }
+
+    private static PersonIdentity Person(string id, params string[] names) => new() { EntityId = id, Surfaces = names };
+
+    [Fact]
+    public async Task A_question_naming_a_confirmed_person_brings_their_facts_once_without_fake_scores()
+    {
+        _relevant = [Mate, Tutorial];
+        People(Person("valentina", "Valentina"), Person("tomas", "Tomás"));
+        _longTerm.GetPersonDetailsAsync(Arg.Any<IReadOnlyList<string>>(), Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<int>(),
+            Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>()).Returns(Task.FromResult<IReadOnlyList<Fact>>([Monitoring, Tutorial]));
+        var context = await AskAsync("I have my mentoring session with Valentina tomorrow.", RecallOptions.Default with { PersonDetails = true });
+        context.RelevantFacts.Items.Select(f => f.FactId).Should().OnlyHaveUniqueItems().And.Contain(["mate", "tutorial", "monitoring"]);
+        await _longTerm.Received(1).GetPersonDetailsAsync(Arg.Is<IReadOnlyList<string>>(ids => ids.SequenceEqual(new[] { "valentina" })),
+            Arg.Is<IReadOnlyCollection<string>>(ids => ids.Contains("mate") && ids.Contains("tutorial")), 8,
+            Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task A_name_two_confirmed_people_share_reads_no_facts()
+    {
+        People(Person("cousin", "Alex Kim"), Person("colleague", "Alex Kim"));
+        await AskAsync("What do I know about Alex Kim?", RecallOptions.Default with { PersonDetails = true });
+        await _longTerm.Received(1).GetPersonIdentitiesAsync(1000, Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+        await _longTerm.DidNotReceiveWithAnyArgs().GetPersonDetailsAsync(default!, default!, default, default, default);
+    }
+
+    [Fact]
+    public async Task A_question_that_names_no_known_person_reads_only_the_names()
+    {
+        // REV2-2: the cheap names read decides; the full read, with every binding's name, never runs.
+        People(Person("valentina", "Valentina"));
+        await AskAsync("What did I buy for the go-live?", RecallOptions.Default with { PersonDetails = true });
+        await _longTerm.ReceivedWithAnyArgs(1).GetPersonNamesAsync(default, default, default);
+        await _longTerm.DidNotReceiveWithAnyArgs().GetPersonIdentitiesAsync(default, default, default);
+    }
+
+    [Fact]
+    public async Task A_full_page_of_spellings_goes_on_to_the_full_read()
+    {
+        // REV2-2: a full page may leave the question's name out, so the light read never decides "nobody" from one.
+        People(Person("valentina", "Valentina"));
+        _longTerm.GetPersonNamesAsync(Arg.Any<int>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<string>>([.. Enumerable.Range(0, AgentMemory.Core.Memory.PersonMentions.MaxSpellingsRead).Select(i => "Person " + i)]));
+        await AskAsync("What did Valentina say?", RecallOptions.Default with { PersonDetails = true });
+        await _longTerm.ReceivedWithAnyArgs(1).GetPersonIdentitiesAsync(default, default, default);
+    }
+
+    [Fact]
+    public async Task A_spelling_two_people_share_is_neither_persons_in_the_hand_over()
+    {
+        // REV3-2: "Ana" is both Ana García's and Ana López's. The question names Ana García; the newer "Ana lives in Madrid"
+        // may be López's, so it must not replace García's Paris.
+        var paris = new Fact { FactId = "paris", Subject = "Ana García", Predicate = "lives in", Object = "Paris", Confidence = 0.9,
+            CreatedAtUtc = new(2025, 1, 1, 10, 0, 0, TimeSpan.Zero), ValidFrom = new(2025, 1, 1, 0, 0, 0, TimeSpan.Zero) };
+        var madrid = new Fact { FactId = "madrid", Subject = "Ana", Predicate = "lives in", Object = "Madrid", Confidence = 0.9,
+            CreatedAtUtc = new(2025, 6, 1, 10, 0, 0, TimeSpan.Zero), ValidFrom = new(2025, 6, 1, 0, 0, 0, TimeSpan.Zero) };
+        _relevant = [madrid];
+        People(Person("garcia", "Ana García", "Ana"), Person("lopez", "Ana López", "Ana"));
+        _longTerm.GetPersonDetailsAsync(Arg.Any<IReadOnlyList<string>>(), Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<int>(),
+            Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>()).Returns(Task.FromResult<IReadOnlyList<Fact>>([paris]));
+
+        var context = await AskAsync("Where does Ana García live?", RecallOptions.Default with { PersonDetails = true });
+
+        context.RelevantFacts.Items.Select(f => f.FactId).Should().Contain("paris");
+    }
+
+    [Fact]
+    public async Task One_persons_older_value_under_another_spelling_gives_way_to_the_newer()
+    {
+        // REV2-5: "Ana García lives in Paris" and "Ana lives in Berlin" are about one person; the newer value is current.
+        var paris = new Fact { FactId = "paris", Subject = "Ana García", Predicate = "lives in", Object = "Paris", Confidence = 0.9,
+            CreatedAtUtc = new(2023, 3, 1, 10, 0, 0, TimeSpan.Zero), ValidFrom = new(2023, 3, 1, 0, 0, 0, TimeSpan.Zero) };
+        var berlin = new Fact { FactId = "berlin", Subject = "Ana", Predicate = "lives in", Object = "Berlin", Confidence = 0.9,
+            CreatedAtUtc = new(2025, 3, 1, 10, 0, 0, TimeSpan.Zero), ValidFrom = new(2025, 3, 1, 0, 0, 0, TimeSpan.Zero) };
+        _relevant = [];
+        People(Person("ana", "Ana", "Ana García"));
+        _longTerm.GetPersonDetailsAsync(Arg.Any<IReadOnlyList<string>>(), Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<int>(),
+            Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>()).Returns(Task.FromResult<IReadOnlyList<Fact>>([berlin, paris]));
+
+        var context = await AskAsync("Where does Ana live?", RecallOptions.Default with { PersonDetails = true });
+
+        context.RelevantFacts.Items.Select(f => f.FactId).Should().Contain("berlin").And.NotContain("paris");
+    }
+
+    [Fact]
+    public async Task A_value_a_begun_plan_replaced_does_not_come_back_with_a_persons_details()
+    {
+        // PR260-N3: details are added after the hand-over to current values; Valentina's move to Madrid has begun, so the
+        // Córdoba her details bring is no longer current and stays out.
+        var cordoba = new Fact { FactId = "cordoba", Subject = "Valentina", Predicate = "lives in", Object = "Córdoba", Confidence = 0.9,
+            CreatedAtUtc = new(2026, 3, 1, 10, 0, 0, TimeSpan.Zero), ValidFrom = new(2026, 3, 1, 0, 0, 0, TimeSpan.Zero) };
+        var madrid = new Fact { FactId = "madrid", Subject = "Valentina", Predicate = "lives in", Object = "Madrid", Confidence = 0.9,
+            CreatedAtUtc = new(2026, 10, 1, 10, 0, 0, TimeSpan.Zero), ValidFrom = new(2026, 12, 1, 0, 0, 0, TimeSpan.Zero) };
+        _relevant = [madrid];
+        People(Person("valentina", "Valentina"));
+        _longTerm.GetPersonDetailsAsync(Arg.Any<IReadOnlyList<string>>(), Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<int>(),
+            Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>()).Returns(Task.FromResult<IReadOnlyList<Fact>>([cordoba]));
+
+        var context = await AskAsync("Where does Valentina live now?", RecallOptions.Default with { PersonDetails = true });
+
+        await _longTerm.ReceivedWithAnyArgs(1).GetPersonDetailsAsync(default!, default!, default, default, default);
+        context.RelevantFacts.Items.Select(f => f.FactId).Should().Contain("madrid").And.NotContain("cordoba");
+    }
+
+    [Fact]
+    public async Task A_value_a_begun_plan_found_by_date_replaced_is_dropped_with_or_without_details()
+    {
+        // REV1-L10: what is dropped no longer depends on whether a detail happened to be added.
+        var cordoba = new Fact { FactId = "cordoba", Subject = "Bruna", Predicate = "lives in", Object = "Córdoba", Confidence = 0.9,
+            CreatedAtUtc = new(2026, 3, 1, 10, 0, 0, TimeSpan.Zero), ValidFrom = new(2026, 3, 1, 0, 0, 0, TimeSpan.Zero) };
+        var mendoza = new Fact { FactId = "mendoza", Subject = "Bruna", Predicate = "lives in", Object = "Mendoza", Confidence = 0.9,
+            CreatedAtUtc = new(2026, 10, 1, 10, 0, 0, TimeSpan.Zero), ValidFrom = new(2026, 12, 1, 0, 0, 0, TimeSpan.Zero) };
+        _relevant = [cordoba];
+        _longTerm.GetFactsInWindowAsync(Arg.Any<DateTimeOffset>(), Arg.Any<DateTimeOffset>(), Arg.Any<int>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Fact>>([mendoza]));
+
+        var context = await AskAsync("What do I have between December 1 and December 3?", RecallOptions.Default with { TimeWindows = true });
+
+        context.RelevantFacts.Items.Select(f => f.FactId).Should().NotContain("cordoba", "the move to Mendoza, found by date, has begun");
+    }
+
+    [Fact]
+    public async Task A_person_whose_names_were_cut_off_may_hide_a_namesake_so_no_facts_are_read()
+    {
+        // PR260-N4: each person's names are read up to a bound; one whose list was cut could carry this name too.
+        People(Person("valentina", "Valentina"), new PersonIdentity { EntityId = "other", Surfaces = ["Vale"], Complete = false });
+        await AskAsync("I have my mentoring session with Valentina tomorrow.", RecallOptions.Default with { PersonDetails = true });
+        await _longTerm.DidNotReceiveWithAnyArgs().GetPersonDetailsAsync(default!, default!, default, default, default);
+    }
+
+    [Fact]
+    public async Task A_full_page_of_people_may_hide_a_namesake_so_no_facts_are_read()
+    {
+        // The read is bounded to 1,000 people ordered by id: when it comes back full, a second Valentina may be past the
+        // bound, so "Valentina" is not known to be unique and nobody is expanded.
+        People([Person("valentina", "Valentina"), .. Enumerable.Range(1, 999).Select(i => Person($"person-{i:D4}", $"Person {i}"))]);
+        await AskAsync("I have my mentoring session with Valentina tomorrow.", RecallOptions.Default with { PersonDetails = true });
+        await _longTerm.DidNotReceiveWithAnyArgs().GetPersonDetailsAsync(default!, default!, default, default, default);
+    }
+
+    [Fact]
+    public async Task Person_details_are_not_read_while_off_or_with_no_fact_budget()
+    {
+        People(Person("valentina", "Valentina"));
+        await AskAsync("What is Valentina working on?", RecallOptions.Default);
+        await AskAsync("What is Valentina working on?", RecallOptions.Default with { PersonDetails = true, MaxFacts = 0 });
+        await AskAsync("What is Valentina working on?", RecallOptions.Default with { PersonDetails = true, MaxPersonDetailFacts = 0 });
+        await _longTerm.DidNotReceiveWithAnyArgs().GetPersonIdentitiesAsync(default, default, default);
+        await _longTerm.DidNotReceiveWithAnyArgs().GetPersonDetailsAsync(default!, default!, default, default, default);
+    }
+
+    [Fact]
+    public async Task An_out_of_range_person_cap_is_refused()
+    {
+        var action = () => AskAsync("What is Valentina working on?", RecallOptions.Default with { PersonDetails = true, MaxPersonDetailFacts = 65 });
+        await action.Should().ThrowAsync<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public async Task Point_in_time_recall_refuses_live_person_details_before_any_service_read()
+    {
+        Func<Task> action = async () => { await Sut().AssembleContextAsOfAsync(new() { SessionId = "s1", Query = "Valentina",
+            QueryEmbedding = new float[8], Options = RecallOptions.Default with { PersonDetails = true } }, Now); };
+        await action.Should().ThrowAsync<NotSupportedException>().WithMessage("*live recall only*");
+        _longTerm.ReceivedCalls().Should().BeEmpty();
+    }
+
     // ── off issues nothing ────────────────────────────────────────────
 
     [Theory]

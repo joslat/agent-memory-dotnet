@@ -331,7 +331,7 @@ internal sealed class Neo4jIdentityEvidenceRepository : IIdentityEvidenceReposit
 
     private static string KeyLookup(string ns, string payload) => Hash(JsonSerializer.Serialize(new[] { ns, payload }));
     private static string Scope(string? owner) => owner is null ? "shared" : "owned:" + owner;
-    private static string Hash(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
+    internal static string Hash(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
     private static void Text(string? value, string name)
     { if (string.IsNullOrWhiteSpace(value) || value.Length > 4096) throw new ArgumentException("Identity text must contain 1–4096 characters.", name); }
 }

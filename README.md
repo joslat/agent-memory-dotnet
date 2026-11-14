@@ -109,7 +109,7 @@ services.AddNeo4jAgentMemory(
 var provider = services.BuildServiceProvider();
 
 var bootstrapper = provider.GetRequiredService<ISchemaBootstrapper>();
-await bootstrapper.BootstrapAsync();
+await bootstrapper.BootstrapAsync(); // constraints, indexes and the migration scripts; safe on every start
 
 var memory = provider.GetRequiredService<IMemoryService>();
 await memory.AddMessageAsync("session-01", "conversation-01", "user", "I prefer dark mode.");

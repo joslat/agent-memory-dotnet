@@ -15,17 +15,26 @@ internal sealed class SchemaBootstrapper : ISchemaBootstrapper
     private readonly int _embeddingDimensions;
     private readonly bool _validateVectorIndexDimensions;
     private readonly bool _filteredVectorIndexes;
+    private readonly IMigrationRunner? _migrations;
+    private readonly bool _applyMigrations;
 
     /// <summary>Bounded so a large store migrates in pages rather than one transaction.</summary>
     internal const int CanonicalKeyBackfillBatchSize = 500;
 
+    /// <param name="migrations">
+    /// The migration runner bootstrap applies (<see cref="Neo4jOptions.ApplyMigrationsOnBootstrap"/>). The container always
+    /// supplies it; a test that builds a bootstrapper by hand without one gets the schema statements alone.
+    /// </param>
     public SchemaBootstrapper(
         INeo4jTransactionRunner txRunner,
         IOptions<Neo4jOptions> options,
-        ILogger<SchemaBootstrapper> logger)
+        ILogger<SchemaBootstrapper> logger,
+        IMigrationRunner? migrations = null)
     {
         _txRunner = txRunner;
         _logger = logger;
+        _migrations = migrations;
+        _applyMigrations = options.Value.ApplyMigrationsOnBootstrap;
 
         _embeddingDimensions = options.Value.EmbeddingDimensions;
         _validateVectorIndexDimensions = options.Value.ValidateVectorIndexDimensions;
@@ -344,6 +353,8 @@ internal sealed class SchemaBootstrapper : ISchemaBootstrapper
         // Fail-fast guard: a CREATE VECTOR INDEX ... IF NOT EXISTS above is a no-op when the index
         // already exists, so an embedder/dimension change leaves stale indexes that would only fail at
         // query time. Verify dimensions now and surface an actionable error listing every mismatch.
+        await ApplyMigrationsAsync(cancellationToken).ConfigureAwait(false);
+
         await ValidateVectorIndexDimensionsAsync(cancellationToken).ConfigureAwait(false);
         await ValidateNoFailedIndexesAsync(cancellationToken).ConfigureAwait(false);
 
@@ -356,6 +367,36 @@ internal sealed class SchemaBootstrapper : ISchemaBootstrapper
         await BackfillFactPeriodKeysAsync(CanonicalKeyBackfillBatchSize, cancellationToken).ConfigureAwait(false);
 
         _logger.LogInformation("Schema bootstrap complete.");
+    }
+
+    /// <summary>
+    /// The migration scripts: the base sequence, then every active extension's (identity's where evidence-based identity
+    /// runs), each once per database. Before 2.3.0 nothing in the library ran them, so an installed application never got
+    /// an extension's schema. Runs after the schema statements, so the failed-index check below covers what they create.
+    /// </summary>
+    private async Task ApplyMigrationsAsync(CancellationToken cancellationToken)
+    {
+        if (_migrations is null) return;
+        if (!_applyMigrations)
+        {
+            _logger.LogInformation("Schema migrations are not applied at bootstrap (Neo4jOptions.ApplyMigrationsOnBootstrap " +
+                "is false); apply them with IMigrationRunner.");
+            return;
+        }
+
+        try
+        {
+            await _migrations.RunMigrationsAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Neo4jException exception)
+        {
+            // The store runs as it did before migrations ran at startup, and the next start tries again: refusing to start
+            // would turn a store that works into one that does not. A script the database refuses is most often a unique
+            // constraint over nodes that were already duplicated.
+            _logger.LogError(exception, "A schema migration could not be applied ({Message}); the store continues without " +
+                "it. Fix the cause (for example remove the duplicate nodes a unique constraint rejects) and restart, or " +
+                "apply the scripts with IMigrationRunner.", exception.Message);
+        }
     }
 
     /// <summary>The bare index name from the <c>name (TYPE)</c> descriptor collected below.</summary>

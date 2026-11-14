@@ -2166,7 +2166,7 @@ do not close the identity goal or establish perfect identity precision.
 
 ### Event details through decision-owned support
 
-`RecallOptions.EventDetails` is an opt-in live recall capability, off by default. After date-window,
+`RecallOptions.EventDetails` is a live recall capability that follows identity (null by default). After date-window,
 upcoming and overlap selection, it takes at most10 dated seed facts and follows their current
 `HAS_IDENTITY_BINDING` / `DECIDED_BY` / `RESOLVES_TO` support to live `EVENT` entities. One scoped
 read considers at most20 event identities and returns at most `MaxEventDetailFacts` additional facts
@@ -2177,6 +2177,14 @@ Details such as Córdoba or required physical presence need no date of their own
 have explicit fact-role support for that event; missing extraction/binding evidence is not invented.
 This increment does not expand undated relationship-only claims or infer an event from words buried
 inside a sentence. The representative model cases will measure this coverage and any required fix.
+
+`RecallOptions.PersonDetails` (ILC-33, off unless `true` for now, since its read grows with the owner) does the same for people. Every live `PERSON` entity of
+the owner is read with the names it is known by (at most 1,000); a name that appears in the question as whole words,
+case and accents aside, and belongs to one person only, names that person (at most 3), who is expanded when facts are
+bound to them through a decided identity. Their live facts come through the same bindings, newest first, at most
+`MaxPersonDetailFacts` (default 8, maximum 64). A name two people share expands nothing, whether the other is confirmed,
+an open proposal (never followed) or a person with no bound facts; a full read of 1,000 people expands nobody. See
+[the identity extension](extensions/identity-evidence.md#recall-for-people).
 
 Extra facts enter `RelevantFacts` without invented vector scores, are de-duplicated against the date
 sections, respect the latency allowance and share the existing total context budget. `MaxFacts=0`
@@ -2190,10 +2198,14 @@ details. See [current evidence and limits](evidence-based-identity-implementatio
 
 ### Identity portability boundary
 
-`agentmemory-export/1` carries the current state, not identity's history. With `identity-evidence` enabled, export adds
-`IdentityResolutions` and sets `IdentityStateOmitted` (decisions, review history, evidence and open proposals are not in
-the format). Import folds each mention's entity into its confirmed identity, which keeps the mention's name as an alias,
-and never joins imported entities to what the destination holds. Owner erasure remains supported. See
+With `identity-evidence` enabled, export writes `agentmemory-export/2`, which carries the owner's identity state
+(decisions, evidence, review history, fact bindings, open proposals, and the retired entities they point at) beside the
+memories; import into an identity store recreates it for the new owner as a copy of its own, with every reference
+rewritten and source messages replaced by markers of the importing owner, so imported proposals can be reviewed. Import trusts
+nothing in the file it cannot verify: records belong to the importing owner, and an entity the file names but does not
+carry must be shared here, or nothing is written. A format-1 export, or an import into a store without
+identity, comes back as the current state, each mention folded into its confirmed identity. Imports never join what they
+bring to what the destination holds. Owner erasure remains supported. See
 [the identity extension](extensions/identity-evidence.md#identity-portability-boundary).
 
 ### Writer event-reference option

@@ -285,6 +285,24 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         return (current, scores.Where(s => kept.Contains(s.Fact.FactId)).ToArray());
     }
 
+    /// <summary>
+    /// PR260-N3, REV1-L10: <see cref="HandOver"/> again after event and person details, over the relevant facts and the
+    /// dated sections together, dropping only from the relevant facts (and their scores) what is no longer current.
+    /// </summary>
+    private static (IReadOnlyList<Fact> Facts, IReadOnlyList<(Fact Fact, double Score)> Scores) HandOverWithDated(
+        IReadOnlyList<Fact> facts, IReadOnlyList<(Fact Fact, double Score)> scores, LookAheadResult lookAhead,
+        ProspectiveDueResult due, IReadOnlyDictionary<string, string> personSubjects, DateTimeOffset at)
+    {
+        if (facts.Count == 0) return (facts, scores);
+        var dated = lookAhead.Window.Concat(lookAhead.Upcoming).Concat(lookAhead.Overlapping).Concat(due.Due).Concat(due.Expiring);
+        // REV2-5: a named person's facts compete as one subject whatever spelling they were said with.
+        Fact Person(Fact fact) => personSubjects.TryGetValue(MemoryTripleCanonicalizer.CanonicalValue(fact.Subject), out var person)
+            ? fact with { Subject = "\u0001person " + person } : fact;
+        var current = ValueHandOver.Current([.. facts.Concat(dated).Select(Person)], at).Select(f => f.FactId).ToHashSet(StringComparer.Ordinal);
+        if (facts.All(f => current.Contains(f.FactId))) return (facts, scores);
+        return ([.. facts.Where(f => current.Contains(f.FactId))], scores.Where(s => current.Contains(s.Fact.FactId)).ToArray());
+    }
+
     /// <summary>J-7: the names the recalled facts are about (subjects and objects), not "user", at most 40.</summary>
     internal static IReadOnlyList<string> NamesIn(IReadOnlyList<Fact> facts) =>
         [.. facts.SelectMany(fact => new[] { fact.Subject, fact.Object })
@@ -926,6 +944,17 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
             facts = await ExpandEventDetailsAsync(facts, lookAhead, prospective, recallOpts, scope,
                 cancellationToken, Remaining(recallOpts.LatencyBudget, budgetClock)).ConfigureAwait(false);
 
+        IReadOnlyDictionary<string, string> personSubjects = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (includeMemory && PersonDetailsOn(recallOpts))
+            (facts, personSubjects) = await ExpandPersonDetailsAsync(facts, lookAhead, prospective, request.Question ?? request.Query,
+                recallOpts, scope, cancellationToken, Remaining(recallOpts.LatencyBudget, budgetClock)).ConfigureAwait(false);
+
+        // PR260-N3, REV1-L10: the details above arrive after the hand-over to current values, so a value a begun plan
+        // replaced could come back with them. Hand over again over everything recall now holds, the dated sections'
+        // facts included as competitors (a plan found by date still replaces the old value), dropping only from the
+        // relevant facts. Run every time, so what is dropped never depends on whether details happened to be added.
+        (facts, factScores) = HandOverWithDated(facts, factScores, lookAhead, prospective, personSubjects, _clock.GetUtcNow());
+
         // 30.8. Runs AFTER the fact section resolves, because its trigger is what that section came
         // back with. One extra query, only on a thin recall, only with the flag on -- a well-answered
         // turn pays nothing at all.
@@ -1262,6 +1291,8 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         var recallOpts = EffectiveRecall(request.Options, _options.Recall);
         if (recallOpts.EventDetails == true)
             throw new NotSupportedException("EventDetails currently supports live recall only; historical identity expansion is not available.");
+        if (recallOpts.PersonDetails == true)
+            throw new NotSupportedException("PersonDetails currently supports live recall only; historical identity expansion is not available.");
         var projectionOpts = ResolveProjectionOptions(recallOpts.Projection);
         // 30.3. Traces get their own floor. At the shared 0.7 default procedure retrieval NEVER
         // abstains -- every threshold from 0.00 to 0.86 behaves identically, a measured dead zone --

@@ -81,7 +81,7 @@ Important cross-cutting properties:
 - `valid_from`, `valid_until`: valid-time window for facts and relationships.
 - `valid_from_precision`, `valid_until_precision` (facts): how precisely each date was stated, as `"year"`, `"month"`, `"day"` or `"instant"` (`DatePrecision`); absent means unspecified (rows written before precision was recorded) and renders as a day. "March 2024" is stored as 2024-03-01 with precision `"month"` and renders `2024-03`.
 - `occurred_on`, `occurred_on_precision` (facts): the day a one-off event happened ("yesterday I went hiking"), written under `TemporalValidityMode.Extract`; absent for a state. An event keeps no validity window of its own and renders `(on 2026-09-26)`.
-- `source_message_ids`: extracted-memory provenance list.
+- `source_message_ids`: extracted-memory provenance list (a fact said again keeps the latest messages it was said in).
 - `last_accessed_at`, `access_count`: long-term access reinforcement fields used by decay/reranking.
 - `kind`, `memory_id`, `read_at`: read-audit fields on `MemoryReadAudit`; `owner_id` is copied from the read memory node.
 
@@ -192,8 +192,10 @@ Live recall excludes invalidated records. As-of recall can answer what was belie
 
 ## Schema Operations
 
-- `ISchemaBootstrapper.BootstrapAsync()` creates constraints/indexes idempotently and validates vector dimensions.
-- `IMigrationRunner` applies versioned `.cypher` migrations and records applied versions.
+- `ISchemaBootstrapper.BootstrapAsync()` creates constraints/indexes idempotently, applies the migration scripts (since
+  2.3.0; `Neo4jOptions.ApplyMigrationsOnBootstrap`, default true) and validates vector dimensions.
+- `IMigrationRunner` applies versioned `.cypher` migrations (the base sequence, then each active extension's) and records
+  applied versions in `(:Migration)` nodes; bootstrap calls it, and an operator who owns the schema calls it directly.
 - `agentmemory schema-check` compares live database objects with `SchemaConformance.ExpectedObjectNames(dimensions)`.
 - `agentmemory schema-parity` compares the .NET schema descriptor against embedded upstream Python snapshots.
 

@@ -76,11 +76,31 @@ public sealed class Neo4jMemoryStoreProvisionerTests
         });
 
         await provisioner.EnsureStoreAsync("Acme");
+        var opened = factory.ReceivedCalls().Count();
         await provisioner.EnsureStoreAsync("Acme"); // cached → no second round-trip
+        factory.ReceivedCalls().Count().Should().Be(opened, "a provisioned store is cached");
 
-        // CREATE DATABASE runs against system; schema bootstrap runs against the store database.
+        // CREATE DATABASE runs against system; schema bootstrap, then (REV5-3) each migration transaction, against the
+        // store database and never another.
         factory.Received(1).OpenSession("system", AccessMode.Write);
-        factory.Received(1).OpenSession("mem-acme", AccessMode.Write);
+        factory.ReceivedCalls().Select(call => (string)call.GetArguments()[0]!).Where(database => database != "system")
+            .Should().NotBeEmpty().And.OnlyContain(database => database == "mem-acme");
+    }
+
+    [Fact]
+    public async Task A_database_bound_runner_keeps_the_configured_transaction_timeout()
+    {
+        // CP3-3: the runner that applies the migrations to a provisioned database uses Neo4jOptions.TransactionTimeout,
+        // as the default runner does, and none when it is unset.
+        var session = Substitute.For<IAsyncSession>();
+        var factory = Substitute.For<INeo4jSessionFactory>();
+        factory.OpenSession("mem-acme", Arg.Any<AccessMode>()).Returns(session);
+
+        await new DatabaseTransactionRunner(factory, "mem-acme", TimeSpan.FromSeconds(5)).WriteAsync(_ => Task.CompletedTask);
+        await new DatabaseTransactionRunner(factory, "mem-acme").ReadAsync(_ => Task.CompletedTask);
+
+        await session.Received(1).ExecuteWriteAsync(Arg.Any<Func<IAsyncQueryRunner, Task<bool>>>(), Arg.Is<Action<TransactionConfigBuilder>>(c => c != null));
+        await session.Received(1).ExecuteReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task<bool>>>(), Arg.Is<Action<TransactionConfigBuilder>>(c => c == null));
     }
 
     [Fact]

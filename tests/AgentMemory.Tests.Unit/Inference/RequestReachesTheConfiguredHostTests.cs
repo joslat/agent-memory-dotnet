@@ -115,6 +115,90 @@ public sealed class RequestReachesTheConfiguredHostTests
         EmbeddingDimensions = 8,
     };
 
+    /// <summary>ILC-32: a resolved reasoning effort reaches the wire; none is sent when none was resolved.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task TheResolvedReasoningEffortReachesTheWire(bool resolved)
+    {
+        await using var host = new FakeHost();
+        var settings = Settings(host.Endpoint) with { ReasoningEffort = resolved ? ReasoningEffort.Low : null };
+
+        InferenceClientFactory.TryCreateChatClient(settings, "answer", out var client, out var diagnostic).Should().BeTrue(diagnostic);
+        await client!.GetResponseAsync([new ChatMessage(ChatRole.User, "hello")]);
+
+        if (resolved) host.LastBody.Should().Contain("\"reasoning_effort\":\"low\"");
+        else host.LastBody.Should().NotContain("reasoning_effort", "no effort is sent that nobody asked for");
+    }
+
+    /// <summary>
+    /// The automatic low effort was chosen for one model (Bitdeer's GLM-5.3-Flash). A role built on another model (an
+    /// extraction or judge override) gets none: some providers reject the parameter on models that do not reason. An
+    /// operator's explicit effort applies to every role.
+    /// </summary>
+    [Theory]
+    [InlineData(null, true)]
+    [InlineData("other-org/a-plain-chat-model", false)]
+    public async Task TheAutomaticEffortStaysWithTheModelItWasChosenFor(string? roleModel, bool sent)
+    {
+        await using var host = new FakeHost();
+        var settings = Settings(host.Endpoint) with
+        {
+            Model = "zai-org/GLM-5.3-Flash", ReasoningEffort = ReasoningEffort.Low, ReasoningEffortModel = "zai-org/GLM-5.3-Flash",
+        };
+
+        InferenceClientFactory.TryCreateChatClient(settings, "extraction", out var client, out var diagnostic, model: roleModel)
+            .Should().BeTrue(diagnostic);
+        await client!.GetResponseAsync([new ChatMessage(ChatRole.User, "hello")]);
+
+        if (sent) host.LastBody.Should().Contain("\"reasoning_effort\":\"low\"");
+        else host.LastBody.Should().NotContain("reasoning_effort", "the automatic effort belongs to the model it was chosen for");
+    }
+
+    [Fact]
+    public async Task AnOperatorsExplicitEffortReachesEveryRole()
+    {
+        await using var host = new FakeHost();
+        var settings = Settings(host.Endpoint) with { ReasoningEffort = ReasoningEffort.Medium, ReasoningEffortModel = null };
+
+        InferenceClientFactory.TryCreateChatClient(settings, "extraction", out var client, out _, model: "other-org/a-plain-chat-model")
+            .Should().BeTrue();
+        await client!.GetResponseAsync([new ChatMessage(ChatRole.User, "hello")]);
+
+        host.LastBody.Should().Contain("\"reasoning_effort\":\"medium\"");
+    }
+
+    /// <summary>REV1-L15: an operator's effort is a parameter of the configured provider; a judge on another provider gets none.</summary>
+    [Fact]
+    public async Task AJudgeOnAnotherProviderGetsNoEffort()
+    {
+        await using var host = new FakeHost();
+        var settings = Settings(host.Endpoint) with
+        {
+            Provider = InferenceProvider.Bitdeer, ReasoningEffort = ReasoningEffort.Medium, ReasoningEffortModel = null,
+            JudgeProvider = InferenceProvider.OpenAICompatible, JudgeEndpoint = host.Endpoint, JudgeApiKey = "sk-test-key-value", JudgeModel = "a-judge",
+        };
+
+        InferenceClientFactory.TryCreateJudgeChatClient(settings, out var client, out var diagnostic).Should().BeTrue(diagnostic);
+        await client!.GetResponseAsync([new ChatMessage(ChatRole.User, "hello")]);
+
+        host.LastBody.Should().NotContain("reasoning_effort");
+    }
+
+    /// <summary>A caller that chooses its own effort keeps it.</summary>
+    [Fact]
+    public async Task ACallersOwnReasoningEffortWins()
+    {
+        await using var host = new FakeHost();
+        var settings = Settings(host.Endpoint) with { ReasoningEffort = ReasoningEffort.Low };
+
+        InferenceClientFactory.TryCreateChatClient(settings, "answer", out var client, out _).Should().BeTrue();
+        await client!.GetResponseAsync([new ChatMessage(ChatRole.User, "hello")],
+            new ChatOptions { Reasoning = new ReasoningOptions { Effort = ReasoningEffort.High } });
+
+        host.LastBody.Should().Contain("\"reasoning_effort\":\"high\"");
+    }
+
     /// <summary>The chat call reaches the configured endpoint with the configured model and key.</summary>
     [Fact]
     public async Task TheChatRequestCarriesTheConfiguredEndpointModelAndKey()

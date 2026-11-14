@@ -147,6 +147,12 @@ Ablation on the original scenario (one component off at a time): adjudicator off
 split an organisation into two identities, at no measurable call saving; context turns off, one run, all checks pass. The
 adjudicator and the context turns are kept as safety nets; writer references produce nearly all confirmations.
 
+Recall for people (`RecallOptions.PersonDetails`) was measured on a people variant of the busy scenario (two runs per arm):
+it ran but added nothing, because every fact about the person asked for already names her and ranks first by similarity.
+The runs found two write-time gaps instead: a mentoring request stored as a relationship with a garbled target, and a
+person named only inside facts getting no identity decision. Table and reading:
+[the people variant](../tools/AgentMemory.Scenarios/README.md#the-people-variant-13-november-2026).
+
 Limits: one scenario family and its busy variant, one chat model, gold written by the implementing team. The independent
 gold below addresses the last of these; a second chat model is deferred.
 

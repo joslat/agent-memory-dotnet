@@ -39,6 +39,13 @@
     <Content Include="Schema\Migrations\ext\**\*.cypher" CopyToOutputDirectory="PreserveNewest" PackageCopyToOutput="true" />
   </ItemGroup>
 
+  <!-- What the migration runner reads (EmbeddedMigrationScripts): the same scripts, embedded, so every way of installing
+       the package gets them. The files above reach only an application that references AgentMemory.Neo4j directly: NuGet
+       does not pass a dependency's content files on, so consumers of the AgentMemory meta-package got no schema. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Schema\Migrations\**\*.cypher" LogicalName="AgentMemory.Neo4j.Migrations/%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
   <!-- Frozen upstream schema snapshots embedded for the parity compatibility kit (TCK). The canonical
        capture lives under Schema/Parity/Snapshots; embedding it (single source of truth) lets
        SchemaParityVerifier and the `agentmemory schema-parity` CLI self-verify with no external path

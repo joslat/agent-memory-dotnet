@@ -77,6 +77,12 @@ public static class InferenceClientFactory
                 : OpenAIProtocolClient(settings.Endpoint, settings.ApiKey, timeout)
                     .GetChatClient(effectiveModel).AsIChatClient();
 
+            // ILC-32: the resolved reasoning effort, unless the caller chose one. The automatic default reaches only the
+            // model it was chosen for, never an extraction or judge override on another model, which may reject it.
+            if (settings.ReasoningEffort is { } effort && (settings.ReasoningEffortModel is null ||
+                    string.Equals(settings.ReasoningEffortModel, effectiveModel, StringComparison.OrdinalIgnoreCase)))
+                built = new ReasoningEffortChatClient(built, effort);
+
             client = settings.ShowRaw
                 ? new RawInferenceLoggingChatClient(built, purpose, settings.SafeEndpoint, Console.Error)
                 : built;
@@ -123,6 +129,8 @@ public static class InferenceClientFactory
             Endpoint = settings.JudgeEndpoint!,
             ApiKey = settings.JudgeApiKey!,
             Model = settings.JudgeModel!,
+            // REV1-L15: an effort is a parameter of the configured provider's models; a judge on another provider gets none.
+            ReasoningEffort = settings.JudgeProvider == settings.Provider ? settings.ReasoningEffort : null,
         };
 
         return TryCreateChatClient(judgeSettings, "judge", out client, out diagnostic, generousTimeout: true);

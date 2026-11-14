@@ -29,3 +29,9 @@ using var provider = services.BuildServiceProvider(new ServiceProviderOptions
 });
 
 Console.WriteLine(typeof(IMemoryService).FullName);
+
+// The migrations an application installed through the meta-package actually gets (embedded in AgentMemory.Neo4j since
+// NuGet does not pass a dependency's content files on); eng/verify-packages-install.sh compares this with the source tree.
+var migrations = typeof(AgentMemory.Neo4j.Infrastructure.Neo4jOptions).Assembly.GetManifestResourceNames()
+    .Count(name => name.StartsWith("AgentMemory.Neo4j.Migrations/", StringComparison.Ordinal) && name.EndsWith(".cypher", StringComparison.Ordinal));
+Console.WriteLine($"embedded-migrations={migrations}");

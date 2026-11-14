@@ -19,11 +19,13 @@ internal sealed class IdentityValidationClients : IDisposable
     /// benchmark reruns of person continuity (owner: "all approved"), USD 3 with 800 chat / 2,400 embedding; USD 4 for
     /// the busy variant; USD 5.5 (2,000 / 6,000) after the old-model busy run hit USD 4 mid-run, for its rerun and the
     /// ablations; USD 6.5 (2,200 / 7,800; the attempt guard must bind before the dollar cap) for the repeat of the busy head-to-head; USD 10.5
-    /// (2,700 / 7,800) for the independent identity gold (ILC-23, owner "go for it"; about USD 4 planned). The ledger is never reset.
+    /// (2,700 / 7,800) for the independent identity gold (ILC-23, owner "go for it"; about USD 4 planned); USD 12 (3,100 /
+    /// 7,800) for the people-recall head-to-head (ILC-33, owner "all of it": two old and two new busy runs, about USD 2.4
+    /// measured from earlier busy runs at 0.50 old and 0.69 new). The ledger is never reset.
     /// </summary>
-    internal const int FullScenarioChatAttempts=2700; // stays below the dollar cap even at full-size requests
+    internal const int FullScenarioChatAttempts=3100; // stays below the dollar cap even at full-size requests
     internal const int CampaignEmbeddingAttempts=7800;
-    internal const decimal CampaignMaximumUsd=10.5m;
+    internal const decimal CampaignMaximumUsd=12m;
 
     internal const string Endpoint = "https://api-inference.bitdeer.ai/v1";
     internal const string ChatModel = "zai-org/GLM-5.3-Flash";
@@ -44,7 +46,7 @@ internal sealed class IdentityValidationClients : IDisposable
     {
         kind="budget_execution_plan",profile=profile ?? (fullScenario?"bariloche-49":"identity-four-cases"), endpoint=Endpoint,chatModel=ChatModel,embeddingModel=EmbeddingModel,
         roles=new[] { "selected-writer-or-extractor-with-chat-update-fallback","identity-adjudication","answer","embedding" },
-        extractionPath="Selected bounded arm, recorded as effectiveIngestion in the execution plan", maxCandidates=4, maxAdjudicationsPerIngestion=2, adjudicatorOutputTokens=1024, contextualConfirmationTypes=new[] { "EVENT" },
+        extractionPath="Selected bounded arm, recorded as effectiveIngestion in the execution plan", maxCandidates=4, maxAdjudicationsPerIngestion=2, adjudicatorOutputTokens=1024, contextualConfirmationTypes=new[] { "EVENT", "PERSON", "ORGANIZATION" },
         maximumCampaignUsd=CampaignMaximumUsd,maximumChatHttpAttempts=FullScenarioChatAttempts,maximumEmbeddingHttpAttempts=CampaignEmbeddingAttempts,
         maximumRequestBytes=32768,maximumOutputTokens=4096,reasoningEffort="low",httpTimeoutSeconds=45,sdkRetries=0,
         accounting="Persistently reserve worst-case cost before dispatch; no refunds on unknown outcomes",

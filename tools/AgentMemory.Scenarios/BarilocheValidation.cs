@@ -16,10 +16,13 @@ internal static class BarilocheValidation
         // answer-level discriminator between vector luck and the decision-bound event read.
         var original=scenario.Name=="bruna-go-live" && scenario.Sessions.Count==8 && scenario.Turns().Count()==49;
         var busy=scenario.Name=="bruna-go-live-busy" && scenario.Sessions.Count==17 && scenario.Turns().Count()==130;
-        if(!(original || busy) ||
-            scenario.Questions.Count!=3 || !scenario.Questions.Select(q=>q.Id).ToHashSet(StringComparer.Ordinal)
-                .SetEquals(["similar","time","conflict"]))
-            throw new ArgumentException("The full profile accepts the original 49-statement Bariloche scenario or its 130-statement busy variant only.",nameof(scenario));
+        // ILC-33: the busy history with two people named Alex Kim (134 statements) and two questions about people.
+        var people=scenario.Name=="bruna-go-live-people" && scenario.Sessions.Count==17 && scenario.Turns().Count()==134;
+        string[] questions=people?["similar","time","conflict","person","homonym"]:["similar","time","conflict"];
+        if(!(original || busy || people) ||
+            scenario.Questions.Count!=questions.Length || !scenario.Questions.Select(q=>q.Id).ToHashSet(StringComparer.Ordinal)
+                .SetEquals(questions))
+            throw new ArgumentException("The full profile accepts the original 49-statement Bariloche scenario, its 130-statement busy variant or the 134-statement people variant only.",nameof(scenario));
         return scenario with { Questions=scenario.Questions.Select(q=>q.Id=="conflict"
             ?q with { Needs=q.Needs.Concat(EventNeeds).DistinctBy(n=>n.Fact).ToArray() }:q).ToArray() };
     }
