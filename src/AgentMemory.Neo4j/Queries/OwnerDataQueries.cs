@@ -193,12 +193,13 @@ public static class OwnerDataQueries
     /// <summary>REV2-14: the owner's fact in its open period with these keys, the one a write would merge onto.</summary>
     public const string HeldFact = @"
             MATCH (f:Fact {subject_key: $subjectKey, predicate_key: $predicateKey, object_key: $objectKey, owner_key: $ownerKey, period_key: ''})
-            WHERE f.owner_id = $ownerId AND f.invalidated_at IS NULL
+            WHERE f.owner_id = $ownerId
             RETURN f.id AS id LIMIT 1";
 
     /// <summary>PR260-F7: an imported decision's record and target fingerprint, rebuilt for its imported target.</summary>
     public const string ReadImportedDecision = @"
-            MATCH (d:IdentityDecision {id: $id}) WHERE d.owner_id = $ownerId RETURN d.identity_record_json AS recordJson";
+            MATCH (d:IdentityDecision {id: $id}) WHERE d.owner_id = $ownerId
+            RETURN d.identity_record_json AS recordJson, d.identity_target_snapshot AS targetSnapshot";
 
     /// <summary>PR260-F7: see <see cref=""ReadImportedDecision""/>.</summary>
     public const string RefreshImportedDecision = @"

@@ -116,8 +116,9 @@ public sealed class IdentityDefaultOnTests
         active.ContextTurns(6).Should().Be(6);
         active.EventDetails(null).Should().BeTrue();
         active.EventDetails(false).Should().BeFalse("an explicit choice wins");
-        active.PersonDetails(null).Should().BeTrue();
-        active.PersonDetails(false).Should().BeFalse("an explicit choice wins");
+        // REV4-1: recall for people is opt-in until its read is indexed.
+        active.PersonDetails(null).Should().BeFalse("people details are opt-in for now");
+        active.PersonDetails(true).Should().BeTrue();
 
         using var off = Build(enabled: false);
         var inactive = off.GetRequiredService<IdentityActivation>();

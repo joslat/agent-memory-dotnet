@@ -43,6 +43,8 @@ internal sealed partial class Neo4jFactRepository
         var parameters = new Dictionary<string, object?>
         {
             ["limit"] = limit, ["hasOwner"] = scope?.OwnerId is not null, ["ownerId"] = scope?.OwnerId, ["includeShared"] = scope?.IncludeShared ?? false,
+            // REV4-1: the people read's own bound (GetPersonIdentitiesAsync takes at most 1,000).
+            ["people"] = 1000,
         };
         return await _tx.ReadAsync(async runner =>
         {

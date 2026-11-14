@@ -43,7 +43,8 @@ Thank you again, Pablo: your scenario is now the benchmark every identity change
   `identity:proposals-without-candidates`) and confirmations whose target it does not hold
   (`identity:confirmations-without-target`), and says when a store without identity storage kept a file's identity
   state out (`identity:state-not-imported`). Source message ids that are not the importing owner's own messages become
-  markers. An import that fails part-way removes what it created before the failure is reported, so it can be retried.
+  markers, and message ids starting with `imported-message-` are reserved for them: the Neo4j store refuses to write
+  one. An import that fails part-way removes what it created before the failure is reported, so it can be retried.
 
 ### Added
 
@@ -60,8 +61,9 @@ Thank you again, Pablo: your scenario is now the benchmark every identity change
   spelling people are known by comes first; the people and their facts are read only when one of them is in the
   question. No model call; the facts share the context budget, and facts said about one person under different
   spellings ("Ana", "Ana García") compete as one when recall hands over to current values, unless another person has
-  that spelling too. Follows identity like `EventDetails`: on where
-  evidence-based identity runs, off and unchanged elsewhere. Point-in-time recall refuses an explicit `true`.
+  that spelling too. Off by default for now; `RecallOptions.PersonDetails = true` turns it on. Each recall that uses
+  it reads the owner's people (up to 1,000) and the names their facts were bound with, which grows with the owner; once
+  that read is indexed it will follow identity like `EventDetails`. Point-in-time recall refuses an explicit `true`.
 - **Owner export and import carry identity whole** (`agentmemory-export/2`). With identity storage the export adds
   `OwnerMemoryExport.IdentityState`: the owner's decisions with their evidence and quotes, review revisions, fact
   bindings, host assertions, relationship observations, their links, and the entities' identity properties, each value
@@ -118,8 +120,9 @@ Thank you again, Pablo: your scenario is now the benchmark every identity change
   another owner reserved. A file that carries a record twice, or a record that is not an identity record, is refused
   before anything is written, and so is an import whose message markers already name a message in this store.
 - **Importing a fact the owner already holds leaves the owner's fact as it is** (also in 2.2.0 and earlier). Import
-  wrote each fact with the store's usual write, which lands on the owner's live fact with the same subject, predicate
-  and object: the file's sources replaced the owner's, and a fact the file had closed closed the owner's live one.
+  wrote each fact with the store's usual write, which lands on the owner's fact with the same subject, predicate and
+  object, live or retracted: the file's sources replaced the owner's, a fact the owner had retracted came back, and a
+  fact the file had closed closed the owner's live one.
   Import now points at the owner's fact and leaves it, its links included.
 - **An imported replaced value stays a closed period** (also in 2.2.0 and earlier). Import closed a replaced fact but
   left it where a live one sits, so the same value said again in the file (Paris, then Berlin, then Paris) landed on

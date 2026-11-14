@@ -217,8 +217,9 @@ internal sealed class Neo4jMemoryOwnerDataService(
         var importedFacts = new HashSet<string>(StringComparer.Ordinal);
         foreach (var fact in export.Facts)
         {
-            // REV2-14: the destination owner already holds this fact in its open period (a restore into a non-empty owner):
-            // the import points at it and leaves it as it is. Upserting would replace its sources, reopen it, or close it.
+            // REV2-14, REV4-3: the destination owner already holds this fact in its open period, live or retracted (a
+            // restore into a non-empty owner): the import points at it and leaves it as it is. Upserting would replace its
+            // sources, reopen a fact the owner retracted, or close it. The import's own facts are not "held".
             if (await HeldFactAsync(fact, ownerId, cancellationToken).ConfigureAwait(false) is { } existing && !importedFacts.Contains(existing))
             {
                 map[fact.FactId] = existing;
@@ -633,11 +634,9 @@ internal sealed class Neo4jMemoryOwnerDataService(
         var linkTo = state.Edges.GroupBy(edge => (edge.Type, edge.To)).ToDictionary(group => group.Key, group => group.First());
         var revisionOf = state.Edges.Where(edge => edge.Type == "HAS_IDENTITY_REVISION")
             .GroupBy(edge => edge.To, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First().From, StringComparer.Ordinal);
+        // REV4-5: a decision's id follows its own observation key, as the ingestion makes it, whatever the file calls it.
         foreach (var node in state.Nodes.Where(node => node.Label == "IdentityDecision"))
-            map[node.Key] = node.Key.StartsWith(OwnerIdentityPortability.DecisionPrefix, StringComparison.Ordinal) &&
-                            keys.TryGetValue(node.Key[OwnerIdentityPortability.DecisionPrefix.Length..], out var key)
-                ? OwnerIdentityPortability.DecisionPrefix + key
-                : ids.GenerateId();
+            map[node.Key] = OwnerIdentityPortability.DecisionPrefix + keys[node.Properties["identity_observation_key"].Text!];
         foreach (var node in state.Nodes.Where(node => node.Label != "IdentityDecision"))
             map[node.Key] = ids.GenerateId();
         // PR260-F6: an observation's entity id follows its key whether or not the entity exists yet: a confirmed decision
@@ -824,7 +823,7 @@ internal sealed class Neo4jMemoryOwnerDataService(
         }
         foreach (var decision in state.CurrentConfirmations)
             if (map.TryGetValue(decision, out var id))
-                await RefreshConfirmationAsync(id, ownerId, cancellationToken).ConfigureAwait(false);
+                await RefreshConfirmationAsync(id, ownerId, importedEntities, cancellationToken).ConfigureAwait(false);
 
         async Task WriteRowsAsync(string query, string kind, List<object> rows)
         {
@@ -845,7 +844,13 @@ internal sealed class Neo4jMemoryOwnerDataService(
     /// PR260-F7: a confirmation that was current at export gets the fingerprint of its imported target, and a contextual
     /// one its imported candidates' fingerprints, computed the way a decision computes them.
     /// </summary>
-    private Task RefreshConfirmationAsync(string decisionId, string ownerId, CancellationToken cancellationToken) =>
+    /// <remarks>
+    /// REV4-2: a target or candidate the import did not bring (a shared entity) is this store's own. It keeps the
+    /// confirmation current only if it is what the source confirmed: its fingerprint here must equal the exported one,
+    /// which it always does in the same database. Otherwise the decision keeps its exported fingerprints and needs
+    /// re-evaluation, as it would in the source after that entity changed.
+    /// </remarks>
+    private Task RefreshConfirmationAsync(string decisionId, string ownerId, IReadOnlySet<string> imported, CancellationToken cancellationToken) =>
         tx.WriteAsync(async runner =>
         {
             var parameters = new Dictionary<string, object?> { ["id"] = decisionId, ["ownerId"] = ownerId };
@@ -854,9 +859,11 @@ internal sealed class Neo4jMemoryOwnerDataService(
             var decision = IdentityDecisionPayload.Decode(rows[0]["recordJson"].As<string>());
             if (decision.Status != IdentityDecisionKind.Confirmed || decision.ConfirmedEntityId is not { } target) return;
             var snapshot = await Neo4jIdentityDecisionRepository.TargetSnapshotAsync(runner, decision, target, cancellationToken).ConfigureAwait(false);
+            if (!imported.Contains(target) && snapshot != rows[0]["targetSnapshot"].As<string?>()) return;
             if (decision.ContextualEvidence is not null && Neo4jIdentityDecisionRepository.ReadContextualSnapshots(decision) is { } contextual &&
                 await Neo4jIdentityDecisionRepository.CandidateSnapshotsAsync(runner, decision, contextual.Keys, cancellationToken).ConfigureAwait(false) is { } now)
             {
+                if (now.Any(pair => !imported.Contains(pair.Key) && contextual.GetValueOrDefault(pair.Key) != pair.Value)) return;
                 var receipt = System.Text.Json.Nodes.JsonNode.Parse(decision.EvidenceJson)!.AsObject();
                 receipt["contextualCandidateSnapshots"] = new System.Text.Json.Nodes.JsonObject(
                     now.OrderBy(pair => pair.Key, StringComparer.Ordinal)

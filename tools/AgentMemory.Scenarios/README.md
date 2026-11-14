@@ -198,7 +198,7 @@ do not guarantee complete structured writes.
 `scenarios/bruna-go-live-people.json` is the busy history plus four statements about two different people named Alex
 Kim (Bruna's cousin, who moves to Buenos Aires, and someone from Acme's billing team), and two more questions: one about
 Valentina, named in the question, and one about the cousin only. It measures recall for people: the facts bound to a
-confirmed person the question names (`RecallOptions.PersonDetails`).
+confirmed person the question names (`RecallOptions.PersonDetails`, which the identity arms turn on).
 
 Two runs per arm: old is the previous similarity resolver, new is evidence-based identity with recall for people. Each
 cell counts the needed facts that reached the prompt.

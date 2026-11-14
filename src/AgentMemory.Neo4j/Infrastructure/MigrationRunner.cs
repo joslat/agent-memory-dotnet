@@ -215,12 +215,22 @@ internal sealed class MigrationRunner : IMigrationRunner
         }
         if (refused is not null) return refused;
 
-        await _txRunner.WriteAsync(async tx =>
+        try
         {
-            await tx.RunAsync(
-                SchemaQueries.RecordMigration,
-                new { version, appliedAtUtc = DateTime.UtcNow.ToString("O"), extensionId }).ConfigureAwait(false);
-        }, cancellationToken).ConfigureAwait(false);
+            await _txRunner.WriteAsync(async tx =>
+            {
+                await tx.RunAsync(
+                    SchemaQueries.RecordMigration,
+                    new { version, appliedAtUtc = DateTime.UtcNow.ToString("O"), extensionId }).ConfigureAwait(false);
+            }, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Neo4jException exception)
+        {
+            // REV4: two instances starting at once may both record a script; the second write is refused. The script's
+            // statements are idempotent and applied, so the others still run, and the next start finds it recorded.
+            _logger.LogError(exception, "Migration {Version} applied but could not be recorded ({Message}).", version, exception.Message);
+            return exception;
+        }
 
         _logger.LogInformation("Migration {Version} applied successfully.", version);
         return null;

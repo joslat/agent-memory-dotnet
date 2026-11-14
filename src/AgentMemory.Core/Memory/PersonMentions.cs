@@ -11,7 +11,10 @@ namespace AgentMemory.Core.Memory;
 /// </summary>
 internal static class PersonMentions
 {
-    /// <summary>People read per question; the read is bounded so a large owner costs the same.</summary>
+    /// <summary>
+    /// People read per question. An owner with this many people or more names nobody (a namesake may lie past the bound),
+    /// so the reads stop there; below it they grow with the owner's people and their bindings (REV4-1).
+    /// </summary>
     internal const int MaxPeopleRead = 1000;
 
     /// <summary>People expanded per question.</summary>

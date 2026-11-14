@@ -185,6 +185,51 @@ public sealed class MigrationRunnerTests
         }
     }
 
+    [Fact]
+    public async Task A_record_another_start_already_wrote_stops_nothing_else()
+    {
+        // REV4: two instances starting at once both apply a script; the second record write is refused. The runner goes on
+        // with the next scripts and reports the refusal.
+        var dir = Path.Combine(Path.GetTempPath(), "agentmemory-migtest-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(dir, "0002_first.cypher"), "CREATE INDEX first_idx IF NOT EXISTS FOR (n:A) ON (n.x);");
+            await File.WriteAllTextAsync(Path.Combine(dir, "0003_second.cypher"), "CREATE INDEX second_idx IF NOT EXISTS FOR (n:B) ON (n.y);");
+            var executed = new List<string>();
+            var records = 0;
+            var txRunner = Substitute.For<INeo4jTransactionRunner>();
+            txRunner.ReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task<bool>>>(), Arg.Any<CancellationToken>()).Returns(call =>
+            {
+                var runner = Substitute.For<IAsyncQueryRunner>();
+                runner.RunAsync(Arg.Any<string>(), Arg.Any<object>()).Returns(_ => Task.FromResult(Substitute.For<IResultCursor>()));
+                return call.Arg<Func<IAsyncQueryRunner, Task<bool>>>()(runner);
+            });
+            txRunner.WriteAsync(Arg.Any<Func<IAsyncQueryRunner, Task>>(), Arg.Any<CancellationToken>()).Returns(call =>
+            {
+                var runner = Substitute.For<IAsyncQueryRunner>();
+                Task<IResultCursor> Run(string statement)
+                {
+                    if (statement.Contains("MERGE (m:Migration") && ++records == 1)
+                        throw new ClientException("Neo.ClientError.Schema.ConstraintValidationFailed", "already recorded");
+                    executed.Add(statement);
+                    return Task.FromResult(Substitute.For<IResultCursor>());
+                }
+                runner.RunAsync(Arg.Any<string>()).Returns(ci => Run(ci.Arg<string>()));
+                runner.RunAsync(Arg.Any<string>(), Arg.Any<object>()).Returns(ci => Run(ci.Arg<string>()));
+                return call.Arg<Func<IAsyncQueryRunner, Task>>()(runner);
+            });
+
+            await CreateRunner(txRunner, dir).Invoking(m => m.RunMigrationsAsync()).Should().ThrowAsync<ClientException>();
+
+            executed.Should().Contain(s => s.Contains("second_idx"), "the next script still runs");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
     // ── Applying a real multi-statement migration ──
 
     [Fact]

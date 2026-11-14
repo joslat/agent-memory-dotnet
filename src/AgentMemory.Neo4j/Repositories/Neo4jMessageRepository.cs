@@ -40,6 +40,7 @@ internal sealed class Neo4jMessageRepository : IMessageRepository
 
     public async Task<Message> AddAsync(Message message, CancellationToken cancellationToken = default)
     {
+        RefuseReserved(message);
         _logger.LogDebug("Adding message {Id} to conversation {ConvId}", message.MessageId, message.ConversationId);
 
         return await _tx.WriteAsync(async runner =>
@@ -71,10 +72,23 @@ internal sealed class Neo4jMessageRepository : IMessageRepository
         }, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// REV4-6: an owner import writes its memories' sources as <c>imported-message-</c> markers, derived from the owner
+    /// and the original id. A message written at one would become those memories' source, quoted to that owner by recall,
+    /// so no message may take such an id.
+    /// </summary>
+    private static void RefuseReserved(Message message)
+    {
+        if (message.MessageId?.StartsWith(Services.OwnerIdentityPortability.ImportedMessagePrefix, StringComparison.Ordinal) == true)
+            throw new ArgumentException($"Message ids starting with '{Services.OwnerIdentityPortability.ImportedMessagePrefix}' are reserved for owner import.",
+                nameof(message));
+    }
+
     public async Task<IReadOnlyList<Message>> AddBatchAsync(IEnumerable<Message> messages, CancellationToken cancellationToken = default)
     {
         var ordered = messages.OrderBy(m => m.TimestampUtc).ToList();
         if (ordered.Count == 0) return Array.Empty<Message>();
+        foreach (var message in ordered) RefuseReserved(message);
 
         _logger.LogDebug("Batch adding {Count} messages", ordered.Count);
 

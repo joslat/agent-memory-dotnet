@@ -1396,6 +1396,117 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
         (await Count("(:Entity {id:'shared-entity'})-[:HAS_IDENTITY_EVIDENCE]->()")).Should().Be(0);
     }
 
+    [Fact]
+    public async Task Importing_a_fact_the_owner_retracted_leaves_it_retracted()
+    {
+        // REV4-3: the owner retracted the go-live date; an older backup still has it live. The import leaves the owner's
+        // retraction, sources and closing as they are.
+        using var host = Host(); using var scope = host.CreateScope(); var services = scope.ServiceProvider;
+        await Seed(services, "Acme go live");
+        await Ingest(services, Input());
+        var backup = await ExportFile(services);
+        var facts = services.GetRequiredService<IFactRepository>();
+        var said = (await facts.GetBySubjectAsync("Acme go live", Scope)).Single();
+        (await facts.InvalidateAsync(said.FactId, Scope)).Should().BeTrue();
+        var retracted = (await facts.GetBySubjectAsync("Acme go live", Scope)).Single();
+
+        var imported = await services.GetRequiredService<IMemoryOwnerDataService>().ImportAsync(backup, "pablito");
+
+        imported.Written.Should().Contain("facts:already-held", 1);
+        var after = (await facts.GetBySubjectAsync("Acme go live", Scope)).Single();
+        after.InvalidatedAtUtc.Should().Be(retracted.InvalidatedAtUtc);
+        after.SourceMessageIds.Should().Equal(retracted.SourceMessageIds);
+    }
+
+    [Fact]
+    public async Task A_shared_target_that_changed_keeps_the_confirmation_stale_in_the_copy()
+    {
+        // REV4-2: confirmed to a shared entity, then imported where that entity differs from what the source confirmed (as
+        // in another database). The copy keeps the exported fingerprint, so the confirmation needs re-evaluation, as it
+        // would in the source; it is not made current against an entity the source never confirmed.
+        using var host = Host(); using var scope = host.CreateScope(); var services = scope.ServiceProvider;
+        await Seed(services, "Acme go live");
+        await Ingest(services, Input());
+        var decisions = services.GetRequiredService<IIdentityDecisionRepository>();
+        var proposal = await StoredDecision();
+        await decisions.ReviewAsync(new() { DecisionId = proposal.DecisionId, OperationId = "confirm-acme", ExpectedVersion = proposal.Version,
+            Action = IdentityReviewAction.Confirm, CandidateEntityId = "existing", Actor = "fixture:owner", Reason = "the same go-live" }, "pablito");
+        await fixture.TransactionRunner.WriteAsync(async runner => { await runner.RunAsync(
+            "CREATE (:Entity {id:'shared-acme', name:'Acme go live', type:'EVENT', owner_key:'*', description:'another database'})"); });
+        var file = await ExportFile(services);
+        var state = file.IdentityState!;
+        static string Moved(string id) => id == "existing" ? "shared-acme" : id;
+        var moved = file with
+        {
+            Entities = [.. file.Entities.Where(entity => entity.EntityId != "existing")],
+            About = [.. file.About.Select(link => new MemoryLink(link.From, Moved(link.To)))],
+            IdentityState = state with
+            {
+                EntityProperties = [.. state.EntityProperties.Where(node => node.Key != "existing")],
+                Edges = [.. state.Edges.Select(edge => edge with { From = Moved(edge.From), To = Moved(edge.To) })],
+                Nodes = [.. state.Nodes.Select(node => node.Label is not ("IdentityDecision" or "IdentityDecisionRevision") ? node : node with
+                {
+                    Properties = new Dictionary<string, OwnerGraphValue>(node.Properties)
+                    { ["identity_record_json"] = GraphText(node.Properties["identity_record_json"].Text!.Replace("\"existing\"", "\"shared-acme\"")) },
+                })],
+            },
+        };
+        var exported = state.Nodes.Single(node => node.Label == "IdentityDecision").Properties["identity_target_snapshot"].Text;
+        state.CurrentConfirmations.Should().ContainSingle("precondition: the confirmation was current at export");
+
+        var imported = await services.GetRequiredService<IMemoryOwnerDataService>().ImportAsync(moved, "copy-owner");
+
+        var copy = imported.Ids[proposal.DecisionId];
+        var snapshot = await fixture.TransactionRunner.ReadAsync(async runner => ValueExtensions.As<string?>((await (await runner.RunAsync(
+            "MATCH (d:IdentityDecision {id:$id}) RETURN d.identity_target_snapshot AS s", new { id = copy })).SingleAsync())["s"]));
+        snapshot.Should().Be(exported, "the shared entity here is not the one the source confirmed");
+    }
+
+    [Fact]
+    public async Task An_imported_decisions_id_follows_its_own_observation_key()
+    {
+        // REV4-5: whatever a file calls a decision, its id in the copy is the one its own key gives, as ingestion makes it.
+        using var host = Host(); using var scope = host.CreateScope(); var services = scope.ServiceProvider;
+        await Seed(services, "Acme go live");
+        await Ingest(services, Input());
+        var file = await ExportFile(services);
+        var state = file.IdentityState!;
+        var decision = state.Nodes.Single(node => node.Label == "IdentityDecision").Key;
+        const string renamed = "identity-decision-not-its-key";
+        string Renamed(string id) => id == decision ? renamed : id;
+        var crafted = file with { IdentityState = state with
+        {
+            Nodes = [.. state.Nodes.Select(node => node with
+            {
+                Key = Renamed(node.Key),
+                Properties = node.Properties.ToDictionary(pair => pair.Key, pair => pair.Value.Text == decision ? GraphText(renamed) : pair.Value),
+            })],
+            Edges = [.. state.Edges.Select(edge => edge with { From = Renamed(edge.From), To = Renamed(edge.To) })],
+            CurrentConfirmations = [.. state.CurrentConfirmations.Select(Renamed)],
+        } };
+
+        var imported = await services.GetRequiredService<IMemoryOwnerDataService>().ImportAsync(crafted, "copy-owner");
+
+        var copy = (await services.GetRequiredService<IIdentityDecisionRepository>().GetAsync(imported.Ids[renamed], "copy-owner"))!;
+        copy.DecisionId.Should().Be("identity-decision-" + copy.ObservationKey);
+    }
+
+    [Fact]
+    public async Task No_message_can_take_an_import_marker_id()
+    {
+        // REV4-6: a message at an owner's import marker would become the source recall quotes for that owner's imported
+        // memories; the store refuses such ids, so none can be planted after the import's own check.
+        using var host = Host(); using var scope = host.CreateScope(); var services = scope.ServiceProvider;
+        var marker = OwnerIdentityPortability.NewMessageId("pablito", "source");
+        var planted = new Message { MessageId = marker, ConversationId = "victim-conversation", SessionId = "victim", Role = "user",
+            Content = "planted", TimestampUtc = DateTimeOffset.UnixEpoch };
+        var messages = services.GetRequiredService<IMessageRepository>();
+
+        await messages.Invoking(m => m.AddAsync(planted)).Should().ThrowAsync<ArgumentException>();
+        await messages.Invoking(m => m.AddBatchAsync([planted])).Should().ThrowAsync<ArgumentException>();
+        (await Count($"(m:Message {{id:'{marker}'}})")).Should().Be(0);
+    }
+
     private static IdentityHostEvidence HostProof(string eventId = "ACME-2026") => new()
     {
         Keys = [new() { Namespace = "fixture:events", Authority = "fixture:directory", SourceId = "fixture:event:" + eventId,

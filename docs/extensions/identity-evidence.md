@@ -261,7 +261,7 @@ details. See [current evidence and limits](../evidence-based-identity-implementa
 
 ### Recall for people
 
-`RecallOptions.PersonDetails` (null follows identity, like `EventDetails`) adds the facts about a confirmed person the
+`RecallOptions.PersonDetails` (off unless `true`, for now; see its cost below) adds the facts about a confirmed person the
 question names. Recall first reads every spelling people are known by (names, aliases and the names bound facts used,
 found from the owner's people and never by reading every binding in the store), distinct and at most 10,000, with no
 per-person grouping or decision checks; when none of them is in the question, it
@@ -284,8 +284,10 @@ come through decision-owned fact bindings, newest first and taken in turn from e
 `MaxPersonDetailFacts` (8; 0..64), excluding facts already in the context. Recall then hands over to current values
 again, every time, with the dated sections' facts as competitors, so a value a begun plan replaced does not come back
 with the details, and facts said about a named person under any of their spellings ("Ana", "Ana García") compete as
-one subject; a spelling another person also has ("Ana" for Ana López too) stays its own subject. The full read still costs one pass over the owner's people and their bindings when a known spelling is in
-the question; a normalised-name index that turns both reads into seeks is planned. The facts carry no
+one subject; a spelling another person also has ("Ana" for Ana López too) stays its own subject. Both reads grow with
+the owner's people (at most 1,000 are read; with that many nobody is named) and their bindings, on every recall that
+uses it, so it is off by default until a normalised-name index turns them into lookups; it will then follow identity
+like `EventDetails`. The facts carry no
 invented similarity score and share the context budget and the latency allowance. Choosing between two people with the
 same name from the question's context, and questions that name nobody ("what does she like?"), are out of scope.
 
@@ -324,7 +326,11 @@ Import into a store with identity storage brings the owner back whole, and the c
   those candidates are dropped, and a proposal left with none is New, as identity decides when no candidate exists,
   with the diagnostic `identity_import_candidates_not_in_store`. A confirmation whose target the destination does not
   hold comes back as a revocation leaves it: New, its observation made as its own entity, the decision and its bindings
-  resolved to it, with the diagnostic `identity_import_target_not_in_store` (`identity:confirmations-without-target`).
+  resolved to it, with the diagnostic `identity_import_target_not_in_store` (`identity:confirmations-without-target`). A target or
+  candidate the import does not bring (a shared entity) is this store's own: a confirmation stays current only if its
+  fingerprint here equals the exported one, as it always does in the same database; otherwise it keeps the exported
+  fingerprints and needs re-evaluation. For the entities it does bring, the file's list of current confirmations is
+  taken as it is, so a crafted list can only mark the importing owner's own decisions current.
   A decision confirmed from context alone still cannot be replayed after a move, because its source messages stay
   behind.
 - **Evidence and vectors are the destination's.** An evidence assertion keeps the id asserting derives from its content
@@ -344,7 +350,14 @@ Import into a store with identity storage brings the owner back whole, and the c
   must tie a fact said about the binding's observed name (its subject or object, by role) to a decision whose sources
   it shares, and two that come to one id (one decision, one fact, one role) are one binding; one that does not fit, or
   repeats another, is left out with its links (`identity:bindings-dropped`). Message markers are
-  predictable, so an import whose markers already name a message in this store is refused. Retired entities are retired again as soon as they are written, so a failure later never leaves them live.
+  predictable, so an import whose markers already name a message in this store is refused, and the store refuses to
+  write a message with an `imported-message-` id, so none can be planted at one later. An imported binding is checked as
+  far as the file allows (its sources against its decision's, its name against its fact's subject or object); that the
+  fact itself was said in one of the decision's messages is not checked, because a fact keeps only the latest message it
+  was said in, so a crafted file can bind the importing owner's own facts to its own decisions, never another owner's.
+  An evidence assertion's source id is the host's reference: it is rewritten only when it names a message the file's
+  memories cite, and nothing reads it as a message. A record near its size limit can grow past it when its message ids
+  become markers; such an import is refused and what it wrote is removed. Retired entities are retired again as soon as they are written, so a failure later never leaves them live.
   Into a store without identity storage, the result says the identity state stayed out (`identity:state-not-imported`). The same check applies to format 1:
   2.2.0 made a relationship or ABOUT link to whatever id a file named, creating a bare node if none existed.
 
@@ -385,7 +398,8 @@ name as an alias, and an open proposal's two entities come back apart. An identi
 into only when it is a shared entity here; one merged away since the export, or missing, leaves the mention as its own
 entity. Either way imported entities are never joined
 to what the destination already holds, so an import cannot merge two different things. Import while the owner is not
-being written. A fact the owner already holds, live with the same subject, predicate and object, is left as it is,
+being written. A fact the owner already holds with the same subject, predicate and object in its open period, live or
+retracted, is left as it is,
 links included (`facts:already-held`). A replaced fact (a supersession's loser) comes back as a closed period, as in the
 source, so the same value said again later is its own fact. An import that fails part-way removes what it created
 (its entities, facts, preferences, relationships and identity records, with their links) before the failure is

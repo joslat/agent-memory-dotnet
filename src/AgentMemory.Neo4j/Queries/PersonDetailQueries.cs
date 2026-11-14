@@ -59,6 +59,8 @@ internal static class PersonDetailQueries
           MATCH (p:Entity) WHERE NOT $hasOwner RETURN p
         }
         WITH p WHERE toUpper(p.type)='PERSON' AND p.invalidated_at IS NULL AND p.merged_into IS NULL
+        // REV4-1: no further than the people bound: with that many people nobody is named anyway.
+        WITH p LIMIT $people
         // REV3-5: a person's bound names are found from the person, through its own bindings, never by reading every
         // binding in the store.
         CALL {

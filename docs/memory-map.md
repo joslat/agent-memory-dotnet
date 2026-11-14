@@ -2178,7 +2178,7 @@ have explicit fact-role support for that event; missing extraction/binding evide
 This increment does not expand undated relationship-only claims or infer an event from words buried
 inside a sentence. The representative model cases will measure this coverage and any required fix.
 
-`RecallOptions.PersonDetails` (ILC-33, also following identity) does the same for people. Every live `PERSON` entity of
+`RecallOptions.PersonDetails` (ILC-33, off unless `true` for now, since its read grows with the owner) does the same for people. Every live `PERSON` entity of
 the owner is read with the names it is known by (at most 1,000); a name that appears in the question as whole words,
 case and accents aside, and belongs to one person only, names that person (at most 3), who is expanded when facts are
 bound to them through a decided identity. Their live facts come through the same bindings, newest first, at most
