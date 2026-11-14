@@ -302,6 +302,20 @@ public sealed record RecallOptions
     public int MaxEventDetailFacts { get; init; } = 8;
 
     /// <summary>
+    /// Add the facts about a confirmed person the question names (ILC-33). Off unless <c>true</c> for now: each recall that
+    /// uses it reads the owner's people and the names their facts were bound with, which grows with the owner, until that
+    /// read is indexed; <c>true</c> requires an identity-capable backend. A name counts as whole words, case and accents
+    /// aside, and only when one confirmed person has it: a name two people share expands nothing, never a guess. At most
+    /// 3 people per question; their live facts come through decision-owned fact bindings, newest first, pending proposals
+    /// never followed. No model call; extra facts have no invented similarity score and share the existing context budget.
+    /// Point-in-time recall rejects an explicit <c>true</c>.
+    /// </summary>
+    public bool? PersonDetails { get; init; }
+
+    /// <summary>Maximum appended person details, 0 disables the reads; supported range 0..64. Default 8.</summary>
+    public int MaxPersonDetailFacts { get; init; } = 8;
+
+    /// <summary>
     /// Reports aged-out memory as a stated absence when a fact section comes back thin. Default off,
     /// and off is byte-identical.
     /// </summary>

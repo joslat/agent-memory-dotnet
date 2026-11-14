@@ -116,17 +116,30 @@ at most10 dated seeds,20 events and64 additional facts. It shares latency/contex
 invented vector scores, and is suppressed by MaxFacts0 or a zero detail cap. Point-in-time recall
 and unsupported backends reject requested use explicitly.
 
+`RecallOptions.PersonDetails` (ILC-33) defaults to null, which is off for now (its read grows with the owner until it is indexed); `true` turns it on; `MaxPersonDetailFacts` defaults 8 (0-64).
+`PersonMentions` matches the question against the confirmed people's names (whole words, case and accents folded; a
+name shared by two identities, one-letter names and pronouns name nobody; at most 3 people). `PersonDetailQueries`
+reads at most 1,000 identities and then the named people's bound facts, newest first, round-robin across people,
+excluding decisions with `POSSIBLE_SAME_AS` candidates. Same budgets, no invented scores, same refusals.
+
 `LlmExtractionOptions.MemoryWriterEventIdentities` defaults to null (follows identity). Enabled, it uses coherent
 event-aware base instructions plus generic source-grounded event/date/place/participation shapes,
 preserving negation and original quotes. Default writer prompt bytes remain unchanged. The
 dedicated chat adjudicator requests constrained JSON; providers refusing it safely leave Pending.
 The synthetic arm composes these options explicitly and is not full Recommended/JEV.
 
-`agentmemory-export/1` with identity-evidence enabled exports the current state with `IdentityResolutions` and
-`IdentityStateOmitted` (ILC-18); import (ILC-26) folds each mention's entity into its confirmed identity, keeps the
-mention's name as an alias and joins nothing to what the destination holds. Decisions, review history, evidence and
-open proposals are not carried. Extension-off behavior remains unchanged. Owner erasure is supported. Complete
-identity portability is separate.
+With identity-evidence enabled, export writes `agentmemory-export/2` (ILC-30): `IdentityState` carries the five
+identity record types, the nine identity link types and the entities' identity properties, typed. Import into an
+identity store recreates them for the new owner: each observation key becomes `sha256(newOwner, importId, oldKey)` (same
+shape, so decision and observation ids follow it, reserved ones included; a new copy for every import), other records get
+new ids, and references are rewritten by exact value, inside stored JSON too, JSON nested in it and ids used as keys; the
+owner only in owner-named properties. Messages are not carried: source message ids become `imported-message-` markers of
+the importing owner everywhere, so an imported proposal can be reviewed in the same store as its source. Retired entities the
+records point at come back retired; confirmations current at export get their imported target's fingerprints. Records
+are forced to the importing owner and to their declared properties, and an endpoint the import does not create must be
+a shared entity, checked before any write (format 1 too). A format-1 export (ILC-18) or an
+import into a store without identity folds each mention into its confirmed identity (ILC-26). Extension-off behavior
+remains unchanged. Owner erasure is supported.
 
 Finite successful tests support these guarantees within their scope. They do not establish
 perfect extraction, automatic identity confirmation or full model accuracy.

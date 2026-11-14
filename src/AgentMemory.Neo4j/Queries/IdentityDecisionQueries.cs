@@ -125,7 +125,12 @@ internal static class IdentityDecisionQueries
         MATCH (d:IdentityDecision {id: $decisionId, owner_scope: $ownerScope}), (f:Fact {id: $factId}), (t:Entity {id: $targetId})
         WHERE (($ownerId IS NULL AND f.owner_id IS NULL) OR ($ownerId IS NOT NULL AND f.owner_id = $ownerId))
             AND (($role = 'Subject' AND f.subject_key = $surfaceKey) OR ($role = 'Object' AND f.object_key = $surfaceKey))
-            AND any(source IN $sourceIds WHERE source IN coalesce(f.source_message_ids, []))
+            // The fact was said in one of the decision's source messages, or (PR260-N1) this binding already ties this
+            // fact to this decision: its provenance was checked when it was made, and a fact said again since keeps only
+            // its latest source, so reviewing that decision must not fail on it.
+            AND (any(source IN $sourceIds WHERE source IN coalesce(f.source_message_ids, [])) OR EXISTS {
+                MATCH (f)-[:HAS_IDENTITY_BINDING]->(existing:IdentityFactBinding {id: $bindingId})
+                WHERE existing.identity_decision_id = $decisionId AND existing.owner_scope = $ownerScope })
             AND (($ownerId IS NULL AND t.owner_id IS NULL) OR
                 ($ownerId IS NOT NULL AND (t.owner_id = $ownerId OR ($includeShared AND t.owner_id IS NULL))))
         MERGE (b:IdentityFactBinding {id: $bindingId})

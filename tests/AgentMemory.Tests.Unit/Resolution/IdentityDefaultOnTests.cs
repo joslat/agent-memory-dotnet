@@ -45,6 +45,8 @@ public sealed class IdentityDefaultOnTests
         automatic.PolicyFor("LOCATION").AllowContextualConfirmation.Should().BeFalse("every other type, places included, stays review-only");
         RecallOptions.Default.EventDetails.Should().BeNull("event details follow identity");
         RecallOptions.Default.MaxEventDetailFacts.Should().Be(8);
+        RecallOptions.Default.PersonDetails.Should().BeNull("person details follow identity");
+        RecallOptions.Default.MaxPersonDetailFacts.Should().Be(8);
         new LlmExtractionOptions().MemoryWriterEventIdentities.Should().BeNull("the writer's event identities follow identity");
     }
 
@@ -114,11 +116,15 @@ public sealed class IdentityDefaultOnTests
         active.ContextTurns(6).Should().Be(6);
         active.EventDetails(null).Should().BeTrue();
         active.EventDetails(false).Should().BeFalse("an explicit choice wins");
+        // REV4-1: recall for people is opt-in until its read is indexed.
+        active.PersonDetails(null).Should().BeFalse("people details are opt-in for now");
+        active.PersonDetails(true).Should().BeTrue();
 
         using var off = Build(enabled: false);
         var inactive = off.GetRequiredService<IdentityActivation>();
         inactive.ContextTurns(0).Should().Be(0, "off is the previous behaviour");
         inactive.EventDetails(null).Should().BeFalse();
+        inactive.PersonDetails(null).Should().BeFalse();
     }
 
     [Theory]

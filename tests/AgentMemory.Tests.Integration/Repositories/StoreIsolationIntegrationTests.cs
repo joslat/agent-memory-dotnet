@@ -75,6 +75,36 @@ public sealed partial class StoreIsolationIntegrationTests : IAsyncLifetime
         if (_container is not null) await _container.DisposeAsync();
     }
 
+    [Fact]
+    public async Task A_provisioned_database_gets_the_migration_scripts()
+    {
+        // REV5-3: identity's unique constraints (its per-owner lock among them) reach a database provisioned per application,
+        // as schema bootstrap gives them to the default one.
+        var neo4j = new Neo4jOptions { Database = "neo4j", EmbeddingDimensions = Dimensions };
+        neo4j.Extensions.Add("identity-evidence");
+        var store = new MemoryStoreOptions { Strategy = MemoryStorageStrategy.DatabasePerApplication, AutoProvision = true, DatabasePrefix = "mem-" };
+        // Built as the application's container builds it, so the extension registry reaches it the way it does there.
+        var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+        Microsoft.Extensions.DependencyInjection.LoggingServiceCollectionExtensions.AddLogging(services);
+        Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton<INeo4jSessionFactory>(services, _sessionFactory);
+        Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton(services, Options.Create(neo4j));
+        Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton(services, Options.Create(store));
+        Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton(services,
+            new AgentMemory.Neo4j.Schema.Extensions.SchemaExtensionRegistry([new AgentMemory.Neo4j.Schema.Extensions.IdentityEvidenceSchemaExtension()]));
+        using var provider = Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions.BuildServiceProvider(services);
+        var provisioner = Microsoft.Extensions.DependencyInjection.ActivatorUtilities.CreateInstance<Neo4jMemoryStoreProvisioner>(provider);
+
+        await provisioner.EnsureStoreAsync("migrated");
+
+        var database = StoreDatabaseNaming.Resolve(store, store.DefaultDatabase, "migrated");
+        var session = _driver.AsyncSession(o => o.WithDatabase(database));
+        await using (session)
+        {
+            var names = ValueExtensions.As<List<string>>((await (await session.RunAsync("SHOW CONSTRAINTS YIELD name RETURN collect(name) AS names")).SingleAsync())["names"]);
+            names.Should().Contain("identity_scope_lock").And.Contain("identity_decision_observation");
+        }
+    }
+
     private async Task<string> WriteConversationInStoreAsync(string applicationId)
     {
         _storeContext.ApplicationId = applicationId;

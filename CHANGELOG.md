@@ -6,6 +6,152 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-11-14
+
+**The Pablo Piovano release 2.** A fix and some improvements.
+
+2.2.0 carried Pablo Piovano's name and was out for a day. It made identity evidence-based: two people who share a name
+stay two, an uncertain match waits for review instead of merging, and a confirmed event brings its details to recall. It
+also named its own limits: recall still found people by similarity, export and import carried the current state but not
+identity's history, and hosts running GLM-5.3-Flash through `AgentMemory.Inference` ran it at maximum reasoning effort.
+Those were meant for 2.2 and missed it; 2.3.0 brings all three.
+
+It also carries three critical fixes. Checking the release found two, both in how the database schema reaches an
+application: the migration scripts did not reach applications that install the `AgentMemory` package, and nothing in the
+library ran them at startup anyway, so identity has run without its unique constraints and lookup indexes. The scripts
+now ship inside the library, and schema bootstrap applies them. A review of this release found the third, in 2.2.0 too:
+owner import trusted the ids in the file it was given, so a crafted export could link imported memories to another
+owner's entities. Import now checks every one before it writes anything. If you run 2.2.0, upgrade.
+
+Thank you again, Pablo: your scenario is now the benchmark every identity change is measured against, this one included.
+
+### Upgrading
+
+- **The first start applies the migration scripts the database is missing**, identity's among them, and later starts
+  only check. If the log shows an error about a constraint, the store holds duplicates written without it: it keeps
+  running as before, and the next start adds the constraint once they are removed. Every other statement still
+  applies. Where an operator owns the schema,
+  set `Neo4jOptions.ApplyMigrationsOnBootstrap = false` and apply the scripts with `IMigrationRunner`.
+- Owner exports that carry identity records are now `agentmemory-export/2`; an owner with none still exports format 1,
+  which 2.2.0 reads. 2.3.0 imports both formats; 2.2.0 and earlier refuse format 2 rather than drop its identity state.
+- `AgentMemory.Inference` on Bitdeer's GLM-5.3-Flash now asks for low reasoning effort; `AI_REASONING_EFFORT` changes it.
+- Owner import refuses a file that names no owner, or that is malformed, before writing anything, and never links to
+  an entity another owner holds or this store lacks: such a link is left out and counted, the same either way, where
+  2.2.0 created a bare node. The result's `Written` counts what was left out (`skipped:*`), a fact the owner already
+  held (`facts:already-held`) and closed facts that are history the owner already holds (`facts:history-left-out`),
+  bindings that did not fit their fact or decision (`identity:bindings-dropped`),
+  proposals whose candidates the store does not hold (`identity:candidates-not-in-store`,
+  `identity:proposals-without-candidates`) and confirmations whose target it does not hold
+  (`identity:confirmations-without-target`), and says when a store without identity storage kept a file's identity
+  state out (`identity:state-not-imported`). Source message ids that are not the importing owner's own messages become
+  markers, and message ids starting with `imported-message-` are reserved for them: the Neo4j store refuses to write
+  one. An import that fails part-way removes what it created before the failure is reported, so it can be retried.
+
+### Added
+
+- **Identity-aware recall for people** (`RecallOptions.PersonDetails`, `MaxPersonDetailFacts`). A question that names
+  a confirmed person ("my mentoring session with Valentina") now brings that person's facts, not only the ones whose
+  words resemble the question: up to 8 live facts bound to the person through identity decisions, newest first. A name
+  counts as whole words, case and accents aside, and only when one person in the store has it: a name two people share
+  expands nothing, never a guess, whether the other is confirmed, an open proposal (never followed) or a person with no
+  bound facts. A name inside a longer name the question says ("Ana" in "Ana García") is part of it, a known name
+  joined by a space to another capitalised word ("Ana Torres" when only Ana is known) names nobody, and a single-word
+  name that is also an everyday word ("Will", "May") counts only written as a name, capitalised and not starting a
+  sentence. At most 3 people per question; a store whose read of people comes back full (1,000), or a person with more
+  names than are read (32, spellings that differ only in case counted once), expands nobody. A light read of every
+  spelling people are known by comes first; the people and their facts are read only when one of them is in the
+  question. No model call; the facts share the context budget, and facts said about one person under different
+  spellings ("Ana", "Ana García") compete as one when recall hands over to current values, unless another person has
+  that spelling too. Off by default for now; `RecallOptions.PersonDetails = true` turns it on. Each recall that uses
+  it reads the owner's people (up to 1,000) and the names their facts were bound with, which grows with the owner; once
+  that read is indexed it will follow identity like `EventDetails`. Point-in-time recall refuses an explicit `true`.
+- **Owner export and import carry identity whole** (`agentmemory-export/2`). With identity storage the export adds
+  `OwnerMemoryExport.IdentityState`: the owner's decisions with their evidence and quotes, review revisions, fact
+  bindings, host assertions, relationship observations, their links, and the entities' identity properties, each value
+  with its type, and the retired entities those records still point at. Import into an identity store recreates them for
+  the new owner as a copy of its own: every reference is rewritten (ids, keys and scopes, inside stored JSON, JSON nested
+  in it and ids used as keys; never free text or host evidence), each observation gets a key new to the owner and the
+  import, and each source message id becomes a marker of the
+  importing owner, so open proposals can be reviewed, review history and event details work as before, and a confirmation current
+  at export gets its imported target's fingerprint. Evidence assertions keep the content-derived ids asserting gives
+  them, so asserting the same key again is the same evidence, and each decision's observation gets the destination
+  model's vector (its history none). The same file can be imported into several owners, or twice into one. Every
+  import gets new keys, a restore into the owner the file came from included, so a restored message ingested again makes
+  a second decision rather than replaying the first. A
+  proposal whose candidates the store does not hold becomes New, and a confirmation whose target it does not hold (a
+  shared entity, in another database) comes back as a revocation leaves it, New on its own observation; both say why.
+  A binding must tie a fact said about its observed name to a decision whose sources it shares, or it is left out.
+  Messages stay out: decisions keep their quotes. A format-1 export, or an import into a store without identity, comes
+  back as the current state, as in 2.2.0. An importer that knows only format 1 refuses format 2 rather than dropping its
+  identity state.
+
+### Changed
+
+- **Schema bootstrap applies the migration scripts.** `ISchemaBootstrapper.BootstrapAsync()`, the one startup step the
+  README and the samples run, now also runs the migration runner: the base sequence, then the scripts of every active
+  schema extension, each once per database (recorded in `(:Migration)` nodes, so later starts only check). Until now
+  nothing in the library ran them; only the repository's CLI and tests did. Bootstrap already created the base indexes
+  itself, so base stores lost little, but no installed application got an extension's schema: since 2.2.0 turned
+  identity on, it has run without its unique constraints (among them the one its per-owner lock relies on) and lookup
+  indexes. Upgrading applies them on the next start. A script the database refuses, for example a unique constraint over
+  nodes that were already duplicated, is logged as an error and startup continues as before; the next start tries
+  again. Every shipped statement is independent, so the others, in the same script and after it, still apply; only
+  the refused script stays unrecorded. Where an operator owns the schema and startup must not run DDL, set
+  `Neo4jOptions.ApplyMigrationsOnBootstrap = false` and apply the scripts with `IMigrationRunner`. A database the store
+  provisions per application (`DatabasePerApplication` with `AutoProvision`) gets the same scripts when it is
+  provisioned; one an operator provisions gets them from the operator.
+
+### Fixed
+
+- **Reviewing an identity decision works after its fact is said again.** A fact keeps only the latest message it was
+  said in, and review checked the decision's own messages against it, so confirming or revoking a decision failed once
+  its fact had been restated, or after the store was imported into its own owner. A binding that already ties the fact to
+  the decision now carries its provenance, which was checked when it was made.
+- **Event and person details no longer bring back a replaced value.** They were added after recall hands over to
+  current values, so a value a begun plan had replaced (the old city after a move) could come back with them; event
+  details have done so since 2.2.0. Recall now hands over again after the details, with the dated sections' facts as
+  competitors, every time.
+- **Owner import trusts nothing in the file it cannot verify** (also in 2.2.0). An entity a file names but the import
+  does not create is linked to only when it is a shared entity in this store: one that belongs to an owner is left out
+  exactly as a missing one is, so the result never tells whether another owner holds an id, where 2.2.0 made the link
+  to whatever the id named and created a bare node if nothing had it. Identity records always belong to the importing owner and carry only the
+  properties their schema declares; entities take only the three identity properties; identity links carry none. An
+  entity a current decision's record names without a link (its target, candidates or observation) is checked the same
+  way, and a malformed value is refused before anything is written. A file must name its owner, and each decision
+  record's own ids and owner are the copy's, whatever the file says, so a revocation can never create an entity at an id
+  another owner reserved. A file that carries a record twice, or a record that is not an identity record, is refused
+  before anything is written, and so is an import whose message markers already name a message in this store.
+- **Importing a fact the owner already holds leaves the owner's fact as it is** (also in 2.2.0 and earlier). Import
+  wrote each fact with the store's usual write, which lands on the owner's fact with the same subject, predicate and
+  object, live or retracted: the file's sources replaced the owner's, a fact the owner had retracted came back, and a
+  fact the file had closed closed the owner's live one.
+  Import now points at the owner's fact and leaves it, its links included.
+- **An imported replaced value stays a closed period** (also in 2.2.0 and earlier). Import closed a replaced fact but
+  left it where a live one sits, so the same value said again in the file (Paris, then Berlin, then Paris) landed on
+  the closed fact instead of being its own, and the owner's next "Paris" reopened it. A replaced fact now leaves the open
+  period in the copy, as in the source.
+- **Imported memories point only at the importing owner's own messages** (also in 2.2.0 and earlier). In every format, a
+  source message id stays only when it is a message of the importing owner in this store; any other becomes a marker of
+  the importing owner. Before, a file could name another owner's messages, and recall's source quotes and date grounding
+  then read them.
+- **The Cypher migrations reach every application, including those that install the `AgentMemory` meta-package.** 2.2.0
+  copied them next to an application that references `AgentMemory.Neo4j` directly, but NuGet does not pass a dependency's
+  content files on, so an application that installed `AgentMemory`, as the README says, still got no
+  `Schema/Migrations`. The scripts are now embedded in the `AgentMemory.Neo4j` assembly and the migration runner reads
+  them from there (`EmbeddedMigrationScripts`); a folder is only the tests' seam. Schema bootstrap now runs them (see
+  Changed).
+- "No migration scripts found" is a warning, not information: no scripts means no schema, and it went unnoticed.
+- `AgentMemory.Inference` sends a reasoning effort: `AI_REASONING_EFFORT` (`none`, `low`, `medium`, `high`, `extra-high`,
+  or `default` for none; a misspelling fails closed). Unset, Bitdeer's default model, GLM-5.3-Flash, gets `low`, as every
+  measurement ran it; at its default, maximum effort it could spend its whole reply budget thinking and answer nothing,
+  which left the identity writer with empty replies in the samples. No other model gets an effort it did not ask for: the
+  automatic `low` reaches only clients built on that model, never an extraction or judge override on another, while an
+  effort the operator sets applies to every client on the configured provider (a judge on another provider gets none).
+  A request that chooses its own effort keeps it.
+- The release pipeline installs the freshly packed meta-package into a clean consumer and fails unless the installed
+  `AgentMemory.Neo4j` embeds every migration in the source tree (`eng/verify-packages-install.sh`). Run against the
+  published 2.2.0 it fails with 0 of 18, which is the bug.
+
 ## [2.2.0] - 2026-11-13
 
 **The Pablo Piovano release.** Memory that knows who is who.
@@ -3264,7 +3410,10 @@ NuGet package IDs are permanent once published.
 
 ---
 
-[Unreleased]: https://github.com/joslat/agent-memory-dotnet/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/joslat/agent-memory-dotnet/compare/v2.3.0...HEAD
+[2.3.0]: https://github.com/joslat/agent-memory-dotnet/compare/v2.2.0...v2.3.0
+[2.2.0]: https://github.com/joslat/agent-memory-dotnet/compare/v2.1.0...v2.2.0
+[2.1.0]: https://github.com/joslat/agent-memory-dotnet/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/joslat/agent-memory-dotnet/compare/v1.9.0...v2.0.0
 [1.0.1]: https://github.com/joslat/agent-memory-dotnet/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/joslat/agent-memory-dotnet/compare/v0.1.0-preview.4...v1.0.0

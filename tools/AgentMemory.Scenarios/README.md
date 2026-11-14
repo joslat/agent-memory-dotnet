@@ -170,7 +170,8 @@ Omit `--dry-run` for a real run after reviewing the execution plan. The explicit
 HTTP attempts **including prior usage** of the same campaign, while retaining the cumulative USD1
 ceiling, request/output bounds, low reasoning, zero hidden retries and owned1GiB fixture. The normal
 four-case profile keeps its60/180caps. Never reset the campaign file to obtain another allowance.
-The profile accepts only the original49-statement scenario and requires the writer arm.
+The profile accepts the original 49-statement scenario, its busy 130-statement variant and the 134-statement people
+variant below, and requires the writer arm.
 
 | Coverage | Executable entry point | What it establishes |
 |---|---|---|
@@ -191,6 +192,40 @@ The full review also finds two rejected writer operations (UnknownAction and Quo
 logged at Debug despite zero warnings, and three known-event-subject facts without Subject
 bindings. Read the operation/source/binding evidence as well as warning totals; processed turns
 do not guarantee complete structured writes.
+
+### The people variant (13 November 2026)
+
+`scenarios/bruna-go-live-people.json` is the busy history plus four statements about two different people named Alex
+Kim (Bruna's cousin, who moves to Buenos Aires, and someone from Acme's billing team), and two more questions: one about
+Valentina, named in the question, and one about the cousin only. It measures recall for people: the facts bound to a
+confirmed person the question names (`RecallOptions.PersonDetails`, which the identity arms turn on).
+
+Two runs per arm: old is the previous similarity resolver, new is evidence-based identity with recall for people. Each
+cell counts the needed facts that reached the prompt.
+
+| Question | Old 1 | Old 2 | New 1 | New 2 |
+|---|:-:|:-:|:-:|:-:|
+| When and where is the go-live? | ✓ | ✓ | ✓ | ✓ |
+| What is on my calendar 7–13 December? | ✓ | ✓ | ✓ | ✓ |
+| Plan my go-live week prep (location and in-person included) | 2/4 | 2/4 | 2/4 | **4/4** |
+| Mentoring session with Valentina | 4/4 | 4/4 | 3/4 | 3/4 |
+| My cousin Alex Kim's plans | 2/2 | 2/2 | 2/2 | 2/2 |
+
+What it shows, and what it does not:
+
+- **The Valentina question does not separate the arms.** Every fact about her names her, so similarity already ranks
+  them first in both arms. Recall for people ran (spans `memory.recall.person-identities` and
+  `memory.recall.person-details`) but had nothing to add.
+- **The new arm's Valentina miss happens at write time.** In both runs the writer stored "Martín asked me to mentor
+  Valentina on system design" as a relationship to an entity named "Valentina on system design." and kept no fact, so
+  no recall can return it.
+- **The namesake guard was not exercised.** The billing Alex Kim was named only inside facts, so he got no identity
+  decision of his own; in both arms the cousin question's prompt also carried a billing fact, found by similarity.
+- **New run 1's prep miss is writer variance:** that run confirmed fewer go-live event decisions; run 2 passed 4/4, as
+  every earlier busy run of this arm did.
+
+A fair test of recall for people needs facts that do not carry the asked name, such as a nickname or a role, in a store
+busy enough that similarity misses them. The four runs cost about USD 2.42 of the campaign's USD 12 ceiling.
 
 ## Independent identity gold (optional; needs a model and the corpus)
 

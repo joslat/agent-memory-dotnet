@@ -51,7 +51,67 @@ public sealed class IdentityOwnerCompatibilityTests
                 .Returns(c => c.Arg<Func<IAsyncQueryRunner, Task<OwnerMemoryExport>>>()(Runner()));
             Tx.ReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task>>(), Arg.Any<CancellationToken>())
                 .Returns(c => c.Arg<Func<IAsyncQueryRunner, Task>>()(Runner()));
+            // REV2-14: the "does the owner already hold this fact" read runs against the empty store, not a stub's "".
+            Tx.ReadAsync(Arg.Any<Func<IAsyncQueryRunner, Task<string?>>>(), Arg.Any<CancellationToken>())
+                .Returns(c => c.Arg<Func<IAsyncQueryRunner, Task<string?>>>()(Runner()));
         }
+    }
+
+    [Fact]
+    public async Task A_failed_import_removes_what_it_wrote_before_reporting_the_failure()
+    {
+        // REV3-6: the second fact's write fails; the entity and the first fact this import created are removed, by id and
+        // only the importing owner's, and the original failure is the one reported.
+        var f = new Fixture(true);
+        var writes = 0;
+        f.Facts.UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>())
+            .Returns(c => ++writes == 2 ? throw new InvalidOperationException("the store went away") : c.Arg<Fact>());
+        var removals = new List<(string Query, IDictionary<string, object?> Parameters)>();
+        f.Tx.WriteAsync(Arg.Any<Func<IAsyncQueryRunner, Task>>(), Arg.Any<CancellationToken>()).Returns(c =>
+        {
+            var runner = Substitute.For<IAsyncQueryRunner>();
+            Task<IResultCursor> Record(string query, object? parameters)
+            {
+                if (parameters is IDictionary<string, object?> map && query.Contains("DELETE", StringComparison.Ordinal)) removals.Add((query, map));
+                return Task.FromResult(Substitute.For<IResultCursor>());
+            }
+            runner.RunAsync(Arg.Any<string>(), Arg.Any<object>()).Returns(ci => Record(ci.ArgAt<string>(0), ci.ArgAt<object>(1)));
+            runner.RunAsync(Arg.Any<string>(), Arg.Any<IDictionary<string, object>>()).Returns(ci => Record(ci.ArgAt<string>(0), ci.ArgAt<object>(1)));
+            return c.Arg<Func<IAsyncQueryRunner, Task>>()(runner);
+        });
+        static Fact Said(string id, string city) => new()
+        { FactId = id, Subject = "Alex Kim", Predicate = "lives in", Object = city, Confidence = 1, CreatedAtUtc = DateTimeOffset.UnixEpoch };
+
+        await f.Service.Invoking(s => s.ImportAsync(new()
+        {
+            OwnerId = "source", ExportedAtUtc = DateTimeOffset.UnixEpoch, Entities = [Entity("a", "Alex Kim")], Facts = [Said("f1", "Paris"), Said("f2", "Berlin")],
+        }, "owner")).Should().ThrowAsync<InvalidOperationException>().WithMessage("the store went away");
+
+        IEnumerable<string> Removed(string label) => removals.Where(r => r.Query.Contains("(n:" + label + " {id: row.id})", StringComparison.Ordinal))
+            .SelectMany(r => ((IEnumerable<Dictionary<string, object?>>)r.Parameters["rows"]!).Select(row => (string)row["id"]!));
+        Removed("Entity").Should().Equal([f.EntityWrites.Single().EntityId]);
+        Removed("Fact").Should().ContainSingle("only the fact this import wrote");
+        removals.Should().OnlyContain(r => (string?)r.Parameters["ownerId"] == "owner");
+    }
+
+    [Fact]
+    public async Task Identity_state_a_store_without_identity_cannot_take_is_reported_not_dropped_in_silence()
+    {
+        // REV1-L8: the store comes back as its current state, as documented; the result says the identity state stayed out.
+        var f = new Fixture(false);
+        var export = new OwnerMemoryExport { OwnerId = "source", ExportedAtUtc = DateTimeOffset.UnixEpoch,
+            Format = OwnerMemoryExport.IdentityFormat, IdentityState = new OwnerIdentityState() };
+        (await f.Service.ImportAsync(export, "new-owner")).Written.Should().Contain("identity:state-not-imported", 1);
+    }
+
+    [Fact]
+    public async Task An_export_that_names_no_owner_is_refused()
+    {
+        // REV1-H1: a record must belong to the exported owner; a file without one could not be checked.
+        var f = new Fixture(true);
+        await f.Service.Invoking(s => s.ImportAsync(new OwnerMemoryExport { OwnerId = null!, ExportedAtUtc = DateTimeOffset.UnixEpoch }, "new-owner"))
+            .Should().ThrowAsync<ArgumentException>();
+        f.Queries.Should().BeEmpty();
     }
 
     private static Entity Entity(string id, string name) =>
@@ -112,14 +172,18 @@ public sealed class IdentityOwnerCompatibilityTests
     }
 
     [Fact]
-    public async Task Existing_identity_exports_for_reading_with_its_resolutions_and_an_omission_flag()
+    public async Task An_identity_store_with_no_identity_records_exports_format_1()
     {
-        // ILC-18 interim: an owner's memory stays readable with identity enabled; the export says what it leaves out.
+        // ILC-30 reads the identity state; REV2-13: with nothing to carry the export stays format 1, readable by 2.2.
         var f = new Fixture(true);
         var export = await f.Service.ExportAsync("owner");
-        export.IdentityStateOmitted.Should().BeTrue();
+        export.Format.Should().Be(OwnerMemoryExport.CurrentFormat);
+        export.IdentityState.Should().BeNull();
+        export.IdentityStateOmitted.Should().BeFalse("nothing is left out any more");
         export.IdentityResolutions.Should().NotBeNull();
-        f.Queries.Count.Should().Be(7, "the six memory queries plus one identity-resolution read");
+        f.Queries.Count.Should().Be(6 + 1 + 5 + 1 + 9 + 1,
+            "the six memory queries, the resolutions, the five identity records, the entities' identity properties, the nine links " +
+            "and the retired entities identity records point at");
         f.Embeddings.ReceivedCalls().Should().BeEmpty();
     }
 
