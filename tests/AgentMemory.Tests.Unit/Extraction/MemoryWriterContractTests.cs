@@ -271,6 +271,18 @@ public sealed class MemoryWriterContractTests : IDisposable
     }
 
     [Fact]
+    public async Task A_connection_with_an_empty_end_is_reported_when_dropped()
+    {
+        // ILC-34 review 2: an end with no word names nothing; it is asked to be fixed once, then dropped and reported.
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"relationship","text":"Ana -[LIKES]-> ...","quote":"Ana likes"}]}""");
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"relationship","text":"Ana -[LIKES]-> ...","quote":"Ana likes"}]}""");
+        var result = await Write("Ana likes...");
+        result.Relationships.Should().BeEmpty();
+        result.Facts.Should().BeEmpty();
+        result.Outcomes.Should().ContainSingle().Which.ErrorMessage.Should().Contain(nameof(MemoryWriterOps.DropReason.TextFormatInvalid));
+    }
+
+    [Fact]
     public async Task A_correction_that_fixes_only_the_quote_keeps_its_json_debris_out_of_the_store()
     {
         // The same gap for facts: a quote-only fix was accepted on its unchanged text, debris included.

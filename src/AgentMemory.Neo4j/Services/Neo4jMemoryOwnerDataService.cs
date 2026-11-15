@@ -410,6 +410,10 @@ internal sealed class Neo4jMemoryOwnerDataService(
                     .Concat(state.Edges.SelectMany(edge => edge.Properties.Values)).Any(value => !Valid(value)) ||
                 state.Retirements.Any(node => node.Properties.TryGetValue("invalidated_at", out var at) && at.Kind != OwnerGraphValue.DateTime))
                 throw new ArgumentException("The export holds a value of an unknown kind or an invalid date; nothing was imported.", nameof(export));
+            // REV2-2b: the names a person keeps are text, so a later binding can compare its name with them.
+            if (state.EntityProperties.Any(node => node.Properties.TryGetValue("identity_surfaces", out var names) &&
+                    (names.Kind != OwnerGraphValue.List || (names.Items ?? []).Any(item => item.Kind != OwnerGraphValue.String))))
+                throw new ArgumentException("The export holds a person's kept names that are not a list of text; nothing was imported.", nameof(export));
         }
         return await ForeignAsync(ends.Select(Resolve).Where(id => !Created(id)).ToHashSet(StringComparer.Ordinal)).ConfigureAwait(false);
 
@@ -841,6 +845,7 @@ internal sealed class Neo4jMemoryOwnerDataService(
             if (node.Properties.TryGetValue("identity_decision_id", out var decided) && decided.Text is { } decisionNode &&
                 standalone.TryGetValue(decisionNode, out var decision) && map.TryGetValue(node.Key, out var binding))
                 ownTarget[binding] = decision.Observation.EntityId;
+        var boundTargets = new HashSet<string>(StringComparer.Ordinal);
         foreach (var link in OwnerDataQueries.IdentityLinks)
         {
             var edges = state.Edges.Where(edge => edge.Type == link.Type && edge.FromLabel == link.FromLabel && edge.ToLabel == link.ToLabel &&
@@ -850,16 +855,19 @@ internal sealed class Neo4jMemoryOwnerDataService(
                     ? (edge.From, To: own) : edge).ToList();
             var left = edges.Count(edge => missing.Contains(edge.From) || missing.Contains(edge.To));
             if (left > 0) written["skipped:identity-links"] = written.GetValueOrDefault("skipped:identity-links") + left;
+            if (link is { FromLabel: "IdentityFactBinding", Type: "RESOLVES_TO" })
+                boundTargets.UnionWith(edges.Where(edge => !missing.Contains(edge.From) && !missing.Contains(edge.To)).Select(edge => edge.To));
             await WriteRowsAsync(link.Import, "identity:links", edges.Where(edge => !missing.Contains(edge.From) && !missing.Contains(edge.To))
                 .Select(edge => (object)new Dictionary<string, object?> { ["from"] = edge.From, ["to"] = edge.To }).ToList()).ConfigureAwait(false);
         }
         foreach (var decision in state.CurrentConfirmations)
             if (map.TryGetValue(decision, out var id))
                 await RefreshConfirmationAsync(id, ownerId, importedEntities, cancellationToken).ConfigureAwait(false);
-        // REV2-2b: the copy's people carry the names their bindings saw, as binding gives them.
-        await tx.WriteAsync(async runner => await (await runner.RunAsync(OwnerDataQueries.RefreshPersonSurfaces,
-            new Dictionary<string, object?> { ["ownerId"] = ownerId }).ConfigureAwait(false)).ConsumeAsync().ConfigureAwait(false),
-            cancellationToken).ConfigureAwait(false);
+        // REV2-2b: the copy's people carry the names their bindings saw, as binding gives them; a bounded batch at a time.
+        foreach (var batch in boundTargets.Order(StringComparer.Ordinal).Chunk(500))
+            await tx.WriteAsync(async runner => await (await runner.RunAsync(OwnerDataQueries.RefreshPersonSurfaces,
+                new Dictionary<string, object?> { ["rows"] = batch, ["ownerId"] = ownerId }).ConfigureAwait(false)).ConsumeAsync().ConfigureAwait(false),
+                cancellationToken).ConfigureAwait(false);
 
         async Task WriteRowsAsync(string query, string kind, List<object> rows)
         {

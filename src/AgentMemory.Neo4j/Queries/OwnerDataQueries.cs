@@ -193,7 +193,8 @@ public static class OwnerDataQueries
     /// IdentityDecisionQueries.Bind): from the owner's own entities, never a shared one.
     /// </summary>
     public const string RefreshPersonSurfaces = @"
-            MATCH (t:Entity) WHERE t.owner_id = $ownerId
+            UNWIND $rows AS id
+            MATCH (t:Entity {id: id}) WHERE t.owner_id = $ownerId
             MATCH (t)<-[:RESOLVES_TO]-(b:IdentityFactBinding) WHERE b.owner_id = $ownerId AND b.identity_observed_surface IS NOT NULL
             WITH t, collect(DISTINCT b.identity_observed_surface) AS bound
             WITH t, coalesce(t.identity_surfaces, []) + [s IN bound WHERE NOT s IN coalesce(t.identity_surfaces, [])] AS surfaces

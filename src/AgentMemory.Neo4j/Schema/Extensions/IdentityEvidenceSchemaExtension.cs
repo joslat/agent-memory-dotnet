@@ -5,7 +5,7 @@ internal sealed class IdentityEvidenceSchemaExtension : ISchemaExtension
 {
     internal const string ExtensionId = "identity-evidence";
     public string Id => ExtensionId;
-    public int Version => 4;
+    public int Version => 5;
     public IReadOnlyDictionary<string, IReadOnlySet<string>> DeclaredProperties { get; } =
         new Dictionary<string, IReadOnlySet<string>>(StringComparer.Ordinal)
         {

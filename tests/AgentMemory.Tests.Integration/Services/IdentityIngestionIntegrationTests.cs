@@ -1684,6 +1684,64 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
     }
 
     [Fact]
+    public async Task A_binding_to_a_shared_person_keeps_its_name_off_the_shared_node_and_away_from_other_owners()
+    {
+        // REV2-2b review 2: a shared person is read by every owner, so one owner's spelling is never written onto it and
+        // only that owner reads it, through its own bindings.
+        using var host = Host(); using var scope = host.CreateScope(); var services = scope.ServiceProvider;
+        await Ingest(services, new UnifiedExtractionResult
+        {
+            Entities = [new() { Name = "Valentina", Type = "PERSON", Confidence = 1 }],
+            Facts = [new() { Subject = "Valentina", Predicate = "will prepare", Object = "a video tutorial", Confidence = 1 }]
+        });
+        await fixture.TransactionRunner.WriteAsync(async runner => { await runner.RunAsync(
+            "MATCH (f:Fact {owner_id:'pablito'})-[:HAS_IDENTITY_BINDING]->(:IdentityFactBinding)-[:RESOLVES_TO]->(p:Entity) " +
+            "CREATE (s:Entity) SET s = p {.*, id: 'shared-valentina', owner_key: '*'} " +
+            "REMOVE s.owner_id, s.identity_surfaces, s.identity_observation_key " +
+            "CREATE (g:Fact) SET g = f {.*, id: 'shared-binding-fact', subject: 'Vale', subject_key: 'vale'}"); });
+        var bound = await fixture.TransactionRunner.ReadAsync(async runner => (await (await runner.RunAsync(
+            "MATCH (b:IdentityFactBinding {owner_id:'pablito'}) RETURN b.identity_decision_id AS d, b.owner_scope AS s, b.identity_source_ids AS src")).SingleAsync()));
+
+        await fixture.TransactionRunner.WriteAsync(async runner => { (await (await runner.RunAsync(
+            AgentMemory.Neo4j.Queries.IdentityDecisionQueries.Bind, new
+            {
+                decisionId = ValueExtensions.As<string>(bound["d"]), ownerScope = ValueExtensions.As<string>(bound["s"]), ownerId = "pablito",
+                includeShared = true, factId = "shared-binding-fact", targetId = "shared-valentina", role = "Subject",
+                bindingId = "shared-binding", surface = "Vale", surfaceKey = "vale",
+                sourceIds = ValueExtensions.As<List<string>>(bound["src"]), createdAt = DateTimeOffset.UtcNow.ToString("O")
+            })).ToListAsync()).Should().ContainSingle(); });
+
+        (await Count("(s:Entity {id:'shared-valentina'}) WHERE s.identity_surfaces IS NULL")).Should().Be(1);
+        var facts = services.GetRequiredService<IFactRepository>();
+        (await facts.GetPersonNamesAsync(10_000, MemoryScope.For("pablito", true))).Should().Contain("Vale");
+        (await facts.GetPersonNamesAsync(10_000, MemoryScope.For("another-owner", true))).Should().Contain("Valentina").And.NotContain("Vale");
+    }
+
+    [Fact]
+    public async Task A_copy_whose_kept_names_are_not_text_is_refused_before_anything_is_written()
+    {
+        // REV2-2b review 2: a later binding compares its name with the kept names, so they must be text.
+        using var host = Host(); using var scope = host.CreateScope(); var services = scope.ServiceProvider;
+        await Ingest(services, new UnifiedExtractionResult
+        {
+            Entities = [new() { Name = "Valentina", Type = "PERSON", Confidence = 1 }],
+            Facts = [new() { Subject = "Valentina", Predicate = "will prepare", Object = "a video tutorial", Confidence = 1 }]
+        });
+        var file = await ExportFile(services);
+        var broken = file with { IdentityState = file.IdentityState! with { EntityProperties = [.. file.IdentityState.EntityProperties.Select(node =>
+            node.Properties.ContainsKey("identity_surfaces") ? node with
+            {
+                Properties = new Dictionary<string, OwnerGraphValue>(node.Properties)
+                { ["identity_surfaces"] = new() { Kind = OwnerGraphValue.String, Text = "Vale" } },
+            } : node)] } };
+        broken.IdentityState!.EntityProperties.Should().Contain(node => node.Properties.ContainsKey("identity_surfaces"));
+
+        await services.GetRequiredService<IMemoryOwnerDataService>().Invoking(o => o.ImportAsync(broken, "broken-owner"))
+            .Should().ThrowAsync<ArgumentException>();
+        (await Count("(n {owner_id:'broken-owner'})")).Should().Be(0, "the kept names are checked before anything is written");
+    }
+
+    [Fact]
     public async Task Binding_a_fact_keeps_the_name_it_saw_on_the_owned_person()
     {
         // REV2-2b: the people read takes a person's bound names from the person, so binding writes them there.

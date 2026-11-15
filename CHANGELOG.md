@@ -35,11 +35,13 @@ was said. Recall for people now reads a bounded set, and stays opt-in.
 
 - **A connection whose end held more than a name lost the statement.** "Martín asked me to mentor Valentina on system
   design" was stored as a connection to an entity named "Valentina on system design." and no fact, so recall could not
-  return it. A connection's end must now read as a name. When a known name is followed by a lowercase word ("Valentina
-  on system design"), the statement is kept as a fact and the connection goes to the known entity; a longer real name
-  that starts with a known one ("Simone Gagné" when "Simone" is stored) stays its own name. An end that reads as a
-  statement keeps the fact only, and the fact still replaces the connection the writer said it replaces. A known name
-  matches with or without its trailing punctuation ("Acme Inc."), and an end with no words is dropped.
+  return it. A connection's end must now read as a name. When a known name is followed by a connector and more words
+  ("Valentina on system design", "Tomás in March"), the statement is kept as a fact and the connection goes to the known
+  entity; other words after a known name keep the end apart from it ("Simone Gagné" when "Simone" is stored, "Tesla
+  stock"). An end that reads as a statement keeps the fact only; names with particles ("Piero della Francesca",
+  "Frankfurt am Main") stay names. A statement that replaces a stored connection replaces it, and the statement fact it
+  was written with. A known name matches with or without its trailing punctuation ("Acme Inc."), and an end with no
+  words is reported and dropped.
 
 ## [2.3.0] - 2026-11-14
 

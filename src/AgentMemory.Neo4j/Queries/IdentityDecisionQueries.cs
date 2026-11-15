@@ -143,10 +143,10 @@ internal static class IdentityDecisionQueries
         MERGE (b)-[:RESOLVES_TO]->(t)
         // REV2-2b: the name this binding saw is kept on its person, so recall for people reads a person's names without
         // walking every binding. Only on a target the binding's owner owns: one owner's spelling never sits on a shared
-        // node another owner reads. Append-only: a stale name can only make a name ambiguous, never hide a namesake. A
+        // node another owner reads. Append-only, so a name a review moved elsewhere stays and errs towards ambiguity. A
         // person with no names kept yet (bound before 2.3.1, backfill not run) starts from all of its own bindings, this
         // one included, so the first new binding never hides the names bound before it.
-        WITH b, t, CASE WHEN t.identity_surfaces IS NULL
+        WITH b, t, CASE WHEN t.identity_surfaces IS NULL AND t.owner_id IS NOT NULL AND t.owner_id = b.owner_id
             THEN [(t)<-[:RESOLVES_TO]-(o:IdentityFactBinding) WHERE o.owner_id = t.owner_id AND o.identity_observed_surface IS NOT NULL
                   | o.identity_observed_surface]
             ELSE t.identity_surfaces END AS have

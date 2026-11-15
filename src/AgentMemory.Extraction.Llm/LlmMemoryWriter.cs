@@ -732,9 +732,11 @@ internal static class MemoryWriterOps
                 if (from.Kind == EndKind.Empty || to.Kind == EndKind.Empty) continue;   // nothing to keep: an end with no words
                 if (from.Kind != EndKind.Name || to.Kind != EndKind.Name)
                 {
-                    // Kept as a fact alone, the statement still replaces the stored connection the operation names.
+                    // A statement replacing a stored connection: kept alone, the fact ends that connection; kept beside
+                    // the new connection (which ends the old one), it ends the statement fact the old one was written with.
                     var phrase = from.Kind == EndKind.Phrase || to.Kind == EndKind.Phrase;
-                    facts.Add(CreateFact(op, phrase && target?.Letter == 'R' ? target : null, from.Said,
+                    var replaces = target?.Letter != 'R' ? null : phrase ? target : PairedFact(stored, target);
+                    facts.Add(CreateFact(op, replaces, from.Said,
                         link.Groups["r"].Value.Trim().ToLowerInvariant().Replace('_', ' '), to.Said));
                     if (phrase) continue;
                 }
@@ -793,14 +795,27 @@ internal static class MemoryWriterOps
     private enum EndKind { Name, KnownThenMore, Phrase, Empty }
 
     /// <summary>
-    /// Lowercase words a name may hold ("María de la Cruz", "University of Buenos Aires", "To Kill a Mockingbird",
-    /// "Association for Computing Machinery"). Words such as "in", "on" and "with" are left out on purpose: in a connection's
-    /// end they usually start a statement ("Buenos Aires in January", "Valentina on system design").
+    /// Lowercase words a name may hold ("María de la Cruz", "Piero della Francesca", "Frankfurt am Main", "Puig i Cadafalch",
+    /// "Hilma af Klint", "University of Buenos Aires", "To Kill a Mockingbird", "Association for Computing Machinery").
     /// </summary>
     private static readonly HashSet<string> NameParticles = new(StringComparer.Ordinal)
     {
-        "de", "del", "la", "las", "los", "el", "van", "von", "der", "den", "da", "das", "do", "dos", "di", "du", "le", "les", "of",
-        "the", "and", "y", "e", "bin", "ibn", "al", "zu", "ten", "ter", "st", "&", "for", "a", "an",
+        "de", "del", "della", "dello", "delle", "degli", "dei", "dal", "des", "la", "las", "los", "el", "van", "von", "der",
+        "den", "da", "das", "do", "dos", "di", "du", "le", "les", "of", "the", "and", "y", "e", "i", "und", "am", "im", "vom",
+        "zum", "zur", "für", "af", "op", "aan", "het", "bin", "binti", "bint", "ben", "ibn", "al", "zu", "ten", "ter", "st", "&",
+        "for", "a", "an",
+    };
+
+    /// <summary>
+    /// Words that start what is said about a known name in a connection's end ("Valentina on system design", "Tomás in
+    /// March"). Only these let the end join the known entity: "Tesla stock" or "Ana from accounting" may be another thing or
+    /// another person, so they are kept as a fact only. "for" is left out: it sits inside names ("Association for Computing
+    /// Machinery"). Like the particles, they are no statement word themselves.
+    /// </summary>
+    private static readonly HashSet<string> Connectors = new(StringComparer.Ordinal)
+    {
+        "on", "about", "with", "at", "in", "during", "regarding", "before", "after", "until", "by", "to", "into", "over",
+        "through", "since", "as",
     };
 
     private static readonly char[] TrailingPunctuation = ['.', ',', ';', ':', '!', '?'];
@@ -809,18 +824,18 @@ internal static class MemoryWriterOps
 
     /// <summary>
     /// A word that tells a statement from a name: all its letters lowercase, with no apostrophe or hyphen ("d'Arc",
-    /// "al-Haytham" and "iPhone" are name words) and no name particle.
+    /// "al-Haytham" and "iPhone" are name words), and neither a name particle nor a connector ("Alice in Wonderland").
     /// </summary>
     private static bool StatementWord(string word) =>
         word.Any(char.IsLetter) && word.All(c => !char.IsLetter(c) || char.IsLower(c)) && !word.Contains('\'') &&
-        !word.Contains('\u2019') && !word.Contains('-') && !NameParticles.Contains(word);
+        !word.Contains('\u2019') && !word.Contains('-') && !NameParticles.Contains(word) && !Connectors.Contains(word);
 
     /// <summary>
     /// ILC-34: one end of a connection. <c>Said</c> is the end without trailing punctuation, for a fact; <c>Entity</c> the
     /// entity it names: a known name (matched with or without its trailing punctuation, "Acme Inc." too), the known name an
-    /// end starts with when the rest reads as a statement ("Valentina" in "Valentina on system design", never "Simone" in
-    /// "Simone Gagné"), or the end itself, as written, when it reads as a name. An end of several words holding a
-    /// statement word reads as a statement. The user ("user", "me") is always a name.
+    /// end starts with when a connector and more words follow it ("Valentina" in "Valentina on system design", never
+    /// "Simone" in "Simone Gagné" or "Tesla" in "Tesla stock"), or the end itself, as written, when it reads as a name. An
+    /// end of several words holding a statement word reads as a statement. The user ("user", "me") is always a name.
     /// </summary>
     private static (EndKind Kind, string Said, string Entity) End(string text, IReadOnlyList<string> known)
     {
@@ -831,17 +846,50 @@ internal static class MemoryWriterOps
         if (known.FirstOrDefault(name => string.Equals(Bare(name), said, StringComparison.OrdinalIgnoreCase)) is { } exact)
             return (EndKind.Name, said, exact);
         foreach (var name in known)
-        {
-            var bare = Bare(name);
-            if (bare.Length == 0 || !said.StartsWith(bare + " ", StringComparison.OrdinalIgnoreCase)) continue;
-            var rest = said[(bare.Length + 1)..].Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            if (rest.Length > 0 && StatementWord(rest[0])) return (EndKind.KnownThenMore, said, name);
-        }
+            if (Rest(said, name) is { Length: > 1 } rest && Connectors.Contains(rest[0]))
+                return (EndKind.KnownThenMore, said, name);
         var words = said.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         return words.Length > 1 && words.Skip(1).Any(StatementWord)
             ? (EndKind.Phrase, said, said)
             : (EndKind.Name, said, written);
     }
+
+    /// <summary>
+    /// The words after a known name a text starts with, the name taken as written or without its trailing punctuation
+    /// ("Acme Inc. on Mondays"), a space or comma after it; null when the text does not start with that name.
+    /// </summary>
+    private static string[]? Rest(string text, string name)
+    {
+        foreach (var form in new[] { name.Trim(), Bare(name) })
+        {
+            if (form.Length == 0 || text.Length <= form.Length || !text.StartsWith(form, StringComparison.OrdinalIgnoreCase) ||
+                text[form.Length] is not (' ' or ',')) continue;
+            return text[form.Length..].TrimStart(' ', ',').Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// The statement fact a stored connection was written with ("Martín | asked user to mentor | Valentina on system design"
+    /// beside "Martín -[ASKED_USER_TO_MENTOR]-> Valentina"), when this call shows exactly one: same predicate, subject and
+    /// object starting with the connection's ends. A statement replacing the connection replaces that fact.
+    /// </summary>
+    private static Stored? PairedFact(IReadOnlyList<Stored> stored, Stored connection)
+    {
+        if (Connection.Match(connection.Text) is not { Success: true } link) return null;
+        var type = Predicate(link.Groups["r"].Value);
+        return stored.Where(item => item.Letter == 'F' && item.Text.Split(" | ") is [var subject, var predicate, var value, ..] &&
+                Predicate(predicate) == type && Starts(subject, link.Groups["s"].Value) && Starts(value, link.Groups["t"].Value))
+            .ToList() is [var only] ? only : null;
+
+        static string Predicate(string text) => text.Trim().ToLowerInvariant().Replace('_', ' ');
+        static bool Starts(string text, string name) =>
+            string.Equals(Bare(text), Bare(name), StringComparison.OrdinalIgnoreCase) || Rest(text.Trim(), name) is not null;
+    }
+
+    /// <summary>A connection with an end that holds no word ("Ana -[LIKES]-> ..."): it names nothing and is not kept.</summary>
+    internal static bool HasEmptyConnectionEnd(string text) =>
+        Connection.Match(text) is { Success: true } link && (Bare(link.Groups["s"].Value).Length == 0 || Bare(link.Groups["t"].Value).Length == 0);
 
     private static ExtractedFact CreateFact(Op op, Stored? target, string subject, string predicate, string value) => new()
     {

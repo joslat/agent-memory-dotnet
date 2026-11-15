@@ -12,7 +12,8 @@ constraints and lookup indexes). Adding it by hand does not by itself switch ide
 
 `(Entity)-[:HAS_IDENTITY_EVIDENCE]->(IdentityEvidenceAssertion)` records explicit authority and source.
 Entity properties: `identity_evidence_version`, `identity_calendar_key`, `identity_observation_key`, and
-`identity_surfaces` (the names an owned person's bound facts used, kept as facts are bound; see Recall for people).
+`identity_surfaces` (the names the facts bound to an owned entity used, kept as facts are bound and carried by owner
+export; recall for people reads them on people; see Recall for people).
 Assertion properties: `id`, `assertion_kind`, `namespace`, `authority`, `source_id`, `owner_scope`,
 `payload`, `lookup_key`, `surface`, `subject_kind`, `calendar_key`, `created_at`.
 
@@ -294,7 +295,8 @@ with the details, and facts said about a named person under any of their spellin
 one subject; a spelling another person also has ("Ana" for Ana López too) stays its own subject. Since 2.3.1 an
 index on (owner, type) reaches the owner's people directly, at most 1,000 of them (with that many nobody is named), and
 an owned person keeps the names its bound facts used (`identity_surfaces`: binding adds the name it saw, a person with
-none kept starts from all of its bindings), so its bindings are not walked. A shared person's bound names, and those of
+none kept starts from all of its bindings), so its names are read without walking its bindings (they are walked only
+to find whether a decision confirmed the person). A shared person's bound names, and those of
 an owned person whose names were never kept (a store the backfill has not reached), are read through its bindings, per
 owner, so that read grows with the bindings to that person; a shared node never holds an owner's spelling. The facts carry no
 invented similarity score and share the context budget and the latency allowance. Choosing between two people with the
@@ -437,13 +439,17 @@ write. Closing it needs evidence, and so model calls, on routine writes (ILC-35)
 
 A connection joins entities. When a writer packs more than a name into a connection's end ("Martín -[asked user to
 mentor]-> Valentina on system design."), the statement is kept as a fact, and when the end starts with a known name (a
-stored entity shown to the writer, or one its reply declares) followed by a statement word, the connection goes to that
-entity. A statement word is all lowercase, holds no apostrophe or hyphen ("d'Arc", "al-Haytham" and "iPhone" are name
-words) and is no name particle (de, del, la, van, von, of, the, and, for, a, an, …). So "Simone Gagné" stays its own
-name when "Simone" is stored. An end of several words holding a statement word reads as a statement and is kept as a
-fact only; when the writer said it replaces a stored connection, the fact still replaces it. A known name matches with
-or without its trailing punctuation ("Acme Inc."); any other name is kept as written. An end with no words (only
-punctuation) is dropped.
+stored entity shown to the writer, or one its reply declares) followed by a connector (on, about, with, at, in, during,
+regarding, before, after, until, by, to, into, over, through, since, as) and more words, the connection goes to that
+entity too. Any other words after a known name keep the end apart from it: "Simone Gagné" stays its own name when
+"Simone" is stored, and "Tesla stock" or "Ana from accounting" is kept as a fact only. An end of several words holding a
+statement word (all lowercase, no apostrophe or hyphen, neither a name particle such as de, della, des, am, af, i, of,
+the, for, a, nor a connector) reads as a statement and is kept as a fact only, so "Jeanne d'Arc", "Frankfurt am Main"
+and "Alice in Wonderland" stay names. When the writer said such a statement replaces a stored connection, the fact
+replaces it; when the statement is kept beside a new connection, the fact replaces the statement fact the old
+connection was written with (if exactly one is shown). A known name matches with or without its trailing punctuation
+("Acme Inc."); any other name is kept as written. An end with no words (only punctuation) is reported back to the
+writer once and then dropped and reported.
 
 ### Writer event-reference option
 

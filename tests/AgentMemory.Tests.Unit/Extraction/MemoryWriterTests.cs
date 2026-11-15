@@ -617,6 +617,55 @@ public sealed class MemoryWriterTests
     }
 
     [Fact]
+    public void A_statement_replacing_a_connection_also_replaces_the_statement_fact_written_with_it()
+    {
+        // ILC-34 review 2: "Valentina on system design" was kept as a fact beside a connection to Valentina. Replacing the
+        // connection with "Valentina on databases" must end that fact too, or both statements stay live.
+        IReadOnlyList<MemoryWriterOps.Stored> stored =
+        [
+            new("f1", 'F', "Martín | asked user to mentor | Valentina on system design") { Label = "F1" },
+            new("f2", 'F', "Martín | likes | Valentina's designs") { Label = "F2" },
+            new("r1", 'R', "Martín -[ASKED_USER_TO_MENTOR]-> Valentina") { Label = "R1" },
+            new("valentina", 'E', "Valentina (PERSON)") { Label = "E1" },
+        ];
+        var result = MemoryWriterOps.ToResult(
+            [new("replace", "relationship", "Martín -[asked user to mentor]-> Valentina on databases", "R1")], stored, owner: null);
+
+        result.Facts.Should().ContainSingle().Which.ReplacesId.Should().Be("f1");
+        result.Relationships.Should().ContainSingle().Which.ReplacesId.Should().Be("r1");
+    }
+
+    [Fact]
+    public void Only_a_connector_lets_an_end_join_the_known_name_it_starts_with()
+    {
+        // ILC-34 review 2: "Tesla stock" is not Tesla and "Ana from accounting" may be another Ana: a fact only. Names with
+        // particles stay names, and a known name with trailing punctuation still joins ("Acme Inc. on Mondays").
+        IReadOnlyList<MemoryWriterOps.Stored> stored =
+        [
+            new("tesla", 'E', "Tesla (ORGANIZATION)") { Label = "E1" },
+            new("ana", 'E', "Ana (PERSON)") { Label = "E2" },
+            new("acme", 'E', "Acme Inc. (ORGANIZATION)") { Label = "E3" },
+        ];
+        var result = MemoryWriterOps.ToResult(
+        [
+            new("add", "relationship", "user -[OWNS]-> Tesla stock", null),
+            new("add", "relationship", "user -[WORKS_WITH]-> Ana from accounting", null),
+            new("add", "relationship", "Bruna -[VISITS]-> Acme Inc. on Mondays", null),
+            new("add", "relationship", "Ana -[VISITED]-> Frankfurt am Main", null),
+            new("add", "relationship", "Ana -[ADMIRES]-> Piero della Francesca", null),
+            new("add", "relationship", "Ana -[ADMIRES]-> Hilma af Klint", null),
+            new("add", "relationship", "Ana -[VISITED]-> Musée des Beaux-Arts", null),
+            new("add", "relationship", "Ana -[ADMIRES]-> Puig i Cadafalch", null),
+            new("add", "relationship", "Ana -[READS]-> Alice in Wonderland", null),
+        ], stored, owner: null);
+
+        result.Facts.Select(f => f.Object).Should().Equal("Tesla stock", "Ana from accounting", "Acme Inc. on Mondays");
+        result.Relationships.Select(r => (r.SourceEntity, r.TargetEntity)).Should().Equal(
+            ("Bruna", "Acme Inc."), ("Ana", "Frankfurt am Main"), ("Ana", "Piero della Francesca"), ("Ana", "Hilma af Klint"),
+            ("Ana", "Musée des Beaux-Arts"), ("Ana", "Puig i Cadafalch"), ("Ana", "Alice in Wonderland"));
+    }
+
+    [Fact]
     public void A_connection_with_an_empty_end_is_dropped()
     {
         // ILC-34 review: an end that is only punctuation names nothing; storing it would fail the turn under identity.
