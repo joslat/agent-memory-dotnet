@@ -451,12 +451,13 @@ hyphen, neither a name particle such as de, della, des, am, af, i, of, the, for,
 statement and is kept as a fact only, so "Jeanne d'Arc", "Frankfurt am Main" and "Alice in Wonderland" stay names, and
 an entity with a lowercase name of several words ("machine learning") is kept as a fact unless it is shown to the
 writer (as an entity, or as an end of a shown connection) or declared in its reply. An end that reads as a name but starts with no known one ("Valentina in March", with
-no Valentina known) stays a name, as in 2.3.0. When the writer said a statement replaces a stored connection, the fact
-replaces it and the statement fact the connection was written with (if exactly one is shown: the same relation, its
-ends, or its ends and a connector); when the statement is kept beside a new connection, the fact replaces that
-statement fact. When the writer names the statement fact as replaced instead, its connection is replaced too, unless
-the new statement still states it ("Martín | asked user to mentor | Valentina on databases" keeps the connection to
-Valentina). Like every named closing, each is closed only when the update judge confirms it. A known name matches
+no Valentina known) stays a name, as in 2.3.0. A connection kept beside its statement fact is a pair (the statement
+fact is the one shown with the same relation, its ends, or its ends and a connector). A reply that names either half
+of a pair as replaced ends both, in any form (a fact, or a connection kept as a fact), unless the new statement still
+states the connection ("Martín | asked user to mentor | Valentina on databases" keeps the connection to Valentina):
+then the connection stays and only the statement fact is replaced. A new connection replacing the old one ends the old
+one and the statement fact beside it. A half with no pair shown is replaced alone. Like every named closing, each is
+closed only when the update judge confirms it. A known name matches
 with or without its trailing punctuation ("Acme Inc."); any other name is kept as written. An end with no words (only
 punctuation, no letter or digit) is dropped and recorded like any dropped operation, never sent back for a correction.
 A connection between names that replaces one written beside a statement fact replaces that fact too, with a fact of

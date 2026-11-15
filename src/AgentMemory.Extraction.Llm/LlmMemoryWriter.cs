@@ -736,7 +736,7 @@ internal static class MemoryWriterOps
             {
                 if (target?.Letter == 'F')
                 {
-                    facts.Add(EndingPairedConnection(CreateFact(op, target, link.Groups["s"].Value,
+                    facts.Add(ClosingPair(CreateFact(op, target, link.Groups["s"].Value,
                         link.Groups["r"].Value.Trim().ToLowerInvariant().Replace('_', ' '), link.Groups["t"].Value), stored, target));
                     continue;
                 }
@@ -747,14 +747,14 @@ internal static class MemoryWriterOps
                 if (from.Kind == EndKind.Empty || to.Kind == EndKind.Empty) continue;   // nothing to keep: an end with no words
                 if (from.Kind != EndKind.Name || to.Kind != EndKind.Name)
                 {
-                    // A statement replacing a stored connection: kept alone, the fact ends that connection and the
-                    // statement fact the connection was written with; kept beside the new connection (which ends the old
-                    // one), it ends that statement fact.
+                    // A statement replacing a stored connection: kept alone, the fact follows the pair rule
+                    // (ClosingPair); kept beside the new connection (which ends the old one), it ends the statement fact
+                    // the old connection was written with.
                     var phrase = from.Kind == EndKind.Phrase || to.Kind == EndKind.Phrase;
-                    var paired = target?.Letter == 'R' ? PairedFact(stored, target) : null;
-                    var fact = CreateFact(op, target?.Letter != 'R' ? null : phrase ? target : paired, from.Said,
-                        link.Groups["r"].Value.Trim().ToLowerInvariant().Replace('_', ' '), to.Said);
-                    facts.Add(phrase && paired is not null ? fact with { AlsoReplacesIds = [paired.Id] } : fact);
+                    var predicate = link.Groups["r"].Value.Trim().ToLowerInvariant().Replace('_', ' ');
+                    facts.Add(phrase
+                        ? ClosingPair(CreateFact(op, target, from.Said, predicate, to.Said), stored, target)
+                        : CreateFact(op, target?.Letter == 'R' ? PairedFact(stored, target) : null, from.Said, predicate, to.Said));
                     if (phrase) continue;
                 }
                 else if (target?.Letter == 'R' && PairedFact(stored, target) is { } paired)
@@ -804,7 +804,7 @@ internal static class MemoryWriterOps
                         _ => (owner ?? "user", "noted", op.Text.Trim()),
                     };
                     if (subject.Length == 0 || predicate.Length == 0 || @object.Length == 0) break;
-                    facts.Add(EndingPairedConnection(CreateFact(op, target, subject, predicate, @object), stored, target));
+                    facts.Add(ClosingPair(CreateFact(op, target, subject, predicate, @object), stored, target));
                     break;
             }
         }
@@ -904,16 +904,23 @@ internal static class MemoryWriterOps
                 States(link, subject, predicate, value)).ToList() is [var only] ? only : null;
 
     /// <summary>
-    /// The other direction: a statement fact named as replaced, whose stored connection was written beside it (it is that
-    /// connection's one paired fact), proposes ending that connection too, unless the new statement still states it
-    /// ("Martín | asked user to mentor | Valentina on databases" keeps "Martín -[ASKED_USER_TO_MENTOR]-> Valentina").
+    /// The rule for a pair, a stored connection kept beside its statement fact, in every branch that writes a fact alone:
+    /// a fact naming either half as replaced ends both, unless the new statement still states the connection ("Martín |
+    /// asked user to mentor | Valentina on databases" keeps "Martín -[ASKED_USER_TO_MENTOR]-> Valentina"), which then
+    /// stays and only the statement fact is replaced. A half with no pair shown is replaced alone, as before. Each closing
+    /// is still confirmed by the update judge.
     /// </summary>
-    private static ExtractedFact EndingPairedConnection(ExtractedFact fact, IReadOnlyList<Stored> stored, Stored? target) =>
-        target?.Letter == 'F' &&
-        stored.Where(item => item.Letter == 'R' && PairedFact(stored, item) == target).ToList() is [var connection] &&
-        Connection.Match(connection.Text) is { Success: true } link && !States(link, fact.Subject, fact.Predicate, fact.Object)
-            ? fact with { AlsoReplacesIds = [connection.Id] }
-            : fact;
+    private static ExtractedFact ClosingPair(ExtractedFact fact, IReadOnlyList<Stored> stored, Stored? target)
+    {
+        Stored? connection = null, statement = null;
+        if (target?.Letter == 'R') (connection, statement) = (target, PairedFact(stored, target));
+        else if (target?.Letter == 'F')
+            (connection, statement) = (stored.Where(item => item.Letter == 'R' && PairedFact(stored, item) == target).ToList() is [var only] ? only : null, target);
+        if (connection is null || statement is null || Connection.Match(connection.Text) is not { Success: true } link) return fact;
+        return States(link, fact.Subject, fact.Predicate, fact.Object)
+            ? fact with { ReplacesId = statement.Id }
+            : fact with { AlsoReplacesIds = [target!.Letter == 'R' ? statement.Id : connection.Id] };
+    }
 
     /// <summary>
     /// Whether a statement states a connection: the same relation, its subject and object starting with the connection's

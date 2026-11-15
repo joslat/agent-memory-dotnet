@@ -732,6 +732,28 @@ public sealed class MemoryWriterTests
         Closings(fact).Should().Equal(endsConnection ? ["f1", "r1"] : ["f1"]);
     }
 
+    [Theory]
+    [InlineData("Martín | stopped asking user to mentor | Valentina", "r1", new[] { "r1", "f1" })]
+    [InlineData("Martín | asked user to mentor | Lucía", "r1", new[] { "r1", "f1" })]
+    [InlineData("Martín | asked user to mentor | Valentina on databases", "f1", new[] { "f1" })]
+    public void A_fact_replacing_a_connection_written_beside_a_statement_follows_the_same_rule(
+        string text, string replaces, string[] closings)
+    {
+        // Copilot review 2 of 2.3.1: a pipe-form fact naming the connection ended only the connection and left the
+        // statement fact beside it live. The rule is the same in every branch: replacing either half of a pair ends the
+        // other, unless the new statement still states the connection, which then stays and only the statement is replaced.
+        var result = MemoryWriterOps.ToResult([new("replace", "fact", text, "R1")], Pair, owner: null);
+
+        result.Relationships.Should().BeEmpty();
+        var fact = result.Facts.Should().ContainSingle().Subject;
+        fact.ReplacesId.Should().Be(replaces);
+        Closings(fact).Should().Equal(closings);
+
+        // A connection with no statement fact beside it is replaced as before.
+        var alone = MemoryWriterOps.ToResult([new("replace", "fact", text, "R1")], [.. Pair.Take(2)], owner: null);
+        Closings(alone.Facts.Single()).Should().Equal("r1");
+    }
+
     [Fact]
     public void A_statement_without_a_connection_beside_it_ends_alone()
     {
