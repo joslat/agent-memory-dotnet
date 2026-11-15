@@ -667,6 +667,27 @@ public sealed class MemoryWriterTests
     }
 
     [Fact]
+    public void A_connection_between_names_replacing_one_written_beside_a_statement_replaces_the_statement_too()
+    {
+        // ILC-34 review 5: "mentor Valentina on system design" was kept as a connection to Valentina and a statement fact.
+        // Replaced by "mentor Lucía", both must end; an add between the same names leaves the statement alone.
+        IReadOnlyList<MemoryWriterOps.Stored> stored =
+        [
+            new("martin", 'E', "Martín (PERSON)") { Label = "E1" },
+            new("r1", 'R', "Martín -[ASKED_USER_TO_MENTOR]-> Valentina") { Label = "R1" },
+            new("f1", 'F', "Martín | asked user to mentor | Valentina on system design") { Label = "F1" },
+        ];
+        var replaced = MemoryWriterOps.ToResult([new("replace", "relationship", "Martín -[ASKED_USER_TO_MENTOR]-> Lucía", "R1")], stored, owner: null);
+        replaced.Relationships.Should().ContainSingle().Which.ReplacesId.Should().Be("r1");
+        var fact = replaced.Facts.Should().ContainSingle().Subject;
+        (fact.Subject, fact.Predicate, fact.Object, fact.ReplacesId).Should().Be(("Martín", "asked user to mentor", "Lucía", "f1"));
+
+        var added = MemoryWriterOps.ToResult([new("add", "relationship", "Martín -[ASKED_USER_TO_MENTOR]-> Lucía", null)], stored, owner: null);
+        added.Facts.Should().BeEmpty();
+        added.Relationships.Should().ContainSingle().Which.ReplacesId.Should().BeNull();
+    }
+
+    [Fact]
     public void An_entity_shown_only_as_a_connection_end_is_a_known_name()
     {
         // ILC-34 review 4: Valentina and "invoice queue" are shown only as ends of stored connections. Replacing those

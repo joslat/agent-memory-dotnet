@@ -151,7 +151,9 @@ internal static class MemoryWriterContract
         var nextIndex = ops.Concat(corrected).Select(op => op.Index).DefaultIfEmpty(-1).Max() + 1;
         foreach (var issue in issues)
         {
-            var fix = issue.Reason == MemoryWriterOps.DropReason.OverLimit ? null : corrected.FirstOrDefault(op => !used.Contains(op) && Fixes(issue, op));
+            // Never sent for a correction, so never given one: a fix meant for another issue stays with that issue.
+            var fix = issue.Reason is MemoryWriterOps.DropReason.OverLimit or MemoryWriterOps.DropReason.ConnectionEndEmpty
+                ? null : corrected.FirstOrDefault(op => !used.Contains(op) && Fixes(issue, op));
             if (fix is not null && fix.Ref is not null && ReferenceProblem(fix, byLabel).Reason is not null) fix = fix with { Ref = null };
             var resolvesReference = issue.Kept is null || fix?.Ref is not null;
             if (fix is null || (!resolvesReference && issue.Kept is not null))

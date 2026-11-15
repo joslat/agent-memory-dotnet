@@ -456,6 +456,9 @@ replaces it; when the statement is kept beside a new connection, the fact replac
 connection was written with (if exactly one is shown: the same end, or the end and a connector). A known name matches
 with or without its trailing punctuation ("Acme Inc."); any other name is kept as written. An end with no words (only
 punctuation, no letter or digit) is dropped and recorded like any dropped operation, never sent back for a correction.
+A connection between names that replaces one written beside a statement fact replaces that fact too, with a fact of
+the new connection ("Martín | asked user to mentor | Lucía"). Entities 2.3.0 made from a statement end ("Valentina on
+system design.") stay as they are; a writer that repeats that exact end still links to them.
 
 ### Writer event-reference option
 

@@ -755,6 +755,13 @@ internal static class MemoryWriterOps
                         link.Groups["r"].Value.Trim().ToLowerInvariant().Replace('_', ' '), to.Said));
                     if (phrase) continue;
                 }
+                else if (target?.Letter == 'R' && PairedFact(stored, target) is { } paired)
+                {
+                    // A connection between names replacing one that was written beside a statement fact: the statement
+                    // is replaced too ("mentor Lucía" after "mentor Valentina on system design"), or both stay live.
+                    facts.Add(CreateFact(op, paired, from.Said,
+                        link.Groups["r"].Value.Trim().ToLowerInvariant().Replace('_', ' '), to.Said));
+                }
                 relationships.Add(new ExtractedRelationship
                 {
                     SourceEntity = from.Entity,
