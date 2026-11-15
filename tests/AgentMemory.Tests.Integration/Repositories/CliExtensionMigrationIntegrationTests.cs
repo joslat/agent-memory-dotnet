@@ -31,9 +31,13 @@ public class CliExtensionMigrationIntegrationTests : IAsyncLifetime
 
     public CliExtensionMigrationIntegrationTests(Neo4jIntegrationFixture fixture) => _fixture = fixture;
 
-    public Task InitializeAsync() => Task.CompletedTask;
+    // Start clean too: any host that boots with identity on records identity-evidence migrations in the shared database,
+    // and a test that ran earlier in the collection must not decide what "the default tier's schema" looks like here.
+    public Task InitializeAsync() => ResetExtensionsAsync();
 
-    public async Task DisposeAsync()
+    public Task DisposeAsync() => ResetExtensionsAsync();
+
+    private async Task ResetExtensionsAsync()
     {
         // Drop only what this test's runs created, and only the ext bookkeeping: base migration history
         // belongs to the shared fixture.

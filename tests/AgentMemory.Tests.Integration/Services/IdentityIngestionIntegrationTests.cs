@@ -1633,6 +1633,57 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
     }
 
     [Fact]
+    public async Task A_person_whose_names_were_never_kept_is_read_through_its_bindings()
+    {
+        // REV2-2b review: a store the backfill has not reached (an operator-owned schema, a failed backfill) keeps no names
+        // on its people; the read then walks their bindings, so a spelling only a binding holds still makes a name ambiguous.
+        using var host = Host(); using var scope = host.CreateScope(); var services = scope.ServiceProvider;
+        await Ingest(services, new UnifiedExtractionResult
+        {
+            Entities = [new() { Name = "Valentina", Type = "PERSON", Confidence = 1 }],
+            Facts = [new() { Subject = "Valentina", Predicate = "will prepare", Object = "a video tutorial", Confidence = 1 }]
+        });
+        await fixture.TransactionRunner.WriteAsync(async runner => { await runner.RunAsync(
+            "MATCH (f:Fact {owner_id:'pablito'})-[:HAS_IDENTITY_BINDING]->(b:IdentityFactBinding)-[:RESOLVES_TO]->(p:Entity) " +
+            "SET b.identity_observed_surface = 'Vale', f.subject = 'Vale', f.subject_key = 'vale' REMOVE p.identity_surfaces"); });
+
+        (await services.GetRequiredService<IFactRepository>().GetPersonNamesAsync(10_000, Scope)).Should().Contain("Vale");
+    }
+
+    [Fact]
+    public async Task The_first_binding_to_a_person_with_no_kept_names_keeps_the_earlier_ones_too()
+    {
+        // REV2-2b review: a person bound before 2.3.1 (backfill not run) has bindings but no kept names. The first new
+        // binding must not leave it holding only the new name: that would hide the earlier spelling from the people read.
+        using var host = Host(); using var scope = host.CreateScope(); var services = scope.ServiceProvider;
+        await Ingest(services, new UnifiedExtractionResult
+        {
+            Entities = [new() { Name = "Valentina", Type = "PERSON", Confidence = 1 }],
+            Facts = [new() { Subject = "Valentina", Predicate = "will prepare", Object = "a video tutorial", Confidence = 1 }]
+        });
+        await fixture.TransactionRunner.WriteAsync(async runner => { await runner.RunAsync(
+            "MATCH (f:Fact {owner_id:'pablito'})-[:HAS_IDENTITY_BINDING]->(b:IdentityFactBinding)-[:RESOLVES_TO]->(p:Entity) " +
+            "CREATE (g:Fact) SET g = f {.*, id: 'surface-null-second-fact'} " +
+            "SET b.identity_observed_surface = 'Vale', f.subject = 'Vale', f.subject_key = 'vale' REMOVE p.identity_surfaces"); });
+        var bound = await fixture.TransactionRunner.ReadAsync(async runner => (await (await runner.RunAsync(
+            "MATCH (b:IdentityFactBinding {owner_id:'pablito'})-[:RESOLVES_TO]->(p:Entity) " +
+            "RETURN b.identity_decision_id AS d, b.owner_scope AS s, b.identity_source_ids AS src, p.id AS p")).SingleAsync()));
+
+        await fixture.TransactionRunner.WriteAsync(async runner => { await (await runner.RunAsync(
+            AgentMemory.Neo4j.Queries.IdentityDecisionQueries.Bind, new
+            {
+                decisionId = ValueExtensions.As<string>(bound["d"]), ownerScope = ValueExtensions.As<string>(bound["s"]), ownerId = "pablito", includeShared = false,
+                factId = "surface-null-second-fact", targetId = ValueExtensions.As<string>(bound["p"]), role = "Subject",
+                bindingId = "surface-null-second-binding", surface = "Valentina", surfaceKey = "valentina",
+                sourceIds = ValueExtensions.As<List<string>>(bound["src"]), createdAt = DateTimeOffset.UtcNow.ToString("O")
+            })).ToListAsync(); });
+
+        var kept = await fixture.TransactionRunner.ReadAsync(async runner => ValueExtensions.As<List<string>>((await (await runner.RunAsync(
+            "MATCH (p:Entity {id: $id}) RETURN p.identity_surfaces AS s", new { id = ValueExtensions.As<string>(bound["p"]) })).SingleAsync())["s"]));
+        kept.Should().BeEquivalentTo(["Vale", "Valentina"]);
+    }
+
+    [Fact]
     public async Task Binding_a_fact_keeps_the_name_it_saw_on_the_owned_person()
     {
         // REV2-2b: the people read takes a person's bound names from the person, so binding writes them there.
@@ -1663,6 +1714,27 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
         await fixture.TransactionRunner.WriteAsync(async runner => { await runner.RunAsync(
             "MATCH (f:Fact {owner_id:'pablito'})-[:HAS_IDENTITY_BINDING]->(b:IdentityFactBinding {owner_id:'pablito'}) " +
             "SET b.identity_observed_surface = 'Vale', f.subject = 'Vale', f.subject_key = 'vale'"); });
+        var file = await ExportFile(services);
+
+        await services.GetRequiredService<IMemoryOwnerDataService>().ImportAsync(file, "copy-owner");
+
+        (await services.GetRequiredService<IFactRepository>().GetPersonNamesAsync(10_000, MemoryScope.For("copy-owner", false)))
+            .Should().Contain("Vale");
+    }
+
+    [Fact]
+    public async Task A_copy_keeps_the_names_its_source_kept_even_when_no_binding_carries_them()
+    {
+        // REV2-2b review: a name the source keeps from a binding that review moved elsewhere still makes that name ambiguous
+        // in the source, so the copy keeps it too: the export carries the names, not only the bindings.
+        using var host = Host(); using var scope = host.CreateScope(); var services = scope.ServiceProvider;
+        await Ingest(services, new UnifiedExtractionResult
+        {
+            Entities = [new() { Name = "Valentina", Type = "PERSON", Confidence = 1 }],
+            Facts = [new() { Subject = "Valentina", Predicate = "will prepare", Object = "a video tutorial", Confidence = 1 }]
+        });
+        await fixture.TransactionRunner.WriteAsync(async runner => { await runner.RunAsync(
+            "MATCH (:IdentityFactBinding {owner_id:'pablito'})-[:RESOLVES_TO]->(p:Entity) SET p.identity_surfaces = p.identity_surfaces + 'Vale'"); });
         var file = await ExportFile(services);
 
         await services.GetRequiredService<IMemoryOwnerDataService>().ImportAsync(file, "copy-owner");

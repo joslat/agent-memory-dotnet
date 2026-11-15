@@ -729,10 +729,14 @@ internal static class MemoryWriterOps
                 // statement: it is kept as a fact, and when it starts with a known name the connection goes to that entity.
                 var from = End(link.Groups["s"].Value, known);
                 var to = End(link.Groups["t"].Value, known);
+                if (from.Kind == EndKind.Empty || to.Kind == EndKind.Empty) continue;   // nothing to keep: an end with no words
                 if (from.Kind != EndKind.Name || to.Kind != EndKind.Name)
                 {
-                    facts.Add(CreateFact(op, null, from.Said, link.Groups["r"].Value.Trim().ToLowerInvariant().Replace('_', ' '), to.Said));
-                    if (from.Kind == EndKind.Phrase || to.Kind == EndKind.Phrase) continue;
+                    // Kept as a fact alone, the statement still replaces the stored connection the operation names.
+                    var phrase = from.Kind == EndKind.Phrase || to.Kind == EndKind.Phrase;
+                    facts.Add(CreateFact(op, phrase && target?.Letter == 'R' ? target : null, from.Said,
+                        link.Groups["r"].Value.Trim().ToLowerInvariant().Replace('_', ' '), to.Said));
+                    if (phrase) continue;
                 }
                 relationships.Add(new ExtractedRelationship
                 {
@@ -786,33 +790,57 @@ internal static class MemoryWriterOps
         };
     }
 
-    private enum EndKind { Name, KnownThenMore, Phrase }
+    private enum EndKind { Name, KnownThenMore, Phrase, Empty }
 
-    /// <summary>Lowercase words a person's or organisation's name may hold ("María de la Cruz", "University of Buenos Aires").</summary>
+    /// <summary>
+    /// Lowercase words a name may hold ("María de la Cruz", "University of Buenos Aires", "To Kill a Mockingbird",
+    /// "Association for Computing Machinery"). Words such as "in", "on" and "with" are left out on purpose: in a connection's
+    /// end they usually start a statement ("Buenos Aires in January", "Valentina on system design").
+    /// </summary>
     private static readonly HashSet<string> NameParticles = new(StringComparer.Ordinal)
     {
         "de", "del", "la", "las", "los", "el", "van", "von", "der", "den", "da", "das", "do", "dos", "di", "du", "le", "les", "of",
-        "the", "and", "y", "e", "bin", "ibn", "al", "zu", "ten", "ter", "st", "&",
+        "the", "and", "y", "e", "bin", "ibn", "al", "zu", "ten", "ter", "st", "&", "for", "a", "an",
     };
 
+    private static readonly char[] TrailingPunctuation = ['.', ',', ';', ':', '!', '?'];
+
+    private static string Bare(string text) => text.Trim().TrimEnd(TrailingPunctuation).Trim();
+
     /// <summary>
-    /// ILC-34: one end of a connection. <c>Said</c> is the end as written (trailing punctuation removed); <c>Entity</c> the
-    /// entity it names: a known name as written, the known name an end starts with ("Valentina" in "Valentina on system
-    /// design"), or the end itself when it reads as a name. An end of several words holding a lowercase word that is no name
-    /// particle reads as a statement, not a name. The user ("user", "me") is always a name.
+    /// A word that tells a statement from a name: all its letters lowercase, with no apostrophe or hyphen ("d'Arc",
+    /// "al-Haytham" and "iPhone" are name words) and no name particle.
+    /// </summary>
+    private static bool StatementWord(string word) =>
+        word.Any(char.IsLetter) && word.All(c => !char.IsLetter(c) || char.IsLower(c)) && !word.Contains('\'') &&
+        !word.Contains('\u2019') && !word.Contains('-') && !NameParticles.Contains(word);
+
+    /// <summary>
+    /// ILC-34: one end of a connection. <c>Said</c> is the end without trailing punctuation, for a fact; <c>Entity</c> the
+    /// entity it names: a known name (matched with or without its trailing punctuation, "Acme Inc." too), the known name an
+    /// end starts with when the rest reads as a statement ("Valentina" in "Valentina on system design", never "Simone" in
+    /// "Simone Gagné"), or the end itself, as written, when it reads as a name. An end of several words holding a
+    /// statement word reads as a statement. The user ("user", "me") is always a name.
     /// </summary>
     private static (EndKind Kind, string Said, string Entity) End(string text, IReadOnlyList<string> known)
     {
-        var said = text.Trim().TrimEnd('.', ',', ';', ':', '!', '?').Trim();
-        if (said.Length == 0 || MemoryUserNames.IsSelf(said)) return (EndKind.Name, said, said);
-        if (known.FirstOrDefault(name => string.Equals(name, said, StringComparison.OrdinalIgnoreCase)) is { } exact)
+        var written = text.Trim();
+        var said = Bare(written);
+        if (said.Length == 0) return (EndKind.Empty, said, said);
+        if (MemoryUserNames.IsSelf(said)) return (EndKind.Name, said, said);
+        if (known.FirstOrDefault(name => string.Equals(Bare(name), said, StringComparison.OrdinalIgnoreCase)) is { } exact)
             return (EndKind.Name, said, exact);
-        if (known.FirstOrDefault(name => said.StartsWith(name + " ", StringComparison.OrdinalIgnoreCase)) is { } prefix)
-            return (EndKind.KnownThenMore, said, prefix);
+        foreach (var name in known)
+        {
+            var bare = Bare(name);
+            if (bare.Length == 0 || !said.StartsWith(bare + " ", StringComparison.OrdinalIgnoreCase)) continue;
+            var rest = said[(bare.Length + 1)..].Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (rest.Length > 0 && StatementWord(rest[0])) return (EndKind.KnownThenMore, said, name);
+        }
         var words = said.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        return words.Length > 1 && words.Skip(1).Any(word => char.IsLower(word[0]) && !NameParticles.Contains(word))
+        return words.Length > 1 && words.Skip(1).Any(StatementWord)
             ? (EndKind.Phrase, said, said)
-            : (EndKind.Name, said, said);
+            : (EndKind.Name, said, written);
     }
 
     private static ExtractedFact CreateFact(Op op, Stored? target, string subject, string predicate, string value) => new()

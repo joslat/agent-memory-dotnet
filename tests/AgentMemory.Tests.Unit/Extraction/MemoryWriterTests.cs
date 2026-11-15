@@ -567,12 +567,62 @@ public sealed class MemoryWriterTests
             new("add", "relationship", "Alex Kim -[cousin]-> user", null),
             new("add", "relationship", "Ana -[LIKES]-> jazz", null),
             new("add", "relationship", "Bruna -[WORKS_FOR]-> Acme.", null),
+            new("add", "relationship", "Ana -[ADMIRES]-> Jeanne d'Arc", null),
+            new("add", "relationship", "Ana -[READS]-> Ibn al-Haytham", null),
+            new("add", "relationship", "Ana -[OWNS]-> Apple iPhone", null),
+            new("add", "relationship", "Ana -[MEMBER_OF]-> Association for Computing Machinery", null),
+            new("add", "relationship", "Ana -[READS]-> To Kill a Mockingbird", null),
+            new("add", "relationship", "Tomás -[REPORTS_TO]-> user.", null),
         ], [], owner: null);
 
         result.Facts.Should().BeEmpty();
         result.Relationships.Select(r => (r.SourceEntity, r.TargetEntity)).Should().Equal(
             ("Owen", "Simone Gagné"), ("Ana", "University of Buenos Aires"), ("María de la Cruz", "Ana"), ("Alex Kim", "user"),
-            ("Ana", "jazz"), ("Bruna", "Acme"));
+            ("Ana", "jazz"), ("Bruna", "Acme."), ("Ana", "Jeanne d'Arc"), ("Ana", "Ibn al-Haytham"), ("Ana", "Apple iPhone"),
+            ("Ana", "Association for Computing Machinery"), ("Ana", "To Kill a Mockingbird"), ("Tomás", "user"));
+    }
+
+    [Fact]
+    public void A_known_shorter_name_never_captures_a_longer_real_name()
+    {
+        // ILC-34 review: "Simone" and "María" are stored; "Simone Gagné" and "María de la Cruz" are other people.
+        IReadOnlyList<MemoryWriterOps.Stored> stored =
+        [
+            new("simone", 'E', "Simone (PERSON)") { Label = "E1" },
+            new("maria", 'E', "María (PERSON)") { Label = "E2" },
+            new("acme", 'E', "Acme Inc. (ORGANIZATION)") { Label = "E3" },
+        ];
+        var result = MemoryWriterOps.ToResult(
+        [
+            new("add", "relationship", "Owen -[ENGAGED_TO]-> Simone Gagné", null),
+            new("add", "relationship", "Ana -[SISTER_OF]-> María de la Cruz", null),
+            new("add", "relationship", "Bruna -[WORKS_FOR]-> Acme Inc.", null),
+        ], stored, owner: null);
+
+        result.Facts.Should().BeEmpty();
+        result.Relationships.Select(r => r.TargetEntity).Should().Equal("Simone Gagné", "María de la Cruz", "Acme Inc.");
+    }
+
+    [Fact]
+    public void A_replacement_kept_as_a_fact_still_replaces_the_stored_connection()
+    {
+        // ILC-34 review: the new end is a statement, so only a fact is kept; it must still close the connection it replaces.
+        IReadOnlyList<MemoryWriterOps.Stored> stored = [new("r1", 'R', "Valentina -[MONITORS]-> invoice queue") { Label = "R1" }];
+        var result = MemoryWriterOps.ToResult(
+            [new("replace", "relationship", "Valentina -[monitors]-> the payroll exports on Mondays", "R1")], stored, owner: null);
+
+        var fact = result.Facts.Should().ContainSingle().Subject;
+        fact.ReplacesId.Should().Be("r1");
+        result.Relationships.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void A_connection_with_an_empty_end_is_dropped()
+    {
+        // ILC-34 review: an end that is only punctuation names nothing; storing it would fail the turn under identity.
+        var result = MemoryWriterOps.ToResult([new("add", "relationship", "Ana -[LIKES]-> ...", null)], [], owner: null);
+        result.Facts.Should().BeEmpty();
+        result.Relationships.Should().BeEmpty();
     }
 
     [Fact]

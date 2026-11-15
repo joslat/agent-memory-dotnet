@@ -116,9 +116,9 @@ public sealed class IdentityDefaultOnTests
         active.ContextTurns(6).Should().Be(6);
         active.EventDetails(null).Should().BeTrue();
         active.EventDetails(false).Should().BeFalse("an explicit choice wins");
-        // REV2-2b: the people read is bounded, so recall for people follows identity again.
-        active.PersonDetails(null).Should().BeTrue();
-        active.PersonDetails(false).Should().BeFalse("an explicit choice wins");
+        // Opt-in while a namesake can hide inside facts (ILC-35).
+        active.PersonDetails(null).Should().BeFalse("people details are opt-in");
+        active.PersonDetails(true).Should().BeTrue();
 
         using var off = Build(enabled: false);
         var inactive = off.GetRequiredService<IdentityActivation>();

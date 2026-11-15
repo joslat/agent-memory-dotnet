@@ -108,10 +108,12 @@ public static class OwnerDataQueries
     /// <summary>ILC-30: the identity properties of the owner's entities, live and retired (import keeps those it creates).</summary>
     public const string ExportEntityIdentity = @"
             MATCH (e:Entity) WHERE e.owner_id = $ownerId
-              AND (e.identity_observation_key IS NOT NULL OR e.identity_evidence_version IS NOT NULL OR e.identity_calendar_key IS NOT NULL)
+              AND (e.identity_observation_key IS NOT NULL OR e.identity_evidence_version IS NOT NULL OR e.identity_calendar_key IS NOT NULL
+                OR e.identity_surfaces IS NOT NULL)
             RETURN e.id AS key, {identity_observation_key: e.identity_observation_key,
                                  identity_evidence_version: e.identity_evidence_version,
-                                 identity_calendar_key: e.identity_calendar_key} AS props
+                                 identity_calendar_key: e.identity_calendar_key,
+                                 identity_surfaces: e.identity_surfaces} AS props
             ORDER BY e.id";
 
     /// <summary>
@@ -123,7 +125,9 @@ public static class OwnerDataQueries
             MATCH (e:Entity {id: row.key}) WHERE e.owner_id = $ownerId
             SET e.identity_observation_key = row.props.identity_observation_key,
                 e.identity_evidence_version = row.props.identity_evidence_version,
-                e.identity_calendar_key = row.props.identity_calendar_key
+                e.identity_calendar_key = row.props.identity_calendar_key,
+                // REV2-2b: the names the source kept, stale ones included, so the copy is as cautious as its source.
+                e.identity_surfaces = row.props.identity_surfaces
             RETURN count(e) AS written";
 
     /// <summary>

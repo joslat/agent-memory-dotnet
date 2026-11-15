@@ -31,17 +31,19 @@ internal static class PersonDetailQueries
 
     /// <summary>
     /// REV2-2b: the names a person's bound facts used. An owned person keeps them (identity_surfaces, written as facts are
-    /// bound); a shared person's are read through its bindings, by owner, so no owner's spelling sits on a shared node.
+    /// bound and backfilled by migration 0005); a shared person's are read through its bindings, by owner, so no owner's
+    /// spelling sits on a shared node, and so is an owned person whose names were never kept (a store the backfill has not
+    /// reached), so no namesake is ever missed.
     /// </summary>
     private const string BoundNames = """
         CALL {
           WITH p
-          WITH p WHERE p.owner_id IS NULL
+          WITH p WHERE p.owner_id IS NULL OR p.identity_surfaces IS NULL
           MATCH (p)<-[:RESOLVES_TO]-(b:IdentityFactBinding)
           WHERE NOT $hasOwner OR b.owner_id=$ownerId OR ($includeShared AND b.owner_id IS NULL)
-          RETURN collect(DISTINCT b.identity_observed_surface) AS sharedBound
+          RETURN collect(DISTINCT b.identity_observed_surface) AS walked
         }
-        WITH p, CASE WHEN p.owner_id IS NULL THEN sharedBound ELSE coalesce(p.identity_surfaces, []) END AS bound
+        WITH p, CASE WHEN p.owner_id IS NULL OR p.identity_surfaces IS NULL THEN walked ELSE p.identity_surfaces END AS bound
         """;
 
     /// <summary>

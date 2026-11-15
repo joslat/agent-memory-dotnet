@@ -1050,10 +1050,12 @@ MATCH (n:Entity) WHERE n.owner_id = $ownerId AND n.invalidated_at IS NULL AND n.
 
 ## OwnerDataQueries.ExportEntityIdentity
 MATCH (e:Entity) WHERE e.owner_id = $ownerId
-              AND (e.identity_observation_key IS NOT NULL OR e.identity_evidence_version IS NOT NULL OR e.identity_calendar_key IS NOT NULL)
+              AND (e.identity_observation_key IS NOT NULL OR e.identity_evidence_version IS NOT NULL OR e.identity_calendar_key IS NOT NULL
+                OR e.identity_surfaces IS NOT NULL)
             RETURN e.id AS key, {identity_observation_key: e.identity_observation_key,
                                  identity_evidence_version: e.identity_evidence_version,
-                                 identity_calendar_key: e.identity_calendar_key} AS props
+                                 identity_calendar_key: e.identity_calendar_key,
+                                 identity_surfaces: e.identity_surfaces} AS props
             ORDER BY e.id
 
 ## OwnerDataQueries.ExportFacts
@@ -1102,7 +1104,9 @@ UNWIND $rows AS row
             MATCH (e:Entity {id: row.key}) WHERE e.owner_id = $ownerId
             SET e.identity_observation_key = row.props.identity_observation_key,
                 e.identity_evidence_version = row.props.identity_evidence_version,
-                e.identity_calendar_key = row.props.identity_calendar_key
+                e.identity_calendar_key = row.props.identity_calendar_key,
+                // REV2-2b: the names the source kept, stale ones included, so the copy is as cautious as its source.
+                e.identity_surfaces = row.props.identity_surfaces
             RETURN count(e) AS written
 
 ## OwnerDataQueries.LinkSupersession
@@ -1168,12 +1172,12 @@ WITH p WHERE p.invalidated_at IS NULL AND p.merged_into IS NULL
 WITH p LIMIT $limit
 CALL {
   WITH p
-  WITH p WHERE p.owner_id IS NULL
+  WITH p WHERE p.owner_id IS NULL OR p.identity_surfaces IS NULL
   MATCH (p)<-[:RESOLVES_TO]-(b:IdentityFactBinding)
   WHERE NOT $hasOwner OR b.owner_id=$ownerId OR ($includeShared AND b.owner_id IS NULL)
-  RETURN collect(DISTINCT b.identity_observed_surface) AS sharedBound
+  RETURN collect(DISTINCT b.identity_observed_surface) AS walked
 }
-WITH p, CASE WHEN p.owner_id IS NULL THEN sharedBound ELSE coalesce(p.identity_surfaces, []) END AS bound
+WITH p, CASE WHEN p.owner_id IS NULL OR p.identity_surfaces IS NULL THEN walked ELSE p.identity_surfaces END AS bound
 WITH p, bound, EXISTS {
   MATCH (p)<-[:RESOLVES_TO]-(b:IdentityFactBinding)-[:DECIDED_BY]->(d:IdentityDecision)
   WHERE b.identity_decision_id=d.id AND b.owner_scope=d.owner_scope
@@ -1207,12 +1211,12 @@ WITH p WHERE p.invalidated_at IS NULL AND p.merged_into IS NULL
 WITH p LIMIT $people
 CALL {
   WITH p
-  WITH p WHERE p.owner_id IS NULL
+  WITH p WHERE p.owner_id IS NULL OR p.identity_surfaces IS NULL
   MATCH (p)<-[:RESOLVES_TO]-(b:IdentityFactBinding)
   WHERE NOT $hasOwner OR b.owner_id=$ownerId OR ($includeShared AND b.owner_id IS NULL)
-  RETURN collect(DISTINCT b.identity_observed_surface) AS sharedBound
+  RETURN collect(DISTINCT b.identity_observed_surface) AS walked
 }
-WITH p, CASE WHEN p.owner_id IS NULL THEN sharedBound ELSE coalesce(p.identity_surfaces, []) END AS bound
+WITH p, CASE WHEN p.owner_id IS NULL OR p.identity_surfaces IS NULL THEN walked ELSE p.identity_surfaces END AS bound
 UNWIND [p.name] + coalesce(p.aliases, []) + bound AS spelling
 WITH DISTINCT spelling WHERE spelling IS NOT NULL
 RETURN toString(spelling) AS spelling LIMIT $limit
