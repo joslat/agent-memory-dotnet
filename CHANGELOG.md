@@ -21,7 +21,8 @@ was said. Recall for people now reads a bounded set, and stays opt-in.
   (`MATCH (e:Entity) WHERE e.identity_surfaces IS NOT NULL REMOVE e.identity_surfaces`) before turning
   `RecallOptions.PersonDetails` on; each person is then read through their bindings until their next binding.
 - `AgentMemory.Extensibility` 0.1.2 reserves the two new index names and `identity_surfaces`, so no module can claim
-  them.
+  them. It is built from source by the hosts in this repository; on NuGet it ships with the next extensibility preview
+  release (`preview-v0.1.2-*`), and until then a module host on 0.1.1 does not reserve them.
 
 ### Changed
 
@@ -3453,7 +3454,8 @@ NuGet package IDs are permanent once published.
 
 ---
 
-[Unreleased]: https://github.com/joslat/agent-memory-dotnet/compare/v2.3.0...HEAD
+[Unreleased]: https://github.com/joslat/agent-memory-dotnet/compare/v2.3.1...HEAD
+[2.3.1]: https://github.com/joslat/agent-memory-dotnet/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/joslat/agent-memory-dotnet/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/joslat/agent-memory-dotnet/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/joslat/agent-memory-dotnet/compare/v2.0.0...v2.1.0

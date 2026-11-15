@@ -712,11 +712,15 @@ internal static class MemoryWriterOps
         var relationships = new List<ExtractedRelationship>();
         var confirmedFacts = new List<string>();
         var confirmedPreferences = new List<string>();
-        // ILC-34: the entity names this call knows: the stored entities it showed and the entities this reply declares.
+        // ILC-34: the entity names this call knows: the stored entities it showed, the ends of the stored connections it
+        // showed (an entity may be shown only as one), and the entities this reply declares. The user is never one.
         var known = stored.Where(s => s.Letter == 'E').Select(s => s.Text)
             .Concat(ops.Where(o => o.Kind == "entity" && o.Action != "confirm").Select(o => o.Text))
             .Select(text => Named.Match(text) is { Success: true } m ? m.Groups["n"].Value.Trim() : text.Trim())
-            .Where(name => name.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).OrderByDescending(name => name.Length).ToList();
+            .Concat(stored.Where(s => s.Letter == 'R').SelectMany(s => Connection.Match(s.Text) is { Success: true } shown
+                ? new[] { shown.Groups["s"].Value.Trim(), shown.Groups["t"].Value.Trim() } : []))
+            .Where(name => name.Length > 0 && !MemoryUserNames.IsSelf(name))
+            .Distinct(StringComparer.OrdinalIgnoreCase).OrderByDescending(name => name.Length).ToList();
         foreach (var op in ops)
         {
             var target = op.Action != "add" && op.Id is not null && byLabel.TryGetValue(op.Id, out var named) ? named : null;
@@ -852,7 +856,7 @@ internal static class MemoryWriterOps
     {
         var written = text.Trim();
         var said = Bare(written);
-        if (said.Length == 0) return (EndKind.Empty, said, said);
+        if (!said.Any(char.IsLetterOrDigit)) return (EndKind.Empty, said, said);
         if (MemoryUserNames.IsSelf(said)) return (EndKind.Name, said, said);
         if (known.FirstOrDefault(name => string.Equals(Bare(name), said, StringComparison.OrdinalIgnoreCase)) is { } exact)
             return (EndKind.Name, said, exact);
@@ -904,9 +908,13 @@ internal static class MemoryWriterOps
         }
     }
 
-    /// <summary>A connection with an end that holds no word ("Ana -[LIKES]-> ..."): it names nothing and is not kept.</summary>
+    /// <summary>
+    /// A connection with an end that holds no letter or digit ("Ana -[LIKES]-> ...", "…", "—"): it names nothing and is not
+    /// kept.
+    /// </summary>
     internal static bool HasEmptyConnectionEnd(string text) =>
-        Connection.Match(text) is { Success: true } link && (Bare(link.Groups["s"].Value).Length == 0 || Bare(link.Groups["t"].Value).Length == 0);
+        Connection.Match(text) is { Success: true } link &&
+        (!link.Groups["s"].Value.Any(char.IsLetterOrDigit) || !link.Groups["t"].Value.Any(char.IsLetterOrDigit));
 
     private static ExtractedFact CreateFact(Op op, Stored? target, string subject, string predicate, string value) => new()
     {

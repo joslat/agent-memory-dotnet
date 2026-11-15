@@ -266,6 +266,7 @@ details. See [current evidence and limits](../evidence-based-identity-implementa
 
 ### Recall for people
 
+People are the entities typed `PERSON`, `Person` or `person` (the spellings the people read seeks through its index).
 `RecallOptions.PersonDetails` (off unless `true`: a person named only inside facts gets no identity decision of
 their own yet, so a namesake can hide there; see People named only in facts) adds the facts about a confirmed person the
 question names. Recall first reads every spelling people are known by (names, aliases and the names bound facts used,
@@ -449,12 +450,12 @@ the title. An end of several words holding a statement word after its first word
 hyphen, neither a name particle such as de, della, des, am, af, i, of, the, for, a, nor a connector) reads as a
 statement and is kept as a fact only, so "Jeanne d'Arc", "Frankfurt am Main" and "Alice in Wonderland" stay names, and
 an entity with a lowercase name of several words ("machine learning") is kept as a fact unless it is shown to the
-writer or declared in its reply. An end that reads as a name but starts with no known one ("Valentina in March", with
+writer (as an entity, or as an end of a shown connection) or declared in its reply. An end that reads as a name but starts with no known one ("Valentina in March", with
 no Valentina known) stays a name, as in 2.3.0. When the writer said a statement replaces a stored connection, the fact
 replaces it; when the statement is kept beside a new connection, the fact replaces the statement fact the old
 connection was written with (if exactly one is shown: the same end, or the end and a connector). A known name matches
 with or without its trailing punctuation ("Acme Inc."); any other name is kept as written. An end with no words (only
-punctuation) is dropped and recorded like any dropped operation, never sent back for a correction.
+punctuation, no letter or digit) is dropped and recorded like any dropped operation, never sent back for a correction.
 
 ### Writer event-reference option
 

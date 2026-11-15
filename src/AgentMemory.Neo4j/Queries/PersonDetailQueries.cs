@@ -31,9 +31,9 @@ internal static class PersonDetailQueries
 
     /// <summary>
     /// REV2-2b: the names a person's bound facts used. An owned person keeps them (identity_surfaces, written as facts are
-    /// bound and backfilled by migration 0005); a shared person's are read through its bindings, by owner, so no owner's
-    /// spelling sits on a shared node, and so is an owned person whose names were never kept (a store the backfill has not
-    /// reached), so no namesake is ever missed.
+    /// bound); a shared person's are read through its bindings, by owner, so no owner's spelling sits on a shared node, and
+    /// so is an owned person whose names were never kept (bound before 2.3.1 and not bound since), so no namesake is ever
+    /// missed.
     /// </summary>
     private const string BoundNames = """
         CALL {

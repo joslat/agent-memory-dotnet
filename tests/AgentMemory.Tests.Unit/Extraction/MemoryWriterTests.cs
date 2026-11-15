@@ -667,10 +667,38 @@ public sealed class MemoryWriterTests
     }
 
     [Fact]
+    public void An_entity_shown_only_as_a_connection_end_is_a_known_name()
+    {
+        // ILC-34 review 4: Valentina and "invoice queue" are shown only as ends of stored connections. Replacing those
+        // connections must keep a connection to them, as with an entity shown on its own.
+        IReadOnlyList<MemoryWriterOps.Stored> stored =
+        [
+            new("martin", 'E', "Martín (PERSON)") { Label = "E1" },
+            new("r1", 'R', "Martín -[ASKED_USER_TO_MENTOR]-> Valentina") { Label = "R1" },
+            new("f1", 'F', "Martín | asked user to mentor | Valentina on system design") { Label = "F1" },
+            new("r2", 'R', "Valentina -[MONITORS]-> invoice queue") { Label = "R2" },
+        ];
+        var result = MemoryWriterOps.ToResult(
+        [
+            new("replace", "relationship", "Martín -[asked user to mentor]-> Valentina on databases", "R1"),
+            new("replace", "relationship", "Valentina -[LEADS]-> invoice queue", "R2"),
+        ], stored, owner: null);
+
+        result.Relationships.Select(r => (r.SourceEntity, r.TargetEntity, r.ReplacesId)).Should().Equal(
+            ("Martín", "Valentina", "r1"), ("Valentina", "invoice queue", "r2"));
+        result.Facts.Should().ContainSingle().Which.ReplacesId.Should().Be("f1");
+    }
+
+    [Fact]
     public void A_connection_with_an_empty_end_is_dropped()
     {
         // ILC-34 review: an end that is only punctuation names nothing; storing it would fail the turn under identity.
-        var result = MemoryWriterOps.ToResult([new("add", "relationship", "Ana -[LIKES]-> ...", null)], [], owner: null);
+        var result = MemoryWriterOps.ToResult(
+        [
+            new("add", "relationship", "Ana -[LIKES]-> ...", null),
+            new("add", "relationship", "Ana -[LIKES]-> \u2026", null),
+            new("add", "relationship", "\u2014 -[LIKES]-> jazz", null),
+        ], [], owner: null);
         result.Facts.Should().BeEmpty();
         result.Relationships.Should().BeEmpty();
     }

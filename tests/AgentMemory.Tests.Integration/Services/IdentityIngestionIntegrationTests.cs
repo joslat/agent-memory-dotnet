@@ -1626,8 +1626,8 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
     [Fact]
     public async Task A_person_whose_names_were_never_kept_is_read_through_its_bindings()
     {
-        // REV2-2b review: a store the backfill has not reached (an operator-owned schema, a failed backfill) keeps no names
-        // on its people; the read then walks their bindings, so a spelling only a binding holds still makes a name ambiguous.
+        // REV2-2b review: a person bound before 2.3.1 and not bound since keeps no names; the read then walks its bindings,
+        // so a spelling only a binding holds still makes a name ambiguous.
         using var host = Host(); using var scope = host.CreateScope(); var services = scope.ServiceProvider;
         await Ingest(services, new UnifiedExtractionResult
         {
@@ -1644,7 +1644,7 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
     [Fact]
     public async Task The_first_binding_to_a_person_with_no_kept_names_keeps_the_earlier_ones_too()
     {
-        // REV2-2b review: a person bound before 2.3.1 (backfill not run) has bindings but no kept names. The first new
+        // REV2-2b review: a person bound before 2.3.1 has bindings but no kept names. The first new
         // binding must not leave it holding only the new name: that would hide the earlier spelling from the people read.
         using var host = Host(); using var scope = host.CreateScope(); var services = scope.ServiceProvider;
         await Ingest(services, new UnifiedExtractionResult
