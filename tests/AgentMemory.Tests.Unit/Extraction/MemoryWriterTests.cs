@@ -688,6 +688,77 @@ public sealed class MemoryWriterTests
     }
 
     [Fact]
+    public void A_statement_replacing_a_connection_written_beside_a_statement_ends_both()
+    {
+        // Copilot review of 2.3.1: kept as a fact alone, a statement replacing the connection ended the connection and
+        // left the statement fact it was written with live ("mentor Valentina on system design" after "mentor the
+        // backend team on databases"). Both are proposed for closing, each confirmed by the judge as any named closing.
+        var replaced = MemoryWriterOps.ToResult(
+            [new("replace", "relationship", "Martín -[ASKED_USER_TO_MENTOR]-> the backend team on databases", "R1")], Pair, owner: null);
+
+        replaced.Relationships.Should().BeEmpty();
+        var fact = replaced.Facts.Should().ContainSingle().Subject;
+        (fact.Subject, fact.Predicate, fact.Object, fact.ReplacesId).Should()
+            .Be(("Martín", "asked user to mentor", "the backend team on databases", "r1"));
+        Closings(fact).Should().Equal("r1", "f1");
+        // Said twice in one reply, the copies merge and keep every closing (both copies name f1; the closing step asks
+        // once per stored memory, so the stored memories proposed are what counts).
+        var (kept, _) = WithinExtractionFactDeduplication.MergeExact([new(fact, [1f, 0f]), new(fact with { ReplacesId = null }, [1f, 0f])]);
+        kept.Should().ContainSingle().Which.WithClosingProposals().Select(f => f.ReplacesId).Distinct().Should().BeEquivalentTo(["r1", "f1"]);
+
+        // A connection with no statement fact beside it ends alone.
+        var alone = MemoryWriterOps.ToResult(
+            [new("replace", "relationship", "Martín -[ASKED_USER_TO_MENTOR]-> the backend team on databases", "R1")], [.. Pair.Take(2)], owner: null);
+        Closings(alone.Facts.Single()).Should().Equal("r1");
+    }
+
+    [Theory]
+    [InlineData("fact", "Martín | asked user to mentor | Lucía", true)]
+    [InlineData("relationship", "Martín -[ASKED_USER_TO_MENTOR]-> Lucía", true)]
+    [InlineData("fact", "Martín | stopped asking user to mentor | Valentina", true)]
+    [InlineData("fact", "Martín | asked user to mentor | Valentina on databases", false)]
+    [InlineData("relationship", "Martín -[ASKED_USER_TO_MENTOR]-> Valentina on databases", false)]
+    public void Replacing_the_statement_written_beside_a_connection_ends_the_connection_unless_the_new_one_still_states_it(
+        string kind, string text, bool endsConnection)
+    {
+        // The other direction of the pair: the statement fact named as replaced. The connection ends with it, unless the new
+        // statement still states that connection (the same relation between the same names): mentoring Valentina on
+        // databases still has Martín asking for Valentina to be mentored.
+        var result = MemoryWriterOps.ToResult([new("replace", kind, text, "F1")], Pair, owner: null);
+
+        result.Relationships.Should().BeEmpty();
+        var fact = result.Facts.Should().ContainSingle().Subject;
+        fact.ReplacesId.Should().Be("f1");
+        Closings(fact).Should().Equal(endsConnection ? ["f1", "r1"] : ["f1"]);
+    }
+
+    [Fact]
+    public void A_statement_without_a_connection_beside_it_ends_alone()
+    {
+        IReadOnlyList<MemoryWriterOps.Stored> stored =
+        [
+            new("martin", 'E', "Martín (PERSON)") { Label = "E1" },
+            new("f1", 'F', "Martín | asked user to mentor | Valentina on system design") { Label = "F1" },
+        ];
+        var result = MemoryWriterOps.ToResult([new("replace", "fact", "Martín | asked user to mentor | Lucía", "F1")], stored, owner: null);
+        Closings(result.Facts.Single()).Should().Equal("f1");
+        var added = MemoryWriterOps.ToResult([new("add", "fact", "Martín | asked user to mentor | Lucía", null)], Pair, owner: null);
+        Closings(added.Facts.Single()).Should().BeEmpty();
+    }
+
+    // A connection written beside its statement fact (2.3.1 keeps both when the end is a known name and more words).
+    private static readonly IReadOnlyList<MemoryWriterOps.Stored> Pair =
+    [
+        new("martin", 'E', "Martín (PERSON)") { Label = "E1" },
+        new("r1", 'R', "Martín -[ASKED_USER_TO_MENTOR]-> Valentina") { Label = "R1" },
+        new("f1", 'F', "Martín | asked user to mentor | Valentina on system design") { Label = "F1" },
+    ];
+
+    // The stored memories a written fact proposes to close, as the store receives them.
+    private static IEnumerable<string?> Closings(ExtractedFact fact) =>
+        new PreparedFact(fact, [1f, 0f]).WithClosingProposals().Select(f => f.ReplacesId).Where(id => id is not null);
+
+    [Fact]
     public void An_entity_shown_only_as_a_connection_end_is_a_known_name()
     {
         // ILC-34 review 4: Valentina and "invoice queue" are shown only as ends of stored connections. Replacing those

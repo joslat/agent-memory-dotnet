@@ -736,8 +736,8 @@ internal static class MemoryWriterOps
             {
                 if (target?.Letter == 'F')
                 {
-                    facts.Add(CreateFact(op, target, link.Groups["s"].Value,
-                        link.Groups["r"].Value.Trim().ToLowerInvariant().Replace('_', ' '), link.Groups["t"].Value));
+                    facts.Add(EndingPairedConnection(CreateFact(op, target, link.Groups["s"].Value,
+                        link.Groups["r"].Value.Trim().ToLowerInvariant().Replace('_', ' '), link.Groups["t"].Value), stored, target));
                     continue;
                 }
                 // ILC-34: a connection joins entities. An end holding more than a name ("Valentina on system design.") is a
@@ -747,12 +747,14 @@ internal static class MemoryWriterOps
                 if (from.Kind == EndKind.Empty || to.Kind == EndKind.Empty) continue;   // nothing to keep: an end with no words
                 if (from.Kind != EndKind.Name || to.Kind != EndKind.Name)
                 {
-                    // A statement replacing a stored connection: kept alone, the fact ends that connection; kept beside
-                    // the new connection (which ends the old one), it ends the statement fact the old one was written with.
+                    // A statement replacing a stored connection: kept alone, the fact ends that connection and the
+                    // statement fact the connection was written with; kept beside the new connection (which ends the old
+                    // one), it ends that statement fact.
                     var phrase = from.Kind == EndKind.Phrase || to.Kind == EndKind.Phrase;
-                    var replaces = target?.Letter != 'R' ? null : phrase ? target : PairedFact(stored, target);
-                    facts.Add(CreateFact(op, replaces, from.Said,
-                        link.Groups["r"].Value.Trim().ToLowerInvariant().Replace('_', ' '), to.Said));
+                    var paired = target?.Letter == 'R' ? PairedFact(stored, target) : null;
+                    var fact = CreateFact(op, target?.Letter != 'R' ? null : phrase ? target : paired, from.Said,
+                        link.Groups["r"].Value.Trim().ToLowerInvariant().Replace('_', ' '), to.Said);
+                    facts.Add(phrase && paired is not null ? fact with { AlsoReplacesIds = [paired.Id] } : fact);
                     if (phrase) continue;
                 }
                 else if (target?.Letter == 'R' && PairedFact(stored, target) is { } paired)
@@ -802,7 +804,7 @@ internal static class MemoryWriterOps
                         _ => (owner ?? "user", "noted", op.Text.Trim()),
                     };
                     if (subject.Length == 0 || predicate.Length == 0 || @object.Length == 0) break;
-                    facts.Add(CreateFact(op, target, subject, predicate, @object));
+                    facts.Add(EndingPairedConnection(CreateFact(op, target, subject, predicate, @object), stored, target));
                     break;
             }
         }
@@ -896,13 +898,31 @@ internal static class MemoryWriterOps
     /// beside "Martín -[ASKED_USER_TO_MENTOR]-> Valentina"), when this call shows exactly one: same predicate, subject and
     /// object starting with the connection's ends. A statement replacing the connection replaces that fact.
     /// </summary>
-    private static Stored? PairedFact(IReadOnlyList<Stored> stored, Stored connection)
+    private static Stored? PairedFact(IReadOnlyList<Stored> stored, Stored connection) =>
+        Connection.Match(connection.Text) is not { Success: true } link ? null
+            : stored.Where(item => item.Letter == 'F' && item.Text.Split(" | ") is [var subject, var predicate, var value, ..] &&
+                States(link, subject, predicate, value)).ToList() is [var only] ? only : null;
+
+    /// <summary>
+    /// The other direction: a statement fact named as replaced, whose stored connection was written beside it (it is that
+    /// connection's one paired fact), proposes ending that connection too, unless the new statement still states it
+    /// ("Martín | asked user to mentor | Valentina on databases" keeps "Martín -[ASKED_USER_TO_MENTOR]-> Valentina").
+    /// </summary>
+    private static ExtractedFact EndingPairedConnection(ExtractedFact fact, IReadOnlyList<Stored> stored, Stored? target) =>
+        target?.Letter == 'F' &&
+        stored.Where(item => item.Letter == 'R' && PairedFact(stored, item) == target).ToList() is [var connection] &&
+        Connection.Match(connection.Text) is { Success: true } link && !States(link, fact.Subject, fact.Predicate, fact.Object)
+            ? fact with { AlsoReplacesIds = [connection.Id] }
+            : fact;
+
+    /// <summary>
+    /// Whether a statement states a connection: the same relation, its subject and object starting with the connection's
+    /// ends.
+    /// </summary>
+    private static bool States(Match link, string subject, string predicate, string value)
     {
-        if (Connection.Match(connection.Text) is not { Success: true } link) return null;
-        var type = Predicate(link.Groups["r"].Value);
-        return stored.Where(item => item.Letter == 'F' && item.Text.Split(" | ") is [var subject, var predicate, var value, ..] &&
-                Predicate(predicate) == type && Starts(subject, link.Groups["s"].Value) && Starts(value, link.Groups["t"].Value))
-            .ToList() is [var only] ? only : null;
+        return Predicate(predicate) == Predicate(link.Groups["r"].Value) &&
+            Starts(subject, link.Groups["s"].Value) && Starts(value, link.Groups["t"].Value);
 
         static string Predicate(string text) => text.Trim().ToLowerInvariant().Replace('_', ' ');
         // The end itself, or the end followed by a connector, as End joins it ("Valentina on system design"), never

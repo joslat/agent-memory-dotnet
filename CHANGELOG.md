@@ -43,8 +43,9 @@ was said. Recall for people now reads a bounded set, and stays opt-in.
   ("Valentina on system design", "Tomás in March"), the statement is kept as a fact and the connection goes to the known
   entity; other words after a known name keep the end apart from it ("Simone Gagné" when "Simone" is stored, "Tesla
   stock"). An end that reads as a statement keeps the fact only; names with particles ("Piero della Francesca",
-  "Frankfurt am Main") stay names. A statement that replaces a stored connection replaces it when kept as a fact alone,
-  or, kept beside a new connection, replaces the statement fact the old connection was written with. A known name
+  "Frankfurt am Main") stay names. A replacement ends both halves of a connection kept beside its statement fact:
+  replacing either one ends the other too, unless the new statement still states the connection, each closing
+  confirmed by the update judge as before. A known name
   matches with or without its trailing punctuation ("Acme Inc."), and an end with no words is dropped and recorded like
   any dropped operation.
 
