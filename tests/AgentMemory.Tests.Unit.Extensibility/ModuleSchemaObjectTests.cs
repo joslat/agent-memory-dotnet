@@ -107,6 +107,7 @@ public sealed class ModuleSchemaObjectTests
     [Theory]
     [InlineData("identity_evidence_version")] [InlineData("identity_calendar_key")]
     [InlineData("identity_observation_key")]
+    [InlineData("identity_surfaces")]
     public void AModuleCannotWriteAnEntitysOwnedIdentityProperties(string property)
     {
         Module("reviews", "Review", Type("ReviewItem", property)).Validate()

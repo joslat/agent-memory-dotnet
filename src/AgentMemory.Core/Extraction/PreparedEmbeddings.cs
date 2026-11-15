@@ -10,8 +10,10 @@ internal sealed record PreparedEmbeddings(
 
 internal sealed record PreparedFact(ExtractedFact Item, float[] Embedding)
 {
-    // Merging a statement must not merge away the other stored memories it explicitly replaces.
-    public IReadOnlyList<(string Id, bool IsCorrection)> AdditionalClosings { get; init; } = [];
+    // Merging a statement must not merge away the other stored memories it explicitly replaces. It starts with the ones
+    // the writer named beside ReplacesId (the other half of a connection written with its statement fact).
+    public IReadOnlyList<(string Id, bool IsCorrection)> AdditionalClosings { get; init; } =
+        [.. Item.AlsoReplacesIds.Select(id => (id, Item.ReplacementIsCorrection))];
 
     public IEnumerable<ExtractedFact> WithClosingProposals()
     {

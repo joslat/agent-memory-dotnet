@@ -62,7 +62,8 @@ public sealed class MigrationPackagingGuardTests
             Directory.GetFiles(folder, "*.cypher").Select(Path.GetFileNameWithoutExtension).Order(StringComparer.Ordinal));
         plan.Where(step => step.ExtensionId == "identity-evidence").Select(step => step.Version).Should().Equal(
             "ext/identity-evidence/0001_identity_evidence", "ext/identity-evidence/0002_identity_decisions",
-            "ext/identity-evidence/0003_identity_owner_stamps", "ext/identity-evidence/0004_identity_relationship_observations");
+            "ext/identity-evidence/0003_identity_owner_stamps", "ext/identity-evidence/0004_identity_relationship_observations",
+            "ext/identity-evidence/0005_person_surfaces");
     }
 
     private static string RepoRoot()

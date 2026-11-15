@@ -141,6 +141,19 @@ internal static class IdentityDecisionQueries
         MERGE (f)-[:HAS_IDENTITY_BINDING]->(b)
         MERGE (b)-[:DECIDED_BY]->(d)
         MERGE (b)-[:RESOLVES_TO]->(t)
+        // REV2-2b: the name this binding saw is kept on its person, so recall for people reads a person's names without
+        // walking every binding. Only on a target the binding's owner owns: one owner's spelling never sits on a shared
+        // node another owner reads. Append-only, so a name a review moved elsewhere stays and errs towards ambiguity. A
+        // person with no names kept yet (bound before 2.3.1 and not bound since) starts from all of its own bindings, this
+        // one included, so the first new binding never hides the names bound before it.
+        WITH b, t, CASE WHEN t.identity_surfaces IS NULL AND t.owner_id IS NOT NULL AND t.owner_id = b.owner_id
+            THEN [(t)<-[:RESOLVES_TO]-(o:IdentityFactBinding) WHERE o.owner_id = t.owner_id AND o.identity_observed_surface IS NOT NULL
+                  | o.identity_observed_surface]
+            ELSE t.identity_surfaces END AS have
+        FOREACH (_ IN CASE WHEN t.owner_id IS NOT NULL AND t.owner_id = b.owner_id
+                AND (t.identity_surfaces IS NULL OR NOT b.identity_observed_surface IN t.identity_surfaces) THEN [1] ELSE [] END |
+            SET t.identity_surfaces = reduce(names = [], s IN have + b.identity_observed_surface |
+                CASE WHEN s IN names THEN names ELSE names + s END))
         RETURN b.id AS id
         """;
 }

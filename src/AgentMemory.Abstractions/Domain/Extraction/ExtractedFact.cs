@@ -69,6 +69,14 @@ public sealed record ExtractedFact
     public string? ReplacesId { get; init; }
 
     /// <summary>
+    /// Other stored memories this fact replaces beside <see cref="ReplacesId"/>, with the same kind of closing, each closed
+    /// only when the update judge confirms it: the other half of a connection written beside its statement fact (2.3.1:
+    /// a statement replacing "Martín -[ASKED_USER_TO_MENTOR]-> Valentina" also replaces "Martín | asked user to mentor |
+    /// Valentina on system design"). Set by the memory writer; not part of the public contract.
+    /// </summary>
+    internal IReadOnlyList<string> AlsoReplacesIds { get; init; } = [];
+
+    /// <summary>
     /// With <see cref="ReplacesId"/>: true when the stored memory was wrong all along (a correction), false when it held
     /// until now (a change).
     /// </summary>

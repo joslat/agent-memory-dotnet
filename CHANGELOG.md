@@ -6,6 +6,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.1] - 2026-11-15
+
+A fix release. Pablo Piovano's scenario, run again with two people called Alex Kim, found a connection that lost what
+was said. Recall for people now reads a bounded set, and stays opt-in.
+
+### Upgrading
+
+- The first start applies one more identity script (`ext/identity-evidence/0005_person_surfaces`): two indexes on
+  (owner, type) for entities. Nothing is backfilled: a person bound before 2.3.1 is read through their bindings, as 2.3.0
+  did, until their next binding keeps all their names on them.
+- In a rolling upgrade from 2.3.0, instances still on 2.3.0 bind facts without keeping the name on the person, so a
+  person whose names a 2.3.1 instance kept meanwhile can miss one. Once every instance runs 2.3.1, clear the kept names
+  (`MATCH (e:Entity) WHERE e.identity_surfaces IS NOT NULL REMOVE e.identity_surfaces`) before turning
+  `RecallOptions.PersonDetails` on; each person is then read through their bindings until their next binding.
+- `AgentMemory.Extensibility` 0.1.2 reserves the two new index names and `identity_surfaces`, so no module can claim
+  them. It is built from source by the hosts in this repository; on NuGet it ships with the next extensibility preview
+  release (`preview-v0.1.2-*`), and until then a module host on 0.1.1 does not reserve them.
+
+### Changed
+
+- **Recall for people reads a bounded set.** In 2.3.0 its reads walked every entity the owner had and every binding to
+  each person. An index on (owner, type) now reaches the owner's people directly, at most 1,000 of them, and an owned
+  person keeps the names its bound facts used (`identity_surfaces`): binding adds the name it saw (a person with none
+  kept starts from all of its bindings, and is read through them until then), export carries them, and import checks
+  them and joins them with the names the imported bindings saw. A shared person's bound names stay on its bindings, read
+  per owner, never
+  written onto the shared node. It stays opt-in: a person named only inside facts still gets no identity decision of
+  their own, so a namesake can hide there.
+
+### Fixed
+
+- **A connection whose end held more than a name lost the statement.** "Martín asked me to mentor Valentina on system
+  design" was stored as a connection to an entity named "Valentina on system design." and no fact, so recall could not
+  return it. A connection's end must now read as a name. When a known name is followed by a connector and more words
+  ("Valentina on system design", "Tomás in March"), the statement is kept as a fact and the connection goes to the known
+  entity; other words after a known name keep the end apart from it ("Simone Gagné" when "Simone" is stored, "Tesla
+  stock"). An end that reads as a statement keeps the fact only; names with particles ("Piero della Francesca",
+  "Frankfurt am Main") stay names. A replacement ends both halves of a connection kept beside its statement fact:
+  replacing either one, in any form, ends the other too, unless the new statement still states the connection (then
+  only the statement fact is replaced), each closing confirmed by the update judge as before. A known name
+  matches with or without its trailing punctuation ("Acme Inc."), and an end with no words is dropped and recorded like
+  any dropped operation.
+
 ## [2.3.0] - 2026-11-14
 
 **The Pablo Piovano release 2.** A fix and some improvements.
@@ -3412,7 +3455,8 @@ NuGet package IDs are permanent once published.
 
 ---
 
-[Unreleased]: https://github.com/joslat/agent-memory-dotnet/compare/v2.3.0...HEAD
+[Unreleased]: https://github.com/joslat/agent-memory-dotnet/compare/v2.3.1...HEAD
+[2.3.1]: https://github.com/joslat/agent-memory-dotnet/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/joslat/agent-memory-dotnet/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/joslat/agent-memory-dotnet/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/joslat/agent-memory-dotnet/compare/v2.0.0...v2.1.0

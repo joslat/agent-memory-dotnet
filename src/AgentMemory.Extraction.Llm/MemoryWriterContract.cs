@@ -77,8 +77,8 @@ internal static class MemoryWriterContract
         {
             // One line, no code fence, no embedded operation JSON: debris in a text is never stored (real-04: a copy of
             // the reply inside a fact's object cost the fact its date).
-            if (ops[i].Action == "confirm" || ops[i].Kind == "entity" || !HasDebris(ops[i].Text)) continue;
-            issues.Add(new(MemoryWriterOps.DropReason.TextFormatInvalid, ops[i].Index, ops[i].Kind, ops[i].Text, DebrisProblem));
+            if (ops[i].Action == "confirm" || ops[i].Kind == "entity" || TextProblem(ops[i].Text) is not { } problem) continue;
+            issues.Add(new(MemoryWriterOps.DropReason.TextFormatInvalid, ops[i].Index, ops[i].Kind, ops[i].Text, problem));
             ops.RemoveAt(i);
         }
         for (var i = ops.Count - 1; i >= 0; i--)
@@ -151,7 +151,9 @@ internal static class MemoryWriterContract
         var nextIndex = ops.Concat(corrected).Select(op => op.Index).DefaultIfEmpty(-1).Max() + 1;
         foreach (var issue in issues)
         {
-            var fix = issue.Reason == MemoryWriterOps.DropReason.OverLimit ? null : corrected.FirstOrDefault(op => !used.Contains(op) && Fixes(issue, op));
+            // Never sent for a correction, so never given one: a fix meant for another issue stays with that issue.
+            var fix = issue.Reason is MemoryWriterOps.DropReason.OverLimit or MemoryWriterOps.DropReason.ConnectionEndEmpty
+                ? null : corrected.FirstOrDefault(op => !used.Contains(op) && Fixes(issue, op));
             if (fix is not null && fix.Ref is not null && ReferenceProblem(fix, byLabel).Reason is not null) fix = fix with { Ref = null };
             var resolvesReference = issue.Kept is null || fix?.Ref is not null;
             if (fix is null || (!resolvesReference && issue.Kept is not null))
@@ -230,6 +232,11 @@ internal static class MemoryWriterContract
         text.Contains("\"ops\"", StringComparison.Ordinal) || text.Contains("{\"op", StringComparison.Ordinal);
 
     private const string DebrisProblem = "the text must be one line of the stated format, with no code fence, JSON or second operation inside it";
+    private const string EmptyEndProblem = "a connection joins two names: each end must hold a name";
+
+    /// <summary>What is wrong with a fact's, preference's or connection's text, if anything: debris, or an empty connection end.</summary>
+    private static string? TextProblem(string text) =>
+        HasDebris(text) ? DebrisProblem : MemoryWriterOps.HasEmptyConnectionEnd(text) ? EmptyEndProblem : null;
     private const string EntityFormatProblem = "an entity's text must be exactly \"Name (PERSON|PLACE|ORGANIZATION|THING|EVENT)\", with nothing before or after";
 
     /// <summary>The shape checks every operation passes, a correction's included: an entity's form and a text's debris.</summary>
@@ -237,15 +244,15 @@ internal static class MemoryWriterContract
     {
         if (op.Kind == "entity" && op.Action == "add" && !EntityText.IsMatch(op.Text))
             return (MemoryWriterOps.DropReason.EntityFormatInvalid, EntityFormatProblem);
-        if (op.Kind != "entity" && op.Action != "confirm" && HasDebris(op.Text))
-            return (MemoryWriterOps.DropReason.TextFormatInvalid, DebrisProblem);
+        if (op.Kind != "entity" && op.Action != "confirm" && TextProblem(op.Text) is { } problem)
+            return (MemoryWriterOps.DropReason.TextFormatInvalid, problem);
         return null;
     }
 
     private static bool Fixes(Issue issue, MemoryWriterOps.Op op)
     {
         if (issue.Reason == MemoryWriterOps.DropReason.TextFormatInvalid)
-            return op.Kind == issue.Kind && op.Action != "confirm" && !HasDebris(op.Text) && op.Text.Length > 0 &&
+            return op.Kind == issue.Kind && op.Action != "confirm" && TextProblem(op.Text) is null && op.Text.Length > 0 &&
                 issue.Text is { } original && original.Contains(op.Text, StringComparison.OrdinalIgnoreCase);
         // A malformed entity (listed for its form, or dropped for another reason with its form named too) is fixed by a
         // well-formed entity whose name its original text holds.
@@ -271,6 +278,7 @@ internal static class MemoryWriterContract
         MemoryWriterOps.DropReason.QuoteNotFound => "its quote is not exact, contiguous words of the last message",
         MemoryWriterOps.DropReason.NotAnObject => "each operation must be a JSON object",
         MemoryWriterOps.DropReason.OverLimit => "it was beyond the most operations one answer may hold",
+        MemoryWriterOps.DropReason.ConnectionEndEmpty => "a connection joins two names: each end must hold a name",
         _ => reason.ToString(),
     };
 

@@ -172,6 +172,13 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
         var drops = new List<MemoryWriterOps.DroppedOp>(dropped);
         foreach (var op in answered)
         {
+            // ILC-34: a connection with an end that holds no word names nothing. Dropped and recorded like any dropped
+            // operation; never sent back for a correction, which only a new name could make.
+            if (op.Action != "confirm" && MemoryWriterOps.HasEmptyConnectionEnd(op.Text))
+            {
+                drops.Add(new MemoryWriterOps.DroppedOp(op.Index, MemoryWriterOps.DropReason.ConnectionEndEmpty, op.Text) { Kind = op.Kind });
+                continue;
+            }
             if (op.Action == "confirm" || op.Quote is null) { ops.Add(op); continue; }
             if (MemoryWriterQuotes.Locate(message, op.Quote) is { } span) ops.Add(op with { QuoteStart = span.Start, QuoteEnd = span.End });
             else drops.Add(new MemoryWriterOps.DroppedOp(op.Index, MemoryWriterOps.DropReason.QuoteNotFound, op.Text) { Kind = op.Kind });
@@ -191,7 +198,8 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
     {
         var issues = MemoryWriterContract.Check(ops, drops, stored, owner);
         if (issues.Count == 0) return (ops, [], []);
-        var correctable = issues.Where(issue => issue.Reason != MemoryWriterOps.DropReason.OverLimit).ToList();
+        var correctable = issues.Where(issue => issue.Reason is not (MemoryWriterOps.DropReason.OverLimit or
+            MemoryWriterOps.DropReason.ConnectionEndEmpty)).ToList();
         IReadOnlyList<MemoryWriterOps.Op> corrected = [];
         if (correctable.Count > 0)
         {
@@ -576,6 +584,9 @@ internal static class MemoryWriterOps
 
         /// <summary>A fact, preference or connection whose text holds a line break, a code fence or embedded operation JSON.</summary>
         TextFormatInvalid,
+
+        /// <summary>A connection with an end that holds no word ("Ana -[LIKES]-> ..."): it names nothing.</summary>
+        ConnectionEndEmpty,
     }
 
     /// <summary>An operation the writer did not keep, where it was in the reply, why, and its text when it had one.</summary>
@@ -701,6 +712,15 @@ internal static class MemoryWriterOps
         var relationships = new List<ExtractedRelationship>();
         var confirmedFacts = new List<string>();
         var confirmedPreferences = new List<string>();
+        // ILC-34: the entity names this call knows: the stored entities it showed, the ends of the stored connections it
+        // showed (an entity may be shown only as one), and the entities this reply declares. The user is never one.
+        var known = stored.Where(s => s.Letter == 'E').Select(s => s.Text)
+            .Concat(ops.Where(o => o.Kind == "entity" && o.Action != "confirm").Select(o => o.Text))
+            .Select(text => Named.Match(text) is { Success: true } m ? m.Groups["n"].Value.Trim() : text.Trim())
+            .Concat(stored.Where(s => s.Letter == 'R').SelectMany(s => Connection.Match(s.Text) is { Success: true } shown
+                ? new[] { shown.Groups["s"].Value.Trim(), shown.Groups["t"].Value.Trim() } : []))
+            .Where(name => name.Length > 0 && !MemoryUserNames.IsSelf(name))
+            .Distinct(StringComparer.OrdinalIgnoreCase).OrderByDescending(name => name.Length).ToList();
         foreach (var op in ops)
         {
             var target = op.Action != "add" && op.Id is not null && byLabel.TryGetValue(op.Id, out var named) ? named : null;
@@ -716,14 +736,38 @@ internal static class MemoryWriterOps
             {
                 if (target?.Letter == 'F')
                 {
-                    facts.Add(CreateFact(op, target, link.Groups["s"].Value,
-                        link.Groups["r"].Value.Trim().ToLowerInvariant().Replace('_', ' '), link.Groups["t"].Value));
+                    facts.Add(ClosingPair(CreateFact(op, target, link.Groups["s"].Value,
+                        link.Groups["r"].Value.Trim().ToLowerInvariant().Replace('_', ' '), link.Groups["t"].Value), stored, target));
                     continue;
+                }
+                // ILC-34: a connection joins entities. An end holding more than a name ("Valentina on system design.") is a
+                // statement: it is kept as a fact, and when it starts with a known name the connection goes to that entity.
+                var from = End(link.Groups["s"].Value, known);
+                var to = End(link.Groups["t"].Value, known);
+                if (from.Kind == EndKind.Empty || to.Kind == EndKind.Empty) continue;   // nothing to keep: an end with no words
+                if (from.Kind != EndKind.Name || to.Kind != EndKind.Name)
+                {
+                    // A statement replacing a stored connection: kept alone, the fact follows the pair rule
+                    // (ClosingPair); kept beside the new connection (which ends the old one), it ends the statement fact
+                    // the old connection was written with.
+                    var phrase = from.Kind == EndKind.Phrase || to.Kind == EndKind.Phrase;
+                    var predicate = link.Groups["r"].Value.Trim().ToLowerInvariant().Replace('_', ' ');
+                    facts.Add(phrase
+                        ? ClosingPair(CreateFact(op, target, from.Said, predicate, to.Said), stored, target)
+                        : CreateFact(op, target?.Letter == 'R' ? PairedFact(stored, target) : null, from.Said, predicate, to.Said));
+                    if (phrase) continue;
+                }
+                else if (target?.Letter == 'R' && PairedFact(stored, target) is { } paired)
+                {
+                    // A connection between names replacing one that was written beside a statement fact: the statement
+                    // is replaced too ("mentor Lucía" after "mentor Valentina on system design"), or both stay live.
+                    facts.Add(CreateFact(op, paired, from.Said,
+                        link.Groups["r"].Value.Trim().ToLowerInvariant().Replace('_', ' '), to.Said));
                 }
                 relationships.Add(new ExtractedRelationship
                 {
-                    SourceEntity = link.Groups["s"].Value,
-                    TargetEntity = link.Groups["t"].Value,
+                    SourceEntity = from.Entity,
+                    TargetEntity = to.Entity,
                     RelationshipType = link.Groups["r"].Value.Trim().ToUpperInvariant().Replace(' ', '_'),
                     ReplacesId = target?.Letter == 'R' ? target.Id : null,
                 });
@@ -760,7 +804,7 @@ internal static class MemoryWriterOps
                         _ => (owner ?? "user", "noted", op.Text.Trim()),
                     };
                     if (subject.Length == 0 || predicate.Length == 0 || @object.Length == 0) break;
-                    facts.Add(CreateFact(op, target, subject, predicate, @object));
+                    facts.Add(ClosingPair(CreateFact(op, target, subject, predicate, @object), stored, target));
                     break;
             }
         }
@@ -771,6 +815,140 @@ internal static class MemoryWriterOps
             ConfirmedPreferenceIds = [.. confirmedPreferences.Distinct(StringComparer.Ordinal)],
         };
     }
+
+    private enum EndKind { Name, KnownThenMore, Phrase, Empty }
+
+    /// <summary>
+    /// Lowercase words a name may hold ("María de la Cruz", "Piero della Francesca", "Frankfurt am Main", "Puig i Cadafalch",
+    /// "Hilma af Klint", "University of Buenos Aires", "To Kill a Mockingbird", "Association for Computing Machinery").
+    /// </summary>
+    private static readonly HashSet<string> NameParticles = new(StringComparer.Ordinal)
+    {
+        "de", "del", "della", "dello", "delle", "degli", "dei", "dal", "des", "la", "las", "los", "el", "van", "von", "der",
+        "den", "da", "das", "do", "dos", "di", "du", "le", "les", "of", "the", "and", "y", "e", "i", "und", "am", "im", "vom",
+        "zum", "zur", "für", "af", "op", "aan", "het", "bin", "binti", "bint", "ben", "ibn", "al", "zu", "ten", "ter", "st", "&",
+        "for", "a", "an",
+    };
+
+    /// <summary>
+    /// Words that start what is said about a known name in a connection's end ("Valentina on system design", "Tomás in
+    /// March"). Only these let the end join the known entity: "Tesla stock" or "Ana from accounting" may be another thing or
+    /// another person, so they are kept as a fact only. "for" is left out: it sits inside names ("Association for Computing
+    /// Machinery"). Like the particles, they are no statement word themselves.
+    /// </summary>
+    private static readonly HashSet<string> Connectors = new(StringComparer.Ordinal)
+    {
+        "on", "about", "with", "at", "in", "during", "regarding", "before", "after", "until", "by", "to", "into", "over",
+        "through", "since", "as",
+    };
+
+    private static readonly char[] TrailingPunctuation = ['.', ',', ';', ':', '!', '?'];
+
+    private static string Bare(string text) => text.Trim().TrimEnd(TrailingPunctuation).Trim();
+
+    /// <summary>
+    /// A word that tells a statement from a name: all its letters lowercase, with no apostrophe or hyphen ("d'Arc",
+    /// "al-Haytham" and "iPhone" are name words), and neither a name particle nor a connector ("Alice in Wonderland").
+    /// </summary>
+    private static bool StatementWord(string word) =>
+        word.Any(char.IsLetter) && word.All(c => !char.IsLetter(c) || char.IsLower(c)) && !word.Contains('\'') &&
+        !word.Contains('\u2019') && !word.Contains('-') && !NameParticles.Contains(word) && !Connectors.Contains(word);
+
+    /// <summary>
+    /// ILC-34: one end of a connection. <c>Said</c> is the end without trailing punctuation, for a fact; <c>Entity</c> the
+    /// entity it names: a known name (matched with or without its trailing punctuation, "Acme Inc." too), the known name an
+    /// end starts with when a connector and more words follow it ("Valentina" in "Valentina on system design", never
+    /// "Simone" in "Simone Gagné" or "Tesla" in "Tesla stock"), or the end itself, as written, when it reads as a name. An
+    /// end of several words holding a statement word reads as a statement. The user ("user", "me") is always a name.
+    /// </summary>
+    private static (EndKind Kind, string Said, string Entity) End(string text, IReadOnlyList<string> known)
+    {
+        var written = text.Trim();
+        var said = Bare(written);
+        if (!said.Any(char.IsLetterOrDigit)) return (EndKind.Empty, said, said);
+        if (MemoryUserNames.IsSelf(said)) return (EndKind.Name, said, said);
+        if (known.FirstOrDefault(name => string.Equals(Bare(name), said, StringComparison.OrdinalIgnoreCase)) is { } exact)
+            return (EndKind.Name, said, exact);
+        foreach (var name in known)
+            if (Rest(said, name) is { Length: > 1 } rest && Connectors.Contains(rest[0]))
+                return (EndKind.KnownThenMore, said, name);
+        var words = said.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return words.Length > 1 && words.Skip(1).Any(StatementWord)
+            ? (EndKind.Phrase, said, said)
+            : (EndKind.Name, said, written);
+    }
+
+    /// <summary>
+    /// The words after a known name a text starts with, the name taken as written or without its trailing punctuation
+    /// ("Acme Inc. on Mondays"), a space or comma after it; null when the text does not start with that name.
+    /// </summary>
+    private static string[]? Rest(string text, string name)
+    {
+        foreach (var form in new[] { name.Trim(), Bare(name) })
+        {
+            if (form.Length == 0 || text.Length <= form.Length || !text.StartsWith(form, StringComparison.OrdinalIgnoreCase) ||
+                text[form.Length] is not (' ' or ',')) continue;
+            return text[form.Length..].TrimStart(' ', ',').Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// The statement fact a stored connection was written with ("Martín | asked user to mentor | Valentina on system design"
+    /// beside "Martín -[ASKED_USER_TO_MENTOR]-> Valentina"), when this call shows exactly one: same predicate, subject and
+    /// object starting with the connection's ends. A statement replacing the connection replaces that fact.
+    /// </summary>
+    private static Stored? PairedFact(IReadOnlyList<Stored> stored, Stored connection) =>
+        Connection.Match(connection.Text) is not { Success: true } link ? null
+            : stored.Where(item => item.Letter == 'F' && item.Text.Split(" | ") is [var subject, var predicate, var value, ..] &&
+                States(link, subject, predicate, value)).ToList() is [var only] ? only : null;
+
+    /// <summary>
+    /// The rule for a pair, a stored connection kept beside its statement fact, in every branch that writes a fact alone:
+    /// a fact naming either half as replaced ends both, unless the new statement still states the connection ("Martín |
+    /// asked user to mentor | Valentina on databases" keeps "Martín -[ASKED_USER_TO_MENTOR]-> Valentina"), which then
+    /// stays and only the statement fact is replaced. A half with no pair shown is replaced alone, as before. Each closing
+    /// is still confirmed by the update judge.
+    /// </summary>
+    private static ExtractedFact ClosingPair(ExtractedFact fact, IReadOnlyList<Stored> stored, Stored? target)
+    {
+        Stored? connection = null, statement = null;
+        if (target?.Letter == 'R') (connection, statement) = (target, PairedFact(stored, target));
+        else if (target?.Letter == 'F')
+            (connection, statement) = (stored.Where(item => item.Letter == 'R' && PairedFact(stored, item) == target).ToList() is [var only] ? only : null, target);
+        if (connection is null || statement is null || Connection.Match(connection.Text) is not { Success: true } link) return fact;
+        return States(link, fact.Subject, fact.Predicate, fact.Object)
+            ? fact with { ReplacesId = statement.Id }
+            : fact with { AlsoReplacesIds = [target!.Letter == 'R' ? statement.Id : connection.Id] };
+    }
+
+    /// <summary>
+    /// Whether a statement states a connection: the same relation, its subject and object starting with the connection's
+    /// ends.
+    /// </summary>
+    private static bool States(Match link, string subject, string predicate, string value)
+    {
+        return Predicate(predicate) == Predicate(link.Groups["r"].Value) &&
+            Starts(subject, link.Groups["s"].Value) && Starts(value, link.Groups["t"].Value);
+
+        static string Predicate(string text) => text.Trim().ToLowerInvariant().Replace('_', ' ');
+        // The end itself, or the end followed by a connector, as End joins it ("Valentina on system design"), never
+        // another name that starts like it ("Ana Torres" is not "Ana"). A shown fact's validity suffix is no part of it.
+        static bool Starts(string text, string name)
+        {
+            var value = text.Split("  [valid ")[0].Trim();
+            return string.Equals(Bare(value), Bare(name), StringComparison.OrdinalIgnoreCase) ||
+                Rest(value, name) is { Length: > 1 } rest && Connectors.Contains(rest[0]);
+        }
+    }
+
+    /// <summary>
+    /// A connection with an end that holds no letter or digit ("Ana -[LIKES]-> ...", "…", "—"): it names nothing and is not
+    /// kept.
+    /// </summary>
+    internal static bool HasEmptyConnectionEnd(string text) =>
+        Connection.Match(text) is { Success: true } link &&
+        (!link.Groups["s"].Value.Any(char.IsLetterOrDigit) || !link.Groups["t"].Value.Any(char.IsLetterOrDigit));
 
     private static ExtractedFact CreateFact(Op op, Stored? target, string subject, string predicate, string value) => new()
     {

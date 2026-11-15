@@ -271,6 +271,32 @@ public sealed class MemoryWriterContractTests : IDisposable
     }
 
     [Fact]
+    public async Task A_connection_with_an_empty_end_is_reported_when_dropped()
+    {
+        // ILC-34 review 3: an end with no word names nothing. Only a new name could fix it, so it is not sent back for a
+        // correction: dropped and reported at once.
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"relationship","text":"Ana -[LIKES]-> ...","quote":"Ana likes"}]}""");
+        var result = await Write("Ana likes...");
+        _calls.Should().HaveCount(1);
+        result.Relationships.Should().BeEmpty();
+        result.Facts.Should().BeEmpty();
+        result.Outcomes.Should().ContainSingle().Which.ErrorMessage.Should().Contain(nameof(MemoryWriterOps.DropReason.ConnectionEndEmpty));
+    }
+
+    [Fact]
+    public async Task An_empty_end_never_takes_the_correction_meant_for_another_operation()
+    {
+        // ILC-34 review 5: the empty-end connection (written as an entity) is not sent for a correction, so the corrected
+        // "Ana (PERSON)" is the fix of the entity whose quote was wrong, and only the empty end is reported.
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Ana -[LIKES]-> ...","quote":"Ana likes"},{"op":"add","kind":"entity","text":"Ana (PERSON)","quote":"Ana Lopez"}]}""");
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Ana (PERSON)","quote":"Ana likes"}]}""");
+        var result = await Write("Ana likes jazz.");
+        _calls.Should().HaveCount(2);
+        result.Entities.Should().ContainSingle().Which.Name.Should().Be("Ana");
+        result.Outcomes.Should().ContainSingle().Which.ErrorMessage.Should().Contain(nameof(MemoryWriterOps.DropReason.ConnectionEndEmpty));
+    }
+
+    [Fact]
     public async Task A_correction_that_fixes_only_the_quote_keeps_its_json_debris_out_of_the_store()
     {
         // The same gap for facts: a quote-only fix was accepted on its unchanged text, debris included.

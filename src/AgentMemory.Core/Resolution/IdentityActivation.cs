@@ -49,8 +49,9 @@ internal sealed class IdentityActivation : IMemoryTierSource
     public bool EventDetails(bool? requested) => requested ?? Active;
 
     /// <summary>Person details at recall: an explicit choice, or whether identity runs.</summary>
-    // REV4-1: opt-in for now. Each recall that uses it reads the owner's people and the names their facts were bound with,
-    // which grows with the owner; once that read is a lookup (REV2-2b) it follows identity like event details.
+    // Opt-in. REV2-2b bounded its read, but a person named only inside facts still gets no identity decision (ILC-35), so
+    // a namesake can hide there and recall for people could add the wrong person's facts. It follows identity once that
+    // gap is closed.
     public bool PersonDetails(bool? requested) => requested == true;
 
     public MemoryTier Describe() => _fallback.Value is { } why

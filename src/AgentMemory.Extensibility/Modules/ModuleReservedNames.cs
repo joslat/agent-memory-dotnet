@@ -32,7 +32,7 @@ internal static class ModuleReservedNames
         "source_session_id", "source_message_ids", "source_excerpt",
         "source_pack", "source_pack_version", "source_pack_digest", "source_pack_file", "source_pack_line",
         "source_carrier", "source_carrier_version", "source_carrier_digest", "source_carrier_signer", "source_policy",
-        "identity_evidence_version", "identity_calendar_key", "identity_observation_key"
+        "identity_evidence_version", "identity_calendar_key", "identity_observation_key", "identity_surfaces"
     }.ToFrozenSet(StringComparer.Ordinal);
 
     // Base/bootstrap, all built-in migration objects, upstream snapshot and module bookkeeping.
@@ -53,6 +53,8 @@ internal static class ModuleReservedNames
         "entity_name_idx",
         "entity_owner_idx",
         "entity_owner_key_idx",
+        "entity_owner_key_type",
+        "entity_owner_type",
         "entity_type_idx",
         "extractor_name",
         "fact_category",

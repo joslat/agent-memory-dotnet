@@ -11,7 +11,9 @@ constraints and lookup indexes). Adding it by hand does not by itself switch ide
 ## Shape
 
 `(Entity)-[:HAS_IDENTITY_EVIDENCE]->(IdentityEvidenceAssertion)` records explicit authority and source.
-Entity properties: `identity_evidence_version`, `identity_calendar_key`.
+Entity properties: `identity_evidence_version`, `identity_calendar_key`, `identity_observation_key`, and
+`identity_surfaces` (the names the facts bound to an owned entity used, kept as facts are bound and carried by owner
+export; recall for people reads them on people; see Recall for people).
 Assertion properties: `id`, `assertion_kind`, `namespace`, `authority`, `source_id`, `owner_scope`,
 `payload`, `lookup_key`, `surface`, `subject_kind`, `calendar_key`, `created_at`.
 
@@ -21,7 +23,10 @@ The extension owns `0001_identity_evidence.cypher`: unique assertion IDs and loo
 calendar-key indexes. Query text lives in `IdentityEvidenceQueries`. Every input is parameterized.
 Exact IDs use K+1 to detect truncation before hydrating at most K contexts. Lexical/vector pools and
 candidate context are bounded. Evidence loads at most 65 assertions; the extra row marks the
-candidate incomplete, blocking confirmation and model adjudication.
+candidate incomplete, blocking confirmation and model adjudication. `0005_person_surfaces.cypher` adds the
+`entity_owner_type` and `entity_owner_key_type` indexes, so recall for people seeks an owner's people instead of walking
+every entity. It backfills nothing: binding keeps `identity_surfaces`, and a person bound before it is read through its
+bindings until its next binding.
 
 ## Semantics
 
@@ -52,7 +57,7 @@ The extension is off by default; its APIs reject use while disabled before issui
 ## Parity delta
 
 NET-only label `IdentityEvidenceAssertion`; NET-only relationship `HAS_IDENTITY_EVIDENCE`.
-Superset properties: `identity_evidence_version`, `identity_calendar_key`, `assertion_kind`,
+Superset properties: `identity_evidence_version`, `identity_calendar_key`, `identity_surfaces`, `assertion_kind`,
 `namespace`, `authority`, `source_id`, `owner_scope`, `payload`, `lookup_key`, `surface`,
 `subject_kind`, `calendar_key`. The shared names `id` and `created_at` retain their base meaning.
 
@@ -261,7 +266,9 @@ details. See [current evidence and limits](../evidence-based-identity-implementa
 
 ### Recall for people
 
-`RecallOptions.PersonDetails` (off unless `true`, for now; see its cost below) adds the facts about a confirmed person the
+People are the entities typed `PERSON`, `Person` or `person` (the spellings the people read seeks through its index).
+`RecallOptions.PersonDetails` (off unless `true`: a person named only inside facts gets no identity decision of
+their own yet, so a namesake can hide there; see People named only in facts) adds the facts about a confirmed person the
 question names. Recall first reads every spelling people are known by (names, aliases and the names bound facts used,
 found from the owner's people and never by reading every binding in the store), distinct and at most 10,000, with no
 per-person grouping or decision checks; when none of them is in the question, it
@@ -287,10 +294,13 @@ come through decision-owned fact bindings, newest first and taken in turn from e
 `MaxPersonDetailFacts` (8; 0..64), excluding facts already in the context. Recall then hands over to current values
 again, every time, with the dated sections' facts as competitors, so a value a begun plan replaced does not come back
 with the details, and facts said about a named person under any of their spellings ("Ana", "Ana García") compete as
-one subject; a spelling another person also has ("Ana" for Ana López too) stays its own subject. Both reads grow with
-the owner's people (at most 1,000 are read; with that many nobody is named) and their bindings, on every recall that
-uses it, so it is off by default until a normalised-name index turns them into lookups; it will then follow identity
-like `EventDetails`. The facts carry no
+one subject; a spelling another person also has ("Ana" for Ana López too) stays its own subject. Since 2.3.1 an
+index on (owner, type) reaches the owner's people directly, at most 1,000 of them (with that many nobody is named), and
+an owned person keeps the names its bound facts used (`identity_surfaces`: binding adds the name it saw, a person with
+none kept starts from all of its bindings), so its names are read without walking its bindings (they are walked only
+to find whether a decision confirmed the person). A shared person's bound names, and those of
+an owned person whose names were never kept (bound before 2.3.1, not bound since), are read through its bindings, per
+owner, so that read grows with the bindings to that person; a shared node never holds an owner's spelling. The facts carry no
 invented similarity score and share the context budget and the latency allowance. Choosing between two people with the
 same name from the question's context, and questions that name nobody ("what does she like?"), are out of scope.
 
@@ -392,6 +402,7 @@ operations on a source owner and on its copy in one store and requires the same 
 | An entity is linked to the messages it was extracted from | candidate nomination by context | the entity write links an imported entity to its sources that are messages here (the owner's own); a marker names none |
 | A relationship or ABOUT link joins entities only | relationship and fact writes | an end that is not an imported entity or a shared one here (a fact's id included) leaves the link out |
 | A binding's role is Subject or Object | review rewiring | any other role leaves the binding out |
+| An owned person keeps the names its bound facts used (`identity_surfaces`) | recall for people | exported with the person and joined with the names the imported bindings saw, so a copy is as cautious as its source |
 | Re-ingesting a message replays its decision instead of deciding again | replay (`identity_decision_observation`) | not kept across an import: every copy gets new keys, so a message ingested again after a restore makes a second decision (a documented limit) |
 | Recall follows only decided bindings, and hands over to current values after adding details | recall | unchanged by import |
 
@@ -415,6 +426,43 @@ source, so the same value said again later is its own fact. An import that fails
 (its entities, facts, preferences, relationships and identity records, with their links) before the failure is
 reported; a fact it merged into one the owner already had is not undone. With the extension disabled the format and its queries are unchanged, and an
 identity store whose owner has no identity records still exports format 1. Owner erasure remains supported.
+
+### People named only in facts (known limit)
+
+A writer may name a person only inside a fact or a connection ("Alex Kim | will test | the invoice export") without an
+entity of their own. Identity decides the entities a writer extracts, so such a person gets no decision: their facts are
+bound to nobody, and a namesake can look unique to recall for people, which could then add the wrong person's facts.
+This is why `RecallOptions.PersonDetails` is opt-in. Giving such a mention a decision of its own was built for 2.3.1
+and taken out before release: an exact name with no other evidence only reaches review, so each routine mention of a
+known person would have left a second live person with the same name, and the lookup cost a scan per name on every
+write. Closing it needs evidence, and so model calls, on routine writes (ILC-35).
+
+### Connections that hold a statement (2.3.1)
+
+A connection joins entities. When a writer packs more than a name into a connection's end ("Martín -[asked user to
+mentor]-> Valentina on system design."), the statement is kept as a fact, and when the end starts with a known name (a
+stored entity shown to the writer, or one its reply declares) followed by a connector (on, about, with, at, in, during,
+regarding, before, after, until, by, to, into, over, through, since, as) and more words, the connection goes to that
+entity too. Any other words after a known name keep the end apart from it: "Simone Gagné" stays its own name when
+"Simone" is stored, and "Tesla stock" or "Ana from accounting" is kept as a fact only. A title that starts with a known
+name and a connector joins that name too ("Alice in Wonderland" when a person called Alice is stored); its fact keeps
+the title. An end of several words holding a statement word after its first word (all lowercase, no apostrophe or
+hyphen, neither a name particle such as de, della, des, am, af, i, of, the, for, a, nor a connector) reads as a
+statement and is kept as a fact only, so "Jeanne d'Arc", "Frankfurt am Main" and "Alice in Wonderland" stay names, and
+an entity with a lowercase name of several words ("machine learning") is kept as a fact unless it is shown to the
+writer (as an entity, or as an end of a shown connection) or declared in its reply. An end that reads as a name but starts with no known one ("Valentina in March", with
+no Valentina known) stays a name, as in 2.3.0. A connection kept beside its statement fact is a pair (the statement
+fact is the one shown with the same relation, its ends, or its ends and a connector). A reply that names either half
+of a pair as replaced ends both, in any form (a fact, or a connection kept as a fact), unless the new statement still
+states the connection ("Martín | asked user to mentor | Valentina on databases" keeps the connection to Valentina):
+then the connection stays and only the statement fact is replaced. A new connection replacing the old one ends the old
+one and the statement fact beside it. A half with no pair shown is replaced alone. Like every named closing, each is
+closed only when the update judge confirms it. A known name matches
+with or without its trailing punctuation ("Acme Inc."); any other name is kept as written. An end with no words (only
+punctuation, no letter or digit) is dropped and recorded like any dropped operation, never sent back for a correction.
+A connection between names that replaces one written beside a statement fact replaces that fact too, with a fact of
+the new connection ("Martín | asked user to mentor | Lucía"). Entities 2.3.0 made from a statement end ("Valentina on
+system design.") stay as they are; a writer that repeats that exact end still links to them.
 
 ### Writer event-reference option
 
