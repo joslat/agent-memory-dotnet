@@ -625,6 +625,7 @@ public sealed class MemoryWriterTests
         [
             new("f1", 'F', "Martín | asked user to mentor | Valentina on system design") { Label = "F1" },
             new("f2", 'F', "Martín | likes | Valentina's designs") { Label = "F2" },
+            new("f3", 'F', "Martín | asked user to mentor | Valentina Ruiz  [valid from 2026-11-01]") { Label = "F3" },
             new("r1", 'R', "Martín -[ASKED_USER_TO_MENTOR]-> Valentina") { Label = "R1" },
             new("valentina", 'E', "Valentina (PERSON)") { Label = "E1" },
         ];

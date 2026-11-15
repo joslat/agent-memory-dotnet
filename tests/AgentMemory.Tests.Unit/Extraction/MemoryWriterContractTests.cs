@@ -273,13 +273,14 @@ public sealed class MemoryWriterContractTests : IDisposable
     [Fact]
     public async Task A_connection_with_an_empty_end_is_reported_when_dropped()
     {
-        // ILC-34 review 2: an end with no word names nothing; it is asked to be fixed once, then dropped and reported.
-        _replies.Enqueue("""{"ops":[{"op":"add","kind":"relationship","text":"Ana -[LIKES]-> ...","quote":"Ana likes"}]}""");
+        // ILC-34 review 3: an end with no word names nothing. Only a new name could fix it, so it is not sent back for a
+        // correction: dropped and reported at once.
         _replies.Enqueue("""{"ops":[{"op":"add","kind":"relationship","text":"Ana -[LIKES]-> ...","quote":"Ana likes"}]}""");
         var result = await Write("Ana likes...");
+        _calls.Should().HaveCount(1);
         result.Relationships.Should().BeEmpty();
         result.Facts.Should().BeEmpty();
-        result.Outcomes.Should().ContainSingle().Which.ErrorMessage.Should().Contain(nameof(MemoryWriterOps.DropReason.TextFormatInvalid));
+        result.Outcomes.Should().ContainSingle().Which.ErrorMessage.Should().Contain(nameof(MemoryWriterOps.DropReason.ConnectionEndEmpty));
     }
 
     [Fact]

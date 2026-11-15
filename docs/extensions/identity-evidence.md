@@ -25,7 +25,8 @@ Exact IDs use K+1 to detect truncation before hydrating at most K contexts. Lexi
 candidate context are bounded. Evidence loads at most 65 assertions; the extra row marks the
 candidate incomplete, blocking confirmation and model adjudication. `0005_person_surfaces.cypher` adds the
 `entity_owner_type` and `entity_owner_key_type` indexes, so recall for people seeks an owner's people instead of walking
-every entity, and backfills `identity_surfaces` from the bindings already stored.
+every entity. It backfills nothing: binding keeps `identity_surfaces`, and a person bound before it is read through its
+bindings until its next binding.
 
 ## Semantics
 
@@ -297,7 +298,7 @@ index on (owner, type) reaches the owner's people directly, at most 1,000 of the
 an owned person keeps the names its bound facts used (`identity_surfaces`: binding adds the name it saw, a person with
 none kept starts from all of its bindings), so its names are read without walking its bindings (they are walked only
 to find whether a decision confirmed the person). A shared person's bound names, and those of
-an owned person whose names were never kept (a store the backfill has not reached), are read through its bindings, per
+an owned person whose names were never kept (bound before 2.3.1, not bound since), are read through its bindings, per
 owner, so that read grows with the bindings to that person; a shared node never holds an owner's spelling. The facts carry no
 invented similarity score and share the context budget and the latency allowance. Choosing between two people with the
 same name from the question's context, and questions that name nobody ("what does she like?"), are out of scope.
@@ -442,14 +443,18 @@ mentor]-> Valentina on system design."), the statement is kept as a fact, and wh
 stored entity shown to the writer, or one its reply declares) followed by a connector (on, about, with, at, in, during,
 regarding, before, after, until, by, to, into, over, through, since, as) and more words, the connection goes to that
 entity too. Any other words after a known name keep the end apart from it: "Simone Gagné" stays its own name when
-"Simone" is stored, and "Tesla stock" or "Ana from accounting" is kept as a fact only. An end of several words holding a
-statement word (all lowercase, no apostrophe or hyphen, neither a name particle such as de, della, des, am, af, i, of,
-the, for, a, nor a connector) reads as a statement and is kept as a fact only, so "Jeanne d'Arc", "Frankfurt am Main"
-and "Alice in Wonderland" stay names. When the writer said such a statement replaces a stored connection, the fact
+"Simone" is stored, and "Tesla stock" or "Ana from accounting" is kept as a fact only. A title that starts with a known
+name and a connector joins that name too ("Alice in Wonderland" when a person called Alice is stored); its fact keeps
+the title. An end of several words holding a statement word after its first word (all lowercase, no apostrophe or
+hyphen, neither a name particle such as de, della, des, am, af, i, of, the, for, a, nor a connector) reads as a
+statement and is kept as a fact only, so "Jeanne d'Arc", "Frankfurt am Main" and "Alice in Wonderland" stay names, and
+an entity with a lowercase name of several words ("machine learning") is kept as a fact unless it is shown to the
+writer or declared in its reply. An end that reads as a name but starts with no known one ("Valentina in March", with
+no Valentina known) stays a name, as in 2.3.0. When the writer said a statement replaces a stored connection, the fact
 replaces it; when the statement is kept beside a new connection, the fact replaces the statement fact the old
-connection was written with (if exactly one is shown). A known name matches with or without its trailing punctuation
-("Acme Inc."); any other name is kept as written. An end with no words (only punctuation) is reported back to the
-writer once and then dropped and reported.
+connection was written with (if exactly one is shown: the same end, or the end and a connector). A known name matches
+with or without its trailing punctuation ("Acme Inc."); any other name is kept as written. An end with no words (only
+punctuation) is dropped and recorded like any dropped operation, never sent back for a correction.
 
 ### Writer event-reference option
 

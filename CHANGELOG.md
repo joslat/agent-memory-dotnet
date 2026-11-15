@@ -14,20 +14,23 @@ was said. Recall for people now reads a bounded set, and stays opt-in.
 ### Upgrading
 
 - The first start applies one more identity script (`ext/identity-evidence/0005_person_surfaces`): two indexes on
-  (owner, type) for entities, and a backfill that adds the names each owned person's bound facts used to the person. It
-  only adds, so running it again is safe; later starts only check. Until it has run, recall for people reads a person's
-  names through their bindings, as 2.3.0 did.
-- In a rolling upgrade from 2.3.0, instances still on 2.3.0 bind facts without keeping the name on the person. Turn
-  `RecallOptions.PersonDetails` on only once every instance runs 2.3.1, and run the script's backfill statement once
-  more then.
+  (owner, type) for entities. Nothing is backfilled: a person bound before 2.3.1 is read through their bindings, as 2.3.0
+  did, until their next binding keeps all their names on them.
+- In a rolling upgrade from 2.3.0, instances still on 2.3.0 bind facts without keeping the name on the person, so a
+  person whose names a 2.3.1 instance kept meanwhile can miss one. Once every instance runs 2.3.1, clear the kept names
+  (`MATCH (e:Entity) WHERE e.identity_surfaces IS NOT NULL REMOVE e.identity_surfaces`) before turning
+  `RecallOptions.PersonDetails` on; each person is then read through their bindings until their next binding.
+- `AgentMemory.Extensibility` 0.1.2 reserves the two new index names and `identity_surfaces`, so no module can claim
+  them.
 
 ### Changed
 
 - **Recall for people reads a bounded set.** In 2.3.0 its reads walked every entity the owner had and every binding to
   each person. An index on (owner, type) now reaches the owner's people directly, at most 1,000 of them, and an owned
   person keeps the names its bound facts used (`identity_surfaces`): binding adds the name it saw (a person with none
-  kept starts from all of its bindings), export carries them, import joins them with the names the imported bindings
-  saw, and the migration backfills them. A shared person's bound names stay on its bindings, read per owner, never
+  kept starts from all of its bindings, and is read through them until then), export carries them, and import checks
+  them and joins them with the names the imported bindings saw. A shared person's bound names stay on its bindings, read
+  per owner, never
   written onto the shared node. It stays opt-in: a person named only inside facts still gets no identity decision of
   their own, so a namesake can hide there.
 
@@ -39,9 +42,10 @@ was said. Recall for people now reads a bounded set, and stays opt-in.
   ("Valentina on system design", "Tomás in March"), the statement is kept as a fact and the connection goes to the known
   entity; other words after a known name keep the end apart from it ("Simone Gagné" when "Simone" is stored, "Tesla
   stock"). An end that reads as a statement keeps the fact only; names with particles ("Piero della Francesca",
-  "Frankfurt am Main") stay names. A statement that replaces a stored connection replaces it, and the statement fact it
-  was written with. A known name matches with or without its trailing punctuation ("Acme Inc."), and an end with no
-  words is reported and dropped.
+  "Frankfurt am Main") stay names. A statement that replaces a stored connection replaces it when kept as a fact alone,
+  or, kept beside a new connection, replaces the statement fact the old connection was written with. A known name
+  matches with or without its trailing punctuation ("Acme Inc."), and an end with no words is dropped and recorded like
+  any dropped operation.
 
 ## [2.3.0] - 2026-11-14
 

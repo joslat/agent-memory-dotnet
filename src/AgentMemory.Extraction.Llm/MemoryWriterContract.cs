@@ -276,6 +276,7 @@ internal static class MemoryWriterContract
         MemoryWriterOps.DropReason.QuoteNotFound => "its quote is not exact, contiguous words of the last message",
         MemoryWriterOps.DropReason.NotAnObject => "each operation must be a JSON object",
         MemoryWriterOps.DropReason.OverLimit => "it was beyond the most operations one answer may hold",
+        MemoryWriterOps.DropReason.ConnectionEndEmpty => "a connection joins two names: each end must hold a name",
         _ => reason.ToString(),
     };
 

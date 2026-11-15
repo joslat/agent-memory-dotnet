@@ -1,6 +1,6 @@
 {
  "format": "agentmemory.guards.mutants-results/2",
- "commit": "b2dea0ba",
+ "commit": "8bc8f213",
  "results": [
   {
    "id": "archive-ratio",
@@ -2228,7 +2228,7 @@
    "door": "definition",
    "mutant_sha256": "74e8d611a8db9758639fa4d24e2936690c27d03cacb7a4098c561d0b04fa7b31",
    "killed": true,
-   "file_sha256": "1af34d9fc590b0c2d04f6f2b430a6aeebab515cee77ca99f82a1fe0c12398579",
+   "file_sha256": "418dfa7197a558b7f2c754907769e7824a0f102f3ce825c753a6cfa5b09caa81",
    "failed": [
     "ConfidenceTests.Nothing_but_the_importer_writes_a_confidence_and_a_module_cannot_declare_its_stored_name"
    ],

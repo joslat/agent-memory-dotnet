@@ -462,12 +462,11 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
         (await facts.GetPersonDetailsAsync([valentina.EntityId], [details[0].FactId], 8, Scope)).Should().ContainSingle();
         (await facts.GetPersonDetailsAsync([valentina.EntityId], [], 1, Scope)).Should().ContainSingle();
         // REV2-2: the light first read lists every spelling, a name a bound fact used included, and nothing of another owner's.
-        // REV2-2b: a person keeps the names its bindings saw; here one binding is made to have seen "Vale", and the 0005
-        // migration's backfill (as an existing store gets it) puts that name on the person.
+        // REV2-2b: a person keeps the names its bindings saw; here one binding is made to have seen "Vale" on a person with
+        // no names kept, as a store bound before 2.3.1 has them, so the read walks the person's bindings.
         await fixture.TransactionRunner.WriteAsync(async runner => { await runner.RunAsync(
-            "MATCH (b:IdentityFactBinding {owner_id:'pablito'})-[:RESOLVES_TO]->(:Entity {id:$id}) WITH b LIMIT 1 SET b.identity_observed_surface='Vale'",
-            new { id = valentina.EntityId }); });
-        await RunPersonSurfacesBackfill();
+            "MATCH (b:IdentityFactBinding {owner_id:'pablito'})-[:RESOLVES_TO]->(p:Entity {id:$id}) WITH b, p LIMIT 1 " +
+            "SET b.identity_observed_surface='Vale' REMOVE p.identity_surfaces", new { id = valentina.EntityId }); });
         (await facts.GetPersonNamesAsync(10_000, Scope)).Should().Contain(["Valentina", "Tomás Pérez", "Vale"]).And.OnlyHaveUniqueItems();
         (await facts.GetPersonNamesAsync(1, Scope)).Should().ContainSingle();
         var other = MemoryScope.For("other-owner", false);
@@ -1622,14 +1621,6 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
         var imported = await services.GetRequiredService<IMemoryOwnerDataService>().ImportAsync(crafted, "copy-owner");
 
         imported.Written.Should().Contain("identity:bindings-dropped", bindings);
-    }
-
-    private async Task RunPersonSurfacesBackfill()
-    {
-        var script = await AgentMemory.Neo4j.Infrastructure.EmbeddedMigrationScripts.Shipped.ReadAsync(
-            "ext/identity-evidence/0005_person_surfaces.cypher", CancellationToken.None);
-        var backfill = AgentMemory.Neo4j.Infrastructure.MigrationRunner.ParseStatements(script).Single(statement => statement.StartsWith("MATCH", StringComparison.Ordinal));
-        await fixture.TransactionRunner.WriteAsync(async runner => { await runner.RunAsync(backfill); });
     }
 
     [Fact]

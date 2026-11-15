@@ -172,6 +172,13 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
         var drops = new List<MemoryWriterOps.DroppedOp>(dropped);
         foreach (var op in answered)
         {
+            // ILC-34: a connection with an end that holds no word names nothing. Dropped and recorded like any dropped
+            // operation; never sent back for a correction, which only a new name could make.
+            if (op.Action != "confirm" && MemoryWriterOps.HasEmptyConnectionEnd(op.Text))
+            {
+                drops.Add(new MemoryWriterOps.DroppedOp(op.Index, MemoryWriterOps.DropReason.ConnectionEndEmpty, op.Text) { Kind = op.Kind });
+                continue;
+            }
             if (op.Action == "confirm" || op.Quote is null) { ops.Add(op); continue; }
             if (MemoryWriterQuotes.Locate(message, op.Quote) is { } span) ops.Add(op with { QuoteStart = span.Start, QuoteEnd = span.End });
             else drops.Add(new MemoryWriterOps.DroppedOp(op.Index, MemoryWriterOps.DropReason.QuoteNotFound, op.Text) { Kind = op.Kind });
@@ -191,7 +198,8 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
     {
         var issues = MemoryWriterContract.Check(ops, drops, stored, owner);
         if (issues.Count == 0) return (ops, [], []);
-        var correctable = issues.Where(issue => issue.Reason != MemoryWriterOps.DropReason.OverLimit).ToList();
+        var correctable = issues.Where(issue => issue.Reason is not (MemoryWriterOps.DropReason.OverLimit or
+            MemoryWriterOps.DropReason.ConnectionEndEmpty)).ToList();
         IReadOnlyList<MemoryWriterOps.Op> corrected = [];
         if (correctable.Count > 0)
         {
@@ -576,6 +584,9 @@ internal static class MemoryWriterOps
 
         /// <summary>A fact, preference or connection whose text holds a line break, a code fence or embedded operation JSON.</summary>
         TextFormatInvalid,
+
+        /// <summary>A connection with an end that holds no word ("Ana -[LIKES]-> ..."): it names nothing.</summary>
+        ConnectionEndEmpty,
     }
 
     /// <summary>An operation the writer did not keep, where it was in the reply, why, and its text when it had one.</summary>
@@ -883,8 +894,14 @@ internal static class MemoryWriterOps
             .ToList() is [var only] ? only : null;
 
         static string Predicate(string text) => text.Trim().ToLowerInvariant().Replace('_', ' ');
-        static bool Starts(string text, string name) =>
-            string.Equals(Bare(text), Bare(name), StringComparison.OrdinalIgnoreCase) || Rest(text.Trim(), name) is not null;
+        // The end itself, or the end followed by a connector, as End joins it ("Valentina on system design"), never
+        // another name that starts like it ("Ana Torres" is not "Ana"). A shown fact's validity suffix is no part of it.
+        static bool Starts(string text, string name)
+        {
+            var value = text.Split("  [valid ")[0].Trim();
+            return string.Equals(Bare(value), Bare(name), StringComparison.OrdinalIgnoreCase) ||
+                Rest(value, name) is { Length: > 1 } rest && Connectors.Contains(rest[0]);
+        }
     }
 
     /// <summary>A connection with an end that holds no word ("Ana -[LIKES]-> ..."): it names nothing and is not kept.</summary>
