@@ -1,6 +1,34 @@
 # Getting Started — Agent Memory for .NET
 
+## Optional local working copies of knowledge packs
+
+An experimental host can explicitly activate the owned schema:
+
+```csharp
+services.AddNeo4jAgentMemory(neo4j => neo4j.Extensions.Add("pack-local-state"));
+```
+
+Bootstrap/migrate it before constructing `Neo4jPackLocalStore` with the runner, actual isolation policy
+and verified packs. `MountAsync` captures protection; `ConfigureAsync`/`WriteAsync` require the current
+committed revision. Automatic writes additionally need explicit learning permission and persisted
+source-message ownership and an excerpt present in the persisted user text. Bind both old and new verified
+bases during an upgrade; call `CheckMountAsync` before changing the host composition. `MountAsync`
+rechecks under lock. Schema activation alone grants no write authority or ingestion provider.
+Reopen the same application/owner scopes for UI and tool calls as for retrieval. See the
+[extension contract](extensions/pack-local-state.md) for history, upgrades and limits.
+
+When retaining an installed archive, `PackArchiveUpdates.MergeAttestations` combines newly carried
+evidence with earlier notices only after both copies verify whole and have identical signed content.
+It performs no IO. Apply verified withdrawals to persistence before importing or retaining a shared base.
+
+Pre-search routing is separately opt-in through `ContextCompiler.ApplicabilityPolicy`. Leave it absent
+for the unchanged exhaustive path. Evaluate coverage and total latency before pruning; applicability
+scores do not share the memory-record gate's calibration.
+
 **Prerequisites covered:** .NET 8, 9, or 10, Neo4j, NuGet packages, DI configuration, first memory store.
+
+The Aspire sample enables its SDK's CLI bundle (`AspireUseCliBundle=true`). Its AppHost build/run
+uses the matching Aspire CLI tooling rather than the legacy standalone orchestration packages.
 
 For the opt-in local coding-agent HTTP/MCP host, see [the coding service guide](coding-service.md).
 For a remote MCP resource server, see [HTTPS/OAuth configuration](coding-remote.md); deployment and

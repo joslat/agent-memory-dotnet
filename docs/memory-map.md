@@ -1,5 +1,16 @@
 # The Memory Map
 
+**Pack Explorer support — BUILT in source, WIRED in DemoBrain.** Verified derivation, composition
+inspection, scoped mount defaults and bounded recall explanations support the desktop Explorer.
+Editable copies use [pack-local-state](extensions/pack-local-state.md), transactional protection,
+and personal assertion history. Lexical, meaning and traversal reads project the effective local
+graph first. Historical local-copy reads without a pinned published revision are declined; local
+amendment history is independently available. Applicability routing implements Off/Observe/experimental
+On with broad fallback and target-specific activation receipts. **MEASURED:** real-Neo4j lifecycle
+controls and a finite synthetic 32-pack target study with no answer regressions, fewer queries and
+lower textual-turn p95. This is not production-workload or universal coverage evidence. Default recall remains
+exhaustive and activates no local-copy schema or writes.
+
 **Calendar identity integrity — BUILT; focused verification passed.** Recognised calendar literals
 are kept out of approximate name matching. Complete supported dates compare by calendar components;
 incomplete or invalid values remain separate, and canonical entity names cannot replace their fact

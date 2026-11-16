@@ -10,7 +10,7 @@ internal static class ModuleReservedNames
     {
         "Conversation", "Message", "Entity", "Fact", "Preference", "ReasoningTrace", "ReasoningStep",
         "ToolCall", "Tool", "Extractor", "ConsolidationRun", "MemoryReadAudit", "Schema", "User",
-        "Migration", "ModuleMigration", "ModuleKey",
+        "Migration", "ModuleMigration", "ModuleKey", "PackLocalMount", "PackLocalChange", "PackLocalRevision", "PackLocalGate",
         "IdentityEvidenceAssertion", "IdentityDecision", "IdentityDecisionRevision",
         "IdentityFactBinding", "IdentityEvidenceScopeLock", "IdentityRelationshipObservation"
     }.ToFrozenSet(StringComparer.Ordinal);
@@ -98,6 +98,8 @@ internal static class ModuleReservedNames
         "message_timestamp_idx",
         "migration_version",
         "module_key_id",
+        "pack_local_mount_id", "pack_local_change_id", "pack_local_change_scope",
+        "pack_local_revision_id", "pack_local_revision_scope", "pack_local_gate_id",
         "module_migration_key",
         "preference_category_idx",
         "preference_created_at_idx",

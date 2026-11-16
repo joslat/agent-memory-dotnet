@@ -22,13 +22,21 @@ internal sealed class SystemOneClient
     private readonly HttpClient _http;
     private readonly TimeProvider _time;
     private readonly ILogger _logger;
+    private readonly int? _maximumResponseBytes;
     private readonly Dictionary<string, Health> _health = new(StringComparer.Ordinal);
 
-    public SystemOneClient(HttpClient http, TimeProvider? time = null, ILogger? logger = null)
+    public SystemOneClient(HttpClient http, TimeProvider? time = null, ILogger? logger = null, int? maximumResponseBytes = null)
     {
         _http = http;
         _time = time ?? TimeProvider.System;
         _logger = logger ?? NullLogger.Instance;
+        _maximumResponseBytes = maximumResponseBytes;
+    }
+
+    internal void TimedOut(SystemOneEndpoint endpoint, MemoryGateOptions options)
+    {
+        if (options.JudgeFailuresBeforeCooldown > 0)
+            Failed(endpoint.Name, $"{endpoint.Name}|{endpoint.Endpoint}", options.JudgeFailuresBeforeCooldown, options.JudgeCooldown);
     }
 
     /// <summary>A judge's run of failures, and when it is left out until (MemoryGateOptions.JudgeFailuresBeforeCooldown).</summary>
@@ -177,16 +185,36 @@ internal sealed class SystemOneClient
             };
             if (key is not null)
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
-            using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            using var response = _maximumResponseBytes is not null
+                ? await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false)
+                : await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
             if ((response.StatusCode == HttpStatusCode.TooManyRequests || (int)response.StatusCode >= 500) && attempt == 0)
             {
                 await Task.Delay(TimeSpan.FromMilliseconds(250), cancellationToken).ConfigureAwait(false);
                 continue;
             }
             response.EnsureSuccessStatusCode();
-            var text = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            var text = _maximumResponseBytes is { } maximum
+                ? await ReadBoundedAsync(response.Content, maximum, cancellationToken).ConfigureAwait(false)
+                : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             return Parse(text, questions.Keys);
         }
+    }
+
+    private static async Task<string> ReadBoundedAsync(HttpContent content, int maximum, CancellationToken cancellationToken)
+    {
+        using var stream = await content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        using var output = new MemoryStream(); var buffer = new byte[8192];
+        while (true)
+        {
+            var read = await stream.ReadAsync(buffer.AsMemory(0, Math.Min(buffer.Length, maximum - (int)output.Length + 1)), cancellationToken).ConfigureAwait(false);
+            if (read == 0) break;
+            if (output.Length + read > maximum) throw new InvalidDataException("The applicability response exceeds its byte bound.");
+            output.Write(buffer, 0, read);
+        }
+        var bytes = output.GetBuffer(); var length = (int)output.Length;
+        var offset = length >= 3 && bytes[0] == 0xef && bytes[1] == 0xbb && bytes[2] == 0xbf ? 3 : 0;
+        return new UTF8Encoding(false, true).GetString(bytes, offset, length - offset);
     }
 
     internal static IReadOnlyDictionary<string, double> Parse(string body, IEnumerable<string> asked)

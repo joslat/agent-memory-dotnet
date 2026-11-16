@@ -179,6 +179,8 @@ public sealed record LoadedPack
     internal IReadOnlyList<string> HostWebIds { get; init; } = [];
     /// <summary>Whether it says what it was made from (feature 09): <c>META/derivation.json</c>, inside its signed content.</summary>
     public bool HasDerivation { get; internal init; }
+    /// <summary>Verified making-of provenance, or null when none is declared. Does not perform additional IO or parsing.</summary>
+    public PackDerivationInfo? Derivation { get; internal init; }
     /// <summary>For a snapshot pack, its verified record files, read by <see cref="PackLoader.ToSnapshot"/>.</summary>
     internal IReadOnlyDictionary<string, ReadOnlyMemory<byte>> RecordFiles { get; init; } = new Dictionary<string, ReadOnlyMemory<byte>>();
 }
@@ -284,6 +286,7 @@ public static class PackLoader
         if (manifest.Validate() is { Count: > 0 } invalid) throw new PackLoadException(invalid);
 
         var signers = pack.Signatures.Select(s => $"{s.Role} {s.KeyId[..16]}").ToList();
+        var derivation = pack.Files.TryGetValue(PackDerivation.FileName, out var derived) ? PackDerivation.Parse(derived).Derivation : null;
         KnowledgePack? knowledge = null;
         if (pack.Manifest.Kind == "knowledge")
         {
@@ -297,7 +300,6 @@ public static class PackLoader
                 Files = files,
             };
             // A record's sourceKey names an input of its derivation (feature 09); the reader refuses one that names none.
-            var derivation = pack.Files.TryGetValue(PackDerivation.FileName, out var derived) ? PackDerivation.Parse(derived).Derivation : null;
             try { knowledge = KnowledgePack.Open(bundle, (derivation?.Inputs.Select(i => i.Name) ?? []).ToHashSet(StringComparer.Ordinal)); }
             catch (KnowledgePackException e) { throw new PackLoadException(e.Problems); }
             knowledge = Trusted(knowledge, derivation, pack, trust.Policy);
@@ -337,6 +339,7 @@ public static class PackLoader
             Certificates = PackCertificates.Read(pack, ledger is null ? trust.Policy : ledger.Ledger.Apply(trust.Policy), DateTimeOffset.UtcNow),
             Erasures = PackErasures.Read(pack, ledger is null ? trust.Policy : ledger.Ledger.Apply(trust.Policy), DateTimeOffset.UtcNow),
             HasDerivation = pack.Files.ContainsKey(PackDerivation.FileName),
+            Derivation = derivation is null ? null : PackDerivationInfo.Of(derivation),
             UsagePolicy = policy, PolicyDigest = policyDigest,
             HostWebIds = trust.Policy.HostWebIds,
             // An absent file is null, not empty: a plain null would convert, through byte[], to an empty and present ReadOnlyMemory.

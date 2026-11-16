@@ -27,6 +27,7 @@ public sealed class ModuleBookkeepingOwnershipTests
         active.Should().BeEmpty();
         EffectiveSchema.Describe(baseline, active).Should().BeSameAs(baseline);
         baseline.NodeLabels.Should().NotContain("ModuleMigration");
+        baseline.NodeLabels.Should().NotContain(["PackLocalMount", "PackLocalChange"]);
     }
 
     [Fact]

@@ -103,6 +103,7 @@ public sealed class ChokePointRatchetTests
         ("src/AgentMemory.Extensibility/Modules/ModuleJson.cs", "json parse", 1, "the module manifest parser, depth-bounded"),
         ("src/AgentMemory.Extensibility/Modules/PackActivation.cs", "json parse", 4, "the host's own decision records, read bounded; the last a typed read of one whose host signature just held"),
         ("src/AgentMemory.Extensibility/Packs/KnowledgePack.cs", "json parse", 1, Verified),
+        ("src/AgentMemory.Extensibility.Neo4j/Storage/Neo4jPackLocalStore.cs", "json parse", 1, "host-owned local assertions, bounded to 64 KiB and depth 32, then validated against the verified ontology; never pack declarations"),
         ("src/AgentMemory.Extensibility/Packs/ModuleProposer.cs", "json parse", 1, "authoring: a model's reply, which yields a proposal, not a pack"),
         ("src/AgentMemory.Extensibility/Packs/ModuleReview.cs", "json parse", 2, "authoring: a review set the author edits"),
         ("src/AgentMemory.Packs.Repository/RepositoryWriter.cs", "json parse", 1, "authoring: a model's reply, depth-bounded"),

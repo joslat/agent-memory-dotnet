@@ -1,0 +1,59 @@
+[
+  {
+    "id": "arts",
+    "type": "MartialArtsArt",
+    "search": {
+      "properties": [
+        "name",
+        "summary"
+      ]
+    },
+    "limit": 2
+  },
+  {
+    "id": "ranks",
+    "type": "MartialArtsRank",
+    "search": {
+      "properties": [
+        "art",
+        "name",
+        "requirement",
+        "next"
+      ]
+    },
+    "limit": 4
+  },
+  {
+    "id": "techniques",
+    "type": "MartialArtsTechnique",
+    "search": {
+      "properties": [
+        "art",
+        "name",
+        "english",
+        "note"
+      ]
+    },
+    "limit": 4
+  },
+  {
+    "id": "kata",
+    "type": "MartialArtsKata",
+    "search": {
+      "properties": [
+        "art",
+        "name",
+        "rank",
+        "meaning",
+        "techniques"
+      ]
+    },
+    "limit": 6
+  },
+  {
+    "id": "ladder",
+    "type": "MartialArtsRank",
+    "orderBy": "step",
+    "limit": 40
+  }
+]

@@ -17,14 +17,17 @@ public sealed class Neo4jKnowledgePackStore : IKnowledgePackStore
     private readonly INeo4jTransactionRunner _runner;
     private readonly TimeProvider _clock;
     private readonly PackMeaning? _meaning;
+    private readonly bool _maintainLocalCopies;
 
     /// <summary>Binds the store to the host's Neo4j database; with <paramref name="meaning"/>, imported records are embedded too.</summary>
-    public Neo4jKnowledgePackStore(INeo4jTransactionRunner runner, TimeProvider? clock = null, PackMeaning? meaning = null)
+    /// <remarks>With maintainLocalCopies false (default), no local-copy queries or locks are issued.</remarks>
+    public Neo4jKnowledgePackStore(INeo4jTransactionRunner runner, TimeProvider? clock = null, PackMeaning? meaning = null, bool maintainLocalCopies = false)
     {
         ArgumentNullException.ThrowIfNull(runner);
         _runner = runner;
         _clock = clock ?? TimeProvider.System;
         _meaning = meaning;
+        _maintainLocalCopies = maintainLocalCopies;
     }
 
     /// <inheritdoc/>
@@ -64,7 +67,8 @@ public sealed class Neo4jKnowledgePackStore : IKnowledgePackStore
         var resolution = KnowledgePack.ResolutionOf(pack);
         var migration = await new ModuleMigrator(_runner, resolution, _clock).ApplyAsync("knowledge-pack:" + pack.Id, cancellationToken).ConfigureAwait(false);
         if (migration.Problems.Count != 0) throw new KnowledgePackException(migration.Problems);
-        var erased = await new Neo4jModuleStore(_runner, resolution).ErasePackAsync(pack.Id, erasures, atUtc.ToUniversalTime(), cancellationToken).ConfigureAwait(false);
+        var erasureRunner = _maintainLocalCopies ? new PackLocalErasureRunner(_runner, pack, erasures) : _runner;
+        var erased = await new Neo4jModuleStore(erasureRunner, resolution).ErasePackAsync(pack.Id, erasures, atUtc.ToUniversalTime(), cancellationToken).ConfigureAwait(false);
         // An erased record's vector is made from its text: it goes too (feature 19, R-CORE-133).
         await PackMeaning.ForgetOrphansAsync(_runner, cancellationToken).ConfigureAwait(false);
         return erased;

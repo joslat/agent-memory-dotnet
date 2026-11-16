@@ -1,5 +1,37 @@
 # Architecture Overview — Agent Memory for .NET
 
+## Experimental pack inspection and local knowledge
+
+Loaded packs expose `PackDerivationInfo` projected from the verifier's strict parser. Making-of
+provenance is independent of composition and never inherits parent trust. `PackMemory.WithLocalChanges`
+builds an effective graph before lookup, search, filters and traversal, preserving the signed base.
+`PackArchiveUpdates.MergeAttestations` is an explicit pure operation: both archives verify whole,
+signed content must be identical, and earlier carried evidence is retained. Hosts own atomic archive
+replacement and recovery. Fresh withdrawals remain authoritative for writes and history as well as reads.
+
+The optional [pack-local-state extension](extensions/pack-local-state.md) stores owner/brain-scoped
+policies and amendment history. Writers and protection changes serialize on the same mount lock,
+then check policy revision, actor, ownership and digest. User/system assertions have their own
+provenance; restore retains history. Historical effective reads resolve the exact retained verified
+base and then apply past assertions before filters, search or traversal. Missing bases are unavailable.
+Current trust, signed revocations, usage admission and erasure tombstones remain authoritative at every clock.
+Optional canonical withdrawal and local writes serialize on a pack gate; withdrawal removes personal payload copies.
+Upgrade preflight retains the old effective revision on conflict and never downgrades another brain's shared baseline.
+
+`ContextCompiler.ApplicabilityPolicy` is null by default: no policy resolution, descriptors or judge
+requests. An explicit policy runs after isolation resolution and before eligible contributors;
+invalid identities and failures preserve exhaustive reads. `SystemOneApplicabilityJudge` uses a
+separate prompt and configured endpoints; post-retrieval judging is unchanged. Gate and Extensibility
+continue to reference Abstractions independently. A finite synthetic target evaluation is recorded
+by DemoBrain; normal pruning requires its matching current receipt and qualified stack size. It is
+not a universal coverage or production-workload latency guarantee.
+
+An observation-only policy starts independently of exhaustive contribution and cannot apply exclusions.
+The host's descriptor bridge uses published metadata and a bounded, content-free local status batch;
+packs with unsummarized personal assertions remain eligible. Scope/revision changes during judging
+fall back broadly. Applicability has its own endpoint deadlines and response bound; ordinary record
+judging retains its original protocol and transport branch.
+
 **Last Updated:** 2026-11-11 (calendar identity integrity; broader identity work remains in progress)
 **Author:** Jose Luis Latorre Millas
 **Canonical Specification:** [specification.md](specification.md)

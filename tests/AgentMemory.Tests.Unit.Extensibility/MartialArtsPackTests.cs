@@ -5,7 +5,7 @@ using Xunit;
 
 namespace AgentMemory.Tests.Unit.Extensibility;
 
-/// <summary>The shipped "I know martial arts" pack (packs/AgentMemory.Packs.MartialArts) opens and holds what it promises.</summary>
+/// <summary>The frozen legacy Martial Arts fixture keeps the old bundle API compatible; native authoring lives in the private catalogue.</summary>
 public sealed class MartialArtsPackTests
 {
     internal static KnowledgePack Open()

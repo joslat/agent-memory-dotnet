@@ -1,5 +1,15 @@
 # Agent Memory for .NET - Neo4j Schema Reference
 
+## Optional protected local pack knowledge
+
+The [`pack-local-state`](extensions/pack-local-state.md) extension owns `PackLocalMount`,
+`PackLocalChange`, `PackLocalRevision` and `PackLocalGate`, separately from shared publisher labels. Mounts hold scoped protection,
+automatic-learning permission, digest and revision. Changes retain typed assertion payloads and
+actor; prior versions keep `invalidated_at`, `valid_until` and the existing `SUPERSEDED_BY` relation.
+Policy revisions retain the exact temporal base pin. The pack gate coordinates trusted withdrawal with local writers.
+The extension owns its constraints, indexes and additional properties. Its schema is absent by default;
+see the handover page for exact shape, Cypher and parity. Detach retains shared records and history.
+
 **Status:** Current, code-aligned schema reference
 **Last updated:** 2026-09-28
 **Implementation sources:** `SchemaConstants.cs`, `SchemaQueries.cs`, repository query classes, migrations

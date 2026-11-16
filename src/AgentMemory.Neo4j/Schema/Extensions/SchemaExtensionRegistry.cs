@@ -70,6 +70,7 @@ internal sealed class SchemaExtensionRegistry
     [
         new ProceduralSchemaExtension(), new WorkingMemorySchemaExtension(),
         new DeltaRecallSchemaExtension(), new ArithmeticSchemaExtension(), new ModuleBookkeepingSchemaExtension(), new IdentityEvidenceSchemaExtension(),
+        new PackLocalStateSchemaExtension(),
     ];
 
     /// <summary>A registry over <see cref="CreateShipped"/>, for callers with no container.</summary>

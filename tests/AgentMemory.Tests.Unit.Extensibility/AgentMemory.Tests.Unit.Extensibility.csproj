@@ -60,9 +60,8 @@
     <None Include="../../eng/trial-statistics/golden.json" Link="TrialStatistics/golden.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../eng/trial-statistics/golden-cost.json" Link="TrialStatistics/golden-cost.json" CopyToOutputDirectory="PreserveNewest" />
     <!-- The shipped martial-arts pack's unsigned content, signed in memory by its test. -->
-    <None Include="../../packs/AgentMemory.Packs.MartialArts/agentmemory/manifest.json" Link="Packs/MartialArts/manifest.json" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="../../packs/AgentMemory.Packs.MartialArts/agentmemory/icon.png" Link="Packs/MartialArts/icon.png" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="../../packs/AgentMemory.Packs.MartialArts/agentmemory/seed/*.jsonl" Link="Packs/MartialArts/seed/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../Fixtures/MartialArts.Legacy/**/*" Exclude="../Fixtures/MartialArts.Legacy/agentmemory.module.*" Link="Packs/MartialArts/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../Fixtures/MartialArts.V12/**/*" Link="Packs/MartialArtsV12/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <!-- The code map's manifest as a file, for the definition-pack round trip (pack format v1.2). -->
     <None Include="../../src/AgentMemory.Packs.CodeMap/manifest.json" Link="Packs/CodeMap/manifest.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../src/AgentMemory.Packs.Decisions/manifest.json" Link="Packs/Decisions/manifest.json" CopyToOutputDirectory="PreserveNewest" />

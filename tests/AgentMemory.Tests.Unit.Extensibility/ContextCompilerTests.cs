@@ -32,6 +32,61 @@ public sealed class ContextCompilerTests
     private static ContextCompiler Compiler(params IContextContributor[] contributors) =>
         new(contributors, PassThroughPolicy(), TimeProvider.System, NullLogger<ContextCompiler>.Instance);
 
+    [Fact]
+    public async Task Observe_scoring_does_not_block_exhaustive_contribution_and_cannot_apply_exclusions()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var contributed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var contributor = new SignalContributor(contributed);
+        var compiler = Compiler(contributor); var policy = Substitute.For<IContextApplicabilityPolicy>(); policy.ObserveOnly.Returns(true);
+        async Task<ContextApplicabilityResult> Observe()
+        {
+            entered.TrySetResult(); await release.Task;
+            return new() { Outcome = "observed", ExcludedContributorIds = new HashSet<string> { "pack" } };
+        }
+        policy.SelectAsync(Arg.Any<ContextRequest>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>()).Returns(_ => Observe());
+        compiler.ApplicabilityPolicy = policy;
+        var compiling = compiler.CompileAsync(Request() with { Owner = "alice" });
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        try { await contributed.Task.WaitAsync(TimeSpan.FromSeconds(1)); }
+        finally { release.TrySetResult(); }
+        var result = await compiling;
+        result.Sections.Should().ContainSingle(); result.Applicability!.ExcludedContributorIds.Should().BeEmpty();
+    }
+
+    private sealed class SignalContributor(TaskCompletionSource completed) : IContextContributor
+    {
+        public ContextContributorDescriptor Descriptor { get; } = new("pack", new HashSet<string> { "pack.section" });
+        public ValueTask<bool> AppliesAsync(ContextRequest request, CancellationToken cancellationToken) => ValueTask.FromResult(true);
+        public Task<ContextSection?> ContributeAsync(ContextRequest request, CancellationToken cancellationToken)
+        { completed.TrySetResult(); return Task.FromResult<ContextSection?>(new("pack.section", "pack", 1, [new(null, "Candidate text")])); }
+    }
+
+    [Fact]
+    public async Task Default_applicability_adds_no_calls_and_preserves_legacy_envelope_bytes()
+    {
+        var one = new CapturingContributor("one"); var two = new CapturingContributor("two");
+        var result = await Compiler(one, two).CompileAsync(Request() with { Owner = "alice" });
+        result.Applicability.Should().BeNull();
+        one.SeenOwners.Should().Equal("alice", "alice"); two.SeenOwners.Should().Equal("alice", "alice");
+        var legacy = new { result.Request, result.Snapshot, result.Sections, result.Omissions, result.CompiledAt };
+        System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(result).Should().Equal(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(legacy));
+    }
+
+    [Fact]
+    public async Task Explicit_applicability_skips_only_selected_contributors_after_owner_resolution()
+    {
+        var compiler = Compiler(new StubContributor("keep", true), new StubContributor("skip", true));
+        var routing = Substitute.For<IContextApplicabilityPolicy>();
+        routing.SelectAsync(Arg.Any<ContextRequest>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+            .Returns(new ContextApplicabilityResult { Outcome = "applied", ExcludedContributorIds = new HashSet<string> { "skip" } });
+        compiler.ApplicabilityPolicy = routing;
+        var result = await compiler.CompileAsync(Request() with { Owner = "alice" });
+        result.Sections.Select(s => s.ContributorId).Should().Equal("keep");
+        await routing.Received(1).SelectAsync(Arg.Is<ContextRequest>(r => r.Owner == "alice"), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>());
+    }
+
     /// <summary>A contributor that applies and produces lands as a section.</summary>
     [Fact]
     public async Task AnApplicableContributorBecomesASection()

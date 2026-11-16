@@ -7,6 +7,7 @@ using AgentMemory.Extensibility.Neo4j.Storage;
 using AgentMemory.Extensibility.Reading;
 using AgentMemory.Neo4j.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace AgentMemory.Extensibility.Neo4j;
 
@@ -54,7 +55,8 @@ public static class Neo4jKnowledgePackServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         services.AddSingleton(sp => new Storage.PackMeaningDefault(searchByMeaning ? Storage.PackMeaning.ByDefault(sp) : null));
         services.AddSingleton<Packs.IKnowledgePackStore>(sp =>
-            new Neo4jKnowledgePackStore(sp.GetRequiredService<INeo4jTransactionRunner>(), sp.GetService<TimeProvider>(), Storage.PackMeaning.Of(sp)));
+            new Neo4jKnowledgePackStore(sp.GetRequiredService<INeo4jTransactionRunner>(), sp.GetService<TimeProvider>(), Storage.PackMeaning.Of(sp),
+                sp.GetService<IOptions<Neo4jOptions>>()?.Value.Extensions.Contains("pack-local-state") == true));
         services.AddSingleton(sp => new Packs.KnowledgePackImporter(sp.GetRequiredService<Packs.IKnowledgePackStore>(), sp.GetService<TimeProvider>()));
         // CMP-2a: host-generated snapshots, such as the code map of a repository at a commit.
         services.AddSingleton<Packs.IModuleSnapshotStore>(sp =>

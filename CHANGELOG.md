@@ -6,6 +6,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Separate frozen NuGet knowledge-package compatibility fixtures from native v1.2 pack authoring;
+  add a direct native Martial Arts build, load and query regression that needs no private checkout.
+
+- Preserve newly carried signed attestations when refreshing identical pack content through the explicit
+  `PackArchiveUpdates.MergeAttestations` helper; existing notices remain present and content changes are refused.
+
+### Added
+
+- Experimental verified pack derivation views and effective local graph projection.
+- Optional `pack-local-state` schema/store for scoped protection, personal assertions, independent
+  automatic-learning permission and history-preserving restore.
+- Explicit context applicability policy and separate System One applicability judge. Recall remains
+  exhaustive by default; pruning has no production coverage or latency claim.
+
 ## [2.3.1] - 2026-11-15
 
 A fix release. Pablo Piovano's scenario, run again with two people called Alex Kim, found a connection that lost what

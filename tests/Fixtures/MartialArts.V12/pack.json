@@ -1,0 +1,16 @@
+{
+  "format": "agentmemory.pack/1.2",
+  "id": "io.agentmemory.packs.martialarts",
+  "version": "1.0.0",
+  "kind": "knowledge",
+  "sdk": "[0.1,0.2)",
+  "display": {
+    "title": "Martial arts",
+    "description": "Grades, techniques and kata of Shotokan karate, ITF Taekwon-Do and Judo, each from a named syllabus. Your dojo’s syllabus wins.",
+    "icon": "assets/icon.png",
+    "color": "#BE123C"
+  },
+  "tier": "open",
+  "protection": "open",
+  "code": "E0"
+}

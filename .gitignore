@@ -436,9 +436,9 @@ FodyWeavers.xsd
 # DemoBrain: Avalonia brain visualization prototype - local-only for now (not part of the published repo)
 /demobrain/
 
-# Knowledge pack signatures are written at pack time (eng/pack-knowledge-packs.py), never committed.
-packs/**/agentmemory/agentmemory.module.files.json
-packs/**/agentmemory/agentmemory.module.sig
+# Legacy fixture signatures are written only by the compatibility acceptance harness, never committed.
+tests/Fixtures/MartialArts.Legacy/agentmemory.module.files.json
+tests/Fixtures/MartialArts.Legacy/agentmemory.module.sig
 
 # The conformance kit works in .work while it runs: throwaway private keys live there (review 1, L14).
 conformance/pack-v1.1/.work/
