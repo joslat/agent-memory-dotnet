@@ -23,7 +23,7 @@ The proposed patent non-assertion pledge is [PATENTS.md](PATENTS.md): the canoni
 
 ## Why two code licences
 
-The Apache-2.0 projects implement the ampack format and its host procedure, on which the author filed a Swiss patent application on 3 November 2026 (pending; whether and how its claims are granted is not decided). Apache-2.0 section 3 gives every user of that code an express patent licence; MIT has no express patent-grant clause. The core library stays MIT as it has been since its first release, so nothing changes for existing users of the core. The same code is never offered under both licences: that would let a user pick MIT and lose the patent terms.
+The Apache-2.0 projects implement the ampack format and its host procedure, on which the author filed Swiss patent application CH001531/2026 on 3 November 2026 (pending; whether and how its claims are granted is not decided). Apache-2.0 section 3 gives every user of that code an express patent licence; MIT has no express patent-grant clause. The core library stays MIT as it has been since its first release, so nothing changes for existing users of the core. The same code is never offered under both licences: that would let a user pick MIT and lose the patent terms.
 
 ## Packages that bundle
 
