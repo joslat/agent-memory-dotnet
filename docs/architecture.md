@@ -2,6 +2,13 @@
 
 ## Experimental pack inspection and local knowledge
 
+Verified native packs expose their exact `assets/` bytes through `LoadedPack.Assets`. This is data
+access after normal signature, policy and format admission; it does not activate code or insert
+instructions. An application recognising a signed profile must select it explicitly, bound its
+asset sizes, validate its convention and role map, and bind only its own registered capabilities.
+DemoBrain's optional Swiss Tutor binding is an application example, not a normative ampack execution
+profile or an E2 WebAssembly runtime.
+
 Loaded packs expose `PackDerivationInfo` projected from the verifier's strict parser. Making-of
 provenance is independent of composition and never inherits parent trust. `PackMemory.WithLocalChanges`
 builds an effective graph before lookup, search, filters and traversal, preserving the signed base.

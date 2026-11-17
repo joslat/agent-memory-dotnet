@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Authenticated `LoadedPack.Assets` for explicit application-owned bindings to signed instruction,
+  configuration and media bytes. Reading an asset grants no tool, code-execution or instruction authority.
 - Experimental verified pack derivation views and effective local graph projection.
 - Optional `pack-local-state` schema/store for scoped protection, personal assertions, independent
   automatic-learning permission and history-preserving restore.

@@ -181,6 +181,12 @@ public sealed record LoadedPack
     public bool HasDerivation { get; internal init; }
     /// <summary>Verified making-of provenance, or null when none is declared. Does not perform additional IO or parsing.</summary>
     public PackDerivationInfo? Derivation { get; internal init; }
+    /// <summary>
+    /// Exact authenticated files under <c>assets/</c>, for explicit host-owned application bindings.
+    /// Reading assets grants no execution or instruction authority. Empty for packs without assets.
+    /// </summary>
+    public IReadOnlyDictionary<string, ReadOnlyMemory<byte>> Assets { get; internal init; } =
+        new Dictionary<string, ReadOnlyMemory<byte>>().AsReadOnly();
     /// <summary>For a snapshot pack, its verified record files, read by <see cref="PackLoader.ToSnapshot"/>.</summary>
     internal IReadOnlyDictionary<string, ReadOnlyMemory<byte>> RecordFiles { get; init; } = new Dictionary<string, ReadOnlyMemory<byte>>();
 }
@@ -340,6 +346,8 @@ public static class PackLoader
             Erasures = PackErasures.Read(pack, ledger is null ? trust.Policy : ledger.Ledger.Apply(trust.Policy), DateTimeOffset.UtcNow),
             HasDerivation = pack.Files.ContainsKey(PackDerivation.FileName),
             Derivation = derivation is null ? null : PackDerivationInfo.Of(derivation),
+            Assets = pack.Files.Where(f => f.Key.StartsWith("assets/", StringComparison.Ordinal))
+                .ToDictionary(f => f.Key, f => new ReadOnlyMemory<byte>(f.Value.ToArray()), StringComparer.Ordinal).AsReadOnly(),
             UsagePolicy = policy, PolicyDigest = policyDigest,
             HostWebIds = trust.Policy.HostWebIds,
             // An absent file is null, not empty: a plain null would convert, through byte[], to an empty and present ReadOnlyMemory.

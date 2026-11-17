@@ -1,5 +1,11 @@
 # The Memory Map
 
+**Authenticated pack assets — BUILT / MEASURED in loader tests; WIRED in DemoBrain.**
+`LoadedPack.Assets` exposes verified bytes for explicit host application bindings. DemoBrain's
+opt-in Swiss Tutor attaches its selected principles every turn and binds host-owned clock/content/
+learning tools. Its introductory family has real-model, real-Neo4j and fresh-session acceptance;
+this does not implement embedded E2 execution or establish teaching quality or full exam readiness.
+
 **Pack Explorer support — BUILT in source, WIRED in DemoBrain.** Verified derivation, composition
 inspection, scoped mount defaults and bounded recall explanations support the desktop Explorer.
 Editable copies use [pack-local-state](extensions/pack-local-state.md), transactional protection,
