@@ -5,7 +5,7 @@ Feature 18. A Rust implementation of ampack Core verify, read and inspect, shari
 `spec/registry.json`, embedded at build time with `include_str!` from its one real path, so a shape added on the main line
 reaches it on the next build with no copy to keep in step.
 
-Local only, like the rest of the pack work: nothing here is published.
+Part of this repository since release 2.0.0. It is not published as a crate or as an npm package.
 
 ## Crates
 

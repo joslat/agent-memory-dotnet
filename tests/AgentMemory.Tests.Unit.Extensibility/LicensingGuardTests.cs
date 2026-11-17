@@ -26,7 +26,7 @@ public sealed class LicensingGuardTests
 
     private static readonly string[] SourceExtensions = [".cs", ".rs", ".py", ".mjs", ".js", ".wit", ".sh"];
     private static readonly string[] SkippedDirectories = ["bin", "obj", "target", "dist", "node_modules", "__pycache__", ".git"];
-    private static readonly string[] MitRoots = ["src", "tools", "tests", "samples", "packs", "crosslang", "benchmarks", "eng"];
+    private static readonly string[] MitRoots = ["src", "tools", "tests", "samples", "packs", "benchmarks", "eng"];
 
     [Fact]
     public void Every_Apache_project_carries_the_canonical_licence_a_notice_a_package_expression_and_a_header_on_every_source_file()

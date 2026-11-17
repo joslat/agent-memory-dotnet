@@ -2,7 +2,7 @@
 
 Licence: Apache-2.0 (see `LICENSE` and `NOTICE` in this folder); the patent pledge for implementations of the specification is `PATENTS.md` at the repository root.
 
-Two verifiers that share no code must reach the same verdict on every vector here (307 today; exit code 1 is a refusal, any other failure is a defect and agrees with nothing):
+Two verifiers that share no code must reach the same verdict on every vector here (514 today; exit code 1 is a refusal, any other failure is a defect and agrees with nothing):
 
 - `ampack verify` (.NET, `tools/Ampack`, library `src/AgentMemory.Packs.Format`)
 - `python/ampack_verify.py` (Python 3.12, whose Unicode 15.0 data matches the .NET tables, and `cryptography`); with `--receipt <file> --location <url>` it also verifies a publication receipt, and with `--certificate <META/attestations/… or file>` an evaluation certificate (`ampack certificate verify` on the .NET side)
