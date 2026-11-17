@@ -1,5 +1,15 @@
 # Getting Started — Agent Memory for .NET
 
+## Optional Mind contract inspection
+
+After normal signature/lock/policy verification with `PackFamilies.LoadComposite`, an experimental host
+may explicitly call `AgentMemory.Extensibility.Ampack.MindReader.Read(family)`. The result contains the
+validated job, deterministic core/hash, signed stage variants and requested tool/knowledge interfaces.
+Reading is inspection, not activation. The application must separately select a mode, validate its own
+handlers/grants and real knowledge, and attach instructions outside relevance ranking. There is no new
+DI option or schema to activate, and existing applications incur no store/model calls or prompt changes.
+Unsupported conventions remain inspectable as verified data but cannot bind behaviour.
+
 ## Optional local working copies of knowledge packs
 
 An experimental host can explicitly activate the owned schema:

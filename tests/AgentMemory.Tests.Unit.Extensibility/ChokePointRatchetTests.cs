@@ -98,6 +98,8 @@ public sealed class ChokePointRatchetTests
         ("src/AgentMemory.Extensibility.Ampack/PackScan.cs", "json parse", 1, "bounded by PackContentBounds when the pack is not verified (review 7, D2)"),
         ("src/AgentMemory.Extensibility.Ampack/PackStore.cs", "json parse", 1, "the store's own index, read bounded"),
         ("src/AgentMemory.Extensibility.Ampack/PackTests.cs", "json parse", 1, Verified),
+        ("src/AgentMemory.Extensibility.Ampack/MindReader.cs", "json parse", 2, "closed embedded Mind schemas, and explicitly bounded authenticated contract/role/scenario data with duplicate/depth checks"),
+        ("src/AgentMemory.Extensibility.Ampack/MindReader.cs", "file read", 1, "a StreamReader over this assembly's embedded closed schemas, never a path or pack-provided schema reference"),
         ("src/AgentMemory.Extensibility/Bundles/BundleVerifier.cs", "json parse", 2, "the legacy bundle's signature and list, read bounded"),
         ("src/AgentMemory.Extensibility/Modules/CanonicalJson.cs", "json parse", 1, "canonicalizes JSON this library serialized itself"),
         ("src/AgentMemory.Extensibility/Modules/ModuleJson.cs", "json parse", 1, "the module manifest parser, depth-bounded"),

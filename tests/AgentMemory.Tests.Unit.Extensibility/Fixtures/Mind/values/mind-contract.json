@@ -1,0 +1,21 @@
+{
+  "convention": "agentmemory.mind/2.0",
+  "member": "values",
+  "typeRoles": {
+    "value": "IcValue",
+    "principle": "IcPrinciple",
+    "conflictRule": "IcConflictRule",
+    "pressureResponse": "IcPressureResponse",
+    "keptOrBroken": "IcKeptOrBroken"
+  },
+  "tests": "assets/mind-evals.json",
+  "core": {
+    "format": "agentmemory.mind.core/1",
+    "language": "en",
+    "maximumBytes": 16000
+  },
+  "evaluation": {
+    "format": "agentmemory.mind.evaluation/1",
+    "certification": "not-certified"
+  }
+}

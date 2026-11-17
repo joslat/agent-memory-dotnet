@@ -1,0 +1,531 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agentmemory:mind:contract:2.0",
+  "title": "Mind application convention 2.0 contract",
+  "type": "object",
+  "properties": {
+    "convention": {
+      "const": "agentmemory.mind/2.0"
+    },
+    "member": {
+      "enum": [
+        "mind",
+        "values",
+        "relationship"
+      ]
+    },
+    "profile": {
+      "type": "string",
+      "minLength": 1
+    },
+    "profileRecord": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "type",
+        "key"
+      ],
+      "additionalProperties": false
+    },
+    "typeRoles": {
+      "type": "object",
+      "properties": {
+        "conflictRule": {
+          "type": "string",
+          "minLength": 1
+        },
+        "keptOrBroken": {
+          "type": "string",
+          "minLength": 1
+        },
+        "knowledgeNeed": {
+          "type": "string",
+          "minLength": 1
+        },
+        "policy": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pressureResponse": {
+          "type": "string",
+          "minLength": 1
+        },
+        "principle": {
+          "type": "string",
+          "minLength": 1
+        },
+        "profile": {
+          "type": "string",
+          "minLength": 1
+        },
+        "protocol": {
+          "type": "string",
+          "minLength": 1
+        },
+        "recordUse": {
+          "type": "string",
+          "minLength": 1
+        },
+        "selfDescription": {
+          "type": "string",
+          "minLength": 1
+        },
+        "stance": {
+          "type": "string",
+          "minLength": 1
+        },
+        "toolContract": {
+          "type": "string",
+          "minLength": 1
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "members": {
+      "type": "object",
+      "properties": {
+        "values": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "range": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "id",
+                "range"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "relationship": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "range": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "id",
+                "range"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "required": [
+        "values",
+        "relationship"
+      ],
+      "additionalProperties": false
+    },
+    "core": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "const": "agentmemory.mind.core/1"
+        },
+        "language": {
+          "const": "en"
+        },
+        "maximumBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16000
+        }
+      },
+      "required": [
+        "format",
+        "language",
+        "maximumBytes"
+      ],
+      "additionalProperties": false
+    },
+    "capabilities": {
+      "type": "object",
+      "properties": {
+        "needs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "mayUse": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "needs",
+        "mayUse"
+      ],
+      "additionalProperties": false
+    },
+    "knowledgeNeeds": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/knowledgeNeed"
+      },
+      "uniqueItems": true
+    },
+    "records": {
+      "type": "object",
+      "properties": {
+        "identityContinuity": {
+          "enum": [
+            "optional",
+            "needed",
+            "none"
+          ]
+        },
+        "experientialContinuity": {
+          "enum": [
+            "optional",
+            "needed",
+            "none"
+          ]
+        },
+        "profileRecord": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "identityContinuity",
+        "experientialContinuity",
+        "profileRecord"
+      ],
+      "additionalProperties": false
+    },
+    "recordPolicy": {
+      "const": {
+        "enabledByDefault": false,
+        "publisherReporting": "explicit-opt-in",
+        "scope": [
+          "application",
+          "brain",
+          "owner",
+          "mind"
+        ],
+        "adjustments": "explicit-user-acceptance",
+        "versionChange": "review-before-reuse"
+      }
+    },
+    "tests": {
+      "const": "assets/mind-evals.json"
+    },
+    "evaluation": {
+      "const": {
+        "format": "agentmemory.mind.evaluation/1",
+        "certification": "not-certified"
+      }
+    }
+  },
+  "required": [
+    "convention",
+    "member",
+    "typeRoles",
+    "core",
+    "tests",
+    "evaluation"
+  ],
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "member": {
+            "const": "mind"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "convention",
+          "member",
+          "profile",
+          "profileRecord",
+          "typeRoles",
+          "members",
+          "core",
+          "capabilities",
+          "knowledgeNeeds",
+          "records",
+          "recordPolicy",
+          "tests",
+          "evaluation"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "member": {
+            "enum": [
+              "values",
+              "relationship"
+            ]
+          }
+        }
+      },
+      "then": {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "profile"
+              ]
+            },
+            {
+              "required": [
+                "profileRecord"
+              ]
+            },
+            {
+              "required": [
+                "members"
+              ]
+            },
+            {
+              "required": [
+                "capabilities"
+              ]
+            },
+            {
+              "required": [
+                "knowledgeNeeds"
+              ]
+            },
+            {
+              "required": [
+                "records"
+              ]
+            },
+            {
+              "required": [
+                "recordPolicy"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "toolProperty": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": [
+            "string",
+            "integer",
+            "number",
+            "boolean",
+            "object",
+            "array",
+            "null"
+          ]
+        },
+        "description": {
+          "type": "string"
+        },
+        "enum": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 128,
+          "items": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "format": {
+          "enum": [
+            "date-time",
+            "date",
+            "uri"
+          ]
+        },
+        "minimum": {
+          "type": "number"
+        },
+        "maximum": {
+          "type": "number"
+        },
+        "minLength": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maxLength": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "minItems": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maxItems": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "properties": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/toolProperty"
+          }
+        },
+        "required": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "additionalProperties": {
+          "type": "boolean"
+        },
+        "items": {
+          "$ref": "#/$defs/toolProperty"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "array"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "items"
+            ]
+          }
+        }
+      ]
+    },
+    "toolSchema": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "object"
+        },
+        "properties": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/toolProperty"
+          }
+        },
+        "required": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "additionalProperties": {
+          "const": false
+        }
+      },
+      "required": [
+        "type",
+        "properties",
+        "required",
+        "additionalProperties"
+      ],
+      "additionalProperties": false
+    },
+    "knowledgeNeed": {
+      "type": "object",
+      "properties": {
+        "contract": {
+          "type": "string",
+          "minLength": 1
+        },
+        "language": {
+          "type": "string",
+          "minLength": 1
+        },
+        "jurisdiction": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "questionFormat": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "minimumRecords": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "required": [
+        "contract",
+        "language",
+        "jurisdiction",
+        "questionFormat",
+        "minimumRecords"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

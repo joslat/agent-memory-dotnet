@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Opt-in `MindReader` for verified native E0 Mind composites: closed versioned contracts, owned semantic roles,
+  exact member selection, deterministic bounded core/stage text and signed tool/knowledge requirements.
+  Reading does not activate behaviour, register tools, write personal data or certify model behaviour.
 - Authenticated `LoadedPack.Assets` for explicit application-owned bindings to signed instruction,
   configuration and media bytes. Reading an asset grants no tool, code-execution or instruction authority.
 - Experimental verified pack derivation views and effective local graph projection.

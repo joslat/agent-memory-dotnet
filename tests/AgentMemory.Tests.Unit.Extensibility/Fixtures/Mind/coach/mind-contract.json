@@ -1,0 +1,70 @@
+{
+  "convention": "agentmemory.mind/2.0",
+  "member": "mind",
+  "profile": "coach/1.0",
+  "profileRecord": {
+    "type": "CchMindProfile",
+    "key": "coach"
+  },
+  "typeRoles": {
+    "profile": "CchMindProfile",
+    "principle": "CchMindPrinciple",
+    "stance": "CchMindStance",
+    "selfDescription": "CchMindSelf",
+    "protocol": "CchMindProtocol",
+    "policy": "CchMindPolicy",
+    "toolContract": "CchMindTool",
+    "recordUse": "CchMindRecordUse"
+  },
+  "members": {
+    "values": {
+      "id": "io.example.minds.values",
+      "range": "[1.0,2.0)"
+    },
+    "relationship": {
+      "id": "io.example.minds.relationship",
+      "range": "[1.0,2.0)"
+    }
+  },
+  "capabilities": {
+    "needs": [
+      "session/1",
+      "coach/1"
+    ],
+    "mayUse": [
+      "time/1",
+      "calendar/1",
+      "tasks/1",
+      "owner-data/1",
+      "consent/1"
+    ]
+  },
+  "knowledgeNeeds": [],
+  "records": {
+    "identityContinuity": "optional",
+    "experientialContinuity": "needed",
+    "profileRecord": "coach-record/1.0"
+  },
+  "tests": "assets/mind-evals.json",
+  "core": {
+    "format": "agentmemory.mind.core/1",
+    "language": "en",
+    "maximumBytes": 16000
+  },
+  "evaluation": {
+    "format": "agentmemory.mind.evaluation/1",
+    "certification": "not-certified"
+  },
+  "recordPolicy": {
+    "enabledByDefault": false,
+    "publisherReporting": "explicit-opt-in",
+    "scope": [
+      "application",
+      "brain",
+      "owner",
+      "mind"
+    ],
+    "adjustments": "explicit-user-acceptance",
+    "versionChange": "review-before-reuse"
+  }
+}

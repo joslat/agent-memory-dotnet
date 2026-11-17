@@ -55,6 +55,7 @@
     <Copy SourceFiles="$(MSBuildThisFileDirectory)..\Fixtures\ModuleDiscoveryFixture\bin\$(Configuration)\net10.0\ModuleDiscoveryFixture.dll" DestinationFolder="$(OutDir)ModuleFixtures" />
   </Target>
   <ItemGroup>
+    <None Update="Fixtures/Mind/**/*" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../src/AgentMemory.Extensibility/Schemas/*.json" Link="ModuleSchemas/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Fixtures/Mesh/*.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../eng/trial-statistics/golden.json" Link="TrialStatistics/golden.json" CopyToOutputDirectory="PreserveNewest" />

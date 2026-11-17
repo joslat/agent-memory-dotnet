@@ -1,5 +1,14 @@
 # The Memory Map
 
+**Mind convention reader — BUILT / focused native-pack tests; WIRED in DemoBrain; automated qualification passed, human review pending.**
+The explicit experimental `MindReader` reads verified E0 composites, validates owned semantic roles,
+strict contracts and member versions, and generates deterministic bounded every-turn core/stage text.
+It registers no tools, changes no existing prompt, and writes no personal state. Structural validity
+does not establish model behaviour or behavioural certification. DemoBrain binds explicit Character-only
+profiles and a stateless read-only adviser with actual source/rule validation and a host-owned citation
+tool. Existing Swiss v0.1 remains separate. Relationship/evaluator persistence and behavioural
+certification are subsequent product gates, not claimed by this reader or its deterministic tests.
+
 **Authenticated pack assets — BUILT / MEASURED in loader tests; WIRED in DemoBrain.**
 `LoadedPack.Assets` exposes verified bytes for explicit host application bindings. DemoBrain's
 opt-in Swiss Tutor attaches its selected principles every turn and binds host-owned clock/content/
