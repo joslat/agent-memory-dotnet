@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json.Nodes;
+using System.IO.Compression;
 using AgentMemory.Extensibility.Ampack;
 using AgentMemory.Packs.Format;
 using FluentAssertions;
@@ -24,7 +25,7 @@ public sealed class PackAdviceTests
     // What the sample pack was made from (feature 09), so each test reads only its own advice.
     private const string Derivation = """{"actions":["extract"],"format":"agentmemory.pack.derivation/1","inputs":[{"digest":"sha256:abababababababababababababababababababababababababababababababab","name":"syllabus"}],"tool":{"name":"dojo-notes","version":"1.0.0"}}""";
 
-    private static LoadedPack Load(Action<JsonObject>? change = null, string? trial = null, string? card = Card, bool derived = true)
+    private static LoadedPack Load(Action<JsonObject>? change = null, string? trial = null, string? card = Card, bool derived = true, string? derivationJson = null)
     {
         var source = new Dictionary<string, byte[]>(PackAuthoring.FromModuleBundle(Directory.EnumerateFiles(MartialArts, "*", SearchOption.AllDirectories).ToDictionary(
             f => Path.GetRelativePath(MartialArts, f).Replace(Path.DirectorySeparatorChar, '/'), File.ReadAllBytes, StringComparer.Ordinal)), StringComparer.Ordinal);
@@ -36,12 +37,74 @@ public sealed class PackAdviceTests
             source["pack.json"] = Encoding.UTF8.GetBytes(manifest.ToJsonString());
         }
         if (trial is not null) source["evals/trial.json"] = Encoding.UTF8.GetBytes(trial);
-        if (derived) source["META/derivation.json"] = Encoding.UTF8.GetBytes(Derivation);
+        if (derived) source["META/derivation.json"] = Encoding.UTF8.GetBytes(derivationJson ?? Derivation);
         var trust = PackTrust.Parse(Encoding.UTF8.GetBytes(PackAuthoring.TrustPolicy(Key.PublicKeyPem, "io.agentmemory")));
         return PackLoader.Load(PackAuthoring.Build(source, Key.PrivateKeyPem), trust);
     }
 
     private static IEnumerable<string> Rules(LoadedPack pack, DateTimeOffset? now = null) => PackAdvice.Of(pack, now ?? DateTimeOffset.UtcNow).Select(a => a.Rule);
+
+    [Fact]
+    public void Verified_derivation_is_readable_and_absence_is_distinct()
+    {
+        var property = typeof(LoadedPack).GetProperty("Derivation");
+        property.Should().NotBeNull("hosts need verified provenance, not only a presence flag");
+        var derived = property!.GetValue(Load());
+        derived.Should().NotBeNull();
+        var json = System.Text.Json.JsonSerializer.SerializeToElement(derived);
+        json.GetProperty("ToolName").GetString().Should().Be("dojo-notes");
+        json.GetProperty("Inputs")[0].GetProperty("Name").GetString().Should().Be("syllabus");
+        property.GetValue(Load(derived: false)).Should().BeNull();
+    }
+
+    [Fact]
+    public void Verified_derivation_collections_are_immutable_and_tampered_metadata_is_never_exposed()
+    {
+        var loaded = Load(); var derivation = loaded.Derivation!;
+        FluentActions.Invoking(() => ((IList<PackDerivationSource>)derivation.Inputs).Clear()).Should().Throw<NotSupportedException>();
+        FluentActions.Invoking(() => ((IList<string>)derivation.Actions).Clear()).Should().Throw<NotSupportedException>();
+        FluentActions.Invoking(() => ((IDictionary<string, string>)derivation.Parameters).Add("forged", "value")).Should().Throw<NotSupportedException>();
+        var source = new Dictionary<string, byte[]>(PackAuthoring.FromModuleBundle(Directory.EnumerateFiles(MartialArts, "*", SearchOption.AllDirectories).ToDictionary(
+            f => Path.GetRelativePath(MartialArts, f).Replace(Path.DirectorySeparatorChar, '/'), File.ReadAllBytes, StringComparer.Ordinal)), StringComparer.Ordinal);
+        source["META/derivation.json"] = Encoding.UTF8.GetBytes(Derivation);
+        var archive = PackAuthoring.Build(source, Key.PrivateKeyPem);
+        using var changed = new MemoryStream();
+        using (var zip = new ZipArchive(new MemoryStream(archive), ZipArchiveMode.Read))
+        using (var output = new ZipArchive(changed, ZipArchiveMode.Create, leaveOpen: true))
+            foreach (var entry in zip.Entries)
+            {
+                using var target = output.CreateEntry(entry.FullName).Open();
+                if (entry.FullName == "META/derivation.json") target.Write(Encoding.UTF8.GetBytes(Derivation.Replace("dojo-notes", "forged-tool", StringComparison.Ordinal)));
+                else { using var original = entry.Open(); original.CopyTo(target); }
+            }
+        var trust = PackTrust.Parse(Encoding.UTF8.GetBytes(PackAuthoring.TrustPolicy(Key.PublicKeyPem, "io.agentmemory")));
+        var refused = PackInspection.Inspect(changed.ToArray(), trust);
+        refused.Loaded.Should().BeFalse(); refused.Pack.Should().BeNull(); refused.Problems.Should().NotBeEmpty();
+        loaded.Derivation!.ToolName.Should().Be("dojo-notes");
+    }
+
+    [Fact]
+    public void Verified_derivation_preserves_all_optional_fields_without_inheriting_parent_authority()
+    {
+        var value = JsonNode.Parse(Derivation)!.AsObject();
+        value["inputs"]![0]!["licence"] = "CC-BY-4.0";
+        value["inputs"]![0]!["confidenceMicro"] = 800000;
+        value["model"] = new JsonObject { ["id"] = "local-extractor", ["version"] = "2026.11" };
+        value["parameters"] = new JsonObject { ["language"] = "en", ["mode"] = "careful" };
+        value["parent"] = new JsonObject { ["id"] = "io.agentmemory.unavailable-parent", ["digest"] = "sha256:" + new string('c', 64) };
+        value["promptDigest"] = "sha256:" + new string('d', 64);
+        var canonical = Encoding.UTF8.GetString(Jcs.Canonical(Encoding.UTF8.GetBytes(value.ToJsonString())));
+        var loaded = Load(derivationJson: canonical);
+        var info = loaded.Derivation!;
+        info.Inputs.Single().Licence.Should().Be("CC-BY-4.0");
+        info.Inputs.Single().ConfidenceMicro.Should().Be(800000);
+        info.ToolName.Should().Be("dojo-notes"); info.ToolVersion.Should().Be("1.0.0");
+        info.ModelId.Should().Be("local-extractor"); info.ModelVersion.Should().Be("2026.11");
+        info.Parameters.Should().BeEquivalentTo(new Dictionary<string, string> { ["language"] = "en", ["mode"] = "careful" });
+        info.ParentId.Should().Be("io.agentmemory.unavailable-parent"); info.ParentDigest.Should().Be("sha256:" + new string('c', 64));
+        info.PromptDigest.Should().Be("sha256:" + new string('d', 64)); info.Actions.Should().Equal("extract");
+        loaded.Signers.Should().ContainSingle("the absent parent is lineage information, not an inherited signer or required dependency");
+    }
 
     [Fact]
     public void A_knowledge_pack_that_says_nothing_of_what_it_was_made_from_is_advised()

@@ -6,6 +6,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Separate frozen NuGet knowledge-package compatibility fixtures from native v1.2 pack authoring;
+  add a direct native Martial Arts build, load and query regression that needs no private checkout.
+
+- Preserve newly carried signed attestations when refreshing identical pack content through the explicit
+  `PackArchiveUpdates.MergeAttestations` helper; existing notices remain present and content changes are refused.
+
+### Added
+
+- Opt-in `MindReader` for verified native E0 Mind composites: closed versioned contracts, owned semantic roles,
+  exact member selection, deterministic bounded core/stage text and signed tool/knowledge requirements.
+  Reading does not activate behaviour, register tools, write personal data or certify model behaviour.
+- Authenticated `LoadedPack.Assets` for explicit application-owned bindings to signed instruction,
+  configuration and media bytes. Reading an asset grants no tool, code-execution or instruction authority.
+- Experimental verified pack derivation views and effective local graph projection.
+- Optional `pack-local-state` schema/store for scoped protection, personal assertions, independent
+  automatic-learning permission and history-preserving restore.
+- Explicit context applicability policy and separate System One applicability judge. Recall remains
+  exhaustive by default; pruning has no production coverage or latency claim.
+
 ## [2.3.1] - 2026-11-15
 
 A fix release. Pablo Piovano's scenario, run again with two people called Alex Kim, found a connection that lost what

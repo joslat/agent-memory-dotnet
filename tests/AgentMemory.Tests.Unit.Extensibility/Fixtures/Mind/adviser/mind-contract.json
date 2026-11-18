@@ -1,0 +1,74 @@
+{
+  "convention": "agentmemory.mind/2.0",
+  "member": "mind",
+  "profile": "adviser/1.0",
+  "profileRecord": {
+    "type": "AdvMindProfile",
+    "key": "adviser"
+  },
+  "typeRoles": {
+    "profile": "AdvMindProfile",
+    "principle": "AdvMindPrinciple",
+    "selfDescription": "AdvMindSelf",
+    "policy": "AdvMindPolicy",
+    "toolContract": "AdvMindTool",
+    "knowledgeNeed": "AdvMindNeed",
+    "recordUse": "AdvMindRecordUse"
+  },
+  "members": {
+    "values": {
+      "id": "io.example.minds.values",
+      "range": "[1.0,2.0)"
+    },
+    "relationship": null
+  },
+  "capabilities": {
+    "needs": [
+      "session/1",
+      "content/1"
+    ],
+    "mayUse": [
+      "owner-data/1",
+      "adviser/1"
+    ]
+  },
+  "knowledgeNeeds": [
+    {
+      "contract": "agentmemory.rules/1",
+      "language": "en",
+      "jurisdiction": null,
+      "questionFormat": null,
+      "minimumRecords": {
+        "rule": 1,
+        "source": 1
+      }
+    }
+  ],
+  "records": {
+    "identityContinuity": "optional",
+    "experientialContinuity": "none",
+    "profileRecord": "none"
+  },
+  "tests": "assets/mind-evals.json",
+  "core": {
+    "format": "agentmemory.mind.core/1",
+    "language": "en",
+    "maximumBytes": 16000
+  },
+  "evaluation": {
+    "format": "agentmemory.mind.evaluation/1",
+    "certification": "not-certified"
+  },
+  "recordPolicy": {
+    "enabledByDefault": false,
+    "publisherReporting": "explicit-opt-in",
+    "scope": [
+      "application",
+      "brain",
+      "owner",
+      "mind"
+    ],
+    "adjustments": "explicit-user-acceptance",
+    "versionChange": "review-before-reuse"
+  }
+}

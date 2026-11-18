@@ -45,6 +45,21 @@ public sealed class KnowledgePack
         return copy;
     }
 
+    /// <summary>Validates a local full assertion against this verified ontology without granting ownership or persistence authority.</summary>
+    public IReadOnlyList<string> ValidateLocalAssertion(ModuleProposal proposal)
+    {
+        ArgumentNullException.ThrowIfNull(proposal);
+        if (proposal.Source.Pack is not null || proposal.ConfidenceMicro is not null || proposal.SourceKey is not null
+            || proposal.Kind != ProposalKind.Assert || proposal.Replaces.Count != 0 || proposal.Supersedes.Count != 0)
+            return ["A local assertion cannot claim publisher provenance, confidence or authority to close other keys."];
+        if (string.IsNullOrWhiteSpace(proposal.Source.Excerpt) || proposal.Source.Excerpt.Length > 500)
+            return ["A local assertion needs a source excerpt of 1 to 500 characters."];
+        if (proposal.Life is not null) return ["Local assertions do not change the published validity lifecycle."];
+        var source = Proposals.FirstOrDefault()?.Source ?? new ProposalSource { Excerpt = "shape validation",
+            Pack = new PackSource { Id = Id, Version = Version, Digest = Digest, File = "local", Line = 1 } };
+        return ModuleProposalAdmission.AdmitSeed(Manifest, proposal with { Source = source });
+    }
+
     internal KnowledgePack WithValidUntil(DateTimeOffset? until)
     {
         var copy = (KnowledgePack)MemberwiseClone();

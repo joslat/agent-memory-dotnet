@@ -24,6 +24,25 @@ public sealed class PackInspectionTests
         _key.PrivateKeyPem);
 
     [Fact]
+    public async Task Local_changes_replace_before_search_and_do_not_mutate_the_verified_base()
+    {
+        var pack = PackLoader.Load(Archive(), Trust());
+        var memory = PackMemory.From([pack.Knowledge!]);
+        var method = typeof(PackMemory).GetMethod("WithLocalChanges");
+        method.Should().NotBeNull();
+        var original = pack.Knowledge!.Proposals.First(p => p.Type == "MartialArtsKata");
+        var properties = original.Properties.ToDictionary(p => p.Key, p => p.Value);
+        properties["name"] = System.Text.Json.JsonSerializer.SerializeToElement("Nebulaworkshop");
+        var local = original with { Properties = properties, Source = new() { Excerpt = "My local syllabus" }, ConfidenceMicro = null, SourceKey = null };
+        var changes = new Dictionary<string, IReadOnlyList<AgentMemory.Extensibility.Ingestion.ModuleProposal>> { [pack.Id] = new[] { local } };
+        var copy = (PackMemory)method!.Invoke(memory, [changes])!;
+        var hits = await copy.AskAsync(pack.Id, "kata", "Nebulaworkshop");
+        hits.Should().Contain(h => h.Key == original.Key && h.Pack == null);
+        (await memory.AskAsync(pack.Id, "kata", "Nebulaworkshop")).Should().BeEmpty();
+        pack.Knowledge.Proposals.First(p => p.Key == original.Key).Properties["name"].GetString().Should().NotBe("Nebulaworkshop");
+    }
+
+    [Fact]
     public async Task A_trusted_pack_shows_every_step_passed_its_declarations_and_answers_from_memory()
     {
         var inspection = PackInspection.Inspect(Archive(), Trust());

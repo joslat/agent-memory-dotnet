@@ -25,6 +25,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="JsonSchema.Net" Version="9.4.0" />
+    <EmbeddedResource Include="Schemas/mind-*.schema.json" />
     <ProjectReference Include="..\AgentMemory.Extensibility\AgentMemory.Extensibility.csproj" />
     <ProjectReference Include="..\AgentMemory.Packs.Format\AgentMemory.Packs.Format.csproj" />
   </ItemGroup>

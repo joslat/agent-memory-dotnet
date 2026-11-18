@@ -1,5 +1,31 @@
 # The Memory Map
 
+**Mind convention reader — BUILT / focused native-pack tests; WIRED in DemoBrain; automated qualification passed, human review pending.**
+The explicit experimental `MindReader` reads verified E0 composites, validates owned semantic roles,
+strict contracts and member versions, and generates deterministic bounded every-turn core/stage text.
+It registers no tools, changes no existing prompt, and writes no personal state. Structural validity
+does not establish model behaviour or behavioural certification. DemoBrain binds explicit Character-only
+profiles and a stateless read-only adviser with actual source/rule validation and a host-owned citation
+tool. Existing Swiss v0.1 remains separate. Relationship/evaluator persistence and behavioural
+certification are subsequent product gates, not claimed by this reader or its deterministic tests.
+
+**Authenticated pack assets — BUILT / MEASURED in loader tests; WIRED in DemoBrain.**
+`LoadedPack.Assets` exposes verified bytes for explicit host application bindings. DemoBrain's
+opt-in Swiss Tutor attaches its selected principles every turn and binds host-owned clock/content/
+learning tools. Its introductory family has real-model, real-Neo4j and fresh-session acceptance;
+this does not implement embedded E2 execution or establish teaching quality or full exam readiness.
+
+**Pack Explorer support — BUILT in source, WIRED in DemoBrain.** Verified derivation, composition
+inspection, scoped mount defaults and bounded recall explanations support the desktop Explorer.
+Editable copies use [pack-local-state](extensions/pack-local-state.md), transactional protection,
+and personal assertion history. Lexical, meaning and traversal reads project the effective local
+graph first. Historical local-copy reads without a pinned published revision are declined; local
+amendment history is independently available. Applicability routing implements Off/Observe/experimental
+On with broad fallback and target-specific activation receipts. **MEASURED:** real-Neo4j lifecycle
+controls and a finite synthetic 32-pack target study with no answer regressions, fewer queries and
+lower textual-turn p95. This is not production-workload or universal coverage evidence. Default recall remains
+exhaustive and activates no local-copy schema or writes.
+
 **Calendar identity integrity — BUILT; focused verification passed.** Recognised calendar literals
 are kept out of approximate name matching. Complete supported dates compare by calendar components;
 incomplete or invalid values remain separate, and canonical entity names cannot replace their fact

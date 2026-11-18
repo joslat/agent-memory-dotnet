@@ -15,6 +15,21 @@ namespace AgentMemory.Tests.Unit.Extensibility;
 /// </summary>
 public sealed class AmpackLoaderTests
 {
+    [Fact]
+    public void Verified_assets_are_available_to_explicit_host_bindings_only_after_verification()
+    {
+        var source = PackLayout.FromModule(Bundle(MartialArts));
+        source["assets/tutor-contract.json"] = Encoding.UTF8.GetBytes("{\"convention\":\"test/1\"}");
+        var archive = Signed(source);
+        var loaded = PackLoader.Load(archive, Trust());
+        // Use reflection for the red witness: the host currently cannot read signed instruction assets.
+        var property = typeof(LoadedPack).GetProperty("Assets");
+        property.Should().NotBeNull("explicit application profiles need the exact authenticated asset bytes");
+        var assets = (IReadOnlyDictionary<string, ReadOnlyMemory<byte>>)property!.GetValue(loaded)!;
+        Encoding.UTF8.GetString(assets["assets/tutor-contract.json"].Span).Should().Be("{\"convention\":\"test/1\"}");
+        assets.Keys.Should().OnlyContain(k => k.StartsWith("assets/", StringComparison.Ordinal));
+        FluentActions.Invoking(() => PackLoader.Load(archive, PackTrust.None)).Should().Throw<PackLoadException>();
+    }
     private static readonly string MartialArts = Path.Combine(AppContext.BaseDirectory, "Packs", "MartialArts");
     private readonly PackKey _key = PackKey.Create();
 

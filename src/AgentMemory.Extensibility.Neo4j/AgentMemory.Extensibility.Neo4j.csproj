@@ -32,6 +32,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="../../shared/AdditiveMigrationLint.cs" Link="Shared/AdditiveMigrationLint.cs" />
+    <Compile Include="../AgentMemory.Neo4j/Queries/PackLocalQueries.cs" Link="Queries/PackLocalQueries.cs" />
     <Compile Include="../../shared/ModuleBookkeepingSchema.cs" Link="Shared/ModuleBookkeepingSchema.cs" />
   </ItemGroup>
   <ItemGroup>

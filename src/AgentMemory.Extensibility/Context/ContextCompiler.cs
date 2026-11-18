@@ -37,10 +37,9 @@ public interface IContextCompiler
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>No routing, deliberately.</b> Every applicable contributor runs. The router — which decides
-/// that a trivial turn needs none of them — is a later slice with an accuracy guard of its own,
-/// because the leg-level router this repository already shipped selected correctly and still harmed
-/// answers. Shipping selection before that guard exists would repeat it.
+/// <b>Exhaustive by default.</b> Every applicable contributor runs unless the host explicitly installs
+/// an evaluated selection policy. Observation runs independently and cannot exclude contributions.
+/// Earlier leg routing harmed answers; a host must establish coverage and latency before pruning.
 /// </para>
 /// <para>
 /// <b>A contributor's failure is an omission, not an exception.</b> One module's unreachable store
@@ -56,6 +55,8 @@ public interface IContextCompiler
 [Experimental("AMEXT001")]
 public sealed partial class ContextCompiler : IContextCompiler
 {
+    /// <summary>Explicit host routing policy. Null (default) does not resolve a policy, construct descriptors or call a judge.</summary>
+    public IContextApplicabilityPolicy? ApplicabilityPolicy { private get; set; }
     private readonly IReadOnlyList<IContextContributor> _contributors;
     private readonly IMemoryIsolationPolicy _isolationPolicy;
     private readonly TimeProvider _timeProvider;
@@ -105,6 +106,37 @@ public sealed partial class ContextCompiler : IContextCompiler
                 operationName: nameof(CompileAsync),
                 access: MemoryOperationAccess.Tenant);
             var resolvedRequest = request with { Owner = resolved.OwnerId, ResolvedScope = resolved };
+            ContextApplicabilityResult? applicability = null;
+            Task<ContextApplicabilityResult>? observation = null;
+            var excluded = excludedContributorIds;
+            if (ApplicabilityPolicy is { } policy)
+            {
+                var eligible = _contributors.Where(c => c is not AgentMemory.Extensibility.Contributors.CoreMemoryContextContributor
+                    && !(excludedContributorIds?.Contains(c.Descriptor.Id) ?? false)).Select(c => c.Descriptor.Id).ToArray();
+                async Task<ContextApplicabilityResult> DecideAsync()
+                {
+                    try
+                    {
+                        var decision = await policy.SelectAsync(resolvedRequest, eligible, cancellationToken).ConfigureAwait(false);
+                        return decision is null || decision.ExcludedContributorIds.Any(id => !eligible.Contains(id, StringComparer.Ordinal))
+                            ? new() { Outcome = "fallback: invalid contributor identities" } : decision;
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+                    catch (Exception exception)
+                    {
+                        _logger.LogWarning(exception, "Applicability routing failed; all eligible contributors remain in scope.");
+                        return new() { Outcome = "fallback: unavailable" };
+                    }
+                }
+                if (policy.ObserveOnly)
+                    observation = Task.Run(DecideAsync, cancellationToken);
+                else
+                {
+                    applicability = await DecideAsync().ConfigureAwait(false);
+                    if (applicability.ExcludedContributorIds.Count > 0)
+                        excluded = new HashSet<string>((excludedContributorIds ?? new HashSet<string>()).Concat(applicability.ExcludedContributorIds), StringComparer.Ordinal);
+                }
+            }
 
             var sections = new List<ContextSection>();
             var omissions = new List<ContextOmission>();
@@ -115,7 +147,7 @@ public sealed partial class ContextCompiler : IContextCompiler
 
                 // SKIPPED BEFORE APPLIESASYNC, because the cost this avoids is the contributor's own
                 // work. Recording nothing is deliberate: see the interface remarks.
-                if (excludedContributorIds is not null && excludedContributorIds.Contains(id)) continue;
+                if (excluded is not null && excluded.Contains(id)) continue;
 
                 cancellationToken.ThrowIfCancellationRequested();
                 using var contribution = StartContributionActivity(contributor);
@@ -161,13 +193,19 @@ public sealed partial class ContextCompiler : IContextCompiler
                 }
             }
 
+            if (observation is not null)
+            {
+                var observed = await observation.WaitAsync(cancellationToken).ConfigureAwait(false);
+                applicability = observed with { ExcludedContributorIds = new HashSet<string>(StringComparer.Ordinal) };
+            }
+
             // THE OWNER IS RESOLVED, NOT ECHOED, which is what the snapshot's own contract says it is.
             // The request carries what the HOST claims; the policy decides what that means under the
             // configured isolation mode, and the envelope records the decision. Copying the claim through
             // would have made a field documented as evidence of enforcement into a restatement of the
             // input -- true-looking, and unable to show that anything had been enforced.
             var snapshot = new ContextSnapshot(resolved.OwnerId, request.AsOf, request.SystemAsOf);
-            var envelope = new ContextEnvelope(request, snapshot, sections, omissions, _timeProvider.GetUtcNow());
+            var envelope = new ContextEnvelope(request, snapshot, sections, omissions, _timeProvider.GetUtcNow()) { Applicability = applicability };
             if (compile is { IsAllDataRequested: true })
                 ObserveOutcome(compile, omissions.Any(o => o.Reason == ContextOmissionReason.Unavailable) ? "Partial" : "Completed",
                     sections.Sum(section => section.Items.Count));

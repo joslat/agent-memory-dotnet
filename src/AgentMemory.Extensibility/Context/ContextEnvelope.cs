@@ -26,6 +26,9 @@ public sealed record ContextEnvelope(
     IReadOnlyList<ContextOmission> Omissions,
     DateTimeOffset CompiledAt)
 {
+    /// <summary>Optional pre-search selection, distinct from contributor omissions. Absent on the unchanged default path.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public ContextApplicabilityResult? Applicability { get; init; }
     /// <summary>An envelope with no sections and no omissions, for a request nothing applied to.</summary>
     public static ContextEnvelope Empty(ContextRequest request, ContextSnapshot snapshot, DateTimeOffset at) =>
         new(request, snapshot, [], [], at);

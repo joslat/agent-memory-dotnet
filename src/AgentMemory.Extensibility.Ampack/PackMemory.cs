@@ -41,6 +41,8 @@ public sealed partial class PackMemory : IModuleTraversalReader
     private readonly Dictionary<string, ModuleRecord> _byId = new(StringComparer.Ordinal);
     private readonly Dictionary<(string Module, string Type), List<ModuleRecord>> _byType = [];
     private readonly Dictionary<(string Relation, string TargetId), List<ModuleRecord>> _incoming = [];
+    private IReadOnlyList<KnowledgePack> _knowledge = [];
+    private IReadOnlyList<ModuleErasure> _erasures = [];
 
     private PackMemory(ModuleResolution resolution) => Resolution = resolution;
 
@@ -110,7 +112,7 @@ public sealed partial class PackMemory : IModuleTraversalReader
             .OfType<string>().Distinct(StringComparer.Ordinal).ToList();
         if (refused.Count != 0) throw new KnowledgePackException(refused);
 
-        var memory = new PackMemory(resolution);
+        var memory = new PackMemory(resolution) { _knowledge = packs, _erasures = erased };
         var loadedAt = DateTimeOffset.UtcNow;
         var sources = packs.Select(p => (p.Manifest, (IEnumerable<ModuleProposal>)p.Proposals))
             .Concat(shots.Select(s => (s.Module, s.Stamped()))).ToList();
@@ -122,7 +124,7 @@ public sealed partial class PackMemory : IModuleTraversalReader
                 var stored = new ModuleRecord
                 {
                     ModuleId = manifest.Id, Type = record.Type, Id = IdOf(manifest.Id, record.Type, record.Key), Key = record.Key,
-                    CreatedAtUtc = loadedAt, Properties = record.Properties, SourceSessionId = "pack", Source = record.Source, Life = record.Life, ConfidenceMicro = record.ConfidenceMicro,
+                    CreatedAtUtc = loadedAt, Properties = record.Properties, SourceSessionId = record.Source.Pack is null ? "local" : "pack", Source = record.Source, Life = record.Life, ConfidenceMicro = record.ConfidenceMicro,
                 };
                 memory._byId[stored.Id] = stored;
             }
@@ -340,6 +342,15 @@ public sealed partial class PackMemory : IModuleTraversalReader
         return new Reader(this, callerModuleId);
     }
 
+    /// <summary>A reader that also admits host-scored meaning matches after scope and typed filters, before the limit.</summary>
+    public IModuleReader ReaderFor(string callerModuleId, IReadOnlyDictionary<string, double> meaningScores)
+    {
+        ArgumentNullException.ThrowIfNull(meaningScores);
+        _ = ReaderFor(callerModuleId);
+        if (meaningScores.Values.Any(v => !double.IsFinite(v) || v < 0)) throw new ArgumentException("Meaning scores must be finite and nonnegative.", nameof(meaningScores));
+        return new Reader(this, callerModuleId, meaningScores);
+    }
+
     private static string IdOf(string module, string type, string key) => module + ":" + type + ":" + key;
 
     // The module and type a relation points at: its own type, or a dependency's ("module:Type"); core entities are not held.
@@ -360,7 +371,7 @@ public sealed partial class PackMemory : IModuleTraversalReader
     private Bm25 Index(string module, string type, string view, IReadOnlyList<string> properties) =>
         _indexes.GetOrAdd((module, type, view), _ => new Bm25(OfType(module, type), properties));
 
-    private sealed class Reader(PackMemory memory, string caller) : IModuleReader
+    private sealed class Reader(PackMemory memory, string caller, IReadOnlyDictionary<string, double>? meaningScores = null) : IModuleReader
     {
         public string CallerModuleId => caller;
 
@@ -388,7 +399,7 @@ public sealed partial class PackMemory : IModuleTraversalReader
             {
                 var properties = module.Views.Single(v => v.Id == search.ViewId).Search!.Properties;
                 var corpus = memory.Index(module.Id, type.Name, search.ViewId, properties);
-                var scored = found.Select(r => (Record: r, Score: corpus.Score(r, search.Terms))).Where(p => p.Score > 0);
+                var scored = found.Select(r => (Record: r, Score: corpus.Score(r, search.Terms) + (meaningScores?.GetValueOrDefault(r.Id) ?? 0))).Where(p => p.Score > 0);
                 ordered = scored.OrderByDescending(p => p.Score).ThenBy(p => p.Record.Id, PackText.Order).Select(p => p.Record);
             }
             else if (admitted.OrderBy is { } order && admitted.Selection != ModuleRecordSelection.History)

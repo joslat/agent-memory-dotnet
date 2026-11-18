@@ -1,5 +1,59 @@
 # Architecture Overview — Agent Memory for .NET
 
+## Experimental Mind application convention
+
+`AgentMemory.Extensibility.Ampack.MindReader.Read(verifiedFamily)` is an explicit, data-only reader for
+`agentmemory.mind/2.0`. It validates signed behaviour/values/relationship members, native type ownership,
+closed embedded JSON schemas, references and version ranges. Structured role fields are canonical JSON
+strings in native scalar properties. A deterministic core and exact signed stage variants are generated
+outside ranked retrieval, with a combined 16,000-byte ceiling; excessive input is refused, never truncated.
+The reader uses JsonSchema.Net 9.4.0 for closed contract validation, with no external schema resolution.
+
+There is no automatic DI registration, database migration, tool registration or model call. Existing
+hosts never call this reader unless explicitly enabled. The reader neither activates a Mind nor grants
+tool access. It does not prove natural-language consistency, model behaviour or corpus completeness.
+Behaviour evaluation uses separately versioned signed assets; current retrieval Trial/Certify formats
+are unchanged. Native E0 remains data-only; this convention adds no Rust/WASM execution.
+
+## Experimental pack inspection and local knowledge
+
+Verified native packs expose their exact `assets/` bytes through `LoadedPack.Assets`. This is data
+access after normal signature, policy and format admission; it does not activate code or insert
+instructions. An application recognising a signed profile must select it explicitly, bound its
+asset sizes, validate its convention and role map, and bind only its own registered capabilities.
+DemoBrain's optional Swiss Tutor binding is an application example, not a normative ampack execution
+profile or an E2 WebAssembly runtime.
+
+Loaded packs expose `PackDerivationInfo` projected from the verifier's strict parser. Making-of
+provenance is independent of composition and never inherits parent trust. `PackMemory.WithLocalChanges`
+builds an effective graph before lookup, search, filters and traversal, preserving the signed base.
+`PackArchiveUpdates.MergeAttestations` is an explicit pure operation: both archives verify whole,
+signed content must be identical, and earlier carried evidence is retained. Hosts own atomic archive
+replacement and recovery. Fresh withdrawals remain authoritative for writes and history as well as reads.
+
+The optional [pack-local-state extension](extensions/pack-local-state.md) stores owner/brain-scoped
+policies and amendment history. Writers and protection changes serialize on the same mount lock,
+then check policy revision, actor, ownership and digest. User/system assertions have their own
+provenance; restore retains history. Historical effective reads resolve the exact retained verified
+base and then apply past assertions before filters, search or traversal. Missing bases are unavailable.
+Current trust, signed revocations, usage admission and erasure tombstones remain authoritative at every clock.
+Optional canonical withdrawal and local writes serialize on a pack gate; withdrawal removes personal payload copies.
+Upgrade preflight retains the old effective revision on conflict and never downgrades another brain's shared baseline.
+
+`ContextCompiler.ApplicabilityPolicy` is null by default: no policy resolution, descriptors or judge
+requests. An explicit policy runs after isolation resolution and before eligible contributors;
+invalid identities and failures preserve exhaustive reads. `SystemOneApplicabilityJudge` uses a
+separate prompt and configured endpoints; post-retrieval judging is unchanged. Gate and Extensibility
+continue to reference Abstractions independently. A finite synthetic target evaluation is recorded
+by DemoBrain; normal pruning requires its matching current receipt and qualified stack size. It is
+not a universal coverage or production-workload latency guarantee.
+
+An observation-only policy starts independently of exhaustive contribution and cannot apply exclusions.
+The host's descriptor bridge uses published metadata and a bounded, content-free local status batch;
+packs with unsummarized personal assertions remain eligible. Scope/revision changes during judging
+fall back broadly. Applicability has its own endpoint deadlines and response bound; ordinary record
+judging retains its original protocol and transport branch.
+
 **Last Updated:** 2026-11-11 (calendar identity integrity; broader identity work remains in progress)
 **Author:** Jose Luis Latorre Millas
 **Canonical Specification:** [specification.md](specification.md)

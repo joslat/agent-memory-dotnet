@@ -1,0 +1,15 @@
+{
+  "convention": "agentmemory.mind/2.0",
+  "member": "relationship",
+  "typeRoles": {},
+  "core": {
+    "format": "agentmemory.mind.core/1",
+    "language": "en",
+    "maximumBytes": 16000
+  },
+  "tests": "assets/mind-evals.json",
+  "evaluation": {
+    "format": "agentmemory.mind.evaluation/1",
+    "certification": "not-certified"
+  }
+}

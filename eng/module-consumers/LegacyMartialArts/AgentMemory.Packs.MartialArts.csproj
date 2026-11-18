@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Frozen NuGet-format compatibility fixture only. Authoring and distribution use native .ampack sources in the private catalogue. -->
+  <PropertyGroup>
+    <TargetFrameworks></TargetFrameworks>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+    <PackageId>AgentMemory.Packs.MartialArts</PackageId>
+    <Version>1.0.0</Version>
+    <Description>Frozen legacy knowledge-package fixture for SDK compatibility acceptance; not a production pack.</Description>
+    <PackageType>AgentMemoryKnowledgePack</PackageType>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <NoWarn>$(NoWarn);NU5128</NoWarn>
+    <Authors>AgentMemory compatibility tests</Authors>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="../../../tests/Fixtures/MartialArts.Legacy/**/*" Pack="true" PackagePath="agentmemory/%(RecursiveDir)%(Filename)%(Extension)" />
+    <None Include="KnowledgePack.props" Pack="true" PackagePath="buildTransitive/$(PackageId).props" />
+  </ItemGroup>
+  <Target Name="RequireSignedCompatibilityFixture" BeforeTargets="GenerateNuspec">
+    <Error Condition="!Exists('../../../tests/Fixtures/MartialArts.Legacy/agentmemory.module.files.json') or !Exists('../../../tests/Fixtures/MartialArts.Legacy/agentmemory.module.sig')"
+           Text="The acceptance harness must sign its frozen fixture before packaging." />
+  </Target>
+</Project>

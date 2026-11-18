@@ -1,0 +1,82 @@
+{
+  "convention": "agentmemory.mind/2.0",
+  "member": "mind",
+  "profile": "tutor/1.0",
+  "profileRecord": {
+    "type": "TutMindProfile",
+    "key": "tutor"
+  },
+  "typeRoles": {
+    "profile": "TutMindProfile",
+    "principle": "TutMindPrinciple",
+    "stance": "TutMindStance",
+    "selfDescription": "TutMindSelf",
+    "protocol": "TutMindProtocol",
+    "policy": "TutMindPolicy",
+    "toolContract": "TutMindTool",
+    "knowledgeNeed": "TutMindNeed",
+    "recordUse": "TutMindRecordUse"
+  },
+  "members": {
+    "values": {
+      "id": "io.example.minds.values",
+      "range": "[1.0,2.0)"
+    },
+    "relationship": {
+      "id": "io.example.minds.relationship",
+      "range": "[1.0,2.0)"
+    }
+  },
+  "capabilities": {
+    "needs": [
+      "session/1",
+      "time/1",
+      "content/1",
+      "tutor/1"
+    ],
+    "mayUse": [
+      "owner-data/1",
+      "consent/1"
+    ]
+  },
+  "knowledgeNeeds": [
+    {
+      "contract": "agentmemory.curriculum/1",
+      "language": "en",
+      "jurisdiction": null,
+      "questionFormat": "mcq-4",
+      "minimumRecords": {
+        "objective": 1,
+        "question": 3,
+        "source": 1
+      }
+    }
+  ],
+  "records": {
+    "identityContinuity": "optional",
+    "experientialContinuity": "optional",
+    "profileRecord": "learner-record/1.0"
+  },
+  "tests": "assets/mind-evals.json",
+  "core": {
+    "format": "agentmemory.mind.core/1",
+    "language": "en",
+    "maximumBytes": 16000
+  },
+  "evaluation": {
+    "format": "agentmemory.mind.evaluation/1",
+    "certification": "not-certified"
+  },
+  "recordPolicy": {
+    "enabledByDefault": false,
+    "publisherReporting": "explicit-opt-in",
+    "scope": [
+      "application",
+      "brain",
+      "owner",
+      "mind"
+    ],
+    "adjustments": "explicit-user-acceptance",
+    "versionChange": "review-before-reuse"
+  }
+}

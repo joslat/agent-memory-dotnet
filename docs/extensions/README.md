@@ -1,5 +1,7 @@
 # Schema extensions
 
+- [Protected local knowledge copies](pack-local-state.md): opt-in per-brain write protection and personal amendment history for imported packs.
+
 A **schema extension** is a named, versioned, **additive-only** schema module — the unit AgentMemory
 uses to add a capability's schema without touching the base schema every deployment shares.
 
