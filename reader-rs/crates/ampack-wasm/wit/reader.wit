@@ -37,6 +37,22 @@ interface verifier {
 
     /// Inspect an archive, or say why it is not in the archive profile.
     inspect: func(archive: list<u8>) -> result<summary, string>;
+
+    /// One file of a verified pack, by its path in the archive (a set's members stand under packs/<id>/).
+    record pack-file {
+        path: string,
+        data: list<u8>,
+    }
+
+    /// A verified pack with its files, to read.
+    record loaded {
+        info: pack-info,
+        files: list<pack-file>,
+    }
+
+    /// Verify as `verify` does, with the host's revocation documents applied to the policy first, and hand out the pack's
+    /// files. Nothing is handed out of a pack that did not verify: the error is why it is refused.
+    load: func(archive: list<u8>, policy: list<u8>, revocations: list<list<u8>>, now: string) -> result<loaded, string>;
 }
 
 world reader {

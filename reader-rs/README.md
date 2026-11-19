@@ -5,14 +5,15 @@ Feature 18. A Rust implementation of ampack Core verify, read and inspect, shari
 `spec/registry.json`, embedded at build time with `include_str!` from its one real path, so a shape added on the main line
 reaches it on the next build with no copy to keep in step.
 
-Part of this repository since release 2.0.0. It is not published as a crate or as an npm package.
+Part of this repository since release 2.0.0. Three packages are made from it (see "Packages" below): the crates
+`ampack-core` and `ampack` for crates.io, and the package `ampack` for npm. Each says on its index whether it is published.
 
 ## Crates
 
 | Crate | What it is |
 |---|---|
 | `crates/ampack-core` | The verifier, `no_std` with `alloc`. Its own strict archive reader (`zip.rs`) and strict JSON reader (`json.rs`); the files list and digest, DSSE with ECDSA P-256, the trust policy, revocation documents, pack.json, kinds, composites and their locks, pack sets, the card, the derivation, the usage policy's read door, records, embeddings (`pack.rs`, `trust.rs`); certificates, publication receipts and erasures (`certify.rs`). |
-| `crates/ampack-cli` | `ampack-rs`, the command line, run as the Python verifier is run. |
+| `crates/ampack-cli` | The crate `ampack`: `ampack-rs`, the command line, run as the Python verifier is run. |
 | `crates/ampack-wasm` | The WebAssembly component: `verify(archive, policy, now) -> verdict`, `inspect(archive) -> summary` (`wit/reader.wit`). It imports nothing: no file system, no network, no clock. |
 
 Dependencies, pinned exactly: `p256 =0.13.2` (ECDSA P-256), `sha2 =0.10.9`, `unicode-normalization =0.1.22` (Unicode
@@ -57,8 +58,27 @@ cargo build -p ampack-wasm --target wasm32-unknown-unknown --release -j 2
 cargo install wasm-tools --version =1.263.0 --locked --root .tools --no-default-features --features component -j 2
 .tools\bin\wasm-tools component new target\wasm32-unknown-unknown\release\ampack_wasm.wasm -o dist\ampack-reader.wasm
 .tools\bin\wasm-tools component wit dist\ampack-reader.wasm      # world root { export ampack:reader/verifier@0.1.0; } - no import
-cd js && npm install && npm run transpile && npm run kit           # jco 1.11.1 -> dist/js; the kit's pack vectors through JavaScript
+cd js && npm install && npm run build && npm run kit && npm test   # jco 1.11.1 -> js/dist; the kit's pack vectors through JavaScript
 ```
+
+The component also exports `load(archive, policy, revocations, now)`: the same verification, with the host's revocation
+documents, and the verified pack's files handed out to read. Nothing comes out of a pack that did not verify.
+
+## Packages
+
+| Package | Index | Made from | Before packaging |
+|---|---|---|---|
+| `ampack-core` | crates.io | `crates/ampack-core` | `python sync_sources.py` (the registry and the licence files into the crate) |
+| `ampack` (command `ampack-rs`) | crates.io | `crates/ampack-cli` | the same; it needs `ampack-core` on the index first |
+| `ampack` | npm | `js/` (`index.js`, its types, and the component in `js/dist`) | `npm run build` |
+
+A crate on crates.io cannot reach outside its own folder, so `ampack-core` carries a copy of `spec/registry.json` made by
+`sync_sources.py` (never edited, not committed). In a checkout `build.rs` reads the registry from `spec/` itself, so a stale
+copy is never used there. Rehearse with `cargo publish -p ampack-core --dry-run --allow-dirty` and `npm pack --dry-run`:
+neither uploads anything.
+
+19 Nov 2026, on this branch: `run_third.py` 513 / 513 vectors; `npm test` 9 of 9, with 372 plain pack vectors through
+`verify()` and their revocation documents; `kit.mjs` 341 / 341, component 541 KiB, 227 KiB gzipped.
 
 The component's `verify` takes no revocation documents (R4's signature): `js/kit.mjs` runs it on every pack vector
 that needs none.

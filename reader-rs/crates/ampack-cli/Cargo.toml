@@ -1,13 +1,24 @@
 [package]
-name = "ampack-cli"
+# The crate is `ampack` on crates.io; its folder keeps the name ampack-cli. The command it installs is `ampack-rs`, so it
+# never hides another ampack command on the same machine, and the conformance kit keeps calling it by that name.
+name = "ampack"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-publish.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+publish = true
+description = "The ampack-rs command: verify and inspect ampack memory packs for AI agents against a trust policy."
+readme = "README.md"
+keywords = ["ampack", "memory-pack", "agent-memory", "verification", "cli"]
+categories = ["command-line-utilities", "cryptography"]
+# LICENSE and NOTICE are copies made by ../../sync_sources.py when the crate is packaged.
+include = ["src/**", "Cargo.toml", "README.md", "LICENSE", "NOTICE"]
 
 [[bin]]
 name = "ampack-rs"
 path = "src/main.rs"
 
 [dependencies]
-ampack-core = { path = "../ampack-core" }
+ampack-core = { path = "../ampack-core", version = "=0.1.0" }

@@ -3,8 +3,17 @@ name = "ampack-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-publish.workspace = true
-description = "A third, independent verifier of memory packs (ampack Core and its profiles), no_std with alloc."
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+publish = true
+description = "Verify and read ampack memory packs for AI agents: an independent, strict verifier of the format, no_std with alloc."
+readme = "README.md"
+keywords = ["ampack", "memory-pack", "agent-memory", "verification", "signature"]
+categories = ["cryptography", "no-std", "parser-implementations"]
+build = "build.rs"
+# registry.json, LICENSE and NOTICE are copies made by ../../sync_sources.py when the crate is packaged.
+include = ["src/**", "build.rs", "Cargo.toml", "README.md", "registry.json", "LICENSE", "NOTICE"]
 
 [dependencies]
 # Exact pins: the verdicts depend on these tables and checks (feature 18, 3.2).

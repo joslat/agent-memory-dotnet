@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! The format registry (feature 01): spec/registry.json, the one definition of every closed shape, list, limit and
-//! profile, embedded at build time from its real path in the repository. No copy is kept here.
+//! profile, embedded at build time. build.rs takes it from its real path in the repository; a crate published to crates.io
+//! cannot reach outside itself and carries a copy made when it is packaged (never edited, not committed).
 
 use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
@@ -10,7 +11,7 @@ use crate::json::{registry_text, Obj, Value};
 use crate::{refused, Refused, R};
 
 /// The registry's bytes, as the build found them.
-pub const REGISTRY_JSON: &str = include_str!("../../../../spec/registry.json");
+pub const REGISTRY_JSON: &str = include_str!(concat!(env!("OUT_DIR"), "/registry.json"));
 
 pub struct Profile {
     pub name: String,

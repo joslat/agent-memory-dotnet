@@ -3,7 +3,7 @@ name = "ampack-wasm"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-publish.workspace = true
+publish = false
 description = "ampack-core as a WebAssembly component: verify(archive, policy, now) and inspect(archive)."
 
 [lib]

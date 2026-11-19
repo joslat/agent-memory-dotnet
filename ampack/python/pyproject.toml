@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ampack"
+version = "0.1.0"
+description = "Verify and read ampack memory packs for AI agents: one signed file, checked where it lands."
+readme = "README.md"
+# Python 3.12 exactly: the format decides text with Unicode 15.0 data, which is what Python 3.12 carries.
+requires-python = ">=3.12,<3.13"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Jose Luis Latorre Millas" }]
+keywords = ["ampack", "memory pack", "agent memory", "ai agents", "signature", "verification", "provenance"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Security :: Cryptography",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Typing :: Typed",
+]
+dependencies = ["cryptography>=43"]
+
+[project.urls]
+Homepage = "https://memcert.dev"
+Specification = "https://github.com/joslat/agent-memory-dotnet/tree/main/spec"
+Source = "https://github.com/joslat/agent-memory-dotnet/tree/main/ampack/python"
+Issues = "https://github.com/joslat/agent-memory-dotnet/issues"
+Paper = "https://doi.org/10.5281/zenodo.24012989"
+
+[project.scripts]
+ampack = "ampack.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+ampack = ["registry.json", "py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
