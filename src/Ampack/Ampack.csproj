@@ -1,0 +1,70 @@
+<Project Sdk="Microsoft.NET.Sdk" TreatAsLocalProperty="Version">
+
+  <!-- Ampack: the client of the ampack format for .NET. It verifies, inspects and reads a memory pack, and nothing else:
+       it does not build, sign, certify or revoke, and it depends on .NET alone (no AgentMemory, no store, no agent framework),
+       so a host built on any framework can use it.
+
+       It is a reader-only build of the format library: the same source files as src/AgentMemory.Packs.Format, compiled with
+       AMPACK_READER, which leaves out the signer, the builder, key creation and every signing function. Nothing of that
+       namespace is public here; the public surface is this folder's own (namespace Ampack). One source, so the verdict of
+       this package is the verdict of the library the conformance vectors are run against. -->
+  <PropertyGroup>
+    <TargetFramework></TargetFramework>
+    <TargetFrameworks>net10.0;net9.0;net8.0</TargetFrameworks>
+    <RootNamespace>Ampack</RootNamespace>
+    <AssemblyName>Ampack</AssemblyName>
+    <DefineConstants>$(DefineConstants);AGENTMEMORY_PACKS_FORMAT;AMPACK_READER</DefineConstants>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+  <!-- Its own version line: a preview. TreatAsLocalProperty keeps a release's -p:Version from restamping it. -->
+  <PropertyGroup>
+    <PackageId>Ampack</PackageId>
+    <Version>0.1.0</Version>
+    <IsPackable>true</IsPackable>
+    <Authors>Jose Luis Latorre Millas</Authors>
+    <Company>Jose Luis Latorre Millas</Company>
+    <Product>ampack</Product>
+    <Copyright>Copyright © Jose Luis Latorre Millas</Copyright>
+    <Description>Verify and read ampack memory packs for AI agents: one signed file, checked where it lands. A client with no dependency beyond .NET: it verifies, inspects and reads; it does not build, sign or certify a pack.</Description>
+    <PackageTags>ampack;memory-pack;agent-memory;ai-agents;signature;verification;provenance</PackageTags>
+    <PackageProjectUrl>https://memcert.dev</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/joslat/agent-memory-dotnet</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+    <None Include="LICENSE" Pack="true" PackagePath="\" Visible="false" />
+    <None Include="NOTICE" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
+
+  <!-- No friend but its own tests: the grants src/Directory.Build.props gives every library are taken back. -->
+  <ItemGroup>
+    <InternalsVisibleTo Remove="@(InternalsVisibleTo)" />
+    <InternalsVisibleTo Include="Ampack.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The format library's sources, without the two files that are signing and building through and through. The signing
+         functions inside the other files are under '#if !AMPACK_READER'. -->
+    <Compile Include="../AgentMemory.Packs.Format/*.cs" Exclude="../AgentMemory.Packs.Format/PackSigner.cs;../AgentMemory.Packs.Format/PackBuilder.cs" Link="Format/%(Filename)%(Extension)" />
+    <Compile Include="../../shared/PackNamespace.cs" Link="Shared/PackNamespace.cs" />
+    <Compile Include="../../shared/Nfc.cs" Link="Shared/Nfc.cs" />
+    <Compile Include="../../shared/BoundedFile.cs" Link="Shared/BoundedFile.cs" />
+    <Compile Include="../../shared/NfcTables.cs" Link="Shared/NfcTables.cs" />
+    <Compile Include="../../shared/PackRegistry.cs" Link="Shared/PackRegistry.cs" />
+    <Compile Include="../../shared/PackNumbers.cs" Link="Shared/PackNumbers.cs" />
+    <Compile Include="../../shared/PackText.cs" Link="Shared/PackText.cs" />
+    <Compile Include="../../shared/ErasureHash.cs" Link="Shared/ErasureHash.cs" />
+    <Compile Include="../../shared/PackBuiltIns.cs" Link="Shared/PackBuiltIns.cs" />
+    <EmbeddedResource Include="../../spec/registry.json" LogicalName="AgentMemory.Packs.Format.registry.json" />
+  </ItemGroup>
+</Project>

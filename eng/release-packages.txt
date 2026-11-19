@@ -69,3 +69,8 @@ HELD:AgentMemory.Packs.Work
 HELD:AgentMemory.Packs.Format
 HELD:AgentMemory.Extensibility.Ampack
 HELD:AgentMemory.Packs.Solid
+
+# The .NET client of the ampack format (src/Ampack, the package Ampack) and its command (tools/Ampack.Tool, the
+# package Ampack.Tool) keep their own 0.x version and have their own workflow, publish-ampack-nuget.yml, started by
+# hand. They ride neither line here: a core or a preview tag never packs them.
+HELD:Ampack

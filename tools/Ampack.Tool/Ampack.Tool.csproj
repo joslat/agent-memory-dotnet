@@ -1,0 +1,53 @@
+<Project Sdk="Microsoft.NET.Sdk" TreatAsLocalProperty="Version">
+
+  <!-- Ampack.Tool: the command `ampack` for a person or a pipeline. It is the Ampack client library with a command line and
+       nothing more: verify, inspect, show. It does not build, sign, certify or revoke. The tool that does (tools/Ampack, the
+       workshop's) is another project and is not published.
+
+       One framework, the oldest supported one, and it rolls forward: a tool package resolves one framework at install time,
+       so this installs and runs on .NET 8, 9 and 10. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RollForward>Major</RollForward>
+    <RootNamespace>Ampack.Tool</RootNamespace>
+    <AssemblyName>Ampack.Tool</AssemblyName>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <!-- Its own version line, as the library's. TreatAsLocalProperty keeps a release's -p:Version from restamping it. -->
+  <PropertyGroup>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>ampack</ToolCommandName>
+    <PackageId>Ampack.Tool</PackageId>
+    <Version>0.1.0</Version>
+    <IsPackable>true</IsPackable>
+    <Authors>Jose Luis Latorre Millas</Authors>
+    <Company>Jose Luis Latorre Millas</Company>
+    <Product>ampack</Product>
+    <Copyright>Copyright © Jose Luis Latorre Millas</Copyright>
+    <Description>The ampack command: verify, inspect and show ampack memory packs for AI agents against your trust policy. It does not build, sign or certify a pack.</Description>
+    <PackageTags>ampack;memory-pack;agent-memory;ai-agents;signature;verification;cli;dotnet-tool</PackageTags>
+    <PackageProjectUrl>https://memcert.dev</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/joslat/agent-memory-dotnet</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+    <None Include="LICENSE" Pack="true" PackagePath="\" Visible="false" />
+    <None Include="NOTICE" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Ampack.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Ampack\Ampack.csproj" />
+  </ItemGroup>
+</Project>

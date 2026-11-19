@@ -22,6 +22,8 @@ public sealed class LicensingGuardTests
         "src/AgentMemory.Packs.CodeMap.Roslyn", "src/AgentMemory.Packs.Coding", "src/AgentMemory.Packs.Decisions",
         "src/AgentMemory.Packs.Repository", "src/AgentMemory.Packs.Solid", "src/AgentMemory.Packs.Work", "src/AgentMemory.Packs.Intent",
         "src/AgentMemory.Packs.Architecture", "tools/Ampack", "reader-rs", "conformance/pack-v1.1",
+        // The client packages of the format (19 Nov 2026): the .NET library, its command, and the folder of the other languages.
+        "src/Ampack", "tools/Ampack.Tool", "ampack",
     ];
 
     private static readonly string[] SourceExtensions = [".cs", ".rs", ".py", ".mjs", ".js", ".wit", ".sh"];
@@ -130,6 +132,8 @@ public sealed class LicensingGuardTests
                 var text = File.ReadAllText(project);
                 if (!text.Contains("<PackAsTool>true</PackAsTool>", StringComparison.Ordinal)) continue;
                 var directory = Path.GetDirectoryName(project)!;
+                // A tool that is an Apache-2.0 project itself says Apache-2.0 alone; the first test holds its licence files.
+                if (apache.Any(a => string.Equals(a, directory, StringComparison.OrdinalIgnoreCase))) continue;
                 var bundlesApache = System.Text.RegularExpressions.Regex.Matches(text, "ProjectReference Include=\"([^\"]+)\"")
                     .Select(m => Path.GetDirectoryName(Path.GetFullPath(Path.Combine(directory, m.Groups[1].Value.Replace('\\', Path.DirectorySeparatorChar))))!)
                     .Any(d => apache.Any(a => string.Equals(a, d, StringComparison.OrdinalIgnoreCase)));

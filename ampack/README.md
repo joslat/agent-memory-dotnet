@@ -14,7 +14,7 @@ This folder is the front door for the **client packages**: the code that verifie
 | Python | [`ampack`](python/) | `pip install ampack` | Preview 0.1.0, Python 3.12 |
 | JavaScript and TypeScript | `ampack` | `npm install ampack` | Being prepared, from [`reader-rs`](../reader-rs/) |
 | Rust | `ampack-core`, `ampack` | `cargo add ampack-core` | Being prepared, from [`reader-rs`](../reader-rs/) |
-| .NET | `Ampack` | | Planned. Today the verifier is [`src/AgentMemory.Packs.Format`](../src/AgentMemory.Packs.Format/) |
+| .NET | `Ampack` (library), `Ampack.Tool` (command `ampack`) | `dotnet add package Ampack`, `dotnet tool install --global Ampack.Tool` | Being prepared, from [`src/Ampack`](../src/Ampack/) and [`tools/Ampack.Tool`](../tools/Ampack.Tool/) |
 
 A row says "being prepared" or "planned" until its package is on its index.
 

@@ -2,7 +2,11 @@
 namespace AgentMemory.Packs.Format;
 
 /// <summary>Size limits checked before a single byte is inflated or parsed (v1.1 H2). A host may lower them, or raise them for a large pack it trusts.</summary>
+#if AMPACK_READER // the reader-only build (src/Ampack) has its own public surface; nothing of this namespace is public there
+internal sealed record PackLimits
+#else
 public sealed record PackLimits
+#endif
 {
     /// <summary>The defaults: 4,096 files, 64 MiB per file, 256 MiB in all, 512 MiB for the archive, ratio 250:1.</summary>
     public static PackLimits Default { get; } = new();
