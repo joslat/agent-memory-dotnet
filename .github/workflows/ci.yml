@@ -50,6 +50,16 @@ jobs:
       - name: Python packages for the kit and the statistics
         run: python -m pip install --disable-pip-version-check "cryptography==43.0.0" "numpy==2.3.4"
 
+      # The ampack client for Python (ampack/python). The verifier it ships is the kit's own, copied in at build time: it must
+      # reach the recorded verdict on every plain conformance vector and read a verified pack. Run first: it takes seconds.
+      - name: ampack for Python, tests
+        run: |
+          python -m pip install --disable-pip-version-check "pytest==9.1.1"
+          python ampack/python/sync_sources.py
+          python -m pytest ampack/python -q
+        env:
+          PYTHONPATH: ampack/python/src
+
       - name: Restore
         run: dotnet restore AgentMemory.slnx
 

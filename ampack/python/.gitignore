@@ -1,0 +1,12 @@
+# Made by sync_sources.py from their one real place in the repository; never edited here.
+/src/ampack/_verify.py
+/src/ampack/registry.json
+/LICENSE
+/NOTICE
+
+# Build and test products
+/dist/
+/build/
+*.egg-info/
+__pycache__/
+.pytest_cache/

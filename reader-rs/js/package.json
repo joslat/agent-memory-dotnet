@@ -1,12 +1,58 @@
 {
-  "name": "ampack-reader-js",
-  "private": true,
-  "license": "Apache-2.0",
+  "name": "ampack",
+  "version": "0.1.0",
+  "description": "Verify and read ampack memory packs for AI agents: one signed file, checked where it lands.",
   "type": "module",
-  "description": "The ampack-rs component transpiled for JavaScript with jco (feature 18, step 4).",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    }
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "dist/ampack-reader.js",
+    "dist/ampack-reader.d.ts",
+    "dist/ampack-reader.core.wasm",
+    "dist/interfaces/",
+    "dist/record-fields.js",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "Apache-2.0",
+  "author": "Jose Luis Latorre Millas",
+  "homepage": "https://memcert.dev",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/joslat/agent-memory-dotnet.git",
+    "directory": "reader-rs/js"
+  },
+  "bugs": {
+    "url": "https://github.com/joslat/agent-memory-dotnet/issues"
+  },
+  "keywords": [
+    "ampack",
+    "memory pack",
+    "agent memory",
+    "ai agents",
+    "signature",
+    "verification",
+    "provenance",
+    "webassembly"
+  ],
   "scripts": {
-    "transpile": "jco transpile ../dist/ampack-reader.wasm -o ../dist/js --name ampack-reader",
-    "kit": "node kit.mjs"
+    "transpile": "jco transpile ../dist/ampack-reader.wasm -o dist --name ampack-reader",
+    "build": "npm run transpile && node build.mjs",
+    "kit": "node kit.mjs",
+    "test": "node --test test.mjs"
   },
   "devDependencies": {
     "@bytecodealliance/jco": "1.11.1"

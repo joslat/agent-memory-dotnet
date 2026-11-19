@@ -1,0 +1,90 @@
+# Uploads the ampack client for Python (ampack/python) to PyPI.
+#
+# No key is stored. PyPI accepts a short-lived proof from GitHub that this workflow file, in this repository and in the
+# 'pypi' environment, is the publisher its project 'ampack' names (Trusted Publishing). The file name, the repository and
+# the environment are what PyPI checks: renaming any of them breaks the upload until PyPI's setting is changed too.
+#
+# It runs only when it is started by hand (Actions, "Publish ampack (PyPI)", Run workflow). The build job tests and
+# builds; the upload job then waits for the reviewer of the 'pypi' environment, so nothing leaves without a click.
+name: Publish ampack (PyPI)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-ampack-pypi
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Test and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Python 3.12 exactly: the verifier decides with Unicode 15.0 data.
+      - name: Setup Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+
+      - name: Tools
+        run: python -m pip install --disable-pip-version-check "cryptography==43.0.0" "pytest==9.1.1" "build==1.6.1" "twine==7.0.0"
+
+      # The verifier and the format registry are copied from their one place in the repository; never edited in the package.
+      - name: Copy the verifier and the registry into the package
+        run: python ampack/python/sync_sources.py
+
+      - name: Tests, with every plain conformance vector
+        run: python -m pytest ampack/python -q
+        env:
+          PYTHONPATH: ampack/python/src
+
+      - name: Build the source archive and the wheel
+        run: python -m build --outdir dist ampack/python
+
+      - name: Check the metadata
+        run: python -m twine check --strict dist/*
+
+      # What is uploaded is what a user installs: installed into a clean environment and run outside the repository.
+      - name: Install the wheel and verify a pack with it
+        run: |
+          python -m venv "$RUNNER_TEMP/clean"
+          "$RUNNER_TEMP/clean/bin/python" -m pip install --disable-pip-version-check dist/*.whl
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/clean/bin/ampack" --version
+          "$RUNNER_TEMP/clean/bin/ampack" verify "$GITHUB_WORKSPACE/conformance/pack-v1.1/vectors/valid-python-built.ampack" "$GITHUB_WORKSPACE/conformance/pack-v1.1/trust.json"
+
+      - name: Keep the built files for the upload job
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ampack-python-dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Upload to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/project/ampack/
+    permissions:
+      id-token: write     # the short-lived proof PyPI checks; nothing else
+    steps:
+      - name: Fetch the built files
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ampack-python-dist
+          path: dist/
+
+      - name: Upload
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3

@@ -5,7 +5,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { verifier } from "../dist/js/ampack-reader.js";
+import { verifier } from "./dist/ampack-reader.js";
 
 const kit = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "conformance", "pack-v1.1");
 const results = JSON.parse(readFileSync(join(kit, "results.json"), "utf8"));

@@ -41,8 +41,11 @@ from cryptography.hazmat.primitives.asymmetric import ec, utils
 
 def _load_registry():
     """The one definition of every name the format defines (feature 01): spec/registry.json, read by both verifiers and the spec.
-    AMPACK_REGISTRY names another copy of the file; otherwise it is found beside the repository's spec folder."""
-    path = os.environ.get("AMPACK_REGISTRY") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "spec", "registry.json")
+    AMPACK_REGISTRY names another copy of the file; a copy beside this file is used next (the ampack package on PyPI ships
+    one, made at build time from the same spec/registry.json); otherwise it is found beside the repository's spec folder."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    beside = os.path.join(here, "registry.json")
+    path = os.environ.get("AMPACK_REGISTRY") or (beside if os.path.isfile(beside) else os.path.join(here, "..", "..", "..", "spec", "registry.json"))
 
     def no_duplicates(pairs):
         keys = [k for k, _ in pairs]

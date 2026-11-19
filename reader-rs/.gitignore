@@ -3,3 +3,10 @@ target/
 dist/
 js/node_modules/
 js/package-lock.json
+# made by sync_sources.py for the crates that are published
+crates/ampack-core/registry.json
+crates/*/LICENSE
+crates/*/NOTICE
+# made by js/build.mjs from the files one folder up
+js/LICENSE
+js/NOTICE

@@ -6,6 +6,10 @@ members = ["crates/ampack-core", "crates/ampack-cli", "crates/ampack-wasm"]
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
+authors = ["Jose Luis Latorre Millas"]
+homepage = "https://memcert.dev"
+repository = "https://github.com/joslat/agent-memory-dotnet"
+# Nothing is published unless a crate says so itself: ampack-core and ampack (the command line) do, ampack-wasm does not.
 publish = false
 
 [profile.release]

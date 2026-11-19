@@ -32,7 +32,7 @@
 </main>
 <script type="module">
   // Served from reader-rs/ (for example: python -m http.server, then /web/): the binding fetches its core module beside it.
-  import { verifier } from "../dist/js/ampack-reader.js";
+  import { verifier } from "../js/dist/ampack-reader.js";
   const out = document.getElementById("out");
   const bytes = async id => { const f = document.getElementById(id).files[0]; return f ? new Uint8Array(await f.arrayBuffer()) : null; };
   const show = (cls, text) => { out.className = cls; out.textContent = text; };
