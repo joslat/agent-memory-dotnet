@@ -14,7 +14,25 @@ from datetime import datetime, timezone
 from types import MappingProxyType
 from typing import Any, Iterator, Mapping, Sequence, Union
 
-from . import _verify as _v
+
+
+def _import_verifier():
+    """The kit's verifier, as it is. It reads the format registry when it is imported: from the file AMPACK_REGISTRY names,
+    else from a repository's spec folder. This package carries its own copy beside this file, so the variable names it for
+    the time of the import, unless the caller already set one, and is then put back as it was."""
+    name = "AMPACK_REGISTRY"
+    given = os.environ.get(name)
+    if given is None:
+        os.environ[name] = os.path.join(os.path.dirname(os.path.abspath(__file__)), "registry.json")
+    try:
+        from . import _verify
+    finally:
+        if given is None:
+            os.environ.pop(name, None)
+    return _verify
+
+
+_v = _import_verifier()
 
 Refused = _v.Refused
 Source = Union[str, "os.PathLike[str]", bytes, bytearray, memoryview]
