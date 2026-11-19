@@ -46,6 +46,23 @@ public sealed class PackTests
     }
 
     [Fact]
+    public void The_files_are_the_ones_the_digest_covers()
+    {
+        // This vector verifies and carries a certificate nobody checked: it must not come out as a file of the verified pack.
+        var pack = Pack.Load(Kit.Vector("attestation-certificate-content-unchecked"), Kit.Trust());
+        Assert.True(pack.Contains("pack.json"));
+        Assert.DoesNotContain(pack.Paths, p => p.StartsWith("META/", StringComparison.Ordinal));
+        var (plain, _, _) = Kit.Cases();
+        foreach (var c in plain.Where(c => c.Expected == "verified" && c.Policy == "trust.json" && c.Revocations.Count == 0))
+        {
+            var loaded = Pack.Load(Kit.Vector(c.Vector), Kit.Trust());
+            foreach (var each in loaded.Members.Prepend(loaded))
+                Assert.DoesNotContain(each.Paths, p => p == "META/files.json" || p.StartsWith("META/signatures/", StringComparison.Ordinal)
+                    || p.StartsWith("META/attestations/", StringComparison.Ordinal));
+        }
+    }
+
+    [Fact]
     public void The_file_paths_are_taken_as_well_as_bytes()
     {
         var pack = Pack.Load(Path.Combine(Kit.Root, "vectors", "valid-python-built.ampack"), Path.Combine(Kit.Root, "trust.json"));

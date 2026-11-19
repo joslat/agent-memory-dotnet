@@ -38,6 +38,7 @@ idea: the file carries its proof, and the host decides whom it trusts.
 | The specification | [`spec/`](../spec/) (start with [`spec/core.md`](../spec/core.md)) |
 | The conformance vectors and the independent Python verifier | [`conformance/pack-v1.1/`](../conformance/pack-v1.1/) |
 | The reader in Rust and WebAssembly | [`reader-rs/`](../reader-rs/) |
+| The end-to-end test: one new pack through every client package, as installed | [`e2e/`](e2e/) |
 | The .NET verifier and the `ampack` tool | [`src/AgentMemory.Packs.Format/`](../src/AgentMemory.Packs.Format/), [`tools/Ampack/`](../tools/Ampack/) |
 | Certified packs and the hub | https://memcert.dev |
 | The paper | https://doi.org/10.5281/zenodo.24012989 |

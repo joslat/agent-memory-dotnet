@@ -3,6 +3,9 @@
   <!-- The Ampack client package and its command: the conformance vectors through the public surface, reading a verified
        pack, and what the assembly must not hold (no signing, no dependency beyond .NET). -->
   <PropertyGroup>
+    <!-- The package ships a build for each of these; the tests run against every one of them. -->
+    <TargetFramework></TargetFramework>
+    <TargetFrameworks>net10.0;net9.0;net8.0</TargetFrameworks>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
   </PropertyGroup>

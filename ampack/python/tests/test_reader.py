@@ -42,6 +42,22 @@ def test_a_knowledge_pack_reads():
         pack.files["pack.json"] = b"{}"      # what was verified cannot be changed
 
 
+def test_the_files_are_the_ones_the_digest_covers():
+    """The file list, the signatures and the attestations travel beside the content. This vector verifies and carries a
+    certificate nobody checked: it must not come out as a file of the verified pack."""
+    pack = ampack.load(VECTORS / "attestation-certificate-content-unchecked.ampack", TRUST)
+    assert "pack.json" in pack.files
+    assert [p for p in pack.files if p.startswith("META/")] == []
+    for v in RESULTS["vectors"]:
+        plain = v["kind"] == "pack" and v["policy"] == "trust.json" and not v.get("revocations") and "location" not in v
+        if plain and v["expected"] == "verified":
+            loaded = ampack.load(VECTORS / (v["vector"] + ".ampack"), TRUST)
+            for each in (loaded, *loaded.members):
+                beside = [p for p in each.files
+                          if p == "META/files.json" or p.startswith(("META/signatures/", "META/attestations/"))]
+                assert beside == [], f"{v['vector']}: {beside}"
+
+
 def test_bytes_are_taken_as_well_as_paths():
     pack = ampack.load((VECTORS / "valid-python-built.ampack").read_bytes(), TRUST.read_bytes())
     assert pack.id == "io.example.notes"

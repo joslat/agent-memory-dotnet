@@ -1,0 +1,136 @@
+# The client packages of the ampack format, end to end.
+#
+# ampack/e2e/run.py builds the four packages from the checkout (the Python wheel, the npm package, the Rust crates and
+# command, the NuGet library and its command), installs each the way its users do, makes new keys and new packs with the
+# pack builder, and gives every case to every client: each must reach the expected verdict, and where a pack verifies,
+# every library must have read the same pack, which must be the pack that was written.
+#
+# Then the tests of the two clients that the main CI job does not build: the JavaScript package and the Rust crates.
+# (The Python package's tests and the .NET package's tests run in CI, "Complete verification".)
+#
+# It runs only when something these packages are made of changes. Nothing is uploaded to a package index from here: the
+# built packages are kept with the run, to look at.
+name: ampack clients
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'ampack/**'
+      - 'reader-rs/**'
+      - 'src/Ampack/**'
+      - 'tools/Ampack.Tool/**'
+      - 'tools/Ampack/**'
+      - 'src/AgentMemory.Packs.Format/**'
+      - 'spec/**'
+      - 'conformance/pack-v1.1/**'
+      - '.github/workflows/ampack-clients.yml'
+
+  push:
+    branches: [main]
+    paths:
+      - 'ampack/**'
+      - 'reader-rs/**'
+      - 'src/Ampack/**'
+      - 'tools/Ampack.Tool/**'
+      - 'tools/Ampack/**'
+      - 'src/AgentMemory.Packs.Format/**'
+      - 'spec/**'
+      - 'conformance/pack-v1.1/**'
+      - '.github/workflows/ampack-clients.yml'
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ampack-clients-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: 'true'
+  DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+
+jobs:
+  end-to-end:
+    name: End to end
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+          dotnet-version: |
+            8.0.x
+            9.0.x
+
+      # Python 3.12 exactly: the verifier decides with Unicode 15.0 data.
+      - name: Setup Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+
+      # Node and Rust are the runner's own. The npm package asks for Node 20 or later.
+      - name: Toolchains
+        run: |
+          node --version
+          npm --version
+          node -e "if (+process.versions.node.split('.')[0] < 20) { console.error('Node 20 or later is needed'); process.exit(1) }"
+          rustup target add wasm32-unknown-unknown
+          cargo --version
+
+      - name: Build, install as a user, make packs, compare every client
+        run: python ampack/e2e/run.py --work "$RUNNER_TEMP/e2e"
+
+      # The component as the npm package carries it: the package's own tests, then every plain pack vector of the kit.
+      - name: JavaScript package, tests
+        if: success() || failure()
+        working-directory: reader-rs/js
+        run: |
+          npm test
+          npm run kit
+
+      - name: Rust crates, tests
+        if: success() || failure()
+        working-directory: reader-rs
+        run: cargo test --locked
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/e2e/build/cargo
+
+      # Every vector of the conformance kit through the command as cargo install gave it. One vector cannot run from a
+      # checkout: its trust policy holds a private key, which is made only while the kit is generated and is never
+      # committed. The run reports it as blocked and ends with 3; that one, by name, with every other vector agreeing,
+      # is accepted here. Anything else fails.
+      - name: Rust command, the conformance vectors
+        if: success() || failure()
+        run: |
+          set +e
+          python conformance/pack-v1.1/run_third.py "$RUNNER_TEMP/e2e/users/rust/bin/ampack-rs" --no-wait | tee third.txt
+          code=${PIPESTATUS[0]}
+          set -e
+          if [ "$code" = "3" ] \
+            && grep -Eq '^total +([0-9]+) / \1 ' third.txt \
+            && grep -q '^blocked, a test input is missing (1)' third.txt \
+            && grep -q '^  policy-with-a-private-key:' third.txt; then
+            echo "Accepted: the one vector that needs a generated private key is blocked; every other vector agrees."
+            code=0
+          fi
+          exit "$code"
+
+      - name: Keep the packages and the results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ampack-client-packages
+          path: |
+            ${{ runner.temp }}/e2e/packages/
+            ${{ runner.temp }}/e2e/results.json
+          if-no-files-found: warn
+          retention-days: 14

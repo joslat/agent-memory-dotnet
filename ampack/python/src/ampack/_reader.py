@@ -99,12 +99,18 @@ class Record:
     line: int
 
 
+def _listed(path: str) -> bool:
+    """A file the pack's digest covers. The file list itself, the signatures and the attestations travel beside the
+    content: verifying a pack does not make an attestation trusted, so none of them is handed out as the pack's."""
+    return path != _v.FILES and not path.startswith(_v.SIGNATURES) and not path.startswith(_v.ATTESTATIONS)
+
+
 class Pack:
     """A verified pack. Create one with ampack.load()."""
 
     def __init__(self, files: Mapping[str, bytes], pid: str, version: str, digest: str, manifest: Mapping[str, Any],
                  members: Sequence["Pack"] = ()) -> None:
-        self._files = MappingProxyType(dict(files))
+        self._files = MappingProxyType({path: data for path, data in files.items() if _listed(path)})
         self.id, self.version, self.digest = pid, version, digest
         self.manifest: Mapping[str, Any] = manifest
         self.members: Sequence[Pack] = tuple(members)
@@ -124,7 +130,8 @@ class Pack:
 
     @property
     def files(self) -> Mapping[str, bytes]:
-        """Every file of the pack by its path, as verified. Read-only."""
+        """Every file the pack's digest covers, by its path. Read-only. The file list (META/files.json), the signatures
+        and the attestations beside them are not among these."""
         return self._files
 
     def json(self, path: str) -> Any:

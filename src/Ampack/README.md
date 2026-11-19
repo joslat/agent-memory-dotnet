@@ -58,6 +58,9 @@ never treat it as a verdict.
   16 files, 64 KiB a line, nesting 8).
 - **Not checked by this reader:** whether a record fits the pack's ontology (its type, required properties, relations).
   A host that imports records checks that.
+- **Handed out:** only the files the pack's digest covers. The signatures and the attestations (certificates, erasure
+  statements) travel beside them and are not handed out as the pack's files: verifying a pack does not make an
+  attestation trusted.
 
 This package is a reader-only build of the format's .NET verifier, the one the conformance vectors are run against. It
 shares no code with the Python and Rust verifiers, and must reach the same verdict as they do on every vector.

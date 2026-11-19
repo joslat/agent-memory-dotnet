@@ -49,6 +49,18 @@ test("a knowledge pack reads", () => {
   assert.equal(pack.manifest.id, pack.id);
 });
 
+test("the files are the ones the digest covers", () => {
+  // This vector verifies and carries a certificate nobody checked: it must not come out as a file of the verified pack.
+  const pack = load(vector("attestation-certificate-content-unchecked"), trust);
+  assert.ok(pack.has("pack.json"));
+  assert.deepEqual(pack.paths.filter(p => p.startsWith("META/")), []);
+  for (const v of plain.filter(v => v.expected === "verified" && v.policy === "trust.json" && !(v.revocations ?? []).length)) {
+    const loaded = load(vector(v.vector), trust);
+    for (const each of [loaded, ...loaded.members])
+      assert.deepEqual(each.paths.filter(p => p === "META/files.json" || p.startsWith("META/signatures/") || p.startsWith("META/attestations/")), [], v.vector);
+  }
+});
+
 test("the trust policy may be given as text", () => {
   assert.equal(load(vector("valid-python-built"), readFileSync(join(kit, "trust.json"), "utf8")).id, "io.example.notes");
 });

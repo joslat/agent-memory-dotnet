@@ -19,7 +19,11 @@ impl Guest for Reader {
 
     fn load(archive: Vec<u8>, policy: Vec<u8>, revocations: Vec<Vec<u8>>, now: String) -> Result<Loaded, String> {
         let (info, files) = verified(&archive, &policy, &revocations, &now)?;
-        Ok(Loaded { info, files: files.into_iter().map(|(path, data)| PackFile { path, data }).collect() })
+        // Only the files the pack's digest covers leave the component. The file list itself, the signatures and the
+        // attestations travel beside the content: verifying a pack does not make an attestation trusted.
+        use ampack_core::pack::{ATTESTATIONS, FILES, SIGNATURES};
+        let listed = |path: &str| path != FILES && !path.starts_with(SIGNATURES) && !path.starts_with(ATTESTATIONS);
+        Ok(Loaded { info, files: files.into_iter().filter(|(path, _)| listed(path)).map(|(path, data)| PackFile { path, data }).collect() })
     }
 
     fn inspect(archive: Vec<u8>) -> Result<Summary, String> {

@@ -1,0 +1,11 @@
+<Project>
+  <!-- The repository's settings, then one more. The solution holds two projects named Ampack: this client library and the
+       workshop tool (tools/Ampack). In a build with one shared output folder (dotnet build with an artifacts path, or
+       UseArtifactsOutput) both would write to obj/Ampack and overwrite each other's restore file. This gives the library
+       its own folder name there. The assembly, the namespace and the package stay Ampack. -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <PropertyGroup>
+    <ArtifactsProjectName>Ampack.Client</ArtifactsProjectName>
+  </PropertyGroup>
+</Project>
