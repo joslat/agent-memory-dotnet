@@ -8,6 +8,29 @@ public class Neo4jOptions
     public string Database { get; set; } = "neo4j";
     public int MaxConnectionPoolSize { get; set; } = 100;
     public TimeSpan ConnectionAcquisitionTimeout { get; set; } = TimeSpan.FromSeconds(60);
+
+    /// <summary>
+    /// How long the driver tries to open one connection before it gives up. <see langword="null"/> (default) keeps
+    /// the driver's own default, and the driver is configured exactly as before.
+    /// </summary>
+    /// <remarks>
+    /// For a host that must fail fast when the store is unreachable, such as a voice turn with a deadline in hundreds
+    /// of milliseconds. With <see cref="MaxTransactionRetryTime"/> it bounds how long a call keeps working after its
+    /// caller stopped waiting.
+    /// </remarks>
+    public TimeSpan? ConnectionTimeout { get; set; }
+
+    /// <summary>
+    /// How long a managed transaction keeps retrying transient failures, such as an unreachable or restarting server.
+    /// <see langword="null"/> (default) keeps the driver's own default (30 seconds), and the driver is configured
+    /// exactly as before; <see cref="TimeSpan.Zero"/> means one attempt.
+    /// </summary>
+    /// <remarks>
+    /// The driver's transaction functions take no <see cref="CancellationToken"/>, so a retry loop keeps running after
+    /// the caller's deadline has passed and the caller has moved on. This is the setting that bounds that loop.
+    /// </remarks>
+    public TimeSpan? MaxTransactionRetryTime { get; set; }
+
     public bool EncryptionEnabled { get; set; } = false;
 
     /// <summary>
