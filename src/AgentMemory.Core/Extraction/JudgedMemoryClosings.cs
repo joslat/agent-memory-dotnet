@@ -102,7 +102,7 @@ internal sealed class JudgedMemoryClosings
                 return;
             }
             var verdicts = await _policy.EvaluateAsync(
-                new MemoryUpdateRequest(extraction.SourceText.Length > 0 ? extraction.SourceText : null, _clock.GetUtcNow(), pairs),
+                new MemoryUpdateRequest(extraction.SourceText.Length > 0 ? extraction.SourceText : null, extraction.SourceSaidAtUtc ?? _clock.GetUtcNow(), pairs),
                 cancellationToken).ConfigureAwait(false);
             var closedOnce = new HashSet<string>(StringComparer.Ordinal);
             var closings = 0;
@@ -269,7 +269,7 @@ internal sealed class JudgedMemoryClosings
                 ? targets.Keys.Where(key => prejudged.ContainsKey(verdictKeys[key]))
                     .ToDictionary(key => key, key => prejudged[verdictKeys[key]], StringComparer.Ordinal)
                 : await _policy.EvaluateAsync(
-                    new MemoryUpdateRequest(extraction.SourceText.Length > 0 ? extraction.SourceText : null, _clock.GetUtcNow(), pairs) { Named = true },
+                    new MemoryUpdateRequest(extraction.SourceText.Length > 0 ? extraction.SourceText : null, extraction.SourceSaidAtUtc ?? _clock.GetUtcNow(), pairs) { Named = true },
                     cancellationToken).ConfigureAwait(false);
             var closings = 0;
             var closedOnce = new HashSet<string>(StringComparer.Ordinal);
@@ -405,7 +405,7 @@ internal sealed class JudgedMemoryClosings
             }
             if (pairs.Count == 0) return verdicts;
             var answered = await _policy.EvaluateAsync(
-                new MemoryUpdateRequest(extraction.SourceText.Length > 0 ? extraction.SourceText : null, _clock.GetUtcNow(), pairs) { Named = true },
+                new MemoryUpdateRequest(extraction.SourceText.Length > 0 ? extraction.SourceText : null, extraction.SourceSaidAtUtc ?? _clock.GetUtcNow(), pairs) { Named = true },
                 cancellationToken).ConfigureAwait(false);
             foreach (var (key, probability) in answered)
                 if (keys.TryGetValue(key, out var verdictKey)) verdicts[verdictKey] = probability;

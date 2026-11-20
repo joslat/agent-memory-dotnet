@@ -72,6 +72,9 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
         // another owner's: what is read here goes into the prompt.
         var scope = SharedScopes.OwnedOrShared(SharedScopes.WriteOwner(request.Scope));
         var now = _services.GetService<TimeProvider>()?.GetUtcNow() ?? DateTimeOffset.UtcNow;
+        // When the turn was said: the model reads "tomorrow" and "last month" against it, so a turn written later (a
+        // replay, a retried journal write, an import) means what it meant when it was said. Live, it is today.
+        var saidAt = said.Select(m => m.TimestampUtc).Where(t => t != default).DefaultIfEmpty(now).Max();
         var owner = await OwnerNameAsync(scope, cancellationToken).ConfigureAwait(false);
         var text = string.Join("\n", said.Select(m => m.Content));
         var stored = await StoredAsync(text, owner, scope, now, cancellationToken).ConfigureAwait(false);
@@ -79,7 +82,7 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
 
         var system = MemoryWriterPrompt.System(owner, _options.MemoryWriterMaxOperations, _options.MemoryWriterEventIdentities == true);
         if (_options.MemoryWriterEventIdentities == true) system += MemoryWriterPrompt.EventIdentityInstructions;
-        var context = MemoryWriterPrompt.Context(now, request.Window, owner, stored);
+        var context = MemoryWriterPrompt.Context(saidAt, request.Window, owner, stored);
         var (answered, dropped, reply) = await AskAsync(system, context, cancellationToken).ConfigureAwait(false);
 
         // #249. Every operation that writes must quote the words it rests on, and the quote must be in the message: one
@@ -107,7 +110,6 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
             // The dates the facts' own words state, as date fields too (the words stay as written). A yearless date is
             // read against when the message was said, not when it is written: a replayed November 2025 turn saying
             // "December 3" means December 2025. One user message is the writer's turn; with several, the last one.
-            var saidAt = said.Select(m => m.TimestampUtc).DefaultIfEmpty(now).Max();
             result = result with { Facts = [.. result.Facts.Select(fact => AgentMemory.Core.Memory.FactDateReader.Apply(fact, saidAt))] };
         }
         if (rejected.Count > 0) result = result with { Outcomes = rejected };

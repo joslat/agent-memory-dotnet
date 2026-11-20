@@ -522,6 +522,7 @@ internal sealed class ExtractionStage : IExtractionStage
             FilteredRelationships = filteredRels.AsReadOnly(),
             SourceMessageIds = sourceMessageIds,
             SourceText = string.Join(" ", messages.Select(m => m.Content).Where(c => !string.IsNullOrWhiteSpace(c))),
+            SourceSaidAtUtc = messages.Select(m => m.TimestampUtc).Where(t => t != default).Select(t => (DateTimeOffset?)t).Max(),
             MergeStrategy = strategy,
             EntityExtractorCount = _entityExtractors.Count,
             FactExtractorCount = _factExtractors.Count,

@@ -122,6 +122,29 @@ public sealed class PersistenceStageUpdateJudgeTests
             && r.Pairs.Single().StoredMemory == "Marta | is running | the Lyon 10k"), Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task The_judge_reads_dates_against_when_the_turn_was_said()
+    {
+        // Persisted on 3 October 2026 (the clock), said on 20 September: "today" for the judge is the 20th.
+        JudgeSays(0.93);
+        var said = new DateTimeOffset(2026, 9, 20, 8, 30, 0, TimeSpan.Zero);
+
+        await CreateSut().PersistAsync(Dropped10k() with { SourceSaidAtUtc = said });
+
+        await _judge.Received(1).JudgeAsync(Arg.Is<MemoryUpdateRequest>(r => r.Now == said), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Without_a_said_time_the_judge_uses_the_clock()
+    {
+        JudgeSays(0.93);
+
+        await CreateSut().PersistAsync(Dropped10k());
+
+        await _judge.Received(1).JudgeAsync(Arg.Is<MemoryUpdateRequest>(r => r.Now == new DateTimeOffset(2026, 10, 3, 11, 0, 0, TimeSpan.Zero)),
+            Arg.Any<CancellationToken>());
+    }
+
     [Theory]
     [InlineData(0.64)]
     [InlineData(0.2)]

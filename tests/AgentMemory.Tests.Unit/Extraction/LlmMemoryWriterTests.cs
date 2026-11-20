@@ -299,6 +299,29 @@ public sealed class LlmMemoryWriterTests
     }
 
     [Fact]
+    public async Task A_replayed_turn_is_shown_to_the_model_on_the_day_it_was_said()
+    {
+        // Written on 5 March 2027 (the clock), said on Sunday 9 November 2025: "tomorrow" in it means 10 November 2025.
+        var said = new DateTimeOffset(2025, 11, 9, 10, 0, 0, TimeSpan.Zero);
+        var request = new MemoryWriteRequest(new ExtractionWindow
+        {
+            Targets = [new Message { MessageId = "m", ConversationId = "c", SessionId = "s", Role = "user", Content = "I fly to Oslo tomorrow.", TimestampUtc = said }],
+        }, MemoryScope.For("bruna"));
+
+        await Writer().WriteAsync(request);
+
+        _asked.Should().ContainSingle().Which.User.Should().StartWith("TODAY: Sunday 9 November 2025\n");
+    }
+
+    [Fact]
+    public async Task A_live_turn_is_shown_on_today()
+    {
+        await Writer().WriteAsync(Turn("I fly to Oslo tomorrow.", MemoryScope.For("bruna")));
+
+        _asked.Should().ContainSingle().Which.User.Should().StartWith("TODAY: Friday 5 March 2027\n");
+    }
+
+    [Fact]
     public async Task Without_DatesFromText_the_writers_facts_stay_as_written()
     {
         _replies.Enqueue("{\"ops\": [{\"op\": \"add\", \"kind\": \"fact\", \"text\": \"Bruna | scheduled the training session for | December 3\"}]}");

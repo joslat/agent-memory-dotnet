@@ -52,6 +52,12 @@ internal sealed record ExtractionStageResult
     /// <summary>What the extracted turns said, for a judge on the write path (41.06); empty when nothing was extracted.</summary>
     public string SourceText { get; init; } = "";
 
+    /// <summary>
+    /// When the extracted turns were said (the latest message time); the judge on the write path reads relative dates
+    /// against it, so a turn written later means what it meant when it was said. Null: unknown, the clock is used.
+    /// </summary>
+    public DateTimeOffset? SourceSaidAtUtc { get; init; }
+
     // ── Metadata ──
 
     public MergeStrategyType MergeStrategy { get; init; }
