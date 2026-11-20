@@ -29,6 +29,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   entity named after the user, so with no name known the connection was skipped ("target entity 'user' was not
   persisted") and only the entity Tom remained, which fact and preference recall never return. Such a connection is now
   kept as the fact `Tom | pet cat of | user`. Once the user's name is known it stays a connection, as before.
+- A turn written after it was said (a replay, an import, a write a journal retries after a restart) is read against
+  the day it was said. The store-aware writer showed the model "TODAY" from the clock and the update judge got the
+  clock's "Today", so "tomorrow" and "last month" moved with the delay; only the date fields read from the words used
+  the time the turn was said. Both now use the latest message time (the clock when none is known). Live writes are
+  unchanged: it is the same day.
+
+### Changed
+
+- The store-aware writer's rules add one sentence to "a new event ends what it changes": the replacing memory says what
+  is true now, in the words of the memory it replaces with the new value ("Anna | lives in | Madrid" replaces
+  "Anna | lives in | Lisbon" when she moves); the move itself, with its date, can be a separate memory. Before, a
+  replacement could be written as the event ("Anna | moved to | Madrid last month"), which closed the old value but no
+  longer answered the question the old value answered ("where does my sister live?"). Applies to every host using the
+  writer, the Recommended preset included.
 
 ### Added
 
