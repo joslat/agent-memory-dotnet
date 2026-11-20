@@ -201,6 +201,24 @@ class MemoryClient:
         return WriteResult.from_json(self.call(
             operation_resolve_request(operation_id=operation_id, request_id=request_id), timeout_ms))
 
+    def forget(self, *, operation_id: str | None = None, memory_ids: Sequence[str] | None = None,
+               request_id: str | None = None, timeout_ms: int = 0) -> WriteResult:
+        """Stops using what one remember produced (``operation_id``) or the owner's memories by id (``memory_ids``).
+
+        Forgotten memories are closed, not deleted: recall no longer returns them. A remember that has not started yet is
+        cancelled instead.
+        """
+        return WriteResult.from_json(self.call(
+            forget_request(operation_id=operation_id, memory_ids=memory_ids, request_id=request_id), timeout_ms))
+
+    def erase_owner(self, *, confirm: bool, request_id: str | None = None, timeout_ms: int = 0) -> WriteResult:
+        """Deletes everything of the configured owner and purges their words from the journal. Cannot be undone.
+
+        Refused while any write is accepted or running. The receipt says ``applied`` only when nothing of the owner is
+        left in the store.
+        """
+        return WriteResult.from_json(self.call(erase_owner_request(confirm=confirm, request_id=request_id), timeout_ms))
+
     # Lifetime ------------------------------------------------------------------------------------------------------
     def close(self, timeout_s: float = 10.0) -> None:
         """Stops admission and waits until running work has settled, then disposes the context."""
@@ -282,6 +300,25 @@ def operation_resolve_request(*, operation_id: str, request_id: str | None = Non
     return request
 
 
+def forget_request(*, operation_id: str | None = None, memory_ids: Sequence[str] | None = None,
+                   request_id: str | None = None) -> dict[str, Any]:
+    request: dict[str, Any] = {"schemaVersion": 1, "operation": "memory_forget"}
+    if operation_id is not None:
+        request["operationId"] = operation_id
+    if memory_ids is not None:
+        request["memoryIds"] = list(memory_ids)
+    if request_id is not None:
+        request["requestId"] = request_id
+    return request
+
+
+def erase_owner_request(*, confirm: bool, request_id: str | None = None) -> dict[str, Any]:
+    request: dict[str, Any] = {"schemaVersion": 1, "operation": "memory_erase_owner", "confirm": bool(confirm)}
+    if request_id is not None:
+        request["requestId"] = request_id
+    return request
+
+
 class AsyncMemoryClient:
     """The same operations for asyncio. Native calls never run on the event loop.
 
@@ -354,6 +391,14 @@ class AsyncMemoryClient:
     async def resolve(self, **arguments: Any) -> WriteResult:
         timeout_ms = int(arguments.pop("timeout_ms", 0))
         return WriteResult.from_json(await self.call(operation_resolve_request(**arguments), timeout_ms))
+
+    async def forget(self, **arguments: Any) -> WriteResult:
+        timeout_ms = int(arguments.pop("timeout_ms", 0))
+        return WriteResult.from_json(await self.call(forget_request(**arguments), timeout_ms))
+
+    async def erase_owner(self, **arguments: Any) -> WriteResult:
+        timeout_ms = int(arguments.pop("timeout_ms", 0))
+        return WriteResult.from_json(await self.call(erase_owner_request(**arguments), timeout_ms))
 
     async def state(self) -> ContextState:
         return await asyncio.get_running_loop().run_in_executor(self._bridge, self._client.state)

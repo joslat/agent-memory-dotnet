@@ -126,6 +126,10 @@ internal sealed class NativeContext
                 : throw new ContractException("operation_not_found", "No operation with that id is in this journal."),
             OperationResolveRequest resolve => ResultWriter.Receipt(OperationResolveRequest.Name, resolve.RequestId,
                 _writes!.Keep(resolve.OperationId), duplicate: false, job.Timing()),
+            ForgetRequest forget => await AwaitOperationAsync(ForgetRequest.Name, forget.RequestId,
+                _writes!.AdmitForget(forget.TargetOperationId, forget.MemoryIds), job, token).ConfigureAwait(false),
+            EraseOwnerRequest erase => await AwaitOperationAsync(EraseOwnerRequest.Name, erase.RequestId,
+                _writes!.AdmitErase(), job, token).ConfigureAwait(false),
             _ => throw new ContractException("unknown_operation", $"Operation '{request.Operation}' is not offered."),
         };
 
@@ -137,6 +141,16 @@ internal sealed class NativeContext
     {
         var (operation, duplicate) = _writes!.Admit(request.SourceId, request.SessionId, request.Text, request.OccurredAt);
         byte[] Receipt() => ResultWriter.Receipt(RememberRequest.Name, request.RequestId, _writes.Snapshot(operation), duplicate, job.Timing());
+        job.SetStoppedResult(Receipt);
+        await operation.Ended.Task.WaitAsync(token).ConfigureAwait(false);
+        return Receipt();
+    }
+
+    /// <summary>Waits for an accepted forget or erase to end; a job that stops waiting still delivers the receipt.</summary>
+    private async Task<byte[]> AwaitOperationAsync(string name, string? requestId, Operation operation, NativeJob job,
+        CancellationToken token)
+    {
+        byte[] Receipt() => ResultWriter.Receipt(name, requestId, _writes!.Snapshot(operation), duplicate: false, job.Timing());
         job.SetStoppedResult(Receipt);
         await operation.Ended.Task.WaitAsync(token).ConfigureAwait(false);
         return Receipt();
@@ -220,8 +234,10 @@ internal sealed class NativeContext
         }
     }
 
-    public void State(out ulong stateRevision, out uint flags)
+    public void State(out ulong stateRevision, out uint flags, out ulong deletionEpoch, out ulong memoryRevision)
     {
+        deletionEpoch = _writes?.DeletionEpoch ?? 0;
+        memoryRevision = _writes?.MemoryRevision ?? 0;
         lock (_gate)
         {
             stateRevision = _stateRevision;

@@ -26,6 +26,7 @@ from agentmemory_native import _library as abi
 
 DIMENSIONS = 8
 OWNER = "gate-writer-owner"
+ERASED_OWNER = "gate-erased-owner"
 SAID = "2026-11-20T10:00:00Z"
 
 
@@ -51,6 +52,7 @@ class StubModel(http.server.BaseHTTPRequestHandler):
     lock = threading.Lock()
     writer_calls = 0
     judge_calls = 0
+    seen: list[str] = []  # the last message of every writer call
 
     def do_POST(self):  # noqa: N802 - the http.server naming
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
@@ -75,6 +77,8 @@ class StubModel(http.server.BaseHTTPRequestHandler):
             StubModel.release.wait(120)
         context = body["messages"][-1]["content"]
         said = next(line.split("(LAST MESSAGE): ", 1)[1] for line in context.splitlines() if "(LAST MESSAGE): " in line)
+        with StubModel.lock:
+            StubModel.seen.append(said)
         words = said.rstrip(".")
         operation = (
             {"op": "add", "kind": "preference", "text": words, "quote": said}
@@ -110,11 +114,11 @@ BASE = f"http://127.0.0.1:{SERVER.server_address[1]}"
 
 
 def config(state: str, *, uri: str | None = None, writer_timeout_ms: int = 30_000, profile: str = "explicit_write",
-           owner_mode: str = "fixed") -> dict:
+           owner_mode: str = "fixed", owner: str = OWNER) -> dict:
     document = {
         "schemaVersion": 1,
         "profile": profile,
-        "owner": {"mode": "fixed", "id": OWNER} if owner_mode == "fixed" else {"mode": owner_mode},
+        "owner": {"mode": "fixed", "id": owner} if owner_mode == "fixed" else {"mode": owner_mode},
         "store": {"uri": uri or os.environ["AMP_URI"], "username": os.environ["AMP_USER"],
                   "password": os.environ["AMP_PASSWORD"]},
         "embedding": {"dimensions": DIMENSIONS, "model": "stub-embedder",
@@ -179,7 +183,8 @@ class Test1Contract(unittest.TestCase):
             state = memory.state()
         self.assertEqual(caps["profile"], "explicit_write")
         self.assertEqual(caps["operations"], ["capabilities_get", "memory_get_context", "memory_remember",
-                                              "memory_operation_get", "memory_operation_resolve"])
+                                              "memory_operation_get", "memory_operation_resolve", "memory_forget",
+                                              "memory_erase_owner"])
         self.assertEqual(caps["writer"], {"model": "stub-writer", "entityIdentity": False})
         self.assertNotIn(BASE, json.dumps(caps))
         self.assertTrue(state.read_allowed and state.admission_allowed and state.write_quiescent)
@@ -416,6 +421,157 @@ class Test3Journal(unittest.TestCase):
         self.assertNotIn("locker", errors)
         self.assertEqual(os.stat(state).st_mode & 0o777, 0o700)
         self.assertEqual(os.stat(Path(state) / "journal.jsonl").st_mode & 0o777, 0o600)
+
+
+
+def recalled_ids(memory: MemoryClient, query: str) -> set[str]:
+    result = memory.get_context(session_id="s", query=query, max_facts=50, max_preferences=50, min_score=0.0)
+    assert result.ok, result.raw
+    return {f.id for f in result.facts} | {p.id for p in result.preferences}
+
+
+class Test4Privacy(unittest.TestCase):
+    def setUp(self):
+        StubModel.mode = "ok"
+        StubModel.release.set()
+
+    def test_a_forgotten_remember_is_no_longer_recalled_and_another_still_is(self):
+        with MemoryClient(config(new_state())) as memory:
+            oboe = memory.remember(source_id=source("oboe"), session_id="s", text="I play the oboe on Mondays.",
+                                   occurred_at=SAID).receipt
+            tomato = memory.remember(source_id=source("tomato"), session_id="s", text="I grow tomatoes on the balcony.",
+                                     occurred_at=SAID).receipt
+            self.assertTrue(oboe.remembered and tomato.remembered)
+            forget = memory.forget(operation_id=oboe.operation_id)
+            self.assertEqual((forget.status, forget.receipt.kind, forget.receipt.state), ("ok", "forget", "applied"))
+            self.assertEqual(set(forget.receipt.closed), set(oboe.facts))
+            self.assertEqual(memory.operation(operation_id=oboe.operation_id).receipt.state, "forgotten")
+            found = recalled_ids(memory, "oboe on Mondays tomatoes on the balcony")
+            self.assertFalse(set(oboe.facts) & found, "a forgotten memory was recalled")
+            self.assertTrue(set(tomato.facts) <= found)
+            by_id = memory.forget(memory_ids=list(tomato.facts) + ["no-such-memory"])
+            self.assertEqual(by_id.receipt.state, "applied")
+            self.assertEqual(by_id.receipt.closed, tomato.facts)
+            self.assertIn("not_found: no-such-memory", by_id.receipt.reason)
+            self.assertFalse(set(tomato.facts) & recalled_ids(memory, "tomatoes on the balcony"))
+
+    def test_a_forget_behind_a_running_remember_waits_and_then_closes_what_it_wrote(self):
+        StubModel.mode = "hold"
+        StubModel.release.clear()
+        memory = MemoryClient(config(new_state()))
+        try:
+            violin = memory.remember(source_id=source("violin"), session_id="s", text="I tune my violin every morning.",
+                                     occurred_at=SAID, timeout_ms=300).receipt
+            self.assertEqual(violin.state, "running")
+            forget = memory.forget(operation_id=violin.operation_id, timeout_ms=300).receipt
+            self.assertEqual((forget.kind, forget.state), ("forget", "accepted"))
+            StubModel.mode = "ok"
+            StubModel.release.set()
+            self.assertTrue(wait_until(lambda: memory.operation(operation_id=forget.operation_id).receipt.state == "applied"))
+            ended = memory.operation(operation_id=violin.operation_id).receipt
+            self.assertEqual(ended.state, "forgotten")
+            self.assertEqual(set(memory.operation(operation_id=forget.operation_id).receipt.closed), set(ended.facts))
+            self.assertFalse(set(ended.facts) & recalled_ids(memory, "tune my violin every morning"))
+        finally:
+            StubModel.mode = "ok"
+            StubModel.release.set()
+            memory.close(timeout_s=60)
+
+    def test_forgetting_a_remember_that_has_not_started_cancels_it(self):
+        StubModel.mode = "hold"
+        StubModel.release.clear()
+        memory = MemoryClient(config(new_state()))
+        try:
+            memory.remember(source_id=source("first"), session_id="s", text="I read before sleeping.", occurred_at=SAID,
+                            timeout_ms=300)
+            second = memory.remember(source_id=source("second"), session_id="s", text="My cat hides under the stairs.",
+                                     occurred_at=SAID, timeout_ms=300).receipt
+            self.assertEqual(second.state, "accepted")
+            memory.forget(operation_id=second.operation_id, timeout_ms=300)
+            self.assertEqual(memory.operation(operation_id=second.operation_id).receipt.state, "cancelled")
+            StubModel.mode = "ok"
+            StubModel.release.set()
+            self.assertTrue(wait_until(lambda: memory.state().write_quiescent))
+            self.assertNotIn("My cat hides under the stairs.", StubModel.seen, "a cancelled remember reached the writer")
+        finally:
+            StubModel.mode = "ok"
+            StubModel.release.set()
+            memory.close(timeout_s=60)
+
+    def test_an_unknown_remember_can_be_forgotten_and_recall_resumes(self):
+        state = new_state()
+        StubModel.mode = "hold"
+        StubModel.release.clear()
+        sid = source("unknown-forget")
+        dying = child(config(state), text="I keep my passport in the drawer.", source_id=sid)
+        try:
+            self.assertEqual(dying.stdout.readline().strip(), "open")
+            self.assertEqual(json.loads(dying.stdout.readline())["state"], "running")
+            dying.kill()
+            dying.wait()
+            StubModel.mode = "ok"
+            StubModel.release.set()
+            with MemoryClient(config(state)) as memory:
+                unknown = memory.operation(source_id=sid).receipt
+                self.assertEqual(unknown.state, "unknown")
+                self.assertFalse(memory.state().read_allowed)
+                forget = memory.forget(operation_id=unknown.operation_id).receipt
+                self.assertEqual(forget.state, "applied")
+                self.assertEqual(memory.operation(operation_id=unknown.operation_id).receipt.state, "forgotten")
+                self.assertTrue(memory.state().read_allowed)
+        finally:
+            StubModel.mode = "ok"
+            StubModel.release.set()
+            if dying.poll() is None:
+                dying.kill()
+            dying.communicate()
+
+    def test_erase_needs_confirmation_and_waits_for_quiescence(self):
+        StubModel.mode = "hold"
+        StubModel.release.clear()
+        memory = MemoryClient(config(new_state(), owner=ERASED_OWNER))
+        try:
+            unconfirmed = memory.erase_owner(confirm=False)
+            self.assertEqual((unconfirmed.status, unconfirmed.error.code), ("invalid", "confirmation_required"))
+            memory.remember(source_id=source("pending"), session_id="s", text="I water the ferns on Fridays.",
+                            occurred_at=SAID, timeout_ms=300)
+            refused = memory.erase_owner(confirm=True)
+            self.assertEqual((refused.status, refused.error.code), ("unavailable", "writes_pending"))
+        finally:
+            StubModel.mode = "ok"
+            StubModel.release.set()
+            memory.close(timeout_s=60)
+
+    def test_erase_deletes_everything_of_the_owner_purges_the_journal_and_nothing_comes_back(self):
+        # Another owner's memory, which must survive.
+        with MemoryClient(config(new_state())) as other:
+            survivor = other.remember(source_id=source("survivor"), session_id="s", text="I speak Portuguese at home.",
+                                      occurred_at=SAID).receipt
+            self.assertTrue(survivor.remembered)
+        state = Path(new_state())
+        words = ["My bank is the one by the station.", "I prefer window seats on trains."]
+        sources = [source("erase-a"), source("erase-b")]
+        with MemoryClient(config(str(state), owner=ERASED_OWNER)) as memory:
+            for sid, text in zip(sources, words):
+                self.assertTrue(memory.remember(source_id=sid, session_id="s", text=text, occurred_at=SAID).receipt.remembered)
+            self.assertTrue(recalled_ids(memory, "bank by the station window seats on trains"))
+            erase = memory.erase_owner(confirm=True)
+            receipt = erase.receipt
+            self.assertEqual((erase.status, receipt.kind, receipt.state), ("ok", "erase", "applied"), erase.raw)
+            self.assertGreaterEqual(receipt.deleted, 4)  # two memories, two messages, a conversation at least
+            self.assertEqual(recalled_ids(memory, "bank by the station window seats on trains"), set())
+            self.assertEqual(memory.state().deletion_epoch, 1)
+            self.assertTrue(memory.state().read_allowed)
+        journal = (state / "journal.jsonl").read_bytes().decode()
+        for text in words:
+            self.assertNotIn(text, journal, "an erased owner's words stayed in the journal")
+        calls = StubModel.writer_calls
+        with MemoryClient(config(str(state), owner=ERASED_OWNER)) as memory:
+            again = memory.remember(source_id=sources[0], session_id="s", text=words[0], occurred_at=SAID).receipt
+            self.assertEqual((again.duplicate, again.state), (True, "erased"))
+            self.assertEqual(StubModel.writer_calls, calls, "an erased source ran again")
+        with MemoryClient(config(new_state())) as other:
+            self.assertIn(survivor.facts[0], recalled_ids(other, "Portuguese at home"))
 
 
 if __name__ == "__main__":

@@ -16,6 +16,23 @@ internal enum OperationState
     Partial,
     Unknown,
     Kept,
+
+    /// <summary>Accepted, then cancelled before it ran (a forget or an erase came first): it never wrote anything.</summary>
+    Cancelled,
+
+    /// <summary>A remember whose memories a later forget closed: recall no longer returns them (they are not deleted).</summary>
+    Forgotten,
+
+    /// <summary>A write of an owner who was erased since: what it wrote is deleted, and its words are gone from the journal.</summary>
+    Erased,
+}
+
+/// <summary>What an operation does.</summary>
+internal enum OperationKind
+{
+    Remember,
+    Forget,
+    Erase,
 }
 
 /// <summary>A journal that cannot be used: held by another process, damaged, or not writable.</summary>
@@ -38,6 +55,9 @@ internal sealed class JournalRecord
     [JsonPropertyName("sessionId")] public string? SessionId { get; init; }
     [JsonPropertyName("text")] public string? Text { get; init; }
     [JsonPropertyName("occurredAt")] public DateTimeOffset? OccurredAt { get; init; }
+    [JsonPropertyName("op")] public string? Op { get; init; }
+    [JsonPropertyName("targetOperationId")] public string? TargetOperationId { get; init; }
+    [JsonPropertyName("memoryIds")] public List<string>? MemoryIds { get; init; }
 
     // ends
     [JsonPropertyName("reason")] public string? Reason { get; init; }
@@ -45,6 +65,7 @@ internal sealed class JournalRecord
     [JsonPropertyName("preferences")] public List<string>? Preferences { get; init; }
     [JsonPropertyName("closed")] public List<string>? Closed { get; init; }
     [JsonPropertyName("searchable")] public bool? Searchable { get; init; }
+    [JsonPropertyName("count")] public long? Count { get; init; }
 }
 
 [JsonSourceGenerationOptions(DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
@@ -61,7 +82,12 @@ internal sealed class Operation
     public required string SourceSha256 { get; init; }
     public required string Owner { get; init; }
     public required string SessionId { get; init; }
-    public required string Text { get; init; }
+    public OperationKind Kind { get; init; } = OperationKind.Remember;
+    public string? TargetOperationId { get; init; }
+    public IReadOnlyList<string> MemoryIds { get; init; } = [];
+
+    /// <summary>The remembered words; null for a forget or an erase, and after the owner was erased.</summary>
+    public string? Text { get; set; }
     public required DateTimeOffset OccurredAt { get; init; }
     public required DateTimeOffset AcceptedAt { get; init; }
     public DateTimeOffset? StartedAt { get; set; }
@@ -72,6 +98,7 @@ internal sealed class Operation
     public IReadOnlyList<string> Preferences { get; set; } = [];
     public IReadOnlyList<string> Closed { get; set; } = [];
     public bool Searchable { get; set; }
+    public long? Count { get; set; }
 
     /// <summary>Completes when the operation leaves <see cref="OperationState.Accepted"/> and <see cref="OperationState.Running"/>.</summary>
     public TaskCompletionSource Ended { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -81,14 +108,15 @@ internal sealed class Operation
 
     /// <summary>A consistent copy for a receipt, taken under the journal's lock.</summary>
     public OperationSnapshot Snapshot() => new(OperationId, SourceId, State, Reason, OccurredAt, AcceptedAt, StartedAt,
-        FinishedAt, Facts, Preferences, Closed, Searchable);
+        FinishedAt, Facts, Preferences, Closed, Searchable, Kind, TargetOperationId, Count);
 }
 
 /// <summary>An operation as a receipt shows it.</summary>
 internal sealed record OperationSnapshot(
     string OperationId, string SourceId, OperationState State, string? Reason, DateTimeOffset OccurredAt,
     DateTimeOffset AcceptedAt, DateTimeOffset? StartedAt, DateTimeOffset? FinishedAt, IReadOnlyList<string> Facts,
-    IReadOnlyList<string> Preferences, IReadOnlyList<string> Closed, bool Searchable);
+    IReadOnlyList<string> Preferences, IReadOnlyList<string> Closed, bool Searchable, OperationKind Kind = OperationKind.Remember,
+    string? TargetOperationId = null, long? Count = null);
 
 /// <summary>
 /// The durable journal of explicit writes: one JSON Lines file in a state directory held with an exclusive lock for the
@@ -109,16 +137,18 @@ internal sealed class OperationJournal : IDisposable
 
     private readonly object _gate = new();
     private readonly FileStream _lock;
-    private readonly FileStream _file;
+    private readonly string _path;
+    private FileStream _file;
     private readonly Dictionary<string, Operation> _byId = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Operation> _bySource = new(StringComparer.Ordinal);
     private readonly List<Operation> _order = [];
     private bool _disposed;
 
-    private OperationJournal(FileStream lockStream, FileStream file)
+    private OperationJournal(FileStream lockStream, FileStream file, string path)
     {
         _lock = lockStream;
         _file = file;
+        _path = path;
     }
 
     /// <summary>The object every change of an operation is made under; the writer and the readers lock it too.</summary>
@@ -147,7 +177,7 @@ internal sealed class OperationJournal : IDisposable
             file = new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None, 4096, FileOptions.None);
             if (created && !OperatingSystem.IsWindows())
                 File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-            var journal = new OperationJournal(lockStream, file);
+            var journal = new OperationJournal(lockStream, file, path);
             journal.Load(owner);
             return journal;
         }
@@ -239,8 +269,17 @@ internal sealed class OperationJournal : IDisposable
             var operation = new Operation
             {
                 OperationId = record.OperationId, SourceId = record.SourceId!, SourceSha256 = record.SourceSha256!,
-                Owner = record.Owner!, SessionId = record.SessionId!, Text = record.Text!, OccurredAt = record.OccurredAt!.Value,
+                Owner = record.Owner!, SessionId = record.SessionId!, Text = record.Text, OccurredAt = record.OccurredAt!.Value,
                 AcceptedAt = record.At,
+                Kind = record.Op switch
+                {
+                    null or "remember" => OperationKind.Remember,
+                    "forget" => OperationKind.Forget,
+                    "erase" => OperationKind.Erase,
+                    var other => throw new JournalException("journal_corrupt", $"The journal holds an unknown operation '{other}'."),
+                },
+                TargetOperationId = record.TargetOperationId,
+                MemoryIds = record.MemoryIds ?? [],
             };
             _byId[operation.OperationId] = operation;
             _bySource[operation.SourceId] = operation;
@@ -255,14 +294,17 @@ internal sealed class OperationJournal : IDisposable
                 known.State = OperationState.Running;
                 known.StartedAt = record.At;
                 break;
-            case "applied" or "rejected" or "partial" or "unknown" or "kept":
+            case "applied" or "rejected" or "partial" or "unknown" or "kept" or "cancelled" or "forgotten" or "erased":
                 known.State = record.Kind switch
                 {
                     "applied" => OperationState.Applied,
                     "rejected" => OperationState.Rejected,
                     "partial" => OperationState.Partial,
                     "unknown" => OperationState.Unknown,
-                    _ => OperationState.Kept,
+                    "kept" => OperationState.Kept,
+                    "cancelled" => OperationState.Cancelled,
+                    "forgotten" => OperationState.Forgotten,
+                    _ => OperationState.Erased,
                 };
                 known.FinishedAt = record.At;
                 if (record.Reason is not null) known.Reason = record.Reason;
@@ -270,6 +312,7 @@ internal sealed class OperationJournal : IDisposable
                 if (record.Preferences is not null) known.Preferences = record.Preferences;
                 if (record.Closed is not null) known.Closed = record.Closed;
                 if (record.Searchable is not null) known.Searchable = record.Searchable.Value;
+                if (record.Count is not null) known.Count = record.Count;
                 if (!known.IsPending) known.Ended.TrySetResult();
                 break;
             default:
@@ -281,17 +324,12 @@ internal sealed class OperationJournal : IDisposable
     public void AppendLocked(JournalRecord record)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        var json = JsonSerializer.SerializeToUtf8Bytes(record, JournalJsonContext.Default.JournalRecord);
-        var line = new ArrayBufferWriter<byte>(json.Length + 66);
-        line.Write(Encoding.ASCII.GetBytes(Convert.ToHexStringLower(SHA256.HashData(json))));
-        line.Write(" "u8);
-        line.Write(json);
-        line.Write("\n"u8);
+        var line = Line(record);
         var start = _file.Length;
         try
         {
             _file.Position = start;
-            _file.Write(line.WrittenSpan);
+            _file.Write(line);
             _file.Flush(flushToDisk: true);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
@@ -309,6 +347,90 @@ internal sealed class OperationJournal : IDisposable
             throw new JournalException("journal_unavailable", $"The journal could not be written: {exception.Message}", exception);
         }
         Apply(record, record.Kind == "accepted" ? record.Owner! : _byId[record.OperationId].Owner);
+    }
+
+    private static byte[] Line(JournalRecord record)
+    {
+        var json = JsonSerializer.SerializeToUtf8Bytes(record, JournalJsonContext.Default.JournalRecord);
+        var line = new ArrayBufferWriter<byte>(json.Length + 66);
+        line.Write(Encoding.ASCII.GetBytes(Convert.ToHexStringLower(SHA256.HashData(json))));
+        line.Write(" "u8);
+        line.Write(json);
+        line.Write("\n"u8);
+        return line.WrittenSpan.ToArray();
+    }
+
+    /// <summary>The record kind that ends an operation in <paramref name="state"/>.</summary>
+    public static string EndKind(OperationState state) => state switch
+    {
+        OperationState.Applied => "applied",
+        OperationState.Rejected => "rejected",
+        OperationState.Partial => "partial",
+        OperationState.Unknown => "unknown",
+        OperationState.Kept => "kept",
+        OperationState.Cancelled => "cancelled",
+        OperationState.Forgotten => "forgotten",
+        OperationState.Erased => "erased",
+        _ => throw new ArgumentOutOfRangeException(nameof(state), state, "Not an ending."),
+    };
+
+    /// <summary>
+    /// Owner erase: rewrites the journal from the operations it holds with every remembered text removed. Ids, source
+    /// hashes, states and times stay, so a resubmitted old source is still recognised (and never run again). The new
+    /// file is written beside the old one, flushed to the disk and renamed over it, so a crash leaves one or the other,
+    /// whole. Call under <see cref="Gate"/>.
+    /// </summary>
+    public void PurgeTextsLocked()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        foreach (var operation in _order) operation.Text = null;
+        var temporary = _path + ".purge";
+        try
+        {
+            using (var stream = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                foreach (var operation in _order)
+                {
+                    stream.Write(Line(new JournalRecord
+                    {
+                        Kind = "accepted", OperationId = operation.OperationId, At = operation.AcceptedAt,
+                        SourceId = operation.SourceId, SourceSha256 = operation.SourceSha256, Owner = operation.Owner,
+                        SessionId = operation.SessionId, OccurredAt = operation.OccurredAt,
+                        Op = operation.Kind switch { OperationKind.Forget => "forget", OperationKind.Erase => "erase", _ => null },
+                        TargetOperationId = operation.TargetOperationId,
+                        MemoryIds = operation.MemoryIds.Count == 0 ? null : [.. operation.MemoryIds],
+                    }));
+                    if (operation.StartedAt is { } started)
+                        stream.Write(Line(new JournalRecord { Kind = "running", OperationId = operation.OperationId, At = started }));
+                    if (!operation.IsPending)
+                        stream.Write(Line(new JournalRecord
+                        {
+                            Kind = EndKind(operation.State), OperationId = operation.OperationId,
+                            At = operation.FinishedAt ?? DateTimeOffset.UtcNow, Reason = operation.Reason,
+                            Facts = [.. operation.Facts], Preferences = [.. operation.Preferences], Closed = [.. operation.Closed],
+                            Searchable = operation.Searchable, Count = operation.Count,
+                        }));
+                }
+                stream.Flush(flushToDisk: true);
+            }
+            if (!OperatingSystem.IsWindows())
+                File.SetUnixFileMode(temporary, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            _file.Dispose();
+            File.Move(temporary, _path, overwrite: true);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            throw new JournalException("journal_unavailable", $"The journal could not be rewritten: {exception.Message}", exception);
+        }
+        finally
+        {
+            // Whichever file now stands at the journal's path (the rewritten one, or the old one if the rename failed).
+            if (!_file.CanWrite)
+            {
+                _file = new FileStream(_path, FileMode.Open, FileAccess.ReadWrite, FileShare.None, 4096, FileOptions.None);
+                _file.Position = _file.Length;
+            }
+        }
     }
 
     public Operation? FindLocked(string operationId) => _byId.GetValueOrDefault(operationId);

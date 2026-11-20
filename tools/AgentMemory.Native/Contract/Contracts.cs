@@ -249,6 +249,8 @@ internal abstract record NativeRequest
                 RememberRequest.Name when writes => RememberRequest.Read(root, requestId),
                 OperationGetRequest.Name when writes => OperationGetRequest.Read(root, requestId),
                 OperationResolveRequest.Name when writes => OperationResolveRequest.Read(root, requestId),
+                ForgetRequest.Name when writes => ForgetRequest.Read(root, requestId),
+                EraseOwnerRequest.Name when writes => EraseOwnerRequest.Read(root, requestId),
                 _ => throw new ContractException("unknown_operation",
                     $"Operation '{operation}' is not offered by profile '{config.ProfileName}'; it offers {string.Join(", ", Offered(config).Select(o => $"'{o}'"))}."),
             };
@@ -265,7 +267,8 @@ internal abstract record NativeRequest
 
     /// <summary>The operations a context of this configuration offers, in the order capabilities lists them.</summary>
     public static IReadOnlyList<string> Offered(OpenConfig config) => config.Profile == MemoryProfile.ExplicitWrite
-        ? [CapabilitiesRequest.Name, GetContextRequest.Name, RememberRequest.Name, OperationGetRequest.Name, OperationResolveRequest.Name]
+        ? [CapabilitiesRequest.Name, GetContextRequest.Name, RememberRequest.Name, OperationGetRequest.Name, OperationResolveRequest.Name,
+            ForgetRequest.Name, EraseOwnerRequest.Name]
         : [CapabilitiesRequest.Name, GetContextRequest.Name];
 
     /// <summary>A fixed context's requests may not name an owner: the configured one is the only one.</summary>
@@ -399,5 +402,44 @@ internal sealed record GetContextRequest : NativeRequest
             MaxPreferences = root.OptionalInt("maxPreferences", 5, 0, 50),
             MinScore = root.OptionalDouble("minScore", 0.7, 0.0, 1.0),
         };
+    }
+}
+
+/// <summary>
+/// <c>memory_forget</c>: stop using what one remember produced (<c>operationId</c>), or the owner's facts and preferences
+/// by id (<c>memoryIds</c>). Forgotten memories are closed, not deleted.
+/// </summary>
+internal sealed record ForgetRequest : NativeRequest
+{
+    public const string Name = "memory_forget";
+    public override string Operation => Name;
+
+    public string? TargetOperationId { get; init; }
+    public IReadOnlyList<string>? MemoryIds { get; init; }
+
+    public static ForgetRequest Read(StrictObject root, string? requestId)
+    {
+        RefuseOwner(root);
+        var operationId = root.OptionalString("operationId", 64);
+        var ids = root.OptionalStrings("memoryIds", 50, 256);
+        if ((operationId is null) == (ids is null))
+            throw new ContractException("target_required", "A request carries exactly one of $.operationId and $.memoryIds.");
+        return new ForgetRequest { RequestId = requestId, TargetOperationId = operationId, MemoryIds = ids };
+    }
+}
+
+/// <summary><c>memory_erase_owner</c>: delete everything of the configured owner. Needs <c>"confirm": true</c>.</summary>
+internal sealed record EraseOwnerRequest : NativeRequest
+{
+    public const string Name = "memory_erase_owner";
+    public override string Operation => Name;
+
+    public static EraseOwnerRequest Read(StrictObject root, string? requestId)
+    {
+        RefuseOwner(root);
+        if (!root.OptionalBool("confirm", false))
+            throw new ContractException("confirmation_required",
+                "$.confirm must be true: erasing the owner deletes everything of theirs and cannot be undone.");
+        return new EraseOwnerRequest { RequestId = requestId };
     }
 }

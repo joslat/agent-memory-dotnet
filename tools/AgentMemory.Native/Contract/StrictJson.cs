@@ -152,6 +152,23 @@ internal sealed class StrictObject
         };
     }
 
+    /// <summary>A non-empty array of distinct, non-blank strings, or null when absent.</summary>
+    public IReadOnlyList<string>? OptionalStrings(string name, int maxCount, int maxLength)
+    {
+        if (!TryGet(name, out var value)) return null;
+        if (value.ValueKind != JsonValueKind.Array || value.GetArrayLength() is 0 || value.GetArrayLength() > maxCount)
+            throw Wrong(name, $"an array of 1 to {maxCount} strings");
+        var items = new List<string>();
+        foreach (var item in value.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.String || item.GetString() is not { } text || string.IsNullOrWhiteSpace(text)
+                || text.Length > maxLength || items.Contains(text, StringComparer.Ordinal))
+                throw Wrong(name, $"an array of distinct strings of at most {maxLength} characters that are not blank");
+            items.Add(text);
+        }
+        return items;
+    }
+
     public StrictObject RequiredObject(string name) =>
         OptionalObject(name) ?? throw new ContractException("missing_property", $"{_path}.{name} is required.");
 

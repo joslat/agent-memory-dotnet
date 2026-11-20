@@ -94,10 +94,13 @@ class ContextResult:
 
 @dataclass(frozen=True)
 class Receipt:
-    """Where one explicit write stands. Only ``state == "applied"`` with ``searchable`` supports saying "remembered".
+    """Where one operation stands: a remember, a forget or an owner erase (``kind``).
 
-    States: "accepted" (durable, not started), "running", "applied", "rejected" (nothing recall reads was written; see
-    ``reason``), "partial" and "unknown" (recall stays paused until resolved), "kept" (resolved by keeping what it wrote).
+    Only a remember with ``state == "applied"`` and ``searchable`` supports saying "remembered". States: "accepted"
+    (durable, not started), "running", "applied", "rejected" (nothing recall reads was written; see ``reason``),
+    "partial" and "unknown" (recall stays paused until resolved), "kept" (resolved by keeping what it wrote),
+    "cancelled" (forgotten or erased before it ran), "forgotten" (a remember whose memories were closed by a forget:
+    no longer used, not deleted), "erased" (the owner was erased since).
     """
 
     operation_id: str
@@ -113,6 +116,9 @@ class Receipt:
     facts: tuple[str, ...]
     preferences: tuple[str, ...]
     closed: tuple[str, ...]
+    kind: str = "remember"
+    target_operation_id: str | None = None
+    deleted: int | None = None
 
     @property
     def ended(self) -> bool:
@@ -127,7 +133,8 @@ class Receipt:
         return Receipt(item["operationId"], item["sourceId"], item["state"], bool(item.get("duplicate", False)),
                        bool(item.get("searchable", False)), item.get("reason"), item["occurredAt"], item["acceptedAt"],
                        item.get("startedAt"), item.get("finishedAt"), tuple(item.get("facts", ())),
-                       tuple(item.get("preferences", ())), tuple(item.get("closed", ())))
+                       tuple(item.get("preferences", ())), tuple(item.get("closed", ())), item.get("kind", "remember"),
+                       item.get("targetOperationId"), item.get("deleted"))
 
 
 @dataclass(frozen=True)

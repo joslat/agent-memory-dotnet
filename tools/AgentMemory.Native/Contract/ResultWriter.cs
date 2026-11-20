@@ -119,7 +119,14 @@ internal static class ResultWriter
             WriteHead(writer, operation, requestId, "ok");
             writer.WriteStartObject("receipt");
             writer.WriteString("operationId", receipt.OperationId);
+            writer.WriteString("kind", receipt.Kind switch
+            {
+                Journal.OperationKind.Forget => "forget",
+                Journal.OperationKind.Erase => "erase",
+                _ => "remember",
+            });
             writer.WriteString("sourceId", receipt.SourceId);
+            WriteOptional(writer, "targetOperationId", receipt.TargetOperationId);
             writer.WriteBoolean("duplicate", duplicate);
             writer.WriteString("state", Journal.WriteCoordinator.Name(receipt.State));
             WriteOptional(writer, "reason", receipt.Reason);
@@ -131,6 +138,7 @@ internal static class ResultWriter
             WriteIds(writer, "facts", receipt.Facts);
             WriteIds(writer, "preferences", receipt.Preferences);
             WriteIds(writer, "closed", receipt.Closed);
+            if (receipt.Count is { } count) writer.WriteNumber("deleted", count); else writer.WriteNull("deleted");
             writer.WriteEndObject();
             WriteTiming(writer, timing);
         });

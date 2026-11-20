@@ -37,6 +37,8 @@ internal sealed class WriteCoordinator
     private bool _stopping;
     private int _open;
     private int _pending;
+    private long _deletionEpoch;
+    private long _memoryRevision;
 
     public WriteCoordinator(OperationJournal journal, ServiceProvider provider, MemorySettings settings, string owner,
         int maxQueued, Action stateChanged)
@@ -55,6 +57,12 @@ internal sealed class WriteCoordinator
 
     /// <summary>No operation is accepted or running: nothing can start writing.</summary>
     public bool WriteQuiescent => Volatile.Read(ref _pending) == 0;
+
+    /// <summary>How many owner erases have started (from the journal, so it survives restarts).</summary>
+    public ulong DeletionEpoch => (ulong)Interlocked.Read(ref _deletionEpoch);
+
+    /// <summary>How many operations have ended (any ending): it moves whenever the owner's memory may have changed.</summary>
+    public ulong MemoryRevision => (ulong)Interlocked.Read(ref _memoryRevision);
 
     /// <summary>Queues what was accepted before (in acceptance order) and starts the writer.</summary>
     public void Start()
@@ -101,6 +109,73 @@ internal sealed class WriteCoordinator
         }
         _stateChanged();
         return (operation, false);
+    }
+
+    /// <summary>
+    /// Accepts a forget: of everything one remember produced (<paramref name="targetOperationId"/>), or of the owner's
+    /// facts and preferences by id. A remember that has not started yet is cancelled at once instead (it never runs).
+    /// </summary>
+    public Operation AdmitForget(string? targetOperationId, IReadOnlyList<string>? memoryIds)
+    {
+        Operation operation;
+        lock (_journal.Gate)
+        {
+            if (targetOperationId is not null)
+            {
+                var target = _journal.FindLocked(targetOperationId)
+                    ?? throw new ContractException("operation_not_found", $"No operation '{targetOperationId}' is in this journal.");
+                if (target.Kind != OperationKind.Remember)
+                    throw new ContractException("not_a_remember", $"Operation '{targetOperationId}' is not a remember; only what a remember produced can be forgotten by its id.");
+            }
+            operation = AcceptLocked(OperationKind.Forget, targetOperationId, memoryIds);
+            if (targetOperationId is not null && _journal.FindLocked(targetOperationId) is { State: OperationState.Accepted } queued)
+                _journal.AppendLocked(new JournalRecord
+                {
+                    Kind = "cancelled", OperationId = queued.OperationId, At = DateTimeOffset.UtcNow,
+                    Reason = $"forgotten_before_it_ran: {operation.OperationId}",
+                });
+            Recount();
+        }
+        _stateChanged();
+        return operation;
+    }
+
+    /// <summary>
+    /// Accepts the erase of everything of the owner. Refused (nothing accepted) while any write is accepted or running:
+    /// an erase runs only when nothing else can still write.
+    /// </summary>
+    public Operation AdmitErase()
+    {
+        Operation operation;
+        lock (_journal.Gate)
+        {
+            if (_pending > 0)
+                throw new JournalException("writes_pending",
+                    $"{_pending} operation(s) are accepted or running; erase when they have ended. Nothing was accepted.");
+            operation = AcceptLocked(OperationKind.Erase, null, null);
+            Recount();
+        }
+        _stateChanged();
+        return operation;
+    }
+
+    private Operation AcceptLocked(OperationKind kind, string? targetOperationId, IReadOnlyList<string>? memoryIds)
+    {
+        if (_stopping) throw new JournalException("closing", "The context is closing; nothing was accepted.");
+        if (_pending >= _maxQueued)
+            throw new JournalException("write_queue_full",
+                $"{_pending} operations are already waiting (the limit is {_maxQueued}); nothing was accepted.");
+        var operationId = "op-" + Guid.NewGuid().ToString("N");
+        var now = DateTimeOffset.UtcNow;
+        _journal.AppendLocked(new JournalRecord
+        {
+            Kind = "accepted", OperationId = operationId, At = now, SourceId = "op:" + operationId, SourceSha256 = "",
+            Owner = _owner, SessionId = "", OccurredAt = now, Op = kind == OperationKind.Forget ? "forget" : "erase",
+            TargetOperationId = targetOperationId, MemoryIds = memoryIds is null ? null : [.. memoryIds],
+        });
+        var operation = _journal.FindLocked(operationId)!;
+        _queue.Writer.TryWrite(operation);
+        return operation;
     }
 
     public OperationSnapshot? Find(string? operationId, string? sourceId)
@@ -206,7 +281,16 @@ internal sealed class WriteCoordinator
         }
     }
 
-    private async Task<JournalRecord> RunAsync(Operation operation)
+    private Task<JournalRecord> RunAsync(Operation operation) => operation.Kind switch
+    {
+        OperationKind.Forget => RunForgetAsync(operation),
+        OperationKind.Erase => RunEraseAsync(operation),
+        _ => RunRememberAsync(operation),
+    };
+
+    private static string MessageId(Operation remember) => "msg-" + remember.OperationId["op-".Length..];
+
+    private async Task<JournalRecord> RunRememberAsync(Operation operation)
     {
         var messageId = "msg-" + operation.OperationId["op-".Length..];
         var input = new RememberInput
@@ -215,7 +299,7 @@ internal sealed class WriteCoordinator
             SessionId = operation.SessionId,
             ConversationId = ConversationId(operation.Owner, operation.SessionId),
             MessageId = messageId,
-            Text = operation.Text,
+            Text = operation.Text ?? throw new InvalidOperationException("A remember without its words cannot run."),
             OccurredAt = operation.OccurredAt,
         };
 
@@ -263,6 +347,140 @@ internal sealed class WriteCoordinator
         return End(operation, "applied", evidence.Items.Count == 0 ? "nothing_to_keep" : null, evidence, searchable: evidence.Items.Count > 0);
     }
 
+    /// <summary>
+    /// Closes what is to be forgotten, then checks the store: every closed id must read back closed. A remember forgotten
+    /// as a whole is marked forgotten. A store failure while closing is unknown (a transaction may still commit).
+    /// </summary>
+    private async Task<JournalRecord> RunForgetAsync(Operation operation)
+    {
+        Operation? target = null;
+        IReadOnlyList<string> ids;
+        if (operation.TargetOperationId is { } targetId)
+        {
+            lock (_journal.Gate) target = _journal.FindLocked(targetId);
+            if (target is null || target.State is OperationState.Cancelled or OperationState.Erased)
+                return End(operation, "applied", target is null ? "nothing_to_forget" : $"nothing_to_forget: {Name(target.State)}");
+            WrittenEvidence evidence;
+            try
+            {
+                evidence = await WriteComposition.EvidenceAsync(_provider, _settings, MessageId(target), CancellationToken.None)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception exception)
+            {
+                return End(operation, "unknown", $"evidence_unreadable: {exception.GetType().Name}");
+            }
+            ids = [.. evidence.Items.Where(i => i.Live && i.Owner == _owner).Select(i => i.Id)];
+        }
+        else
+        {
+            ids = operation.MemoryIds;
+        }
+
+        IReadOnlyList<string> closed, missing;
+        try
+        {
+            (closed, missing) = await WriteComposition.ForgetAsync(_provider, _owner, ids, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            return End(operation, IsStoreFailure(exception) ? "unknown" : "partial", $"failed_while_closing: {exception.GetType().Name}");
+        }
+
+        IReadOnlyList<WrittenItem> after;
+        try
+        {
+            after = await WriteComposition.ItemsAsync(_provider, _settings, closed, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            return End(operation, "unknown", $"evidence_unreadable: {exception.GetType().Name}");
+        }
+        var stillLive = after.Where(i => i.Live).Select(i => i.Id).ToList();
+        var end = new JournalRecord
+        {
+            Kind = stillLive.Count == 0 ? "applied" : "partial",
+            OperationId = operation.OperationId,
+            At = DateTimeOffset.UtcNow,
+            Reason = stillLive.Count > 0 ? $"still_live: {string.Join(",", stillLive)}"
+                : missing.Count > 0 ? $"not_found: {string.Join(",", missing)}"
+                : closed.Count == 0 ? "nothing_to_forget" : null,
+            Closed = [.. closed],
+        };
+        if (target is not null && stillLive.Count == 0)
+        {
+            lock (_journal.Gate)
+            {
+                // The remember is ended as forgotten in the same breath, so its receipt never says applied again.
+                if (target.State is not (OperationState.Cancelled or OperationState.Erased or OperationState.Forgotten))
+                    _journal.AppendLocked(new JournalRecord
+                    {
+                        Kind = "forgotten", OperationId = target.OperationId, At = DateTimeOffset.UtcNow,
+                        Reason = $"forgotten_by: {operation.OperationId}", Searchable = false,
+                    });
+            }
+        }
+        return end;
+    }
+
+    /// <summary>
+    /// Erases everything of the owner, checks that nothing is left, ends every earlier write as erased, and rewrites the
+    /// journal without any remembered words (always, even when the store part failed: the words are not needed again).
+    /// </summary>
+    private async Task<JournalRecord> RunEraseAsync(Operation operation)
+    {
+        List<string> messageIds;
+        lock (_journal.Gate)
+            messageIds = [.. _journal.OperationsLocked.Where(o => o.Kind == OperationKind.Remember).Select(MessageId)];
+
+        JournalRecord end;
+        long deleted = 0;
+        try
+        {
+            deleted = await WriteComposition.EraseOwnerAsync(_provider, _owner, CancellationToken.None).ConfigureAwait(false);
+            var remaining = await WriteComposition.RemainingAsync(_provider, _settings, _owner, messageIds, CancellationToken.None)
+                .ConfigureAwait(false);
+            end = remaining == 0
+                ? new JournalRecord { Kind = "applied", OperationId = operation.OperationId, At = DateTimeOffset.UtcNow, Count = deleted }
+                : new JournalRecord
+                {
+                    Kind = "partial", OperationId = operation.OperationId, At = DateTimeOffset.UtcNow, Count = deleted,
+                    Reason = $"remaining: {remaining}",
+                };
+        }
+        catch (Exception exception)
+        {
+            end = new JournalRecord
+            {
+                Kind = IsStoreFailure(exception) ? "unknown" : "partial", OperationId = operation.OperationId,
+                At = DateTimeOffset.UtcNow, Count = deleted, Reason = $"failed_while_erasing: {exception.GetType().Name}",
+            };
+        }
+
+        lock (_journal.Gate)
+        {
+            if (end.Kind == "applied")
+            {
+                // Everything earlier is gone with the owner: remembers end as erased, and an uncertain forget or erase is
+                // settled by this one, so recall can open again.
+                foreach (var earlier in _journal.OperationsLocked.Where(o => o != operation).ToList())
+                {
+                    var erased = earlier.Kind == OperationKind.Remember
+                        ? earlier.State is not (OperationState.Cancelled or OperationState.Erased)
+                        : earlier.State is OperationState.Partial or OperationState.Unknown;
+                    if (erased)
+                        _journal.AppendLocked(new JournalRecord
+                        {
+                            Kind = "erased", OperationId = earlier.OperationId, At = DateTimeOffset.UtcNow,
+                            Reason = $"erased_by: {operation.OperationId}", Searchable = false,
+                        });
+                }
+            }
+            _journal.PurgeTextsLocked();
+        }
+        return end;
+    }
+
     private static JournalRecord End(Operation operation, string kind, string? reason, WrittenEvidence? evidence = null,
         bool searchable = false) => new()
     {
@@ -307,19 +525,27 @@ internal sealed class WriteCoordinator
         OperationState.Rejected => "rejected",
         OperationState.Partial => "partial",
         OperationState.Unknown => "unknown",
-        _ => "kept",
+        OperationState.Kept => "kept",
+        OperationState.Cancelled => "cancelled",
+        OperationState.Forgotten => "forgotten",
+        _ => "erased",
     };
 
     /// <summary>Recounts open and pending operations. Call under the journal's lock.</summary>
     private void Recount()
     {
         int open = 0, pending = 0;
+        long erases = 0, ended = 0;
         foreach (var operation in _journal.OperationsLocked)
         {
             if (operation.IsOpen) open++;
             if (operation.IsPending) pending++;
+            if (operation.Kind == OperationKind.Erase && operation.StartedAt is not null) erases++;
+            if (!operation.IsPending) ended++;
         }
         Volatile.Write(ref _open, open);
         Volatile.Write(ref _pending, pending);
+        Interlocked.Exchange(ref _deletionEpoch, erases);
+        Interlocked.Exchange(ref _memoryRevision, ended);
     }
 }

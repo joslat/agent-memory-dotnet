@@ -162,7 +162,19 @@ The job ends when the write ends or the job's time runs out. From the moment the
 | `partial` | Some of it was written, but not everything succeeded or verified. | Paused until resolved |
 | `unknown` | The store failed while writing (a transaction may still commit), the evidence could not be read, or the process ended while it ran. It is never run again. | Paused until resolved |
 | `kept` | A partial or unknown write resolved by keeping what it wrote, as it is (not verified). | Open |
+| `cancelled` | Forgotten (or erased) before it ran: it never wrote anything. | Open |
+| `forgotten` | A remember whose memories a later `memory_forget` closed: recall no longer returns them. They are closed, not deleted. | Open |
+| `erased` | The owner was erased since: what it wrote is deleted, and its words are gone from the journal. | Open |
 
-`closed` lists the stored memories this write replaced (the update judge confirmed each one). `memory_operation_get` takes `operationId` or `sourceId` and returns the same receipt. `memory_operation_resolve` takes `operationId` and `"resolution": "keep"`; removing what a write produced arrives with the privacy controls.
+Every receipt has `kind` (`remember`, `forget` or `erase`). `closed` lists the stored memories this operation closed: for a remember, those it replaced (the update judge confirmed each one); for a forget, those it stopped using. `targetOperationId` is the remember a forget names; `deleted` is how many nodes an erase deleted. `memory_operation_get` takes `operationId` or `sourceId` and returns the same receipt. `memory_operation_resolve` takes `operationId` and `"resolution": "keep"`; removing what a write produced arrives with the privacy controls.
 
 While any write is accepted, running, partial or unknown, `memory_get_context` ends `unavailable` with `reads_paused`, and `am_v1_state` reports `READ_ALLOWED` off; `WRITE_QUIESCENT` is off while one is accepted or running. Closing never interrupts a running write: `am_v1_close` returns `AM_V1_BUSY` until it ends; writes still accepted run after the next open. The journal holds the remembered words (they are the evidence) and nothing is logged.
+
+### Forgetting and erasing
+
+| Operation | Request | What it does |
+|---|---|---|
+| `memory_forget` | `{"operationId": "op-…"}` or `{"memoryIds": ["…", …]}` (1-50 ids) | Stops using memories: closes every fact and preference one remember produced, or the owner's facts and preferences by id. They stay as history (as-of reads), never as current recall. Called **forgotten**, never deleted. A remember that has not started yet is cancelled instead (it never runs); a partial or unknown one can be forgotten, which also reopens recall. Ids that are no memory of the owner are listed in `reason` (`not_found: …`). |
+| `memory_erase_owner` | `{"confirm": true}` | Deletes every node of the owner (memories, messages, conversations, traces), then rewrites the journal without any remembered words (ids, hashes and states stay, so an old source sent again comes back as its `erased` receipt and never runs). `applied` only when nothing of the owner is left in the store. Refused with `writes_pending` (nothing accepted) while any operation is accepted or running. Each erase that starts raises the deletion epoch of `am_v1_state`. |
+
+Both are journal operations like a remember: accepted durably first, run by the one writer in order, recall paused until they end, receipts with the same states. Neither has a voice form in this library: the host decides which of its controls may ask for them.

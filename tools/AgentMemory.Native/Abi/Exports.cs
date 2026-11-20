@@ -130,8 +130,10 @@ internal static unsafe class Exports
                 || outFlags == null)
                 return AbiStatus.InvalidArgument;
             if (!ContextRegistry.TryGet(context, out var target)) return AbiStatus.InvalidHandle;
-            target.State(out var revision, out var flags);
+            target.State(out var revision, out var flags, out var deletionEpoch, out var memoryRevision);
             *outStateRevision = revision;
+            *outDeletionEpoch = deletionEpoch;
+            *outMemoryRevision = memoryRevision;
             *outFlags = flags;
             return AbiStatus.Ok;
         }

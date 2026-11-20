@@ -166,6 +166,103 @@ internal static class WriteComposition
         }
     }
 
+    /// <summary>
+    /// Closes (invalidates) each id that is one of the owner's facts or preferences. Returns the ids closed now and the
+    /// ids that are no fact or preference of this owner. A closed memory stays as history for as-of reads; recall of the
+    /// present no longer returns it. This is "stop using", never "delete".
+    /// </summary>
+    public static async Task<(IReadOnlyList<string> Closed, IReadOnlyList<string> NotFound)> ForgetAsync(
+        ServiceProvider provider, string owner, IReadOnlyList<string> ids, CancellationToken cancellationToken)
+    {
+        var closed = new List<string>();
+        var missing = new List<string>();
+        var scope = provider.CreateAsyncScope();
+        await using (scope.ConfigureAwait(false))
+        {
+            var services = scope.ServiceProvider;
+            using (services.GetRequiredService<IWritableMemoryOwnerContext>().BeginOwnerScope(owner))
+            {
+                var longTerm = services.GetRequiredService<ILongTermMemoryService>();
+                var own = Abstractions.Options.MemoryScope.For(owner, includeShared: false);
+                foreach (var id in ids)
+                {
+                    if (await longTerm.InvalidateFactAsync(id, own, cancellationToken).ConfigureAwait(false)
+                        || await longTerm.InvalidatePreferenceAsync(id, own, cancellationToken).ConfigureAwait(false))
+                        closed.Add(id);
+                    else
+                        missing.Add(id);
+                }
+            }
+        }
+        return (closed, missing);
+    }
+
+    private const string StateQuery = """
+        MATCH (n) WHERE n.id IN $ids AND (n:Fact OR n:Preference)
+        RETURN n.id AS id, CASE WHEN n:Fact THEN 'fact' ELSE 'preference' END AS kind, n.owner_id AS owner,
+               n.invalidated_at IS NULL AS live, CASE WHEN n.embedding IS NULL THEN 0 ELSE size(n.embedding) END AS dims
+        """;
+
+    /// <summary>The store's view of these fact or preference ids (ids that are neither are absent from the result).</summary>
+    public static Task<IReadOnlyList<WrittenItem>> ItemsAsync(
+        ServiceProvider provider, MemorySettings settings, IReadOnlyList<string> ids, CancellationToken cancellationToken) =>
+        ReadAsync<IReadOnlyList<WrittenItem>>(provider, settings, async transaction =>
+        {
+            var items = new List<WrittenItem>();
+            var cursor = await transaction.RunAsync(StateQuery, new Dictionary<string, object> { ["ids"] = ids.ToList() })
+                .ConfigureAwait(false);
+            while (await cursor.FetchAsync().ConfigureAwait(false))
+            {
+                var record = cursor.Current;
+                items.Add(new WrittenItem((string)record["id"], (string)record["kind"], record["owner"] as string,
+                    record["live"] is true, record["dims"] is long dims ? dims : 0));
+            }
+            return items;
+        });
+
+    /// <summary>Deletes every node of the owner, with their conversations and messages; returns how many went.</summary>
+    public static async Task<long> EraseOwnerAsync(ServiceProvider provider, string owner, CancellationToken cancellationToken)
+    {
+        var scope = provider.CreateAsyncScope();
+        await using (scope.ConfigureAwait(false))
+        {
+            var erasure = await scope.ServiceProvider.GetRequiredService<IMemoryOwnerDataService>()
+                .EraseAsync(owner, cancellationToken).ConfigureAwait(false);
+            return erasure.Total;
+        }
+    }
+
+    private const string RemainingQuery = """
+        CALL { MATCH (n) WHERE n.owner_id = $owner RETURN count(n) AS owned }
+        CALL { MATCH (c:Conversation {user_id: $owner}) RETURN count(c) AS conversations }
+        CALL { MATCH (m:Message) WHERE m.id IN $messageIds RETURN count(m) AS messages }
+        RETURN owned + conversations + messages AS remaining
+        """;
+
+    /// <summary>What is left of the owner after an erase: owned nodes, conversations and the remembered messages.</summary>
+    public static Task<long> RemainingAsync(ServiceProvider provider, MemorySettings settings, string owner,
+        IReadOnlyList<string> messageIds, CancellationToken cancellationToken) =>
+        ReadAsync(provider, settings, async transaction =>
+        {
+            var cursor = await transaction.RunAsync(RemainingQuery, new Dictionary<string, object>
+            {
+                ["owner"] = owner, ["messageIds"] = messageIds.ToList(),
+            }).ConfigureAwait(false);
+            return await cursor.FetchAsync().ConfigureAwait(false) && cursor.Current["remaining"] is long remaining ? remaining : -1;
+        });
+
+    private static async Task<T> ReadAsync<T>(ServiceProvider provider, MemorySettings settings,
+        Func<global::Neo4j.Driver.IAsyncQueryRunner, Task<T>> work)
+    {
+        var driver = provider.GetRequiredService<global::Neo4j.Driver.IDriver>();
+        var session = driver.AsyncSession(o => o.WithDatabase(settings.Database)
+            .WithDefaultAccessMode(global::Neo4j.Driver.AccessMode.Read));
+        await using (session.ConfigureAwait(false))
+        {
+            return await session.ExecuteReadAsync(transaction => work(transaction)).ConfigureAwait(false);
+        }
+    }
+
     private const string ItemsQuery = """
         MATCH (:Message {id: $messageId})<-[:EXTRACTED_FROM]-(n)
         WHERE n:Fact OR n:Preference
