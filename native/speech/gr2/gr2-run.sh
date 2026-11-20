@@ -98,6 +98,12 @@ capabilities > "$REPORT/capabilities-start.json"
 echo "== 1. told, not asked; a question is not learned"
 session s1-tell-sister tell_sister ask_weather
 wait_saved
+echo "== 1b. a date told relatively: stored as the date it means, counted from when it was said"
+date -u +%Y-%m-%d > "$REPORT/said-dentist.txt"
+session s1b-tell-dentist tell_dentist
+wait_saved
+cypher "MATCH (f:Fact) WHERE f.owner_id = 'gr2-owner' AND toLower(f.subject + ' ' + f.predicate + ' ' + f.object) CONTAINS 'dentist' RETURN f.subject + ' | ' + f.predicate + ' | ' + f.object, toString(f.occurred_on), toString(f.valid_from), toString(f.valid_until)" \
+  > "$REPORT/store-dentist.txt" 2>&1
 echo "== restart"
 restart 2 1
 echo "== 2. a fresh session recalls what was told"
@@ -139,6 +145,11 @@ recipe logs speech >> "$REPORT/speech.log" 2>&1
 recipe up > "$REPORT/up-5.log" 2>&1 || { tail -20 "$REPORT/up-5.log"; exit 1; }
 wait_saved
 session s8-ask-tea ask_tea
+echo "== 8b. a second taste told: added, the first not replaced"
+session s8b-tell-green-tea tell_green_tea
+wait_saved
+cypher "MATCH (n) WHERE (n:Fact OR n:Preference) AND n.owner_id = 'gr2-owner' AND n.invalidated_at IS NULL AND toLower(coalesce(n.object, '') + ' ' + coalesce(n.preference, '')) CONTAINS 'earl grey' RETURN count(n)" > "$REPORT/store-earl-grey-live.txt" 2>&1
+cypher "MATCH (n) WHERE (n:Fact OR n:Preference) AND n.owner_id = 'gr2-owner' AND n.invalidated_at IS NULL AND toLower(coalesce(n.object, '') + ' ' + coalesce(n.preference, '')) CONTAINS 'green tea' RETURN count(n)" > "$REPORT/store-green-tea-live.txt" 2>&1
 cypher "MATCH (n) WHERE (n:Fact OR n:Preference) AND n.owner_id = 'gr2-owner' AND (toLower(coalesce(n.object, '')) CONTAINS 'earl grey' OR toLower(coalesce(n.preference, '')) CONTAINS 'earl grey') RETURN count(n) AS tea" \
   > "$REPORT/store-tea.txt" 2>&1
 docker run --rm -v am-gr2-journal:/j:ro "$SERVER_IMAGE" sh -c 'grep -c "\"kind\":\"retry\"" /j/journal/journal.jsonl || true' \

@@ -5,6 +5,7 @@ the server's own log lines (states and item ids only). A killed container keeps 
 """
 from __future__ import annotations
 
+import datetime
 import json
 import pathlib
 import re
@@ -55,14 +56,35 @@ except (OSError, ValueError, IndexError):
     pass
 end = json.loads((root / "capabilities-end.json").read_text(encoding="utf-8") or "{}").get("memory", {})
 retries = number("journal-retries.txt")
+
+
+def dentist_is_dated() -> bool:
+    """The stored dentist memory names the day after it was said, in its words or a date field."""
+    try:
+        said = datetime.date.fromisoformat((root / "said-dentist.txt").read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return False
+    day = said + datetime.timedelta(days=1)
+    store = (root / "store-dentist.txt").read_text(encoding="utf-8", errors="replace") if (root / "store-dentist.txt").exists() else ""
+    month = day.strftime("%B")
+    suffix = "th" if 11 <= day.day <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(day.day % 10, "th")
+    words = [f"{day.day} {month}", f"{day.day}{suffix} {month}", f"{day.day}{suffix} of {month}", f"{month} {day.day}",
+             day.isoformat()]
+    return any(w.lower() in store.lower() for w in words)
+
+
+dentist_dated = dentist_is_dated()
 try:
     killed = "killed while running" in (root / "kill.txt").read_text(encoding="utf-8")
 except OSError:
     killed = False
 
 checks = [
-    ("Three told facts were learned unasked (sister, the move, the tea)", len(set(observed)) == 3),
-    ("No question was learned (the weather, every 'where', 'what')", len(set(observed)) == 3),
+    ("Five told things were learned unasked (sister, dentist, the move, the tea, green tea)", len(set(observed)) == 5),
+    ("No question was learned (the weather, every 'where', 'what')", len(set(observed)) == 5),
+    ("'Tomorrow' is stored as the date it means, counted from when it was said", dentist_dated),
+    ("A second taste is added and the first is not replaced (Earl Grey and green tea both live)",
+     (number("store-earl-grey-live.txt") or 0) >= 1 and (number("store-green-tea-live.txt") or 0) >= 1),
     ("The model was never told about an unasked write", "remember status" not in log and "status line(s)" not in log),
     ("After a full restart, a fresh session answers with what was told (Lisbon)", has(reply("s2-ask-sister"), "Lisbon")),
     ("After the move was told, the answer has Madrid", has(reply("s4-ask-sister"), "Madrid")),
@@ -93,7 +115,8 @@ crash = ("killed while the learned write ran; after the restart it was put back 
 print(f"Crash case: {crash} (journal retry records: {retries}). Learned writes ended: {observed_ended}. "
       f"Erase: {erase}.\n")
 print("| Session | Heard | Replied |\n|---|---|---|")
-for label in ("s1-tell-sister", "s2-ask-sister", "s3-tell-moved", "s4-ask-sister", "s5-tell-brother-paused",
-              "s6-ask-brother", "s7-tell-tea", "s8-ask-tea", "s9-ask-after-erase"):
+for label in ("s1-tell-sister", "s1b-tell-dentist", "s2-ask-sister", "s3-tell-moved", "s4-ask-sister",
+              "s5-tell-brother-paused", "s6-ask-brother", "s7-tell-tea", "s8-ask-tea", "s8b-tell-green-tea",
+              "s9-ask-after-erase"):
     for index, _ in enumerate(turns(label)):
         print(f"| {label} #{index + 1} | {heard(label, index)} | {reply(label, index)} |")
