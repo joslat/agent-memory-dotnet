@@ -67,8 +67,10 @@ internal sealed record WrittenEvidence(IReadOnlyList<WrittenItem> Items, IReadOn
 /// <item>Evidence-based entity identity off (<see cref="IdentityResolutionOptions.Enabled"/> false): explicit remember
 /// needs facts and preferences, and the identity payload feeds stored hashes that the native build does not serialize
 /// yet (A15). The profile has no setting that turns it on.</item>
-/// <item>No context turns, for extraction or identity: an empty supplied context stays empty, so nothing but the
-/// remembered words is extracted.</item>
+/// <item>Context turns only when configured (<c>writer.contextTurns</c>, default 0): the session's earlier stored turns
+/// are read, never extracted from, so "his name is Sam" can reach the dinner told a turn before; identity reads none.</item>
+/// <item>A turn that cannot carry a fact (a plain question, "ok, thanks") is stored as words but costs no model call
+/// (the library's skip gate); it ends applied with nothing to keep.</item>
 /// <item>A stored memory the writer names as replaced is closed only when the update judge (the same chat model)
 /// confirms it, as in the library's Recommended preset: a correction ends the old value, an unconfirmed one leaves it.</item>
 /// <item>Dates the facts' own words state become date fields, read against when the words were said.</item>
@@ -77,7 +79,8 @@ internal sealed record WrittenEvidence(IReadOnlyList<WrittenItem> Items, IReadOn
 /// </summary>
 internal static class WriteComposition
 {
-    public static ServiceProvider Build(MemorySettings settings, ChatEndpoint chat, EmbeddingEndpoint embedding)
+    public static ServiceProvider Build(MemorySettings settings, ChatEndpoint chat, EmbeddingEndpoint embedding,
+        int contextTurns = 0)
     {
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(chat);
@@ -93,7 +96,9 @@ internal static class WriteComposition
             options.WorkingMemory.Enabled = false;
             options.Isolation.Mode = MemoryIsolationMode.StrictMultiTenant;
             options.Extraction.FallBackToExtractorsWhenWriterFails = false;
-            options.Extraction.ExtractionContextTurns = 0;
+            options.Extraction.ExtractionContextTurns = contextTurns;
+            options.Extraction.SkipPlainQuestions = true;
+            options.Extraction.SkipUninformativeTurns = true;
         });
         services.Configure<IdentityResolutionOptions>(identity =>
         {

@@ -43,6 +43,9 @@ internal sealed record OpenConfig
     /// <summary>The writer's model (explicit_write only).</summary>
     public ChatEndpoint? Writer { get; init; }
 
+    /// <summary>Earlier turns of the session the writer reads (never extracts from); 0, the default, reads none.</summary>
+    public int WriterContextTurns { get; init; }
+
     /// <summary>Where the journal lives (explicit_write only).</summary>
     public string? StateDirectory { get; init; }
 
@@ -135,6 +138,7 @@ internal sealed record OpenConfig
             embedding.EnsureNoUnknown();
 
             ChatEndpoint? writer = null;
+            var writerContextTurns = 0;
             string? stateDirectory = null;
             if (writes)
             {
@@ -143,6 +147,10 @@ internal sealed record OpenConfig
                         "$.embedding.endpoint is required for a writing profile: written memories are embedded by the library.");
                 var writerObject = root.RequiredObject("writer");
                 var writerModel = writerObject.RequiredString("model", 256);
+                var writerReasoning = writerObject.OptionalString("reasoningEffort", 16);
+                if (writerReasoning is not null && writerReasoning is not ("none" or "low" or "medium" or "high"))
+                    throw new ContractException("invalid_value", "$.writer.reasoningEffort must be none, low, medium or high.");
+                writerContextTurns = writerObject.OptionalInt("contextTurns", 0, 0, 32);
                 var writerEndpoint = writerObject.RequiredObject("endpoint");
                 var writerUrl = writerEndpoint.RequiredString("url", 2048);
                 var writerKey = writerEndpoint.OptionalString("apiKey", 4096);
@@ -152,7 +160,8 @@ internal sealed record OpenConfig
                 if (!Uri.TryCreate(writerUrl, UriKind.Absolute, out var parsedWriterUrl)
                     || (parsedWriterUrl.Scheme != Uri.UriSchemeHttp && parsedWriterUrl.Scheme != Uri.UriSchemeHttps))
                     throw new ContractException("invalid_value", "$.writer.endpoint.url must be an absolute http or https URL.");
-                writer = new ChatEndpoint(parsedWriterUrl, writerModel, writerKey, TimeSpan.FromMilliseconds(writerTimeoutMs));
+                writer = new ChatEndpoint(parsedWriterUrl, writerModel, writerKey, TimeSpan.FromMilliseconds(writerTimeoutMs),
+                    writerReasoning);
 
                 var state = root.RequiredObject("state");
                 stateDirectory = state.RequiredString("directory", 1024);
@@ -181,6 +190,7 @@ internal sealed record OpenConfig
             {
                 Profile = profile,
                 Writer = writer,
+                WriterContextTurns = writerContextTurns,
                 StateDirectory = stateDirectory,
                 MaxQueuedWrites = maxQueuedWrites,
                 Memory = new MemorySettings
@@ -380,7 +390,9 @@ internal sealed record CapabilitiesRequest : NativeRequest
     public override string Operation => Name;
 }
 
-/// <summary><c>memory_get_context</c>: owner-scoped recall of facts and preferences by a supplied vector.</summary>
+/// <summary><c>memory_get_context</c>: owner-scoped recall of facts and preferences by a supplied vector; on request also the
+/// owner's past words, entities, relationships, the facts of a time the question names ("yesterday") and the facts of a
+/// person or event it names. Each extra section is off unless asked for, so an existing caller's recall is unchanged.</summary>
 internal sealed record GetContextRequest : NativeRequest
 {
     public const string Name = "memory_get_context";
@@ -394,6 +406,14 @@ internal sealed record GetContextRequest : NativeRequest
     public int MaxFacts { get; init; } = 5;
     public int MaxPreferences { get; init; } = 5;
     public double MinScore { get; init; } = 0.7;
+    /// <summary>The owner's past messages most like the question (their own words), from every session.</summary>
+    public int MaxMessages { get; init; }
+    public int MaxEntities { get; init; }
+    public int MaxRelationships { get; init; }
+    /// <summary>The facts of a time the question names ("yesterday", "last week"), by their dates.</summary>
+    public bool TimeWindows { get; init; }
+    /// <summary>The facts about a person or an event the question names.</summary>
+    public bool Details { get; init; }
 
     public static GetContextRequest Read(StrictObject root, OpenConfig config, string? requestId)
     {
@@ -423,6 +443,11 @@ internal sealed record GetContextRequest : NativeRequest
             MaxFacts = root.OptionalInt("maxFacts", 5, 0, 50),
             MaxPreferences = root.OptionalInt("maxPreferences", 5, 0, 50),
             MinScore = root.OptionalDouble("minScore", 0.7, 0.0, 1.0),
+            MaxMessages = root.OptionalInt("maxMessages", 0, 0, 20),
+            MaxEntities = root.OptionalInt("maxEntities", 0, 0, 50),
+            MaxRelationships = root.OptionalInt("maxRelationships", 0, 0, 50),
+            TimeWindows = root.OptionalBool("timeWindows", false),
+            Details = root.OptionalBool("details", false),
         };
     }
 }

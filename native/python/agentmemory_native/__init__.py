@@ -12,11 +12,13 @@ from ._library import ABI_MAJOR, ABI_MINOR, NativeLibraryError, library_file_nam
 from .client import (AsyncMemoryClient, Job, JobStopped, MemoryClient, erase_owner_request, forget_request,
                      get_context_request, operation_get_request, operation_resolve_request, remember_request)
 from .errors import NativeCallError, OpenError
-from .results import ContextResult, ContextState, Fact, OperationError, Preference, Receipt, WriteResult
+from .results import (ContextResult, ContextState, Entity, Fact, OperationError, PastMessage, Preference, Receipt,
+                      Relationship, WriteResult)
 
 __all__ = [
-    "ABI_MAJOR", "ABI_MINOR", "AsyncMemoryClient", "ContextResult", "ContextState", "Fact", "Job", "JobStopped", "MemoryClient",
-    "NativeCallError", "NativeLibraryError", "OpenError", "OperationError", "Preference", "Receipt", "WriteResult",
+    "ABI_MAJOR", "ABI_MINOR", "AsyncMemoryClient", "ContextResult", "ContextState", "Entity", "Fact", "Job", "JobStopped", "MemoryClient",
+    "NativeCallError", "NativeLibraryError", "OpenError", "OperationError", "PastMessage", "Preference", "Receipt",
+    "Relationship", "WriteResult",
     "erase_owner_request", "forget_request", "get_context_request", "operation_get_request", "operation_resolve_request",
     "remember_request",
     "library_file_name", "manifest", "resolve_library_path",

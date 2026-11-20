@@ -33,7 +33,11 @@ services:
       schema: {condition: service_completed_successfully}
     environment:
       S2S_MEMORY_CONFIG: /run/secrets/agentmemory_config
-      S2S_MEMORY_DEADLINE_MS: ${MEMORY_DEADLINE_MS:-450}
+      # Empty means the speech server's default (450 ms, 10 facts, 5 preferences, 0.70).
+      S2S_MEMORY_DEADLINE_MS: ${MEMORY_DEADLINE_MS:-}
+      S2S_MEMORY_MAX_FACTS: ${MEMORY_MAX_FACTS:-}
+      S2S_MEMORY_MAX_PREFERENCES: ${MEMORY_MAX_PREFERENCES:-}
+      S2S_MEMORY_MIN_SCORE: ${MEMORY_MIN_SCORE:-}
     secrets: [agentmemory_config]
 
 secrets:

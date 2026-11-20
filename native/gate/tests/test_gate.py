@@ -238,6 +238,22 @@ class Test3Recall(unittest.TestCase):
         self.assertEqual(ids(strict), {"gate-fact-a-work"})
         self.assertEqual(ids(one), {"gate-fact-a-work"})
 
+    def test_extra_sections_are_off_unless_asked_and_answer_when_asked(self):
+        """Past words, entities, relationships, time windows and details: an existing caller's recall is unchanged."""
+        with MemoryClient(config()) as memory:
+            plain = memory.get_context(session_id="s", query_vector=NEAR_AXIS_0, min_score=0.0)
+            asked = memory.get_context(session_id="s", query_vector=NEAR_AXIS_0, min_score=0.0, max_messages=5,
+                                       max_entities=10, max_relationships=10, time_windows=True, details=True)
+            base = {"schemaVersion": 1, "operation": "memory_get_context", "sessionId": "s", "queryVector": NEAR_AXIS_0}
+            too_many = memory.call(dict(base, maxMessages=21))
+            not_bool = memory.call(dict(base, timeWindows="yes"))
+        for name in ("windowFacts", "messages", "entities", "relationships"):
+            self.assertEqual(plain.raw[name], (), name)
+        self.assertEqual(asked.status, "ok", asked.raw)
+        self.assertEqual(ids(asked), ids(plain), "the facts and preferences are the same with the sections on")
+        self.assertEqual((too_many["status"], too_many["error"]["code"]), ("invalid", "invalid_value"))
+        self.assertEqual((not_bool["status"], not_bool["error"]["code"]), ("invalid", "invalid_value"))
+
 
 class Test4Contract(unittest.TestCase):
     def test_malformed_requests_end_as_invalid_without_effects(self):

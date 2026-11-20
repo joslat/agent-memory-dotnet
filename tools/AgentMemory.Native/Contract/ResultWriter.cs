@@ -156,21 +156,7 @@ internal static class ResultWriter
         {
             WriteHead(writer, GetContextRequest.Name, requestId, "ok");
             writer.WriteStartArray("facts");
-            foreach (var fact in context.RelevantFacts.Items)
-            {
-                writer.WriteStartObject();
-                writer.WriteString("id", fact.FactId);
-                writer.WriteString("subject", fact.Subject);
-                writer.WriteString("predicate", fact.Predicate);
-                writer.WriteString("object", fact.Object);
-                writer.WriteNumber("confidence", fact.Confidence);
-                WriteOptional(writer, "category", fact.Category);
-                WriteInstant(writer, "validFrom", fact.ValidFrom);
-                WriteInstant(writer, "validUntil", fact.ValidUntil);
-                WriteInstant(writer, "createdAt", fact.CreatedAtUtc);
-                WriteMetadata(writer, fact.Metadata);
-                writer.WriteEndObject();
-            }
+            foreach (var fact in context.RelevantFacts.Items) WriteFact(writer, fact);
             writer.WriteEndArray();
             writer.WriteStartArray("preferences");
             foreach (var preference in context.RelevantPreferences.Items)
@@ -186,9 +172,63 @@ internal static class ResultWriter
                 writer.WriteEndObject();
             }
             writer.WriteEndArray();
+            // The sections a request may ask for (each empty when not asked for): additive to schema version 1.
+            writer.WriteStartArray("windowFacts");
+            foreach (var fact in context.WindowFacts.Items) WriteFact(writer, fact);
+            writer.WriteEndArray();
+            writer.WriteStartArray("messages");
+            foreach (var message in context.RelevantMessages.Items)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("id", message.MessageId);
+                writer.WriteString("role", message.Role);
+                writer.WriteString("text", message.Content);
+                WriteInstant(writer, "at", message.TimestampUtc);
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+            writer.WriteStartArray("entities");
+            foreach (var entity in context.RelevantEntities.Items)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("id", entity.EntityId);
+                writer.WriteString("name", entity.Name);
+                writer.WriteString("type", entity.Type);
+                WriteOptional(writer, "description", entity.Description);
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+            writer.WriteStartArray("relationships");
+            foreach (var recalled in context.RelevantRelationships.Items)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("id", recalled.Relationship.RelationshipId);
+                writer.WriteString("source", recalled.SourceName);
+                writer.WriteString("type", recalled.Relationship.RelationshipType);
+                writer.WriteString("target", recalled.TargetName);
+                WriteOptional(writer, "description", recalled.Relationship.Description);
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
             writer.WriteBoolean("truncated", context.Truncated);
             WriteTiming(writer, timing);
         });
+
+    private static void WriteFact(Utf8JsonWriter writer, Fact fact)
+    {
+        writer.WriteStartObject();
+        writer.WriteString("id", fact.FactId);
+        writer.WriteString("subject", fact.Subject);
+        writer.WriteString("predicate", fact.Predicate);
+        writer.WriteString("object", fact.Object);
+        writer.WriteNumber("confidence", fact.Confidence);
+        WriteOptional(writer, "category", fact.Category);
+        WriteInstant(writer, "validFrom", fact.ValidFrom);
+        WriteInstant(writer, "validUntil", fact.ValidUntil);
+        WriteInstant(writer, "createdAt", fact.CreatedAtUtc);
+        WriteMetadata(writer, fact.Metadata);
+        writer.WriteEndObject();
+    }
 
     private static void WriteOptional(Utf8JsonWriter writer, string name, string? value)
     {

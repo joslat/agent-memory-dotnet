@@ -167,15 +167,17 @@ class MemoryClient:
     def get_context(self, *, session_id: str, query: str | None = None, query_vector: Sequence[float] | None = None,
                     owner: str | None = None,
                     max_facts: int = 5, max_preferences: int = 5, min_score: float | None = None,
-                    request_id: str | None = None, timeout_ms: int = 0) -> ContextResult:
-        """Owner-scoped recall of facts and preferences.
+                    request_id: str | None = None, timeout_ms: int = 0, **sections: Any) -> ContextResult:
+        """Owner-scoped recall of facts and preferences, and the sections ``get_context_request`` names (max_messages,
+        max_entities, max_relationships, time_windows, details) when asked for.
 
         Pass ``query`` (text, embedded by the context's embedding endpoint) or ``query_vector`` (made by the caller).
         """
         return ContextResult.from_json(self.call(
             get_context_request(session_id=session_id, query=query, query_vector=query_vector, owner=owner,
                                 max_facts=max_facts,
-                                max_preferences=max_preferences, min_score=min_score, request_id=request_id),
+                                max_preferences=max_preferences, min_score=min_score, request_id=request_id,
+                                **sections),
             timeout_ms))
 
     def remember(self, *, source_id: str, session_id: str, text: str, occurred_at: str, origin: str | None = None,
@@ -251,7 +253,12 @@ class MemoryClient:
 def get_context_request(*, session_id: str, query: str | None = None, query_vector: Sequence[float] | None = None,
                         owner: str | None = None,
                         max_facts: int = 5, max_preferences: int = 5, min_score: float | None = None,
-                        request_id: str | None = None) -> dict[str, Any]:
+                        request_id: str | None = None, max_messages: int = 0, max_entities: int = 0,
+                        max_relationships: int = 0, time_windows: bool = False,
+                        details: bool = False) -> dict[str, Any]:
+    """A recall request. The extra sections (the owner's past words, entities, relationships, the facts of a time the
+    question names, the facts of a person or event it names) are sent only when asked for, so the request stays
+    the one an older library reads."""
     request: dict[str, Any] = {
         "schemaVersion": 1,
         "operation": "memory_get_context",
@@ -269,6 +276,10 @@ def get_context_request(*, session_id: str, query: str | None = None, query_vect
         request["minScore"] = min_score
     if request_id is not None:
         request["requestId"] = request_id
+    for key, value in (("maxMessages", max_messages), ("maxEntities", max_entities),
+                       ("maxRelationships", max_relationships), ("timeWindows", time_windows), ("details", details)):
+        if value:
+            request[key] = value
     return request
 
 

@@ -53,6 +53,8 @@ class StubModel(http.server.BaseHTTPRequestHandler):
     writer_calls = 0
     judge_calls = 0
     seen: list[str] = []  # the last message of every writer call
+    reasoning: list = []  # the reasoning_effort of every writer call (None when not sent)
+    prompts: list[str] = []  # the whole user prompt of every writer call (context included)
 
     def do_POST(self):  # noqa: N802 - the http.server naming
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
@@ -69,6 +71,8 @@ class StubModel(http.server.BaseHTTPRequestHandler):
             return
         with StubModel.lock:
             StubModel.writer_calls += 1
+            StubModel.reasoning.append(body.get("reasoning_effort"))
+            StubModel.prompts.append(body["messages"][-1]["content"])
         if StubModel.mode == "fail":
             self.send_response(500)
             self.end_headers()
@@ -667,6 +671,51 @@ try:
     HAS_LANGGRAPH = True
 except ImportError:
     HAS_LANGGRAPH = False
+
+
+class Test7WriterSettings(unittest.TestCase):
+    """Optional writer settings, both off unless configured: a reasoning effort (a model that thinks at length before
+    answering made voice saves take up to 55 s) and earlier turns of the session as read-only context."""
+
+    def setUp(self):
+        StubModel.mode = "ok"
+        StubModel.release.set()
+
+    @staticmethod
+    def writer(**settings) -> dict:
+        document = config(new_state(), profile="learning")
+        document["writer"].update(settings)
+        return document
+
+    def tell(self, memory, session: str, text: str):
+        return memory.remember(source_id=source("told"), session_id=session, text=text, occurred_at=SAID,
+                               origin="observed")
+
+    def test_a_reasoning_effort_is_sent_only_when_configured(self):
+        for settings, sent in (({}, None), ({"reasoningEffort": "low"}, "low")):
+            with self.subTest(settings=settings), MemoryClient(self.writer(**settings)) as memory:
+                before = len(StubModel.reasoning)
+                told = self.tell(memory, f"effort-{uuid.uuid4().hex}", "I play the cello every Sunday.")
+                self.assertEqual(told.receipt.state, "applied", told.raw)
+                self.assertEqual(set(StubModel.reasoning[before:]), {sent})
+
+    def test_earlier_turns_reach_the_writer_as_context_and_nothing_is_kept_from_them(self):
+        for settings, reaches in (({"contextTurns": 4}, True), ({}, False)):
+            session = f"ctx-{uuid.uuid4().hex}"
+            with self.subTest(settings=settings), MemoryClient(self.writer(**settings)) as memory:
+                first = self.tell(memory, session, "I met somebody at the dinner yesterday.")
+                before = len(StubModel.prompts)
+                second = self.tell(memory, session, "His name is Sam.")
+                self.assertEqual((first.receipt.state, second.receipt.state), ("applied", "applied"))
+                self.assertEqual("I met somebody at the dinner yesterday." in StubModel.prompts[before], reaches)
+                self.assertEqual(StubModel.seen[-1], "His name is Sam.")
+                self.assertEqual(len(second.receipt.facts), 1, "only the turn itself is kept, never its context")
+
+    def test_writer_settings_outside_their_values_are_refused(self):
+        for settings in ({"reasoningEffort": "max"}, {"contextTurns": 33}, {"contextTurns": -1}):
+            with self.subTest(settings=settings), self.assertRaises(OpenError) as refused:
+                MemoryClient(self.writer(**settings))
+            self.assertEqual(refused.exception.code, "invalid_value")
 
 
 @unittest.skipUnless(HAS_LANGGRAPH, "langgraph is not installed (run-write-gate.sh with WRITE_GATE_EXTRAS=langgraph)")

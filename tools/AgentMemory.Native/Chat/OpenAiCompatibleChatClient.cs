@@ -6,7 +6,9 @@ using Microsoft.Extensions.AI;
 namespace AgentMemory.Native.Chat;
 
 /// <summary>Where the writer's model answers: an OpenAI-compatible <c>/v1/chat/completions</c> endpoint.</summary>
-internal sealed record ChatEndpoint(Uri Url, string Model, string? ApiKey, TimeSpan Timeout);
+/// <param name="ReasoningEffort">Sent as <c>reasoning_effort</c> when a call does not choose one (none, low, medium,
+/// high); null sends nothing, for endpoints and models that refuse the field.</param>
+internal sealed record ChatEndpoint(Uri Url, string Model, string? ApiKey, TimeSpan Timeout, string? ReasoningEffort = null);
 
 /// <summary>
 /// A minimal <see cref="IChatClient"/> for an OpenAI-compatible chat completions endpoint (Ollama, llama.cpp, vLLM,
@@ -45,7 +47,7 @@ internal sealed class OpenAiCompatibleChatClient : IChatClient
     {
         ArgumentNullException.ThrowIfNull(messages);
         var model = string.IsNullOrEmpty(options?.ModelId) ? _endpoint.Model : options.ModelId;
-        var body = JsonSerializer.SerializeToUtf8Bytes(BuildRequest(model, messages, options), ChatJsonContext.Default.ChatCompletionRequest);
+        var body = JsonSerializer.SerializeToUtf8Bytes(BuildRequest(model, messages, options, _endpoint.ReasoningEffort), ChatJsonContext.Default.ChatCompletionRequest);
 
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(_endpoint.Timeout);
@@ -89,9 +91,18 @@ internal sealed class OpenAiCompatibleChatClient : IChatClient
 
     public void Dispose() => _http.Dispose();
 
-    internal static ChatCompletionRequest BuildRequest(string model, IEnumerable<ChatMessage> messages, ChatOptions? options) => new()
+    internal static ChatCompletionRequest BuildRequest(string model, IEnumerable<ChatMessage> messages, ChatOptions? options,
+        string? defaultReasoningEffort = null) => new()
     {
         Model = model,
+        ReasoningEffort = options?.Reasoning?.Effort switch
+        {
+            ReasoningEffort.None => "none",
+            ReasoningEffort.Low => "low",
+            ReasoningEffort.Medium => "medium",
+            ReasoningEffort.High => "high",
+            _ => defaultReasoningEffort,
+        },
         Messages = [.. messages.Select(m => new ChatCompletionMessage { Role = m.Role.Value, Content = m.Text })],
         Temperature = options?.Temperature,
         Seed = options?.Seed,
@@ -158,6 +169,9 @@ internal sealed class ChatCompletionRequest
 
     [JsonPropertyName("max_tokens")]
     public int? MaxTokens { get; init; }
+
+    [JsonPropertyName("reasoning_effort")]
+    public string? ReasoningEffort { get; init; }
 
     [JsonPropertyName("response_format")]
     public ResponseFormat? ResponseFormat { get; init; }

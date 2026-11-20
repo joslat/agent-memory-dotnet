@@ -76,11 +76,18 @@ write_secrets() {
         || { echo "WRITER_API_KEY: use 8-512 of A-Z a-z 0-9 . _ ~ + / = -" >&2; exit 2; }
       key="$(printf ',"apiKey":"%s"' "$WRITER_API_KEY")"
     fi
+    # A writer model that thinks before answering is asked to think little (GLM-5.3-Flash: 2.1 s and 607 thinking tokens
+    # on a small extraction by default, 0.5 s and 3 at "low"); "off" sends nothing, for a model that refuses the field.
+    # It reads the 4 earlier turns of the conversation as context, never keeping anything from them.
+    local reasoning="${WRITER_REASONING:-low}" turns="${WRITER_CONTEXT_TURNS:-4}" effort=""
+    [[ "$reasoning" =~ ^(off|none|low|medium|high)$ ]] || { echo "WRITER_REASONING: off, none, low, medium or high" >&2; exit 2; }
+    [[ "$turns" =~ ^([0-9]|[12][0-9]|3[0-2])$ ]] || { echo "WRITER_CONTEXT_TURNS must be 0-32" >&2; exit 2; }
+    [ "$reasoning" = off ] || effort="$(printf ',"reasoningEffort":"%s"' "$reasoning")"
     profile="explicit_write"
     [ "$MEMORY_LEARNING" = on ] && profile="learning"
     # The journal lives on its own volume (compose.memory-writes.yml); the library creates this directory, mode 0700.
-    writes="$(printf ',"writer":{"model":"%s","endpoint":{"url":"%s","timeoutMs":%s%s}},"state":{"directory":"/var/lib/agentmemory/journal"}' \
-      "$WRITER_MODEL" "$WRITER_URL" "${WRITER_TIMEOUT_MS:-60000}" "$key")"
+    writes="$(printf ',"writer":{"model":"%s"%s,"contextTurns":%s,"endpoint":{"url":"%s","timeoutMs":%s%s}},"state":{"directory":"/var/lib/agentmemory/journal"}' \
+      "$WRITER_MODEL" "$effort" "$turns" "$WRITER_URL" "${WRITER_TIMEOUT_MS:-60000}" "$key")"
   fi
   ( umask 077
     mkdir -p "$dir"
