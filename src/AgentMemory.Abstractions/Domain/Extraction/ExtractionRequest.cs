@@ -90,6 +90,25 @@ public sealed record ExtractionRequest
     public MemoryTrustLevel? TrustLevel { get; init; }
 
     /// <summary>
+    /// Applies this write once, completely or not at all (R2). Null (the default): extraction runs exactly as before.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// With an operation id the request must be a <see cref="ExtractionInputMode.ConversationTurn"/> with its one user
+    /// message already stored, and the store must roll back atomically and keep operation receipts
+    /// (<c>IMemoryOperationReceiptStore</c>; Neo4j does). Then: if that message already carries a receipt for this
+    /// operation, nothing runs and the stored outcome comes back (<see cref="ExtractionResult.AppliedBefore"/>); otherwise
+    /// the update judge decides the writer's named replacements before the store transaction opens, and every effect
+    /// (memories, closings, confirmations) is written in one transaction together with the receipt. A crash or a lost
+    /// acknowledgement therefore leaves either the whole write with its receipt, or nothing: asking again with the same id
+    /// applies it once.
+    /// </para>
+    /// <para>Options whose effects cannot be covered by that transaction are refused (<see cref="NotSupportedException"/>):
+    /// evidence-based identity, renaming on a corrected name, and derived memory.</para>
+    /// </remarks>
+    public string? OperationId { get; init; }
+
+    /// <summary>
     /// Additional extraction options.
     /// </summary>
     public IReadOnlyDictionary<string, object> Options { get; init; } =

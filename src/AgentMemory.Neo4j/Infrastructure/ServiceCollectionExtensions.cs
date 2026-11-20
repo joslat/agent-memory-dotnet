@@ -176,6 +176,8 @@ public static class ServiceCollectionExtensions
 
         // G3 (40.47). Erase, export and import an owner's data. Scoped: it writes through the scoped repositories.
         services.TryAddScoped<IMemoryOwnerDataService, Neo4jMemoryOwnerDataService>();
+        // Applied-once writes (ExtractionRequest.OperationId): receipts on the stored message, in the persistence transaction.
+        services.TryAddScoped<IMemoryOperationReceiptStore, Neo4jMemoryOperationReceiptStore>();
 
         // Memory-hygiene / consolidation (PR #113) — dry-run by default.
         services.TryAddTransient<IConsolidationService, Neo4jConsolidationService>();

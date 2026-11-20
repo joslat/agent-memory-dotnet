@@ -70,4 +70,16 @@ public sealed record ExtractionResult
     /// result that is neither a success with nothing in it nor a failure. The ingestion metrics count it apart.
     /// </summary>
     public bool Deferred => Metadata.TryGetValue(DeferredMetadataKey, out var held) && held is true;
+
+    /// <summary>
+    /// For a request with an <c>ExtractionRequest.OperationId</c>: the receipt written with the effects, in the same
+    /// store transaction. Null for every other request.
+    /// </summary>
+    public MemoryOperationReceipt? Receipt { get; init; }
+
+    /// <summary>
+    /// <see langword="true"/> when the operation had already been applied: nothing ran (no model call, no write), and
+    /// <see cref="Receipt"/> is the stored one. The item collections are empty then; the receipt says what was written.
+    /// </summary>
+    public bool AppliedBefore { get; init; }
 }

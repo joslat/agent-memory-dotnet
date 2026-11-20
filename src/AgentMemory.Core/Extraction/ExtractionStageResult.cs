@@ -85,4 +85,16 @@ internal sealed record ExtractionStageResult
     /// appended to by <see cref="IPersistenceStage"/>.
     /// </summary>
     public IReadOnlyList<IngestionItemOutcome> Outcomes { get; init; } = Array.Empty<IngestionItemOutcome>();
+
+    /// <summary>An applied-once write (<c>ExtractionRequest.OperationId</c>): the operation and the message its receipt goes on. Null otherwise.</summary>
+    public AppliedOnceOperation? AppliedOnce { get; init; }
+
+    /// <summary>
+    /// An applied-once write: the judge's verdicts on the writer's named replacements, taken before the store transaction
+    /// (<see cref="JudgedMemoryClosings.PrejudgeNamedAsync"/>). Null: persistence asks the judge itself, as before.
+    /// </summary>
+    public IReadOnlyDictionary<string, double>? PrejudgedNamedVerdicts { get; init; }
 }
+
+/// <summary>The operation an applied-once write applies, and the stored message its receipt is written on.</summary>
+internal sealed record AppliedOnceOperation(string OperationId, string MessageId);

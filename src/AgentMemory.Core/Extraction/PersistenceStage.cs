@@ -32,6 +32,7 @@ internal sealed class PersistenceStage : IPersistenceStage
     private readonly JudgedMemoryClosings _judgedClosings;
     private readonly CorrectedNamePropagation _namePropagation;
     private readonly EdgeEnding _edgeEnding;
+    private readonly IMemoryOperationReceiptStore? _receipts;
 
     public PersistenceStage(
         IEmbeddingOrchestrator embeddingOrchestrator,
@@ -53,9 +54,12 @@ internal sealed class PersistenceStage : IPersistenceStage
         // Optional and last: asked for the writer's named closings only when the judge above is
         // missing, off or fails.
         IMemoryUpdateJudgeFallback? fallbackJudge = null,
-        IdentityIngestion? identity = null)
+        IdentityIngestion? identity = null,
+        // R2. Optional and last: only an applied-once write (ExtractionRequest.OperationId) reads or writes receipts.
+        IMemoryOperationReceiptStore? receipts = null)
     {
         _identity = identity;
+        _receipts = receipts;
         _reinforcement = new ConfirmedMemoryReinforcement(factRepository, preferenceRepository,
             memoryOptions?.Value.ConfidenceReinforcementAlpha ?? 0.0, logger);
         _clock = clock;
@@ -88,6 +92,23 @@ internal sealed class PersistenceStage : IPersistenceStage
 
     private static int s_warnedInertBitemporal;
 
+    /// <summary>
+    /// R2. An applied-once write needs every effect inside one store transaction that rolls back atomically, a receipt
+    /// store, and no external call while the transaction is open; options whose effects cannot meet that are refused.
+    /// </summary>
+    public string? AppliedOnceRefusal() =>
+        _receipts is null ? "a store that keeps operation receipts"
+        : !_persistenceTransaction.SupportsAtomicRollback ? "a store whose persistence transaction rolls back atomically"
+        : _identity?.Enabled == true ? "evidence-based identity off (its transaction boundary is its own)"
+        : _options.RenameOnCorrectedName ? "RenameOnCorrectedName off (renaming re-embeds after the write)"
+        : _options.DerivedMemory.Enabled ? "derived memory off (aggregates are recomputed after the write)"
+        : _options.FallBackToExtractorsWhenWriterFails && _judgedClosings.IsEnabled
+            ? "FallBackToExtractorsWhenWriterFails off while an update judge is registered (its similarity judging calls a model during the write)"
+        : null;
+
+    public Task<MemoryOperationReceipt?> FindReceiptAsync(string messageId, CancellationToken cancellationToken = default) =>
+        _receipts?.GetAsync(messageId, cancellationToken) ?? Task.FromResult<MemoryOperationReceipt?>(null);
+
     public async Task<PersistenceResult> PersistAsync(
         ExtractionStageResult extraction,
         string? ownerId = null,
@@ -115,11 +136,13 @@ internal sealed class PersistenceStage : IPersistenceStage
 
         // J-11. After the write (whichever path produced it), outside its transaction: a name that replaced another
         // renames what it named. Before the rebuild below, so the working-memory block is compiled from the result.
-        if (_identity?.Enabled != true)
+        if (_identity?.Enabled != true && extraction.AppliedOnce is null)
             await _namePropagation.ApplyAsync(extraction, ownerId, started, cancellationToken).ConfigureAwait(false);
 
         // What the writer said the turn says again is counted again, as a repeated write is; nothing is rewritten.
-        await _reinforcement.ApplyAsync(extraction, ownerId, cancellationToken).ConfigureAwait(false);
+        // An applied-once write counted it inside its transaction already, so a replay never counts it twice.
+        if (extraction.AppliedOnce is null)
+            await _reinforcement.ApplyAsync(extraction, ownerId, cancellationToken).ConfigureAwait(false);
 
         // Once per persist, and here rather than inside the core so it happens exactly once whichever
         // of the three return paths (atomic / best-effort / replay) produced the result, and outside
@@ -196,6 +219,8 @@ internal sealed class PersistenceStage : IPersistenceStage
                 : WithinExtractionFactDeduplication.Merge(prepared.Facts, _options.WithinExtractionDuplicateThreshold);
             prepared = prepared with { Facts = kept, Outcomes = [.. prepared.Outcomes, .. merged] };
         }
+        if (extraction.AppliedOnce is { } once)
+            return await PersistOnceAsync(extraction, ownerId, trustLevel, prepared, once, cancellationToken).ConfigureAwait(false);
         if (_identity?.Enabled == true)
         {
             var failures = extraction.Outcomes.Concat(prepared.Outcomes).Where(outcome => outcome.Status == IngestionItemStatus.Failed).ToArray();
@@ -280,15 +305,54 @@ internal sealed class PersistenceStage : IPersistenceStage
 
     private sealed class ReplayBestEffortPersistenceException : Exception;
 
+    /// <summary>
+    /// R2. One applied-once write: the judge before the transaction, then every effect, the writer's confirmations and the
+    /// receipt in one fail-fast transaction. Any failure rolls all of it back; a receipt already on the message (another
+    /// commit won) rolls this one back and reports that one.
+    /// </summary>
+    private async Task<PersistenceResult> PersistOnceAsync(ExtractionStageResult extraction, string? ownerId,
+        MemoryTrustLevel trustLevel, PreparedEmbeddings prepared, AppliedOnceOperation once, CancellationToken cancellationToken)
+    {
+        var verdicts = extraction.WrittenByWriter
+            ? await _judgedClosings.PrejudgeNamedAsync(extraction, ownerId,
+                [.. prepared.Facts.SelectMany(fact => fact.WithClosingProposals())], [.. prepared.Preferences.Select(preference => preference.Item)],
+                cancellationToken).ConfigureAwait(false)
+            : new Dictionary<string, double>(StringComparer.Ordinal);
+        extraction = extraction with { PrejudgedNamedVerdicts = verdicts };
+        return await _persistenceTransaction.ExecuteAsync(async ct =>
+        {
+            if (await _receipts!.GetAsync(once.MessageId, ct).ConfigureAwait(false) is { } existing)
+                throw new AppliedOnceRaceException(existing);
+            var result = await PersistPreparedAsync(extraction, ownerId, trustLevel, prepared, ct, forceFailFast: true).ConfigureAwait(false);
+            var failures = result.Outcomes.Where(outcome => outcome.Status == IngestionItemStatus.Failed).ToArray();
+            if (failures.Length > 0)
+                throw new MemoryIngestionException("An applied-once write failed; nothing of it was kept.", failures);
+            await _reinforcement.ApplyAsync(extraction, ownerId, ct).ConfigureAwait(false);
+            var written = result.Outcomes.Where(outcome => outcome is { Status: IngestionItemStatus.Succeeded, PersistedId: not null }).ToList();
+            var receipt = new MemoryOperationReceipt
+            {
+                OperationId = once.OperationId,
+                MessageId = once.MessageId,
+                AppliedAtUtc = _clock.GetUtcNow(),
+                FactIds = [.. written.Where(o => o.Kind == MemoryItemKind.Fact).Select(o => o.PersistedId!).Distinct(StringComparer.Ordinal)],
+                PreferenceIds = [.. written.Where(o => o.Kind == MemoryItemKind.Preference).Select(o => o.PersistedId!).Distinct(StringComparer.Ordinal)],
+                ClosedIds = [.. result.Outcomes.SelectMany(o => o.Closed).Distinct(StringComparer.Ordinal)],
+            };
+            await _receipts.RecordAsync(receipt, ct).ConfigureAwait(false);
+            return result with { Receipt = receipt };
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
     private async Task<PersistenceResult> PersistPreparedAsync(
         ExtractionStageResult extraction,
         string? ownerId,
         MemoryTrustLevel trustLevel,
         PreparedEmbeddings prepared,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool forceFailFast = false)
     {
         var sourceMessageIds = extraction.SourceMessageIds;
-        var failFast = _identity?.Enabled == true || _options.FailureMode == IngestionFailureMode.FailFast;
+        var failFast = forceFailFast || _identity?.Enabled == true || _options.FailureMode == IngestionFailureMode.FailFast;
         var outcomes = new List<IngestionItemOutcome>(extraction.Outcomes);
         outcomes.AddRange(prepared.Outcomes);
         var closings = new List<(string Winner, string Loser)>();

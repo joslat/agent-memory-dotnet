@@ -21,6 +21,20 @@ internal interface IPersistenceStage
         string? ownerId = null,
         MemoryTrustLevel trustLevel = MemoryTrustLevel.Untrusted,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Why this stage cannot apply a write once (<c>ExtractionRequest.OperationId</c>), or null when it can.</summary>
+    string? AppliedOnceRefusal() => "this persistence stage does not apply writes once";
+
+    /// <summary>The receipt of an applied-once write on this message, or null.</summary>
+    Task<MemoryOperationReceipt?> FindReceiptAsync(string messageId, CancellationToken cancellationToken = default) =>
+        Task.FromResult<MemoryOperationReceipt?>(null);
+}
+
+/// <summary>Another commit applied the same operation first: nothing of this one was kept.</summary>
+internal sealed class AppliedOnceRaceException(MemoryOperationReceipt receipt)
+    : Exception($"Operation '{receipt.OperationId}' was applied by another commit.")
+{
+    public MemoryOperationReceipt Receipt { get; } = receipt;
 }
 
 /// <summary>
@@ -40,4 +54,7 @@ internal sealed record PersistenceResult
     /// outcome (success, skip, or failure) recorded during this stage (#101).
     /// </summary>
     public IReadOnlyList<IngestionItemOutcome> Outcomes { get; init; } = Array.Empty<IngestionItemOutcome>();
+
+    /// <summary>The receipt an applied-once write committed with its effects; null for every other write.</summary>
+    public MemoryOperationReceipt? Receipt { get; init; }
 }

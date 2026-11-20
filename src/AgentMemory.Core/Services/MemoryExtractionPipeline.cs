@@ -149,6 +149,15 @@ internal sealed partial class MemoryExtractionPipeline : IMemoryExtractionPipeli
         // StrictMultiTenant behave identically for extraction as for every other tenant operation.
         var (scope, ownerId) = resolvedTarget ?? ResolveTarget(request, nameof(ExtractAsync));
 
+        // R2. An applied-once write: its receipt, if any, answers before any model is asked.
+        AppliedOnceOperation? once = null;
+        if (request.OperationId is { } operationId)
+        {
+            once = await AppliedOnceAsync(request, operationId, cancellationToken).ConfigureAwait(false);
+            if (await _persistenceStage.FindReceiptAsync(once.MessageId, cancellationToken).ConfigureAwait(false) is { } receipt)
+                return AppliedBefore(request, once, receipt);
+        }
+
         // H-1: a single request is a batch of one. Without it the name pre-embedding (one request for all
         // new names) never ran on this path, the one every agent turn takes: four new names cost four
         // sequential embedding calls (measured). Joins a batch the caller already opened.
@@ -171,10 +180,20 @@ internal sealed partial class MemoryExtractionPipeline : IMemoryExtractionPipeli
                 request.TypesToExtract, scope, cancellationToken).ConfigureAwait(false);
 
         staged = WithoutSharedPreferences(request, staged);
+        if (once is not null) staged = staged with { AppliedOnce = once };
 
         // #92 Phase 3: a per-request TrustLevel override wins; otherwise fall back to the configured default.
         var trustLevel = request.TrustLevel ?? _options.DefaultTrustLevel;
-        var persisted = await _persistenceStage.PersistAsync(staged, ownerId, trustLevel, cancellationToken).ConfigureAwait(false);
+        PersistenceResult persisted;
+        try
+        {
+            persisted = await _persistenceStage.PersistAsync(staged, ownerId, trustLevel, cancellationToken).ConfigureAwait(false);
+        }
+        catch (AppliedOnceRaceException race) when (once is not null)
+        {
+            // Another commit applied this operation first; this one kept nothing.
+            return AppliedBefore(request, once, race.Receipt);
+        }
         await AccountAsync(staged, ownerId, cancellationToken).ConfigureAwait(false);
 
         sw.Stop();
@@ -198,6 +217,7 @@ internal sealed partial class MemoryExtractionPipeline : IMemoryExtractionPipeli
             SourceMessageIds = staged.SourceMessageIds,
             Status = ComputeStatus(persisted.Outcomes),
             Outcomes = persisted.Outcomes,
+            Receipt = persisted.Receipt,
             Metadata = new Dictionary<string, object>
             {
                 ["sessionId"] = request.SessionId,
@@ -207,6 +227,40 @@ internal sealed partial class MemoryExtractionPipeline : IMemoryExtractionPipeli
                 ["preferenceCount"] = persisted.PreferenceCount,
                 ["relationshipCount"] = persisted.RelationshipCount
             }
+        };
+    }
+
+    /// <summary>
+    /// R2. Checks an applied-once request: a ConversationTurn whose one user message is stored, on a persistence stage
+    /// that can apply it once. Returns the operation and the message its receipt goes on.
+    /// </summary>
+    private Task<AppliedOnceOperation> AppliedOnceAsync(ExtractionRequest request, string operationId, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(operationId))
+            throw new ArgumentException("An operation id must not be blank.", nameof(request));
+        if (request.InputMode != ExtractionInputMode.ConversationTurn)
+            throw new ArgumentException($"{nameof(ExtractionRequest.OperationId)} needs {nameof(ExtractionInputMode.ConversationTurn)} input: one stored user message carries the receipt.", nameof(request));
+        if (_persistenceStage.AppliedOnceRefusal() is { } missing)
+            throw new NotSupportedException($"An applied-once write needs {missing}.");
+        cancellationToken.ThrowIfCancellationRequested();
+        var message = request.Messages.Single(m => string.Equals(m.Role, "user", StringComparison.OrdinalIgnoreCase));
+        return Task.FromResult(new AppliedOnceOperation(operationId, message.MessageId));
+    }
+
+    /// <summary>The answer to an operation that had already applied: nothing ran; the stored receipt says what it wrote.</summary>
+    private static ExtractionResult AppliedBefore(ExtractionRequest request, AppliedOnceOperation once, MemoryOperationReceipt receipt)
+    {
+        if (!string.Equals(receipt.OperationId, once.OperationId, StringComparison.Ordinal))
+            throw new InvalidOperationException(
+                $"Message '{once.MessageId}' was already applied by operation '{receipt.OperationId}', not '{once.OperationId}'.");
+        return new ExtractionResult
+        {
+            Path = ExtractionPath.Skipped,
+            SourceMessageIds = [once.MessageId],
+            Status = IngestionStatus.Succeeded,
+            Receipt = receipt,
+            AppliedBefore = true,
+            Metadata = new Dictionary<string, object> { ["sessionId"] = request.SessionId },
         };
     }
 

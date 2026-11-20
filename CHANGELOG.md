@@ -32,6 +32,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Applied-once writes: `ExtractionRequest.OperationId`. With it, a `ConversationTurn` write whose user message is
+  stored is applied completely or not at all: if the message already carries this operation's receipt, nothing runs
+  (no model call, no write) and `ExtractionResult.AppliedBefore` is true with the stored `Receipt`; otherwise the update
+  judge decides the writer's named replacements before the store transaction opens, and the memories, closings,
+  confirmations and the receipt (`MemoryOperationReceipt`, ids only, kept on the message) are written in one fail-fast
+  transaction. A crash or a lost acknowledgement leaves the whole write with its receipt, or nothing, so asking again
+  with the same id applies it once. Needs a store that rolls back atomically and keeps receipts
+  (`IMemoryOperationReceiptStore`; Neo4j does, with no new label or constraint); options whose effects one transaction
+  cannot cover are refused with `NotSupportedException` (evidence-based identity, renaming on a corrected name,
+  derived memory, and extractor fallback while an update judge is registered). Without an operation id nothing
+  changes.
 - `MemoryContext.QueryEmbeddingUnavailable`: true when a recall needed a query embedding, the query was not blank, and
   none could be made. The embedding orchestrator turns a failed generation into an empty vector, the same value it
   returns for a blank query, so until now an embedding outage read to every consumer exactly like an owner with no
