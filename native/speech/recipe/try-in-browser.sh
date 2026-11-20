@@ -8,6 +8,7 @@
 #   up      install the UI once, start the recipe and the UI, print the addresses
 #   down    stop the UI and the recipe; the memory (Neo4j volume) stays
 #   status  the recipe's containers, the UI and the server's memory status
+#   trace   follow the server live, coloured, and save the full log and the conversation (logs/ next to the settings)
 # The settings file is the recipe's (see TRY_IT.md); the UI and the status check follow its S2S_PUBLISH (default
 # 127.0.0.1:8765), which must be on this computer.
 # The UI's Python environment, process id and log live next to the settings file (ui-venv, ui.pid, ui.log).
@@ -65,5 +66,26 @@ case "$ACTION" in
       "import json, sys; print('memory:', json.dumps(json.load(sys.stdin).get('memory')))" 2> /dev/null \
       || echo "memory: the server does not answer"
     ;;
-  *) echo "up, down or status" >&2; exit 2 ;;
+  trace)
+    # A live view of the server: the conversation (what was heard, what was said), memory events, tool calls, per-turn
+    # latencies, warnings and errors, coloured; the full log and the conversation are also saved for this run.
+    mkdir -p "$STATE/logs"; stamp="$(date +%Y%m%d-%H%M%S)"
+    full="$STATE/logs/server-$stamp.log"; talk="$STATE/logs/conversation-$stamp.log"
+    id="$(recipe compose ps -q speech)"; [ -n "$id" ] || { echo "the speech server is not running" >&2; exit 1; }
+    echo "full log:      $full"
+    echo "conversation:  $talk"
+    echo "(Ctrl+C to stop following; the server keeps running)"
+    echo
+    docker logs -f --since "${TRACE_SINCE:-10m}" "$id" 2>&1 \
+      | tee "$full" \
+      | tee >(grep --line-buffered -E "^(USER|ASSISTANT):|memory: |latency: |Response done|ERROR|Tools: chars" > "$talk") \
+      | grep --line-buffered -v -E "HTTP Request: HEAD|Defaulting repo_id|resolve-cache|request_tracing" \
+      | sed -u -E \
+          -e 's/^(USER:.*)$/\x1b[1;32m\1\x1b[0m/' \
+          -e 's/^(ASSISTANT:.*)$/\x1b[1;36m\1\x1b[0m/' \
+          -e 's/^(.* - (ERROR|CRITICAL) - .*|.*Traceback.*|.*Error:.*)$/\x1b[1;31m\1\x1b[0m/' \
+          -e 's/^(.* - WARNING - .*)$/\x1b[33m\1\x1b[0m/' \
+          -e 's/^(.*memory: .*)$/\x1b[35m\1\x1b[0m/'
+    ;;
+  *) echo "up, down, status or trace" >&2; exit 2 ;;
 esac
