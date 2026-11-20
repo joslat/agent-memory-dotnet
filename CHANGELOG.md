@@ -68,7 +68,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The AgentMemory native library (`tools/AgentMemory.Native`, `native/`): AgentMemory's read path as a Native AOT
   shared library with a versioned C ABI (`native/include/agentmemory_native.h`, contract in `native/CONTRACT.md`) and a
   Python binding (`native/python`), for any host with a C foreign-function interface and no .NET installation.
-  Read-only profile; not a NuGet package. `native/gate` proves it on Linux x64 (Ubuntu 24.04) against a real Neo4j.
+  Not a NuGet package. `native/gate` proves it on Linux x64 (Ubuntu 24.04) against a real Neo4j. Three profiles:
+  `read_only` (recall only); `explicit_write` (remember the owner's own words through a durable journal with truthful
+  receipts, forget, a verified owner erase that also purges the journal); and `learning` (every write applied once by
+  its operation id, so a write interrupted by a crash is retried and its receipt decides). Python adapters for
+  LangChain (a retriever) and LangGraph (a `BaseStore`).
+- A speech recipe (`native/speech/recipe`): the speech-to-speech server with AgentMemory memory in one settings file
+  and Docker Compose (Neo4j, the schema step, the server), with an operator's runbook; memory writes and learning are
+  off unless switched on. Its gates, spoken end to end with real models (`native/speech/gr1`, `native/speech/gr2`),
+  and a benchmark harness (`native/speech/bench`) sit beside it.
 - Stored metadata and the relation vocabulary are read through generated serializer metadata when a host switches
   reflection-based System.Text.Json off; every other host runs the call it always has.
 
