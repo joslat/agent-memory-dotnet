@@ -10,11 +10,13 @@ namespace AgentMemory.Packs.Format;
 /// <summary>A signing key pair, PEM encoded, and its id: the lowercase hex SHA-256 of the SubjectPublicKeyInfo (v1.1 H3).</summary>
 internal sealed record PackKey(string PrivateKeyPem, string PublicKeyPem, string KeyId)
 {
+#if !AMPACK_READER // signing: left out of the reader-only build (src/Ampack)
     internal static PackKey Create()
     {
         using var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         return new PackKey(ecdsa.ExportPkcs8PrivateKeyPem(), ecdsa.ExportSubjectPublicKeyInfoPem(), KeyIdOf(ecdsa));
     }
+#endif
 
     internal static string KeyIdOf(ECDsa key) => FilesList.Hex(key.ExportSubjectPublicKeyInfo());
 
@@ -54,6 +56,7 @@ internal static class Dsse
     /// <summary>The envelope file's path for a role and key.</summary>
     internal static string PathFor(string role, string keyId) => $"{PackPaths.SignaturesFolder}{role}-{keyId[..16]}.dsse.json";
 
+#if !AMPACK_READER // signing: left out of the reader-only build (src/Ampack)
     /// <summary>Signs the list's exact bytes as <paramref name="role"/>, and returns the envelope file's bytes.</summary>
     internal static byte[] Sign(byte[] filesList, string id, string version, string role, DateTimeOffset signedAt, string privateKeyPem)
     {
@@ -61,7 +64,9 @@ internal static class Dsse
         using var signer = PackSigner.FromPem(privateKeyPem);
         return Sign(filesList, id, version, role, signedAt, signer);
     }
+#endif
 
+#if !AMPACK_READER // signing: left out of the reader-only build (src/Ampack)
     /// <summary>Signs the list's exact bytes as <paramref name="role"/> with any signer (a key in memory, a keychain, a KMS).</summary>
     internal static byte[] Sign(byte[] filesList, string id, string version, string role, DateTimeOffset signedAt, PackSigner signer)
     {
@@ -83,6 +88,7 @@ internal static class Dsse
         };
         return Jcs.Canonical(envelope);
     }
+#endif
 
     /// <summary>
     /// Checks one envelope against the list and the trust policy. Returns the valid signatures in it, and the problems with

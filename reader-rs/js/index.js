@@ -81,11 +81,15 @@ export function load(archive, trust, options = {}) {
   return new Pack(new Map(loaded.files.map(f => [f.path, f.data])), loaded.info);
 }
 
+// A file the pack's digest covers. The file list itself, the signatures and the attestations travel beside the content:
+// verifying a pack does not make an attestation trusted, so none of them is handed out as the pack's.
+const listed = path => path !== "META/files.json" && !path.startsWith("META/signatures/") && !path.startsWith("META/attestations/");
+
 /** A verified pack. Create one with load(). */
 export class Pack {
   #files;
   constructor(files, info) {
-    this.#files = files;
+    this.#files = new Map([...files].filter(([path]) => listed(path)));
     this.id = info.id;
     this.version = info.version;
     this.digest = info.digest;
@@ -94,7 +98,7 @@ export class Pack {
     Object.freeze(this);
   }
 
-  /** The paths of every file of the pack, as verified. */
+  /** The paths of every file the pack's digest covers. The file list, the signatures and the attestations are not among these. */
   get paths() { return [...this.#files.keys()]; }
   has(path) { return this.#files.has(path); }
 

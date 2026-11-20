@@ -66,7 +66,7 @@ export class Pack {
   readonly digest: string | undefined;
   readonly kind: string;
   readonly profiles: string[];
-  /** The paths of every file of the pack, as verified. */
+  /** The paths of every file the pack's digest covers. The file list (META/files.json), the signatures and the attestations beside them are not among these. */
   readonly paths: string[];
   has(path: string): boolean;
   bytes(path: string): Uint8Array | undefined;

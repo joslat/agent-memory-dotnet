@@ -20,6 +20,7 @@ internal static partial class Revocations
     internal const string PayloadType = "application/vnd.agentmemory.revocations+json";
     internal const string Role = "revoker";
 
+#if !AMPACK_READER // signing: left out of the reader-only build (src/Ampack)
     /// <summary>Writes and signs a document.</summary>
     internal static byte[] Sign(IReadOnlyList<string> digests, IReadOnlyList<RevokedKey> keys, DateTimeOffset issuedAt, DateTimeOffset expires,
         string privateKeyPem)
@@ -27,7 +28,9 @@ internal static partial class Revocations
         using var signer = PackSigner.FromPem(privateKeyPem);
         return Sign(digests, keys, issuedAt, expires, signer);
     }
+#endif
 
+#if !AMPACK_READER // signing: left out of the reader-only build (src/Ampack)
     /// <summary>Writes and signs a document with any signer.</summary>
     internal static byte[] Sign(IReadOnlyList<string> digests, IReadOnlyList<RevokedKey> keys, DateTimeOffset issuedAt, DateTimeOffset expires,
         PackSigner signer)
@@ -57,6 +60,7 @@ internal static partial class Revocations
             ["signatures"] = new JsonArray(new JsonObject { ["keyid"] = signer.KeyId, ["sig"] = Convert.ToBase64String(signature) }),
         });
     }
+#endif
 
     /// <summary>Largest revocation document read.</summary>
     internal const int MaximumDocumentBytes = 4 << 20;

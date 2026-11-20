@@ -39,6 +39,7 @@ internal sealed record PublicationReceipt(string Id, string Version, string Pack
         packDigest.StartsWith("sha256:", StringComparison.Ordinal) && packDigest.Length == 71 ? "sha256-" + packDigest[7..]
             : throw new ArgumentException("A pack digest is 'sha256:' and 64 hexadecimal characters.", nameof(packDigest));
 
+#if !AMPACK_READER // signing: left out of the reader-only build (src/Ampack)
     /// <summary>Signs this receipt; the signer must be a key the recipients trust as publisher for the id, bound to its WebID.</summary>
     internal byte[] Sign(PackSigner signer)
     {
@@ -72,6 +73,7 @@ internal sealed record PublicationReceipt(string Id, string Version, string Pack
             ["signatures"] = new JsonArray(new JsonObject { ["keyid"] = signer.KeyId, ["sig"] = Convert.ToBase64String(signature) }),
         });
     }
+#endif
 
     /// <summary>
     /// Verifies a receipt for <paramref name="pack"/>, fetched from <paramref name="fetchedFrom"/> as <paramref name="archive"/>:

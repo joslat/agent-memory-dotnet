@@ -38,7 +38,8 @@ interface verifier {
     /// Inspect an archive, or say why it is not in the archive profile.
     inspect: func(archive: list<u8>) -> result<summary, string>;
 
-    /// One file of a verified pack, by its path in the archive (a set's members stand under packs/<id>/).
+    /// One file of a verified pack, by its path in the archive (a set's members stand under packs/<id>/). Only the files
+    /// the pack's digest covers: not the file list itself, the signatures or the attestations beside them.
     record pack-file {
         path: string,
         data: list<u8>,

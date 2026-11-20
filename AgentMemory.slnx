@@ -44,6 +44,7 @@
     <Project Path="src/AgentMemory.Packs.Coding/AgentMemory.Packs.Coding.csproj" />
     <Project Path="src/AgentMemory.Packs.Work/AgentMemory.Packs.Work.csproj" />
     <Project Path="src/AgentMemory.Packs.Format/AgentMemory.Packs.Format.csproj" />
+    <Project Path="src/Ampack/Ampack.csproj" />
     <Project Path="src/AgentMemory.Packs.Solid/AgentMemory.Packs.Solid.csproj" />
     <Project Path="src/AgentMemory.Extensibility.Ampack/AgentMemory.Extensibility.Ampack.csproj" />
     <Project Path="src/AgentMemory.McpServer.Nams/AgentMemory.McpServer.Nams.csproj" />
@@ -53,6 +54,7 @@
   <Folder Name="/tools/">
     <Project Path="tools/AgentMemory.Cli/AgentMemory.Cli.csproj" />
     <Project Path="tools/Ampack/Ampack.csproj" />
+    <Project Path="tools/Ampack.Tool/Ampack.Tool.csproj" />
     <Project Path="tools/AgentMemory.Decisions/AgentMemory.Decisions.csproj" />
     <Project Path="tools/AgentMemory.LongMemEval/AgentMemory.LongMemEval.csproj" />
     <Project Path="tools/AgentMemory.McpHost/AgentMemory.McpHost.csproj" />
@@ -62,6 +64,7 @@
     <Project Path="tools/AgentMemory.TckBridge.Nams/AgentMemory.TckBridge.Nams.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Ampack.Tests/Ampack.Tests.csproj" />
     <Project Path="tests/AgentMemory.Tests.Integration/AgentMemory.Tests.Integration.csproj" />
     <Project Path="tests/AgentMemory.Tests.Performance/AgentMemory.Tests.Performance.csproj" />
     <Project Path="tests/AgentMemory.Tests.Unit/AgentMemory.Tests.Unit.csproj" />

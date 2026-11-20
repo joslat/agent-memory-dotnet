@@ -1,0 +1,135 @@
+# Uploads the .NET client of the ampack format to nuget.org: the package Ampack (src/Ampack) and the package Ampack.Tool
+# (tools/Ampack.Tool, the command `ampack`).
+#
+# No key is stored. The upload job trades its GitHub OIDC token for a one-hour nuget.org key (NuGet/login) against a
+# Trusted Publishing policy on the joslat account that names this repository, THIS workflow file and the 'nuget'
+# environment. The policy of release.yml does not cover this file: it needs one of its own on nuget.org.
+#
+# It runs only when it is started by hand (Actions, "Publish Ampack (NuGet)", Run workflow). The build job tests, packs
+# and tries the packed files; the upload job then waits for the reviewer of the 'nuget' environment. The packages keep
+# their own 0.x version (the <Version> in each project): a version number, once uploaded, is used for good.
+name: Publish Ampack (NuGet)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-ampack-nuget
+  cancel-in-progress: false
+
+env:
+  DOTNET_NOLOGO: 'true'
+  DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+
+jobs:
+  build:
+    name: Test, pack and try the packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The library is built for .NET 8, 9 and 10; the SDK of global.json builds all three.
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+          dotnet-version: |
+            8.0.x
+            9.0.x
+
+      # The conformance vectors through the public surface, reading a verified pack, the command's exit codes, and what the
+      # assembly must not hold: no signing, no dependency beyond .NET.
+      - name: Tests
+        run: dotnet test tests/Ampack.Tests/Ampack.Tests.csproj -c Release
+
+      - name: Pack
+        run: |
+          dotnet pack src/Ampack/Ampack.csproj -c Release -o packages
+          dotnet pack tools/Ampack.Tool/Ampack.Tool.csproj -c Release -o packages
+          ls -l packages
+
+      # What is uploaded is what a user installs: the packed tool installed from the packed file and run on a vector, and the
+      # packed library used from a new console project on the oldest supported .NET.
+      - name: Try the packed tool
+        run: |
+          dotnet tool install Ampack.Tool --tool-path "$RUNNER_TEMP/tool" --add-source "$GITHUB_WORKSPACE/packages" --version "$(ls packages | sed -n 's/^Ampack\.Tool\.\(.*\)\.nupkg$/\1/p')"
+          "$RUNNER_TEMP/tool/ampack" --version
+          "$RUNNER_TEMP/tool/ampack" verify conformance/pack-v1.1/vectors/valid-python-built.ampack conformance/pack-v1.1/trust.json
+          if "$RUNNER_TEMP/tool/ampack" verify conformance/pack-v1.1/vectors/tampered-record.ampack conformance/pack-v1.1/trust.json; then
+            echo "::error::a tampered pack verified"; exit 1
+          fi
+
+      - name: Try the packed library
+        env:
+          NUGET_PACKAGES: ${{ runner.temp }}/nuget-packages
+        run: |
+          version="$(ls packages | sed -n 's/^Ampack\.\([0-9].*\)\.nupkg$/\1/p')"
+          mkdir "$RUNNER_TEMP/user" && cd "$RUNNER_TEMP/user"
+          dotnet new console --framework net8.0
+          dotnet nuget add source "$GITHUB_WORKSPACE/packages" --name local-ampack
+          dotnet add package Ampack --version "$version"
+          cat > Program.cs <<EOF
+          using Ampack;
+          var kit = "$GITHUB_WORKSPACE/conformance/pack-v1.1/";
+          var pack = Pack.Load(kit + "vectors/valid-python-built.ampack", kit + "trust.json");
+          Console.WriteLine(\$"{pack.Id} {pack.Version} {pack.Digest} {pack.Records().Count} records");
+          if (Pack.Verify(kit + "vectors/tampered-record.ampack", kit + "trust.json").Verified) throw new Exception("a tampered pack verified");
+          EOF
+          dotnet run -c Release
+
+      - name: Keep the packages for the upload job
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ampack-nuget-packages
+          path: packages/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Upload to nuget.org
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: nuget
+    permissions:
+      contents: read
+      id-token: write     # OIDC: nuget.org Trusted Publishing and attestation signing (Sigstore)
+      attestations: write # build provenance attestations
+    steps:
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Fetch the packages
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ampack-nuget-packages
+          path: packages
+
+      - name: Exchange the GitHub OIDC token for a one-hour nuget.org key
+        id: nuget-login
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
+        with:
+          user: joslat # the nuget.org profile that holds the Ampack prefix (public)
+
+      # The symbols package beside Ampack's .nupkg goes with it.
+      - name: Push to NuGet
+        env:
+          NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
+        run: >
+          dotnet nuget push "packages/*.nupkg"
+          --api-key "$NUGET_API_KEY"
+          --source https://api.nuget.org/v3/index.json
+          --skip-duplicate
+
+      - name: Generate build provenance attestations
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: "packages/*.nupkg"

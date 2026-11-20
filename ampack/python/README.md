@@ -54,6 +54,9 @@ bytes themselves. `ampack.verify(...)` gives the verdict alone.
   16 files, 64 KiB a line).
 - **Not checked by this reader:** whether a record fits the pack's ontology (its type, required properties, relations),
   and how deeply a record nests. A host that imports records checks those.
+- **Handed out:** only the files the pack's digest covers. The signatures and the attestations (certificates, erasure
+  statements) travel beside them and are not handed out as the pack's files: verifying a pack does not make an
+  attestation trusted.
 
 The verifier is the Python verifier of the format's conformance kit, unchanged. It shares no code with the .NET and
 Rust verifiers, and must reach the same verdict as they do on every conformance vector.

@@ -14,7 +14,7 @@ This folder is the front door for the **client packages**: the code that verifie
 | Python | [`ampack`](python/) | `pip install ampack` | Preview 0.1.0, Python 3.12 |
 | JavaScript and TypeScript | `ampack` | `npm install ampack` | Being prepared, from [`reader-rs`](../reader-rs/) |
 | Rust | `ampack-core`, `ampack` | `cargo add ampack-core` | Being prepared, from [`reader-rs`](../reader-rs/) |
-| .NET | `Ampack` | | Planned. Today the verifier is [`src/AgentMemory.Packs.Format`](../src/AgentMemory.Packs.Format/) |
+| .NET | `Ampack` (library), `Ampack.Tool` (command `ampack`) | `dotnet add package Ampack`, `dotnet tool install --global Ampack.Tool` | Being prepared, from [`src/Ampack`](../src/Ampack/) and [`tools/Ampack.Tool`](../tools/Ampack.Tool/) |
 
 A row says "being prepared" or "planned" until its package is on its index.
 
@@ -38,6 +38,7 @@ idea: the file carries its proof, and the host decides whom it trusts.
 | The specification | [`spec/`](../spec/) (start with [`spec/core.md`](../spec/core.md)) |
 | The conformance vectors and the independent Python verifier | [`conformance/pack-v1.1/`](../conformance/pack-v1.1/) |
 | The reader in Rust and WebAssembly | [`reader-rs/`](../reader-rs/) |
+| The end-to-end test: one new pack through every client package, as installed | [`e2e/`](e2e/) |
 | The .NET verifier and the `ampack` tool | [`src/AgentMemory.Packs.Format/`](../src/AgentMemory.Packs.Format/), [`tools/Ampack/`](../tools/Ampack/) |
 | Certified packs and the hub | https://memcert.dev |
 | The paper | https://doi.org/10.5281/zenodo.24012989 |
