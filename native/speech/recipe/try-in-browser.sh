@@ -1,49 +1,68 @@
 #!/usr/bin/env bash
 # Talk to the speech server with AgentMemory in a browser, on this computer, and watch the memory form.
 # Starts the recipe (with Neo4j's browser published on 127.0.0.1, compose.inspect.yml) and the speech server's own
-# browser voice UI (the demo/ folder of the speech-to-speech checkout, built here as a local image).
+# browser voice UI (the demo/ folder of the speech-to-speech checkout), run on this computer: it needs Node.js (npm) and
+# Python 3.10 or newer. (The demo's own Dockerfile does not build outside Hugging Face: its lockfile names their
+# internal npm mirror and the Dockerfile leaves out the .npmrc that redirects it.)
 # Usage: native/speech/recipe/try-in-browser.sh <settings-file> <speech-to-speech checkout> [up|down|status]
-#   up      build the voice UI image, start the recipe and the UI, print the addresses
+#   up      install the UI once, start the recipe and the UI, print the addresses
 #   down    stop the UI and the recipe; the memory (Neo4j volume) stays
-#   status  the recipe's containers, the UI container and the server's memory status
-# The settings file is the recipe's (see TRY_IT.md); the server must be published on 127.0.0.1:8765 (the default).
+#   status  the recipe's containers, the UI and the server's memory status
+# The settings file is the recipe's (see TRY_IT.md); the UI and the status check follow its S2S_PUBLISH (default
+# 127.0.0.1:8765), which must be on this computer.
+# The UI's Python environment, process id and log live next to the settings file (ui-venv, ui.pid, ui.log).
 set -euo pipefail
 SETTINGS="${1:?settings file}"; CHECKOUT="${2:?speech-to-speech checkout}"; ACTION="${3:-up}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
+STATE="$(cd "$(dirname "$SETTINGS")" && pwd)"
 win() { cygpath -m "$1" 2>/dev/null || echo "$1"; }
 export MSYS_NO_PATHCONV=1
 export COMPOSE_EXTRA; COMPOSE_EXTRA="$(win "$HERE/compose.inspect.yml")"
-UI=agentmemory-speech-ui
-IMAGE=agentmemory-speech-ui:local
+VENV="$STATE/ui-venv"; PIDFILE="$STATE/ui.pid"; LOG="$STATE/ui.log"
+PY="$VENV/bin/python"; [ -x "$VENV/Scripts/python.exe" ] && PY="$VENV/Scripts/python.exe"
 recipe() { bash "$HERE/recipe.sh" "$SETTINGS" "$@"; }
+PUBLISH="$(sed -n 's/^S2S_PUBLISH=//p' "$SETTINGS" | tail -1 | tr -d '
+')"; PUBLISH="${PUBLISH:-127.0.0.1:8765}"
+PORT="${PUBLISH##*:}"
+ui_running() { [ -s "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2> /dev/null; }
+stop_ui() { if ui_running; then kill "$(cat "$PIDFILE")" 2> /dev/null || true; fi; rm -f "$PIDFILE"; }
 
 case "$ACTION" in
   up)
     grep -q -E '^MEMORY=on\b' "$SETTINGS" || { echo "set MEMORY=on in $SETTINGS" >&2; exit 2; }
-    [ -f "$CHECKOUT/demo/Dockerfile" ] || { echo "no demo/Dockerfile in $CHECKOUT" >&2; exit 2; }
-    echo "== the voice UI image (demo/ of $(git -C "$CHECKOUT" rev-parse --short HEAD 2>/dev/null || echo "the checkout"))"
-    docker build -q -t "$IMAGE" "$(win "$CHECKOUT/demo")" > /dev/null
+    [ -f "$CHECKOUT/demo/server.py" ] || { echo "no demo/server.py in $CHECKOUT" >&2; exit 2; }
+    echo "== the voice UI (demo/ of $(git -C "$CHECKOUT" rev-parse --short HEAD 2> /dev/null || echo "the checkout"))"
+    [ -d "$CHECKOUT/demo/node_modules" ] || npm ci --prefix "$CHECKOUT/demo" --omit=dev > "$STATE/ui-install.log" 2>&1
+    if [ ! -x "$PY" ]; then
+      python -m venv "$VENV"
+      PY="$VENV/bin/python"; [ -x "$VENV/Scripts/python.exe" ] && PY="$VENV/Scripts/python.exe"
+      "$PY" -m pip install -q --disable-pip-version-check -r "$CHECKOUT/demo/requirements.txt" >> "$STATE/ui-install.log" 2>&1
+    fi
     echo "== the recipe"
     recipe up
-    docker rm -f "$UI" > /dev/null 2>&1 || true
-    # The browser opens the WebSocket itself, so the address is the host's localhost, not a name inside Docker.
-    docker run -d --name "$UI" -p 127.0.0.1:7860:7860 \
-      -e SPEECH_TO_SPEECH_URL=ws://localhost:8765/v1/realtime "$IMAGE" > /dev/null
+    stop_ui
+    # The browser opens the WebSocket itself, so the address is this computer's localhost.
+    ( cd "$CHECKOUT" && SPEECH_TO_SPEECH_URL=ws://localhost:$PORT/v1/realtime \
+        nohup "$PY" -m uvicorn --app-dir demo server:app --host 127.0.0.1 --port 7860 > "$LOG" 2>&1 & echo $! > "$PIDFILE" )
+    ui_up() { [ "$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 http://127.0.0.1:7860/)" = 200 ]; }
+    for _ in $(seq 1 30); do ui_up && break; sleep 2; done
+    ui_up || { echo "the UI did not start; see $LOG" >&2; tail -5 "$LOG" >&2; exit 1; }
     echo
-    echo "talk:    http://localhost:7860   (allow the microphone, then click the orb)"
-    echo "memory:  http://localhost:7474   (Neo4j Browser: bolt://localhost:7687, user neo4j, the password in your settings file)"
-    echo "status:  http://127.0.0.1:8765/v1/realtime/capabilities"
+    echo "talk:    http://localhost:7860    (allow the microphone, then click the orb)"
+    echo "memory:  http://localhost:17474   (Neo4j Browser: connect to bolt://localhost:17687, user neo4j,"
+    echo "                                   the password in your settings file)"
+    echo "status:  http://127.0.0.1:$PORT/v1/realtime/capabilities"
     echo "stop:    $0 $SETTINGS $CHECKOUT down"
     ;;
   down)
-    docker rm -f "$UI" > /dev/null 2>&1 || true
+    stop_ui
     recipe down
     ;;
   status)
     recipe status
-    docker ps -a --filter "name=^$UI\$" --format '{{.Names}}  {{.Status}}'
-    curl -s --max-time 5 http://127.0.0.1:8765/v1/realtime/capabilities | python -c \
-      "import json, sys; print('memory:', json.dumps(json.load(sys.stdin).get('memory')))" 2>/dev/null \
+    if ui_running; then echo "ui: running (pid $(cat "$PIDFILE")), http://localhost:7860"; else echo "ui: not running"; fi
+    curl -s --max-time 5 "http://127.0.0.1:$PORT/v1/realtime/capabilities" | python -c \
+      "import json, sys; print('memory:', json.dumps(json.load(sys.stdin).get('memory')))" 2> /dev/null \
       || echo "memory: the server does not answer"
     ;;
   *) echo "up, down or status" >&2; exit 2 ;;

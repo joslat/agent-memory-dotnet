@@ -3,7 +3,7 @@
 Talk to the speech server with AgentMemory on your own computer, through the speech server's own browser voice UI, and
 watch the memory form in Neo4j's browser while you speak. Everything runs locally except the models you choose to host
 elsewhere. Needs Docker with Compose v2, the recipe's two images (see [README.md](README.md)), a checkout of the speech
-server with the memory hooks, and a microphone.
+server with the memory hooks, Node.js (npm) and Python 3.10 or newer for the voice UI, and a microphone.
 
 ```bash
 git clone --branch agentmemory/native-memory https://github.com/joslat/speech-to-speech
@@ -48,14 +48,17 @@ Recall itself uses no language model: it is the embedding of your words and a se
 native/speech/recipe/try-in-browser.sh ~/my-speech.env <speech-to-speech checkout>
 ```
 
-It builds the voice UI from the checkout's `demo/` folder, starts the recipe with Neo4j's browser published on
-`127.0.0.1` only ([compose.inspect.yml](compose.inspect.yml)), and prints three addresses:
+It installs the voice UI from the checkout's `demo/` folder once (its packages, and a Python environment next to your
+settings file), starts the recipe with Neo4j's browser published on `127.0.0.1` only
+([compose.inspect.yml](compose.inspect.yml), ports 17474 and 17687 so a developer Neo4j on 7474 is left alone), runs
+the UI on this computer, and prints three addresses:
 
 - `http://localhost:7860`: the voice UI. Allow the microphone, click the orb, talk.
-- `http://localhost:7474`: Neo4j Browser. Connect to `bolt://localhost:7687` as `neo4j` with the password from your
+- `http://localhost:17474`: Neo4j Browser. Connect to `bolt://localhost:17687` as `neo4j` with the password from your
   settings file.
-- `http://127.0.0.1:8765/v1/realtime/capabilities`: the server's memory status (`ready`, writes saving, attention
-  needed), never content.
+- `http://127.0.0.1:<port>/v1/realtime/capabilities`: the server's memory status (`ready`, writes saving, attention
+  needed), never content. The port is your `S2S_PUBLISH` (default 8765); set another one, such as
+  `S2S_PUBLISH=127.0.0.1:18765`, when something else on the computer already uses 8765.
 
 In Neo4j Browser, this shows what the server remembers for the owner, newest first (closed memories have a
 `closed` time):

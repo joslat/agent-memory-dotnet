@@ -1,8 +1,9 @@
 # Opt-in, for trying the recipe by hand: Neo4j's own browser and its Bolt port on this computer only (127.0.0.1), so
-# you can watch the memories form while you talk. Not for a shared machine: anyone on it who knows the password can
-# read the memory. try-in-browser.sh adds it through COMPOSE_EXTRA.
+# you can watch the memories form while you talk. Ports 17474 and 17687, so a developer Neo4j already on 7474/7687 is
+# left alone. Not for a shared machine: anyone on it who knows the password can read the memory. try-in-browser.sh adds
+# this file through COMPOSE_EXTRA.
 services:
   neo4j:
     ports:
-      - "127.0.0.1:7474:7474"
-      - "127.0.0.1:7687:7687"
+      - "127.0.0.1:17474:7474"
+      - "127.0.0.1:17687:7687"
