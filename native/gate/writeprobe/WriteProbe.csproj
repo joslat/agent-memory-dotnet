@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The R1 write path as a Native AOT executable, run against a throw-away Neo4j on plain Ubuntu (run-write-probe.sh):
+       message, LLM extraction through IChatClient (a fixed reply), persistence, read-back of every written property.
+       Proves the write path works natively, including the driver's anonymous-object Cypher parameters (B6). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <PublishAot>true</PublishAot>
+    <IsPackable>false</IsPackable>
+    <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <TrimmerSingleWarn>false</TrimmerSingleWarn>
+    <IlcTreatWarningsAsErrors>false</IlcTreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../src/AgentMemory.Abstractions/AgentMemory.Abstractions.csproj" />
+    <ProjectReference Include="../../../src/AgentMemory.Core/AgentMemory.Core.csproj" />
+    <ProjectReference Include="../../../src/AgentMemory.Neo4j/AgentMemory.Neo4j.csproj" />
+    <ProjectReference Include="../../../src/AgentMemory.Extraction.Llm/AgentMemory.Extraction.Llm.csproj" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.12" />
+    <TrimmerRootDescriptor Include="../../../tools/AgentMemory.Native/ILLink.Descriptors.xml" />
+    <RdXmlFile Include="../../../tools/AgentMemory.Native/Neo4jDriver.rd.xml" />
+  </ItemGroup>
+</Project>

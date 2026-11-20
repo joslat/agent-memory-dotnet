@@ -9,9 +9,22 @@
 
   Keeping the driver's public namespace whole keeps those types, attributes and constructors. It does not silence the
   analysis warnings (IL2026, IL2080 on Neo4jExceptionFactory); the gate's store-failure tests are the evidence.
+
+  AgentMemory.Neo4j passes many Cypher parameters as anonymous objects (new { limit = ... }); the driver turns an
+  object parameter into a map by reflecting over its runtime type's properties. Trimming does not keep anonymous types'
+  property metadata, so in the native build those parameters reached Neo4j empty ("Expected parameter(s): limit" from
+  the schema bootstrap, native write probe, 20 November 2026: bug B6). The compiler puts anonymous types in the
+  assembly's root namespace, so keeping that namespace keeps every anonymous parameter type with its properties,
+  without changing a call site or a managed host (keeping the whole assembly worked too, 0.8 MB larger). The driver's
+  converter also needs the generic instantiations in Neo4jDriver.rd.xml. The write probe (native/gate/run-write-probe.sh)
+  is the evidence. Together they add about 5 MB to the library (14.8 to 20.2 MB); converting the write paths' call sites
+  to dictionaries would avoid the driver's object converter and that cost.
 -->
 <linker>
   <assembly fullname="Neo4j.Driver">
     <namespace fullname="Neo4j.Driver" />
+  </assembly>
+  <assembly fullname="AgentMemory.Neo4j">
+    <namespace fullname="" />
   </assembly>
 </linker>

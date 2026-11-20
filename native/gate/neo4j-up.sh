@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Starts a throw-away Neo4j 5.26 for the speech gate on its own Docker network, with a random hex password that is
 # never printed. Writes NAME, NETWORK, HOST_PORT and PASSWORD to the env file given as $1 (keep it outside git).
+# AM_GATE_NETWORK and AM_GATE_PORT give a second store its own network and port.
 # The developer store agent-memory-neo4j-dev is never touched.
 set -euo pipefail
 ENV_FILE="${1:?usage: neo4j-up.sh <env-file>}"
-NETWORK=am-speech-net
+NETWORK="${AM_GATE_NETWORK:-am-speech-net}"
 NAME="am-speech-neo4j-$(date +%s)"
 HOST_PORT="${AM_GATE_PORT:-7697}"
 PASSWORD="$(od -An -tx1 -N16 /dev/urandom | tr -d ' \n')"

@@ -36,6 +36,8 @@
   <ItemGroup>
     <!-- Keeps what Neo4j.Driver finds by reflection at run time; see the file for the evidence. -->
     <TrimmerRootDescriptor Include="ILLink.Descriptors.xml" />
+    <!-- Generic instantiations Neo4j.Driver builds by reflection; see the file. -->
+    <RdXmlFile Include="Neo4jDriver.rd.xml" />
   </ItemGroup>
 
   <ItemGroup>
