@@ -3,6 +3,8 @@
 # memory kept, the database missing and back, a damaged library refused, private memory text kept out of the logs.
 # Uses the deterministic model stand-in and the gate's seeded facts; a fresh Neo4j volume, removed afterwards.
 # Usage: native/speech/recipe/recipe-test.sh <report-dir> <server-image> <schema-image>
+#   REACHY_APP, REACHY_TEST_IMAGE  optional: a Reachy Mini conversation app checkout with the server memory mode and an
+#   image with its dependencies; the app's own status call then runs against this server too
 set -uo pipefail
 REPORT="$(mkdir -p "${1:?report dir}" && cd "$1" && pwd)"
 SERVER_IMAGE="${2:?server image}"; SCHEMA_IMAGE="${3:?schema image}"
@@ -95,6 +97,30 @@ rewarmed() {
   for _ in $(seq 1 40); do recipe "$ON" logs speech | grep 'memory: store answers again' && return 0; sleep 2; done
   return 1
 }
+memory_status_is() { # <expected state, or "off">: the server's capabilities, as a client reads them
+  local body
+  body="$(docker run --rm --network "${PROJECT}_default" "$SERVER_IMAGE" python3 -c \
+    'import urllib.request; print(urllib.request.urlopen("http://speech:8765/v1/realtime/capabilities", timeout=5).read().decode())')" || return 1
+  echo "$body" | python -I -c '
+import json, sys
+memory = json.loads(sys.stdin.read())["memory"]
+print("memory:", memory)
+text = json.dumps(memory)
+leaks = [word for word in ("gate-owner-a", "bolt:", "neo4j", "password") if word in text]
+if sys.argv[1] == "off":
+    sys.exit(0 if memory == {"enabled": False} else 1)
+sys.exit(0 if memory.get("enabled") is True and memory.get("state") == sys.argv[1] and not leaks else 1)' "$1"
+}
+reachy_app_sees_ready() {
+  docker run --rm --network "${PROJECT}_default" -v "$(win "$REACHY_APP"):/app:ro" -w /app \
+    -e PYTHONPATH=/app/src -e REACHY_MINI_MEMORY_BACKEND=server -e HF_REALTIME_CONNECTION_MODE=local \
+    -e HF_REALTIME_WS_URL=ws://speech:8765/v1/realtime "$REACHY_TEST_IMAGE" python -c '
+import asyncio
+from reachy_mini_conversation_app.memory_routes import _server_memory_status
+status = asyncio.run(_server_memory_status())
+print("reachy app sees:", status)
+raise SystemExit(0 if status.get("reachable") and status.get("enabled") and status.get("state") == "ready" else 1)'
+}
 warm_up_logged() { recipe "$ON" logs speech | grep 'memory: warm-up recall'; }
 vector_indexes_of_8() {
   local dims; dims="$(cypher "SHOW VECTOR INDEXES YIELD options RETURN options.indexConfig['vector.dimensions'] AS d")"
@@ -113,6 +139,7 @@ check "off: no Neo4j container exists" test -z "$(docker ps -aq --filter "name=$
 client off "$HELLO" "$WORK"
 check "off: replies without memory" replies_are off "You said: Hello robot, how are you today?." "You said: Where do I work?."
 check "off: the server never mentions memory" off_log_has_no_memory
+check "off: capabilities say memory is off" memory_status_is off
 recipe "$OFF" down > /dev/null 2>&1
 
 echo "== memory on, clean install"
@@ -128,6 +155,10 @@ client on1 "$WORK" "$STYLE" "$HELLO"
 check "on: work and style answered from memory, the greeting without" replies_are on1 \
   "From memory: user works in Zurich." "From memory: Prefers concise answers." "You said: Hello robot, how are you today?."
 check "on: recall left the graph unchanged" test "$BEFORE" = "$(fingerprint)"
+check "on: capabilities say memory is ready, naming no owner or store" memory_status_is ready
+if [ -n "${REACHY_APP:-}" ] && [ -n "${REACHY_TEST_IMAGE:-}" ]; then
+  check "on: the Reachy app reads the server's memory as ready" reachy_app_sees_ready
+fi
 
 echo "== restart with the memory kept"
 recipe "$ON" down > /dev/null 2>&1
@@ -149,11 +180,13 @@ turns = json.load(open(sys.argv[1], encoding="utf-8"))
 values = [t["client_first_audio_s"] for t in turns]
 print("first audio:", values); sys.exit(0 if all(v is not None and v < 3.0 for v in values) else 1)' "$(win "$REPORT/down1.summary.json")"
 check "no database: the server is still running" test -n "$(docker ps -q --filter "name=$PROJECT-speech-1" --filter status=running)"
+check "no database: capabilities say memory is recovering" memory_status_is recovering
 docker start "$PROJECT-neo4j-1" > /dev/null
 check "database back: healthy" neo4j_healthy
 check "database back: the server re-warmed memory by itself" rewarmed
 client up1 "$WORK"
 check "database back: recall works again without a restart" replies_are up1 "From memory: user works in Zurich."
+check "database back: capabilities say memory is ready again" memory_status_is ready
 
 echo "== a damaged library is refused"
 recipe "$ON" compose run --rm --no-deps -T --entrypoint sh speech -c '
