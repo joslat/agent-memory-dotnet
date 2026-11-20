@@ -84,6 +84,15 @@ class Test1Library(unittest.TestCase):
         self.assertFalse(os.path.exists("/usr/share/dotnet") or os.path.exists("/usr/lib/dotnet"))
         self.assertEqual(abi.load().am_v1_abi_version(), 0x00010000)
 
+    def test_the_library_comes_from_a_known_place(self):
+        path = abi.resolve_library_path()
+        explicit = os.environ.get("AGENTMEMORY_NATIVE_LIBRARY")
+        if explicit:
+            self.assertEqual(str(path), os.path.realpath(explicit))
+        else:
+            self.assertEqual(path.parent.name, "_native", "an installed wheel loads the library it carries")
+            self.assertEqual(path.parent.parent.name, "agentmemory_native")
+
     def test_freeing_null_is_a_no_op(self):
         abi.load().am_v1_buffer_free(None)
 

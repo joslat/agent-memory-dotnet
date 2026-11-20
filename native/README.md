@@ -56,6 +56,18 @@ native/gate/run-gate.sh artifacts/native/neo4j.env artifacts/native/current/bin 
 distribution's Python and no .NET, and fingerprints the whole graph before and after: a read-only run must leave it
 unchanged.
 
+The wheel carries the library inside the package, so users only run `pip install`:
+
+```bash
+python native/python/build_wheel.py artifacts/native/current/bin/agentmemory_native.so artifacts/native/wheel
+GATE_MODE=wheel native/gate/run-gate.sh artifacts/native/neo4j.env artifacts/native/wheel artifacts/native/gate-wheel
+```
+
+The builder uses the standard library only and is reproducible: the same library gives the same wheel bytes. The tag
+is `manylinux_2_34_x86_64` because the library's newest glibc symbol is `GLIBC_2.34` and it links only `libc` and
+`libm`. Wheel mode installs it with `pip` into a fresh virtual environment on the target image and runs the same tests
+against the installed package.
+
 ## Platform
 
 Built and proven for linux-x64 on Ubuntu 24.04 (glibc 2.39). A binary built against a newer glibc does not load on an

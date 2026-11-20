@@ -3,6 +3,7 @@
 # published library mounted at /opt/am and native/ at /native. The Neo4j password is passed as AMP_PASSWORD through a
 # private env file, never on a command line. Usage: run-in-runtime.sh <neo4j-env-file> <bin-dir> <command...>
 # Extra environment for the command: export RUNTIME_ENV="-e NAME=value -e ..." before calling.
+# RUNTIME_IMAGE selects another image (default am-speech-gate-runtime:24.04).
 set -euo pipefail
 ENV_FILE="${1:?neo4j env file}"; BIN="${2:?bin dir}"; shift 2
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -17,4 +18,4 @@ MSYS_NO_PATHCONV=1 docker run --rm --network "$NETWORK" \
   -v "$(cygpath -m "$BIN_ABS" 2>/dev/null || echo "$BIN_ABS"):/opt/am:ro" \
   -v "$(cygpath -m "$REPO/native" 2>/dev/null || echo "$REPO/native"):/native:ro" \
   --env-file "$PRIVATE" -e AMP_URI=bolt://neo4j:7687 -e AMP_USER=neo4j -e PYTHONDONTWRITEBYTECODE=1 ${RUNTIME_ENV:-} \
-  am-speech-gate-runtime:24.04 "$@"
+  "${RUNTIME_IMAGE:-am-speech-gate-runtime:24.04}" "$@"

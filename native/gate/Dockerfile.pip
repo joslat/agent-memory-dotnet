@@ -1,0 +1,5 @@
+# The gate runtime plus pip and venv, to install the wheel the way a user does. Still no .NET.
+FROM am-speech-gate-runtime:24.04
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3-venv python3-pip \
+    && rm -rf /var/lib/apt/lists/*
