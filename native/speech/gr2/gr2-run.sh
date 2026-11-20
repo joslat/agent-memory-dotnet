@@ -121,39 +121,40 @@ restart 4 1
 session s6-ask-brother ask_brother
 
 echo "== 7. the server killed while a learned write runs"
-# The kill must land while the write runs: the client talks in the background, and the journal's last record is watched
-# until it says the learned write is running (the writer model's call takes seconds), then the server is killed.
-SPEECH_ID="$(recipe compose ps -q speech)"
-session s7-tell-tea tell_tea > "$REPORT/s7.session.log" 2>&1 &
-CLIENT=$!
-: > "$REPORT/kill.txt"
-for _ in $(seq 1 600); do
-  last="$(docker exec "$SPEECH_ID" sh -c "tail -n 1 /var/lib/agentmemory/journal/journal.jsonl" 2>/dev/null)"
-  if printf "%s" "$last" | grep -q "\"kind\":\"running\""; then
-    docker kill "$SPEECH_ID" > /dev/null 2>&1
-    echo "killed while running" > "$REPORT/kill.txt"
+# The kill must land while the write runs. A watcher inside the server's container polls the journal every 50 ms and
+# returns when its last record says a write is running; the server is killed at once. Whether it landed is read from the
+# journal afterwards (the restart puts an interrupted write back in the queue with a "retry" record), never assumed.
+# The writer model can answer before the kill arrives, so up to three told facts are tried, each its own words.
+retries() { docker exec "$(recipe compose ps -q speech)" sh -c 'grep -c "\"kind\":\"retry\"" /var/lib/agentmemory/journal/journal.jsonl || true' 2>/dev/null | tail -1; }
+: > "$REPORT/kill.txt"; : > "$REPORT/landed.txt"
+attempt=0
+for pair in "tell_tea:peppermint" "tell_teacher:okonkwo" "tell_locker:4417"; do
+  attempt=$((attempt + 1)); fixture="${pair%%:*}"; key="${pair##*:}"
+  before="$(retries)"; before="${before:-0}"
+  SPEECH_ID="$(recipe compose ps -q speech)"
+  session "s7-crash-$attempt" "$fixture" > "$REPORT/s7-$attempt.session.log" 2>&1 &
+  CLIENT=$!
+  seen="$(docker exec "$SPEECH_ID" sh -c 'for i in $(seq 1 1200); do tail -n 1 /var/lib/agentmemory/journal/journal.jsonl | grep -q "\"kind\":\"running\"" && { echo running; exit 0; }; sleep 0.05; done; echo timeout' 2>/dev/null)"
+  [ "$seen" = running ] && docker kill "$SPEECH_ID" > /dev/null 2>&1
+  wait "$CLIENT" 2>/dev/null
+  recipe logs speech >> "$REPORT/speech.log" 2>&1
+  recipe up > "$REPORT/up-crash-$attempt.log" 2>&1 || { tail -20 "$REPORT/up-crash-$attempt.log"; exit 1; }
+  wait_saved
+  after="$(retries)"; after="${after:-0}"
+  echo "attempt $attempt ($fixture): watcher saw $seen; journal retries $before -> $after" | tee -a "$REPORT/kill.txt" | sed 's/^/  /'
+  if [ "$after" -gt "$before" ]; then
+    echo "$key $((after - before))" > "$REPORT/landed.txt"
+    cypher "MATCH (n) WHERE (n:Fact OR n:Preference) AND n.owner_id = 'gr2-owner' AND n.invalidated_at IS NULL AND toLower(coalesce(n.object, '') + ' ' + coalesce(n.preference, '') + ' ' + coalesce(n.subject, '')) CONTAINS '$key' RETURN count(n)" \
+      > "$REPORT/store-once.txt" 2>&1
     break
   fi
-  if ! kill -0 "$CLIENT" 2>/dev/null && printf "%s" "$last" | grep -q "\"kind\":\"applied\""; then
-    echo "the write ended before the kill" > "$REPORT/kill.txt"; break
-  fi
-  sleep 0.2
 done
-wait "$CLIENT" 2>/dev/null
-echo "  $(cat "$REPORT/kill.txt") ($(date +%T))"
-recipe logs speech >> "$REPORT/speech.log" 2>&1
-recipe up > "$REPORT/up-5.log" 2>&1 || { tail -20 "$REPORT/up-5.log"; exit 1; }
-wait_saved
 session s8-ask-tea ask_tea
 echo "== 8b. a second taste told: added, the first not replaced"
 session s8b-tell-green-tea tell_green_tea
 wait_saved
-cypher "MATCH (n) WHERE (n:Fact OR n:Preference) AND n.owner_id = 'gr2-owner' AND n.invalidated_at IS NULL AND toLower(coalesce(n.object, '') + ' ' + coalesce(n.preference, '')) CONTAINS 'earl grey' RETURN count(n)" > "$REPORT/store-earl-grey-live.txt" 2>&1
+cypher "MATCH (n) WHERE (n:Fact OR n:Preference) AND n.owner_id = 'gr2-owner' AND n.invalidated_at IS NULL AND toLower(coalesce(n.object, '') + ' ' + coalesce(n.preference, '')) CONTAINS 'peppermint' RETURN count(n)" > "$REPORT/store-first-taste-live.txt" 2>&1
 cypher "MATCH (n) WHERE (n:Fact OR n:Preference) AND n.owner_id = 'gr2-owner' AND n.invalidated_at IS NULL AND toLower(coalesce(n.object, '') + ' ' + coalesce(n.preference, '')) CONTAINS 'green tea' RETURN count(n)" > "$REPORT/store-green-tea-live.txt" 2>&1
-cypher "MATCH (n) WHERE (n:Fact OR n:Preference) AND n.owner_id = 'gr2-owner' AND (toLower(coalesce(n.object, '')) CONTAINS 'earl grey' OR toLower(coalesce(n.preference, '')) CONTAINS 'earl grey') RETURN count(n) AS tea" \
-  > "$REPORT/store-tea.txt" 2>&1
-docker run --rm -v am-gr2-journal:/j:ro "$SERVER_IMAGE" sh -c 'grep -c "\"kind\":\"retry\"" /j/journal/journal.jsonl || true' \
-  > "$REPORT/journal-retries.txt" 2>&1
 capabilities > "$REPORT/capabilities-before-erase.json"
 
 echo "== 9. the operator erases the owner"

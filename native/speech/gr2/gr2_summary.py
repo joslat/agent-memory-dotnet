@@ -75,30 +75,37 @@ def dentist_is_dated() -> bool:
 
 dentist_dated = dentist_is_dated()
 try:
-    killed = "killed while running" in (root / "kill.txt").read_text(encoding="utf-8")
+    landed_key, landed_retries = ((root / "landed.txt").read_text(encoding="utf-8").split() + ["", "0"])[:2]
 except OSError:
-    killed = False
+    landed_key, landed_retries = "", "0"
+attempts = (root / "kill.txt").read_text(encoding="utf-8").strip() if (root / "kill.txt").exists() else ""
+tries = len([line for line in attempts.splitlines() if line.startswith("attempt")])
+after_erase = log[log.find("owner erase applied"):] if "owner erase applied" in log else ""
+nothing_after_erase = len(re.findall(r"nothing recalled for", after_erase))
+items_after_erase = len(re.findall(r"\d+ items for", after_erase))
 
 checks = [
-    ("Five told things were learned unasked (sister, dentist, the move, the tea, green tea)", len(set(observed)) == 5),
-    ("No question was learned (the weather, every 'where', 'what')", len(set(observed)) == 5),
+    (f"Every told thing was learned unasked: sister, dentist, the move, green tea and the {tries} crash attempt(s)",
+     len(set(observed)) == 4 + tries),
+    ("No question was learned (the weather, every 'where', 'what')", len(set(observed)) == 4 + tries),
     ("'Tomorrow' is stored as the date it means, counted from when it was said", dentist_dated),
-    ("A second taste is added and the first is not replaced (Earl Grey and green tea both live)",
-     (number("store-earl-grey-live.txt") or 0) >= 1 and (number("store-green-tea-live.txt") or 0) >= 1),
+    ("A second taste is added and the first is not replaced (peppermint and green tea both live)",
+     (number("store-first-taste-live.txt") or 0) >= 1 and (number("store-green-tea-live.txt") or 0) >= 1),
     ("The model was never told about an unasked write", "remember status" not in log and "status line(s)" not in log),
     ("After a full restart, a fresh session answers with what was told (Lisbon)", has(reply("s2-ask-sister"), "Lisbon")),
     ("After the move was told, the answer has Madrid", has(reply("s4-ask-sister"), "Madrid")),
     ("After the move was told, the answer does not have Lisbon", not has(reply("s4-ask-sister"), "Lisbon")),
     ("Learning was paused for one session", paused),
     ("What was told while paused is never learned later (no chess)", not has(reply("s6-ask-brother"), "chess")),
-    ("The server was killed while a learned write was running", killed),
-    ("After the restart, that write was put back in the queue once (journal: one retry)", retries == 1),
-    ("After the server was killed during a learned write, the tea is stored exactly once", number("store-tea.txt") == 1),
-    ("After the restart, a fresh session answers with the tea (Earl Grey)", has(reply("s8-ask-tea"), r"Earl\s+Gr[ae]y")),
+    ("The server was killed while a learned write was running (the journal shows it, within 3 attempts)", bool(landed_key)),
+    ("After the restart, that write was put back in the queue once (one retry record)", landed_retries == "1"),
+    ("After the server was killed during a learned write, it is stored exactly once", number("store-once.txt") == 1),
+    ("After the restart, a fresh session answers with the told tea (peppermint)", has(reply("s8-ask-tea"), "peppermint")),
     ("The operator's erase was verified", erase.get("state") == "applied" and (erase.get("deleted") or 0) > 0),
     ("After the erase, the store holds nothing of the owner", number("store-after-erase.txt") == 0),
-    ("After the erase, no answer has Lisbon, Madrid or Earl Grey",
-     not any(has(reply("s9-ask-after-erase", i), w) for i in (0, 1) for w in ("Lisbon", "Madrid", r"Earl\s+Gr[ae]y"))),
+    ("After the erase, recall returns nothing (both questions)", nothing_after_erase == 2 and items_after_erase == 0),
+    ("After the erase, no answer has Lisbon, Madrid or peppermint",
+     not any(has(reply("s9-ask-after-erase", i), w) for i in (0, 1) for w in ("Lisbon", "Madrid", "peppermint"))),
     ("At the end nothing is saving or needs attention",
      end.get("writes", {}).get("saving") == 0 and end.get("writes", {}).get("needsAttention") is False),
 ]
@@ -110,13 +117,11 @@ print("| Check | Result |\n|---|---|")
 for name, ok in checks:
     print(f"| {name} | {'pass' if ok else 'FAIL'} |")
 print(f"\n{sum(ok for _, ok in checks)} of {len(checks)} pass.\n")
-crash = ("killed while the learned write ran; after the restart it was put back in the queue and applied once"
-         if killed and retries else "the kill did not land while the write ran")
-print(f"Crash case: {crash} (journal retry records: {retries}). Learned writes ended: {observed_ended}. "
+print(f"Crash case: {attempts!r}. Learned writes ended: {observed_ended}. "
       f"Erase: {erase}.\n")
 print("| Session | Heard | Replied |\n|---|---|---|")
 for label in ("s1-tell-sister", "s1b-tell-dentist", "s2-ask-sister", "s3-tell-moved", "s4-ask-sister",
-              "s5-tell-brother-paused", "s6-ask-brother", "s7-tell-tea", "s8-ask-tea", "s8b-tell-green-tea",
+              "s5-tell-brother-paused", "s6-ask-brother", "s7-crash-1", "s7-crash-2", "s7-crash-3", "s8-ask-tea", "s8b-tell-green-tea",
               "s9-ask-after-erase"):
     for index, _ in enumerate(turns(label)):
         print(f"| {label} #{index + 1} | {heard(label, index)} | {reply(label, index)} |")
