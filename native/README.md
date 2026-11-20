@@ -102,6 +102,20 @@ Loading refuses, with `NativeLibraryError` naming the file, the platform and wha
 cannot be loaded here (another architecture or platform, damaged), a library without the AgentMemory exports, and a
 packaged library whose bytes differ from the manifest. Nothing else is tried in its place.
 
+## Agent frameworks
+
+The binding stays framework-neutral; two thin adapters sit beside it, each importing its framework only when used:
+
+- `agentmemory_native.langchain.AgentMemoryRetriever` (needs `langchain-core`): owner-scoped recall as a LangChain
+  retriever, one `Document` per fact or preference. A failed recall raises (or returns nothing, if asked), never reads
+  as "nothing stored".
+- `agentmemory_native.langgraph.AgentMemoryStore` (needs `langgraph`): a LangGraph `BaseStore`. AgentMemory is not a
+  document store, and the adapter says so: `put` remembers the words in `value["text"]` through the journal (the
+  writer turns them into facts and preferences of the context's one owner), `get` returns that remember's receipt,
+  `search` returns the facts and preferences recall finds for the query, and a delete forgets (closes, not deletes)
+  what the key produced. Other words under the same key forget the earlier ones and remember the new. Puts and deletes
+  need the `explicit_write` profile.
+
 ## Platform
 
 Built and proven for linux-x64 on Ubuntu 24.04 (glibc 2.39). A binary built against a newer glibc does not load on an

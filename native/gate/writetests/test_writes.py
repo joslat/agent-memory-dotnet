@@ -574,5 +574,76 @@ class Test4Privacy(unittest.TestCase):
             self.assertIn(survivor.facts[0], recalled_ids(other, "Portuguese at home"))
 
 
+try:
+    import langgraph.store.base  # noqa: F401
+
+    HAS_LANGGRAPH = True
+except ImportError:
+    HAS_LANGGRAPH = False
+
+
+@unittest.skipUnless(HAS_LANGGRAPH, "langgraph is not installed (run-write-gate.sh with WRITE_GATE_EXTRAS=langgraph)")
+class Test5LangGraph(unittest.TestCase):
+    def setUp(self):
+        StubModel.mode = "ok"
+        StubModel.release.set()
+        from agentmemory_native.langgraph import AgentMemoryStore
+
+        self.memory = MemoryClient(config(new_state()))
+        self.store = AgentMemoryStore(self.memory, session_id="lg")
+
+    def tearDown(self):
+        self.memory.close(timeout_s=60)
+
+    def test_put_remembers_get_returns_the_receipt_and_search_finds_the_memory(self):
+        self.store.put(("user", "music"), "instrument", {"text": "I play the harp at weddings."})
+        item = self.store.get(("user", "music"), "instrument")
+        self.assertIsNotNone(item)
+        self.assertTrue(item.value["remembered"])
+        self.assertEqual(item.value["state"], "applied")
+        hits = self.store.search(("user",), query="harp at weddings", limit=50)
+        self.assertTrue(set(item.value["facts"]) <= {hit.key for hit in hits})
+        self.assertTrue(all(hit.namespace[0] == "agentmemory" for hit in hits))
+        self.assertEqual(self.store.search(("user",)), [], "AgentMemory recalls by meaning; there is no listing")
+
+    def test_the_same_words_again_run_nothing_and_other_words_replace_the_earlier_ones(self):
+        self.store.put(("user",), "breakfast", {"text": "I eat porridge for breakfast."})
+        first = self.store.get(("user",), "breakfast").value
+        calls = StubModel.writer_calls
+        self.store.put(("user",), "breakfast", {"text": "I eat porridge for breakfast."})
+        self.assertEqual(StubModel.writer_calls, calls, "the same words under the same key ran the writer again")
+        self.assertEqual(self.store.get(("user",), "breakfast").value["operation_id"], first["operation_id"])
+        self.store.put(("user",), "breakfast", {"content": "I eat pancakes for breakfast."})
+        second = self.store.get(("user",), "breakfast").value
+        self.assertNotEqual(second["operation_id"], first["operation_id"])
+        found = {hit.key for hit in self.store.search(("user",), query="porridge pancakes breakfast", limit=50)}
+        self.assertFalse(set(first["facts"]) & found, "the replaced words are still used")
+        self.assertTrue(set(second["facts"]) <= found)
+
+    def test_delete_forgets_and_the_key_reads_as_absent(self):
+        self.store.put(("user",), "pet", {"text": "My parrot is called Kiwi."})
+        facts = self.store.get(("user",), "pet").value["facts"]
+        self.store.delete(("user",), "pet")
+        self.assertIsNone(self.store.get(("user",), "pet"))
+        self.assertFalse(set(facts) & {hit.key for hit in self.store.search(("user",), query="parrot Kiwi", limit=50)})
+        # Put again after the delete: a new remember, never the forgotten receipt.
+        self.store.put(("user",), "pet", {"text": "My parrot is called Kiwi."})
+        again = self.store.get(("user",), "pet")
+        self.assertIsNotNone(again)
+        self.assertTrue(again.value["remembered"])
+
+    def test_words_are_required_and_the_async_api_works(self):
+        with self.assertRaises(ValueError):
+            self.store.put(("user",), "empty", {"note": "no text"})
+
+        async def run():
+            await self.store.aput(("user",), "city", {"text": "I was born in Valencia."})
+            return await self.store.aget(("user",), "city")
+
+        import asyncio
+
+        self.assertTrue(asyncio.run(run()).value["remembered"])
+
+
 if __name__ == "__main__":
     unittest.main()

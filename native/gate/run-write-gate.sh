@@ -16,9 +16,21 @@ trap 'docker rm -f "$NAME" >/dev/null 2>&1; rm -f "$ENV_FILE"' EXIT
   dotnet run "$REPO/native/gate/seed/seed.cs" -- "bolt://127.0.0.1:$HOST_PORT" neo4j AM_GATE_PW) > "$REPORT/seed.log" 2>&1
 
 set +e
-RUNTIME_ENV="-e PYTHONPATH=/native/python -e AGENTMEMORY_NATIVE_LIBRARY=/opt/am/agentmemory_native.so" \
-  bash "$REPO/native/gate/run-in-runtime.sh" "$ENV_FILE" "$BIN" \
-  python3 -m unittest discover -v -s /native/gate/writetests -t /native/gate/writetests > "$REPORT/write-tests.log" 2>&1
+if [ "${WRITE_GATE_EXTRAS:-}" = langgraph ]; then
+  # The LangGraph store's tests too: langgraph from the package index, in a fresh virtual environment on the target image.
+  docker image inspect am-speech-gate-pip:24.04 >/dev/null 2>&1 \
+    || docker build -q -t am-speech-gate-pip:24.04 -f "$(win "$REPO/native/gate/Dockerfile.pip")" "$(win "$REPO/native/gate")" >/dev/null
+  RUNTIME_IMAGE=am-speech-gate-pip:24.04 \
+  RUNTIME_ENV="-e PYTHONPATH=/native/python -e AGENTMEMORY_NATIVE_LIBRARY=/opt/am/agentmemory_native.so" \
+    bash "$REPO/native/gate/run-in-runtime.sh" "$ENV_FILE" "$BIN" sh -c \
+    'python3 -m venv /tmp/venv && /tmp/venv/bin/pip install -q langgraph && /tmp/venv/bin/pip show langgraph | sed -n 1,2p \
+     && /tmp/venv/bin/python -m unittest discover -v -s /native/gate/writetests -t /native/gate/writetests' \
+    > "$REPORT/write-tests.log" 2>&1
+else
+  RUNTIME_ENV="-e PYTHONPATH=/native/python -e AGENTMEMORY_NATIVE_LIBRARY=/opt/am/agentmemory_native.so" \
+    bash "$REPO/native/gate/run-in-runtime.sh" "$ENV_FILE" "$BIN" \
+    python3 -m unittest discover -v -s /native/gate/writetests -t /native/gate/writetests > "$REPORT/write-tests.log" 2>&1
+fi
 TESTS=$?
 set -e
 SO="$BIN/agentmemory_native.so"
