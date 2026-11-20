@@ -181,8 +181,6 @@ internal sealed class NativeContext
                     MaxEntities = recall.MaxEntities,
                     MaxRelationships = recall.MaxRelationships,
                     TimeWindows = recall.TimeWindows,
-                    PersonDetails = recall.Details,
-                    EventDetails = recall.Details,
                 },
                 token)
             .ConfigureAwait(false);

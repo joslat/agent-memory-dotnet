@@ -76,10 +76,11 @@ write_secrets() {
         || { echo "WRITER_API_KEY: use 8-512 of A-Z a-z 0-9 . _ ~ + / = -" >&2; exit 2; }
       key="$(printf ',"apiKey":"%s"' "$WRITER_API_KEY")"
     fi
-    # A writer model that thinks before answering is asked to think little (GLM-5.3-Flash: 2.1 s and 607 thinking tokens
-    # on a small extraction by default, 0.5 s and 3 at "low"); "off" sends nothing, for a model that refuses the field.
-    # It reads the 4 earlier turns of the conversation as context, never keeping anything from them.
-    local reasoning="${WRITER_REASONING:-low}" turns="${WRITER_CONTEXT_TURNS:-4}" effort=""
+    # Off by default, both measured on the owner's spoken test (GLM-5.3-Flash, six told sentences, 21 Nov 2026): the
+    # model's own reasoning kept 9 precise facts in 2-10 s a save; "low" kept 6 in 1-2 s and lost the person's name;
+    # 4 context turns kept 8 and linked nothing a lone "his name is Andy" left open. WRITER_REASONING (none, low,
+    # medium, high) and WRITER_CONTEXT_TURNS (0-32) turn them on.
+    local reasoning="${WRITER_REASONING:-off}" turns="${WRITER_CONTEXT_TURNS:-0}" effort=""
     [[ "$reasoning" =~ ^(off|none|low|medium|high)$ ]] || { echo "WRITER_REASONING: off, none, low, medium or high" >&2; exit 2; }
     [[ "$turns" =~ ^([0-9]|[12][0-9]|3[0-2])$ ]] || { echo "WRITER_CONTEXT_TURNS must be 0-32" >&2; exit 2; }
     [ "$reasoning" = off ] || effort="$(printf ',"reasoningEffort":"%s"' "$reasoning")"

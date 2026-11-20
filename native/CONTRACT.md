@@ -56,8 +56,7 @@ An open that fails returns an error document: `{"schemaVersion":1,"error":{"code
   "maxMessages": 5,
   "maxEntities": 10,
   "maxRelationships": 10,
-  "timeWindows": true,
-  "details": true
+  "timeWindows": true
 }
 ```
 
@@ -67,11 +66,12 @@ Recall reads the owner's own memory only (shared memory excluded), at the curren
 
 | Property | Default | Adds to the result |
 |---|---|---|
-| `maxMessages` (0-20) | 0 | `messages`: the owner's past messages most like the question, from every session, in their own words. |
+| `maxMessages` (0-20) | 0 | `messages`: the messages of this request's `sessionId` most like the question (not other sessions). |
 | `maxEntities` (0-50) | 0 | `entities`: the people, places and things most like the question. |
 | `maxRelationships` (0-50) | 0 | `relationships`: how those relate ("Sam is the user's sister"). |
-| `timeWindows` | false | `windowFacts`: the facts of a time the question names ("yesterday", "last week"), by their dates. |
-| `details` | false | Facts about a person or an event the question names, in `facts`. |
+| `timeWindows` | false | `windowFacts`: the facts of a time the question names ("yesterday", "last week"), by their date fields (a date only inside a fact's text is not one). |
+
+Person and event details are not offered: they need identity-evidence storage, which the native profiles have not.
 
 With none of them, a recall is exactly what it was before they existed, and its new result arrays are empty.
 

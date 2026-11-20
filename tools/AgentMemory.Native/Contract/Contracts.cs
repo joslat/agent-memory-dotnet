@@ -391,8 +391,9 @@ internal sealed record CapabilitiesRequest : NativeRequest
 }
 
 /// <summary><c>memory_get_context</c>: owner-scoped recall of facts and preferences by a supplied vector; on request also the
-/// owner's past words, entities, relationships, the facts of a time the question names ("yesterday") and the facts of a
-/// person or event it names. Each extra section is off unless asked for, so an existing caller's recall is unchanged.</summary>
+/// session's own earlier messages, entities, relationships and the facts of a time the question names ("yesterday").
+/// Each extra section is off unless asked for, so an existing caller's recall is unchanged. Person and event details
+/// are not offered: they need identity-evidence storage, which this profile has not.</summary>
 internal sealed record GetContextRequest : NativeRequest
 {
     public const string Name = "memory_get_context";
@@ -406,14 +407,12 @@ internal sealed record GetContextRequest : NativeRequest
     public int MaxFacts { get; init; } = 5;
     public int MaxPreferences { get; init; } = 5;
     public double MinScore { get; init; } = 0.7;
-    /// <summary>The owner's past messages most like the question (their own words), from every session.</summary>
+    /// <summary>The messages of this request's session most like the question.</summary>
     public int MaxMessages { get; init; }
     public int MaxEntities { get; init; }
     public int MaxRelationships { get; init; }
     /// <summary>The facts of a time the question names ("yesterday", "last week"), by their dates.</summary>
     public bool TimeWindows { get; init; }
-    /// <summary>The facts about a person or an event the question names.</summary>
-    public bool Details { get; init; }
 
     public static GetContextRequest Read(StrictObject root, OpenConfig config, string? requestId)
     {
@@ -447,7 +446,6 @@ internal sealed record GetContextRequest : NativeRequest
             MaxEntities = root.OptionalInt("maxEntities", 0, 0, 50),
             MaxRelationships = root.OptionalInt("maxRelationships", 0, 0, 50),
             TimeWindows = root.OptionalBool("timeWindows", false),
-            Details = root.OptionalBool("details", false),
         };
     }
 }
