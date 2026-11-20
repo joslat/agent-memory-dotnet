@@ -1,8 +1,14 @@
 # Speech server with AgentMemory: the recipe
 
 One way to run the speech-to-speech server on a CPU machine, with or without AgentMemory memory. The host needs Docker
-with Compose v2 only: no .NET, no compiler, no Python. Memory is read-only here (release R0): the server recalls what
-the store already holds about one person and never writes.
+with Compose v2 only: no .NET, no compiler, no Python. Memory comes in three steps, each switched on in the settings
+file and each with its own gate passed:
+
+| Settings | What the server does | Gate |
+|---|---|---|
+| `MEMORY=on` | Recalls what the store holds about one person, before each turn; never writes | G-R0 |
+| `+ MEMORY_WRITES=on` | Also remembers and forgets when the person asks, by voice, with truthful receipts; the operator can erase everything | G-R1 |
+| `+ MEMORY_LEARNING=on` | Also learns, unasked, what the person tells (never questions, assent or greetings); every write applied once, even across a crash | G-R2 |
 
 | File | What it is |
 |---|---|
@@ -10,6 +16,8 @@ the store already holds about one person and never writes.
 | `example.env` | The settings file to copy and fill in |
 | `compose.yml` | The server alone (memory off) |
 | `compose.memory.yml` | Added when `MEMORY=on`: Neo4j, the schema step, the memory secret |
+| `compose.memory-writes.yml` | Added when `MEMORY_WRITES=on`: the journal's volume, the erase control's token |
+| `RUNBOOK.md` | What to do when something goes wrong, for the operator |
 | `Dockerfile.server` | The server image: the CPU server, the memory hooks, the `agentmemory-native` wheel |
 | `Dockerfile.schema` | The schema step: the managed AgentMemory command line on the .NET runtime |
 | `build-images.sh` | Builds both images from exact inputs |
@@ -80,7 +88,20 @@ To delete everything remembered for the owner (memories, conversations, and the 
 native/speech/recipe/recipe.sh my.env erase      # asks you to type "erase"
 ```
 
-The server refuses while a write is still being saved; try again a moment later. The erase is reported as done only
+The server refuses while a write is still being saved; try again a moment later.
+
+## Learning unasked (`MEMORY_LEARNING=on`)
+
+With `MEMORY_WRITES=on` and `MEMORY_LEARNING=on` the library runs its `learning` profile, and the server also gives the
+writer what the person tells in passing ("my sister lives in Lisbon"): only their final spoken words, never a question,
+bare assent, a greeting or thanks, and only with three words or more; the writer still decides what, if anything, to
+keep. The robot is never told about these writes. "Forget what I just told you" reaches them too. `MEMORY_OBSERVE=0`
+pauses learning unasked without changing the profile; what was said while it was paused is never learned later.
+
+In this profile every write is applied once, with a receipt in the store: if the server stops while a write runs, the
+write is retried after the restart and the receipt decides whether anything is left to do, so nothing is stored twice
+and nothing waits for an operator. Typed text from a client is recalled for but never learned from (a client app can
+insert text that is not the person speaking). The erase is reported as done only
 when nothing of the owner is left in the store. The control behind it (`POST /v1/memory/erase`) needs a token that
 `recipe.sh` creates in `STATE_DIR/secrets` and never prints.
 
