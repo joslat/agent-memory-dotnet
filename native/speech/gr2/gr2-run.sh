@@ -115,9 +115,26 @@ restart 4 1
 session s6-ask-brother ask_brother
 
 echo "== 7. the server killed while a learned write runs"
-session s7-tell-tea tell_tea
-docker kill "$(recipe compose ps -q speech)" > /dev/null 2>&1
-echo "  killed $(date +%T)"
+# The kill must land while the write runs: the client talks in the background, and the journal's last record is watched
+# until it says the learned write is running (the writer model's call takes seconds), then the server is killed.
+SPEECH_ID="$(recipe compose ps -q speech)"
+session s7-tell-tea tell_tea > "$REPORT/s7.session.log" 2>&1 &
+CLIENT=$!
+: > "$REPORT/kill.txt"
+for _ in $(seq 1 600); do
+  last="$(docker exec "$SPEECH_ID" sh -c "tail -n 1 /var/lib/agentmemory/journal/journal.jsonl" 2>/dev/null)"
+  if printf "%s" "$last" | grep -q "\"kind\":\"running\""; then
+    docker kill "$SPEECH_ID" > /dev/null 2>&1
+    echo "killed while running" > "$REPORT/kill.txt"
+    break
+  fi
+  if ! kill -0 "$CLIENT" 2>/dev/null && printf "%s" "$last" | grep -q "\"kind\":\"applied\""; then
+    echo "the write ended before the kill" > "$REPORT/kill.txt"; break
+  fi
+  sleep 0.2
+done
+wait "$CLIENT" 2>/dev/null
+echo "  $(cat "$REPORT/kill.txt") ($(date +%T))"
 recipe logs speech >> "$REPORT/speech.log" 2>&1
 recipe up > "$REPORT/up-5.log" 2>&1 || { tail -20 "$REPORT/up-5.log"; exit 1; }
 wait_saved

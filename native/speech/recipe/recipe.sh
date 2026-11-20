@@ -100,7 +100,15 @@ case "$ACTION" in
     if [ "$MEMORY" = on ]; then : "${SCHEMA_IMAGE:?}"; write_secrets; fi
     compose up -d
     start=$(date +%s)
-    until compose logs speech 2>&1 | grep -q -E "Uvicorn running|Application startup complete"; do
+    # Only this run's log counts: a container restarted after a crash keeps the log of the process that died, whose
+    # "listening" line would otherwise end the wait at once. The start time and the log come from the same clock.
+    listening() {
+      local id since
+      id="$(compose ps -q speech 2>/dev/null)"; [ -n "$id" ] || return 1
+      since="$(docker inspect -f "{{.State.StartedAt}}" "$id" 2>/dev/null)" || return 1
+      docker logs --since "$since" "$id" 2>&1 | grep -q -E "Uvicorn running|Application startup complete"
+    }
+    until listening; do
       if [ -z "$(compose ps -q speech --status running 2>/dev/null)" ] && [ $(( $(date +%s) - start )) -gt 20 ]; then
         echo "the speech server is not running:" >&2; compose logs --tail 30 speech >&2; exit 1
       fi

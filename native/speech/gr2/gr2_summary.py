@@ -55,6 +55,10 @@ except (OSError, ValueError, IndexError):
     pass
 end = json.loads((root / "capabilities-end.json").read_text(encoding="utf-8") or "{}").get("memory", {})
 retries = number("journal-retries.txt")
+try:
+    killed = "killed while running" in (root / "kill.txt").read_text(encoding="utf-8")
+except OSError:
+    killed = False
 
 checks = [
     ("Three told facts were learned unasked (sister, the move, the tea)", len(set(observed)) == 3),
@@ -65,6 +69,8 @@ checks = [
     ("After the move was told, the answer does not have Lisbon", not has(reply("s4-ask-sister"), "Lisbon")),
     ("Learning was paused for one session", paused),
     ("What was told while paused is never learned later (no chess)", not has(reply("s6-ask-brother"), "chess")),
+    ("The server was killed while a learned write was running", killed),
+    ("After the restart, that write was put back in the queue once (journal: one retry)", retries == 1),
     ("After the server was killed during a learned write, the tea is stored exactly once", number("store-tea.txt") == 1),
     ("After the restart, a fresh session answers with the tea (Earl Grey)", has(reply("s8-ask-tea"), r"Earl\s+Gr[ae]y")),
     ("The operator's erase was verified", erase.get("state") == "applied" and (erase.get("deleted") or 0) > 0),
@@ -82,8 +88,8 @@ print("| Check | Result |\n|---|---|")
 for name, ok in checks:
     print(f"| {name} | {'pass' if ok else 'FAIL'} |")
 print(f"\n{sum(ok for _, ok in checks)} of {len(checks)} pass.\n")
-crash = ("the write was put back in the queue after the restart and applied once" if retries
-         else "the write had finished before the kill, so the restart had nothing to resume")
+crash = ("killed while the learned write ran; after the restart it was put back in the queue and applied once"
+         if killed and retries else "the kill did not land while the write ran")
 print(f"Crash case: {crash} (journal retry records: {retries}). Learned writes ended: {observed_ended}. "
       f"Erase: {erase}.\n")
 print("| Session | Heard | Replied |\n|---|---|---|")
