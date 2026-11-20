@@ -14,6 +14,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `Neo4jOptions.ConnectionTimeout` and `Neo4jOptions.MaxTransactionRetryTime`, both unset by default (the driver keeps
+  its own defaults, configured exactly as before). The driver's transaction calls take no cancellation token, so a call
+  whose caller has stopped waiting keeps retrying an unreachable store for up to 30 seconds; a host with deadlines can
+  now bound that.
+- The AgentMemory native library (`tools/AgentMemory.Native`, `native/`): AgentMemory's read path as a Native AOT
+  shared library with a versioned C ABI (`native/include/agentmemory_native.h`, contract in `native/CONTRACT.md`) and a
+  Python binding (`native/python`), for any host with a C foreign-function interface and no .NET installation.
+  Read-only profile; not a NuGet package. `native/gate` proves it on Linux x64 (Ubuntu 24.04) against a real Neo4j.
+- Stored metadata and the relation vocabulary are read through generated serializer metadata when a host switches
+  reflection-based System.Text.Json off; every other host runs the call it always has.
+
 - Opt-in `MindReader` for verified native E0 Mind composites: closed versioned contracts, owned semantic roles,
   exact member selection, deterministic bounded core/stage text and signed tool/knowledge requirements.
   Reading does not activate behaviour, register tools, write personal data or certify model behaviour.

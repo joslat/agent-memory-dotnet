@@ -8,16 +8,18 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace AgentMemory.Native.Composition;
 
-/// <summary>Store connection and profile settings of one native context.</summary>
+/// <summary>Store connection settings of one native context.</summary>
 internal sealed record MemorySettings
 {
     public required string Uri { get; init; }
     public required string Username { get; init; }
     public required string Password { get; init; }
     public string Database { get; init; } = "neo4j";
-    public required string OwnerId { get; init; }
     public required int EmbeddingDimensions { get; init; }
     public TimeSpan? TransactionTimeout { get; init; }
+    public TimeSpan ConnectionAcquisitionTimeout { get; init; } = TimeSpan.FromSeconds(5);
+    public TimeSpan ConnectionTimeout { get; init; } = TimeSpan.FromSeconds(3);
+    public TimeSpan MaxTransactionRetryTime { get; init; } = TimeSpan.FromSeconds(1);
 }
 
 /// <summary>
@@ -49,6 +51,10 @@ internal static class MemoryComposition
             neo4j.Database = settings.Database;
             neo4j.EmbeddingDimensions = settings.EmbeddingDimensions;
             neo4j.TransactionTimeout = settings.TransactionTimeout;
+            // Fail fast: a caller with a deadline stops waiting long before the driver's own 60 s and 30 s would.
+            neo4j.ConnectionAcquisitionTimeout = settings.ConnectionAcquisitionTimeout;
+            neo4j.ConnectionTimeout = settings.ConnectionTimeout;
+            neo4j.MaxTransactionRetryTime = settings.MaxTransactionRetryTime;
         });
 
         return services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });

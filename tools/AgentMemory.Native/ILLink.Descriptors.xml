@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Native AOT keeps only what it can see being used. Neo4j.Driver 6.3.0 builds its table of server-error exceptions at
+  run time: Neo4jExceptionFactory reflects over the exported Neo4jException types, reads their ErrorCode attribute and
+  invokes each one's non-public (FailureMessage, Exception) constructor. Those constructors are never called directly,
+  so trimming removed them; the factory then threw inside a type initializer, and every server-side error (wrong
+  password, constraint, syntax, transaction timeout) surfaced as TypeInitializationException in the native build
+  (gate test test_wrong_password_is_reported_as_authentication, 20 November 2026).
+
+  Keeping the driver's public namespace whole keeps those types, attributes and constructors. It does not silence the
+  analysis warnings (IL2026, IL2080 on Neo4jExceptionFactory); the gate's store-failure tests are the evidence.
+-->
+<linker>
+  <assembly fullname="Neo4j.Driver">
+    <namespace fullname="Neo4j.Driver" />
+  </assembly>
+</linker>
