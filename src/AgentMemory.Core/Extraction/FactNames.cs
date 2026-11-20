@@ -46,9 +46,15 @@ internal sealed class FactNames
         return CanonicalName(surface);
     }
 
-    internal static string CanonicalTripleKey(string subject, string predicate, string obj) =>
-        JsonSerializer.Serialize(new[] { MemoryTripleCanonicalizer.CanonicalValue(subject),
-            MemoryTripleCanonicalizer.Canonical(predicate), MemoryTripleCanonicalizer.CanonicalValue(obj) });
+    internal static string CanonicalTripleKey(string subject, string predicate, string obj)
+    {
+        string[] key = [MemoryTripleCanonicalizer.CanonicalValue(subject),
+            MemoryTripleCanonicalizer.Canonical(predicate), MemoryTripleCanonicalizer.CanonicalValue(obj)];
+        // Generated metadata where reflection-based JSON is off (the native library); the same bytes either way.
+        return JsonSerializer.IsReflectionEnabledByDefault
+            ? JsonSerializer.Serialize(key)
+            : JsonSerializer.Serialize(key, FactKeyJsonContext.Default.StringArray);
+    }
 
     // The source key stays the words as extracted: outcomes are keyed by the input item.
     internal static string FactSourceKey(ExtractedFact fact) => $"{fact.Subject} {fact.Predicate} {fact.Object}";
