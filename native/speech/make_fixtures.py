@@ -26,6 +26,15 @@ UTTERANCES = {
     "remember_cat": "Please remember that my cat is called Tom.",
     "forget_last": "Forget what I just told you.",
     "ask_cat": "What is my cat called?",
+    # G-R2: learning unasked, by voice.
+    "tell_sister": "My sister Ana lives in Lisbon.",
+    "ask_weather": "What is the weather like today?",
+    "ask_sister": "Where does my sister live?",
+    "tell_sister_moved": "My sister Ana moved to Madrid last month.",
+    "tell_brother": "My brother plays chess every weekend.",
+    "ask_brother": "What does my brother play?",
+    "tell_tea": "My favourite tea is Earl Grey.",
+    "ask_tea": "What is my favourite tea?",
 }
 
 

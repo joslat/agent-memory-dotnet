@@ -574,6 +574,93 @@ class Test4Privacy(unittest.TestCase):
             self.assertIn(survivor.facts[0], recalled_ids(other, "Portuguese at home"))
 
 
+class Test6Learning(unittest.TestCase):
+    """The learning profile (R2): each write applied once by its operation id, with its receipt in the store."""
+
+    def setUp(self):
+        StubModel.mode = "ok"
+        StubModel.release.set()
+
+    def test_observed_words_are_admitted_only_by_the_learning_profile(self):
+        with MemoryClient(config(new_state(), profile="learning")) as memory:
+            caps = memory.capabilities()
+            observed = memory.remember(source_id=source("observed"), session_id="s", text="My sister lives in Bern.",
+                                       occurred_at=SAID, origin="observed")
+        self.assertEqual(caps["profile"], "learning")
+        self.assertEqual((observed.receipt.state, observed.receipt.origin), ("applied", "observed"))
+        self.assertTrue(observed.receipt.remembered)
+        with MemoryClient(config(new_state())) as memory:
+            refused = memory.remember(source_id=source("observed"), session_id="s", text="My sister lives in Bern.",
+                                      occurred_at=SAID, origin="observed")
+        self.assertEqual((refused.status, refused.error.code), ("invalid", "not_in_profile"))
+
+    def test_recall_stays_open_while_a_learning_write_runs(self):
+        StubModel.mode = "hold"
+        StubModel.release.clear()
+        memory = MemoryClient(config(new_state(), profile="learning"))
+        try:
+            pending = memory.remember(source_id=source("open"), session_id="s", text="I fly kites at the beach.",
+                                      occurred_at=SAID, timeout_ms=300).receipt
+            self.assertEqual(pending.state, "running")
+            state = memory.state()
+            self.assertTrue(state.read_allowed, "a write applied in one transaction must not pause recall")
+            self.assertFalse(state.write_quiescent)
+            self.assertTrue(memory.get_context(session_id="s", query="kites", min_score=0.0).ok)
+            StubModel.release.set()
+            self.assertTrue(wait_until(lambda: memory.operation(operation_id=pending.operation_id).receipt.state == "applied"))
+        finally:
+            StubModel.mode = "ok"
+            StubModel.release.set()
+            memory.close(timeout_s=60)
+
+    def test_a_write_killed_while_running_is_applied_once_after_reopening(self):
+        state = new_state()
+        StubModel.mode = "hold"
+        StubModel.release.clear()
+        sid = source("learning-crash")
+        dying = child(config(state, profile="learning"), text="I grow chillies in pots.", source_id=sid)
+        try:
+            self.assertEqual(dying.stdout.readline().strip(), "open")
+            self.assertEqual(json.loads(dying.stdout.readline())["state"], "running")
+            dying.kill()
+            dying.wait()
+            StubModel.mode = "ok"
+            StubModel.release.set()
+            with MemoryClient(config(state, profile="learning")) as memory:
+                self.assertTrue(wait_until(lambda: memory.operation(source_id=sid).receipt.state == "applied"))
+                receipt = memory.operation(source_id=sid).receipt
+                self.assertEqual(receipt.reason, None)
+                self.assertEqual(len(receipt.facts), 1)
+                found = recalled_ids(memory, "grow chillies in pots")
+                self.assertTrue(set(receipt.facts) <= found)
+        finally:
+            StubModel.mode = "ok"
+            StubModel.release.set()
+            if dying.poll() is None:
+                dying.kill()
+            dying.communicate()
+
+    def test_a_write_whose_journal_end_was_lost_is_found_by_its_receipt_and_never_runs_again(self):
+        state = Path(new_state())
+        sid = source("lost-end")
+        with MemoryClient(config(str(state), profile="learning")) as memory:
+            first = memory.remember(source_id=sid, session_id="s", text="I collect blue stamps.", occurred_at=SAID).receipt
+        self.assertEqual(first.state, "applied")
+        journal = state / "journal.jsonl"
+        lines = journal.read_bytes().splitlines(keepends=True)
+        ends = [i for i, line in enumerate(lines)
+                if json.loads(line.split(b" ", 1)[1]).get("kind") == "applied"
+                and json.loads(line.split(b" ", 1)[1]).get("operationId") == first.operation_id]
+        # The commit happened (its receipt is on the message); the journal never heard: as if the process died there.
+        journal.write_bytes(b"".join(line for i, line in enumerate(lines) if i not in ends))
+        calls = StubModel.writer_calls
+        with MemoryClient(config(str(state), profile="learning")) as memory:
+            self.assertTrue(wait_until(lambda: memory.operation(source_id=sid).receipt.state == "applied"))
+            again = memory.operation(source_id=sid).receipt
+        self.assertEqual(StubModel.writer_calls, calls, "a write whose receipt exists ran the writer again")
+        self.assertEqual(set(again.facts), set(first.facts))
+
+
 try:
     import langgraph.store.base  # noqa: F401
 

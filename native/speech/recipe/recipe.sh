@@ -23,6 +23,15 @@ set +a
 : "${SERVER_IMAGE:?}" "${S2S_LLM_MODEL:?}" "${S2S_LLM_BASE_URL:?}"
 MEMORY="${MEMORY:-off}"
 MEMORY_WRITES="${MEMORY_WRITES:-off}"
+MEMORY_LEARNING="${MEMORY_LEARNING:-off}"
+case "$MEMORY_LEARNING" in
+  on)  [ "$MEMORY_WRITES" = on ] || { echo "MEMORY_LEARNING=on needs MEMORY_WRITES=on" >&2; exit 2; } ;;
+  off) ;;
+  *)   echo "MEMORY_LEARNING must be on or off, not '$MEMORY_LEARNING'" >&2; exit 2 ;;
+esac
+# Learning unasked is its own switch, so it can be paused without changing the profile (what is stored stays).
+export MEMORY_OBSERVE="${MEMORY_OBSERVE:-$([ "$MEMORY_LEARNING" = on ] && echo 1 || echo 0)}"
+[[ "$MEMORY_OBSERVE" =~ ^[01]$ ]] || { echo "MEMORY_OBSERVE must be 0 or 1" >&2; exit 2; }
 STATE_DIR="${STATE_DIR:-$(dirname "$SETTINGS")/state}"
 mkdir -p "$STATE_DIR"
 export SECRETS_DIR; SECRETS_DIR="$(win "$(cd "$STATE_DIR" && pwd)/secrets")"
@@ -68,6 +77,7 @@ write_secrets() {
       key="$(printf ',"apiKey":"%s"' "$WRITER_API_KEY")"
     fi
     profile="explicit_write"
+    [ "$MEMORY_LEARNING" = on ] && profile="learning"
     # The journal lives on its own volume (compose.memory-writes.yml); the library creates this directory, mode 0700.
     writes="$(printf ',"writer":{"model":"%s","endpoint":{"url":"%s","timeoutMs":%s%s}},"state":{"directory":"/var/lib/agentmemory/journal"}' \
       "$WRITER_MODEL" "$WRITER_URL" "${WRITER_TIMEOUT_MS:-60000}" "$key")"

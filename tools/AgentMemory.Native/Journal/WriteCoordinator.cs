@@ -35,14 +35,16 @@ internal sealed class WriteCoordinator
     private Task _loop = Task.CompletedTask;
     private Operation? _current;
     private bool _stopping;
+    private readonly bool _appliedOnce;
     private int _open;
     private int _pending;
     private long _deletionEpoch;
     private long _memoryRevision;
 
     public WriteCoordinator(OperationJournal journal, ServiceProvider provider, MemorySettings settings, string owner,
-        int maxQueued, Action stateChanged)
+        int maxQueued, Action stateChanged, bool appliedOnce = false)
     {
+        _appliedOnce = appliedOnce;
         _journal = journal;
         _provider = provider;
         _settings = settings;
@@ -69,6 +71,17 @@ internal sealed class WriteCoordinator
     {
         lock (_journal.Gate)
         {
+            // Learning profile: a remember that was running when the last process ended is applied once by its id, so it
+            // runs again; its receipt in the store decides whether anything is left to do.
+            if (_appliedOnce)
+                foreach (var interrupted in _journal.OperationsLocked
+                             .Where(o => o.Kind == OperationKind.Remember && o.State == OperationState.Unknown).ToList())
+                    _journal.AppendLocked(new JournalRecord
+                    {
+                        Kind = "retry", OperationId = interrupted.OperationId, At = DateTimeOffset.UtcNow,
+                        Reason = "requeued_after_restart",
+                    });
+            Recount();
             foreach (var operation in _journal.OperationsLocked.Where(o => o.State == OperationState.Accepted))
                 _queue.Writer.TryWrite(operation);
         }
@@ -80,7 +93,8 @@ internal sealed class WriteCoordinator
     /// <see cref="ContractException"/> for a source id reused with another payload and <see cref="JournalException"/> when
     /// the journal cannot take it (nothing is accepted then).
     /// </summary>
-    public (Operation Operation, bool Duplicate) Admit(string sourceId, string sessionId, string text, DateTimeOffset occurredAt)
+    public (Operation Operation, bool Duplicate) Admit(string sourceId, string sessionId, string text, DateTimeOffset occurredAt,
+        string origin = "explicit")
     {
         var hash = OperationJournal.SourceHash(_owner, sessionId, sourceId, text, occurredAt);
         Operation operation;
@@ -102,6 +116,7 @@ internal sealed class WriteCoordinator
             {
                 Kind = "accepted", OperationId = operationId, At = DateTimeOffset.UtcNow, SourceId = sourceId,
                 SourceSha256 = hash, Owner = _owner, SessionId = sessionId, Text = text, OccurredAt = occurredAt,
+                Origin = origin == "explicit" ? null : origin,
             });
             operation = _journal.FindLocked(operationId)!;
             _queue.Writer.TryWrite(operation);
@@ -278,8 +293,17 @@ internal sealed class WriteCoordinator
                 Recount();
             }
             _stateChanged();
+            if (end.Kind == "retry" && operation.State == OperationState.Accepted)
+            {
+                // Learning profile: back in the queue after a pause that grows with each retry (the store may be restarting).
+                var pause = TimeSpan.FromMilliseconds(Math.Min(30_000, 500 * (1 << Math.Min(operation.Retries, 6))));
+                _ = Task.Delay(pause).ContinueWith(_ => _queue.Writer.TryWrite(operation), TaskScheduler.Default);
+            }
         }
     }
+
+    /// <summary>The most times the learning profile puts one operation back in the queue before it ends unknown.</summary>
+    private const int MaxRetries = 10;
 
     private Task<JournalRecord> RunAsync(Operation operation) => operation.Kind switch
     {
@@ -301,6 +325,8 @@ internal sealed class WriteCoordinator
             MessageId = messageId,
             Text = operation.Text ?? throw new InvalidOperationException("A remember without its words cannot run."),
             OccurredAt = operation.OccurredAt,
+            // Learning profile: applied once by the operation's id, with a receipt in the store, so it can always run again.
+            OperationId = _appliedOnce ? operation.OperationId : null,
         };
 
         ExtractionResult? result = null;
@@ -316,9 +342,12 @@ internal sealed class WriteCoordinator
             failure = exception;
         }
 
-        // A store failure while writing can leave a transaction that still commits: its effects cannot be bounded now.
+        // A store failure while writing can leave a transaction that still commits: its effects cannot be bounded now. Applied
+        // once by its id (learning profile), it simply runs again: the receipt says whether that commit happened.
         if (failure is not null && IsStoreFailure(failure))
-            return End(operation, "unknown", $"store_failed_while_writing: {failure.GetType().Name}");
+            return _appliedOnce && operation.Retries < MaxRetries
+                ? End(operation, "retry", $"store_failed_while_writing: {failure.GetType().Name}")
+                : End(operation, "unknown", $"store_failed_while_writing: {failure.GetType().Name}");
 
         WrittenEvidence evidence;
         try
@@ -327,7 +356,9 @@ internal sealed class WriteCoordinator
         }
         catch (Exception exception)
         {
-            return End(operation, "unknown", $"evidence_unreadable: {exception.GetType().Name}");
+            return _appliedOnce && operation.Retries < MaxRetries
+                ? End(operation, "retry", $"evidence_unreadable: {exception.GetType().Name}")
+                : End(operation, "unknown", $"evidence_unreadable: {exception.GetType().Name}");
         }
 
         if (failure is not null)
@@ -538,7 +569,12 @@ internal sealed class WriteCoordinator
         long erases = 0, ended = 0;
         foreach (var operation in _journal.OperationsLocked)
         {
-            if (operation.IsOpen) open++;
+            // Learning profile: a remember applies in one transaction, so recall never sees it half-done and need not pause
+            // while it is pending; only an uncertain one (partial or unknown) closes recall. Forget and erase still do.
+            var pausesRecall = _appliedOnce && operation.Kind == OperationKind.Remember
+                ? operation.State is OperationState.Partial or OperationState.Unknown
+                : operation.IsOpen;
+            if (pausesRecall) open++;
             if (operation.IsPending) pending++;
             if (operation.Kind == OperationKind.Erase && operation.StartedAt is not null) erases++;
             if (!operation.IsPending) ended++;

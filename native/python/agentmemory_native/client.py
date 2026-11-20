@@ -178,17 +178,18 @@ class MemoryClient:
                                 max_preferences=max_preferences, min_score=min_score, request_id=request_id),
             timeout_ms))
 
-    def remember(self, *, source_id: str, session_id: str, text: str, occurred_at: str,
+    def remember(self, *, source_id: str, session_id: str, text: str, occurred_at: str, origin: str | None = None,
                  request_id: str | None = None, timeout_ms: int = 0) -> WriteResult:
         """Remembers the owner's own words (profile ``explicit_write``), through the library's durable journal.
 
         ``source_id`` is the host's stable id for this spoken item and revision: sending it again returns the same
         receipt and runs nothing. ``occurred_at`` is when the words were said, ISO 8601 with an offset. The call waits
-        until the write ends or ``timeout_ms`` passes; either way an accepted write comes back as a receipt.
+        until the write ends or ``timeout_ms`` passes; either way an accepted write comes back as a receipt. ``origin``
+        is "explicit" (the owner asked; the default) or, with the ``learning`` profile, "observed" (admitted unasked).
         """
         return WriteResult.from_json(self.call(
             remember_request(source_id=source_id, session_id=session_id, text=text, occurred_at=occurred_at,
-                             request_id=request_id), timeout_ms))
+                             origin=origin, request_id=request_id), timeout_ms))
 
     def operation(self, *, operation_id: str | None = None, source_id: str | None = None,
                   request_id: str | None = None, timeout_ms: int = 0) -> WriteResult:
@@ -271,10 +272,12 @@ def get_context_request(*, session_id: str, query: str | None = None, query_vect
     return request
 
 
-def remember_request(*, source_id: str, session_id: str, text: str, occurred_at: str,
+def remember_request(*, source_id: str, session_id: str, text: str, occurred_at: str, origin: str | None = None,
                      request_id: str | None = None) -> dict[str, Any]:
     request: dict[str, Any] = {"schemaVersion": 1, "operation": "memory_remember", "sourceId": source_id,
                                "sessionId": session_id, "text": text, "occurredAt": occurred_at}
+    if origin is not None:
+        request["origin"] = origin
     if request_id is not None:
         request["requestId"] = request_id
     return request

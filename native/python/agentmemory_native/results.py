@@ -119,6 +119,7 @@ class Receipt:
     kind: str = "remember"
     target_operation_id: str | None = None
     deleted: int | None = None
+    origin: str | None = None
 
     @property
     def ended(self) -> bool:
@@ -134,7 +135,7 @@ class Receipt:
                        bool(item.get("searchable", False)), item.get("reason"), item["occurredAt"], item["acceptedAt"],
                        item.get("startedAt"), item.get("finishedAt"), tuple(item.get("facts", ())),
                        tuple(item.get("preferences", ())), tuple(item.get("closed", ())), item.get("kind", "remember"),
-                       item.get("targetOperationId"), item.get("deleted"))
+                       item.get("targetOperationId"), item.get("deleted"), item.get("origin"))
 
 
 @dataclass(frozen=True)

@@ -178,3 +178,18 @@ While any write is accepted, running, partial or unknown, `memory_get_context` e
 | `memory_erase_owner` | `{"confirm": true}` | Deletes every node of the owner (memories, messages, conversations, traces), then rewrites the journal without any remembered words (ids, hashes and states stay, so an old source sent again comes back as its `erased` receipt and never runs). `applied` only when nothing of the owner is left in the store. Refused with `writes_pending` (nothing accepted) while any operation is accepted or running. Each erase that starts raises the deletion epoch of `am_v1_state`. |
 
 Both are journal operations like a remember: accepted durably first, run by the one writer in order, recall paused until they end, receipts with the same states. Neither has a voice form in this library: the host decides which of its controls may ask for them.
+
+## Learning (profile `learning`)
+
+Everything `explicit_write` offers, with two differences. Every remember is applied once by its operation id: the
+library's core writes the memories, closings, confirmations and a receipt (on the remembered message) in one store
+transaction, so a write is in the store completely or not at all. That changes recovery and recall:
+
+- A remember that was running when a process ended, or whose store call failed, is put back in the queue (journal
+  record `retry`, with a pause that grows with each retry, at most 10) and runs again: its receipt in the store decides
+  whether anything is left to do, so it is never applied twice. `unknown` remains only after 10 failed retries.
+- Recall is not paused while a remember is pending: a read sees the store before or after one, never between. An
+  uncertain remember (`partial`, `unknown`) and a pending forget or erase still pause it.
+
+`memory_remember` also takes `"origin": "observed"` for words the host admits without the owner asking (automatic
+learning); the receipt reports the origin. `explicit_write` refuses `observed` with `not_in_profile`.

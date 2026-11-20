@@ -58,6 +58,7 @@ internal sealed class JournalRecord
     [JsonPropertyName("op")] public string? Op { get; init; }
     [JsonPropertyName("targetOperationId")] public string? TargetOperationId { get; init; }
     [JsonPropertyName("memoryIds")] public List<string>? MemoryIds { get; init; }
+    [JsonPropertyName("origin")] public string? Origin { get; init; }
 
     // ends
     [JsonPropertyName("reason")] public string? Reason { get; init; }
@@ -86,6 +87,12 @@ internal sealed class Operation
     public string? TargetOperationId { get; init; }
     public IReadOnlyList<string> MemoryIds { get; init; } = [];
 
+    /// <summary>A remember's origin: "explicit" (the owner asked) or "observed" (admitted by the learning profile).</summary>
+    public string Origin { get; init; } = "explicit";
+
+    /// <summary>How many times the learning profile put this operation back in the queue (crash or store failure).</summary>
+    public int Retries { get; set; }
+
     /// <summary>The remembered words; null for a forget or an erase, and after the owner was erased.</summary>
     public string? Text { get; set; }
     public required DateTimeOffset OccurredAt { get; init; }
@@ -101,14 +108,20 @@ internal sealed class Operation
     public long? Count { get; set; }
 
     /// <summary>Completes when the operation leaves <see cref="OperationState.Accepted"/> and <see cref="OperationState.Running"/>.</summary>
-    public TaskCompletionSource Ended { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public TaskCompletionSource Ended { get; private set; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>Back in the queue (learning profile): whoever waits from now on waits for the next ending.</summary>
+    public void ReopenEnded()
+    {
+        if (Ended.Task.IsCompleted) Ended = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
 
     public bool IsOpen => State is OperationState.Accepted or OperationState.Running or OperationState.Partial or OperationState.Unknown;
     public bool IsPending => State is OperationState.Accepted or OperationState.Running;
 
     /// <summary>A consistent copy for a receipt, taken under the journal's lock.</summary>
     public OperationSnapshot Snapshot() => new(OperationId, SourceId, State, Reason, OccurredAt, AcceptedAt, StartedAt,
-        FinishedAt, Facts, Preferences, Closed, Searchable, Kind, TargetOperationId, Count);
+        FinishedAt, Facts, Preferences, Closed, Searchable, Kind, TargetOperationId, Count, Origin);
 }
 
 /// <summary>An operation as a receipt shows it.</summary>
@@ -116,7 +129,7 @@ internal sealed record OperationSnapshot(
     string OperationId, string SourceId, OperationState State, string? Reason, DateTimeOffset OccurredAt,
     DateTimeOffset AcceptedAt, DateTimeOffset? StartedAt, DateTimeOffset? FinishedAt, IReadOnlyList<string> Facts,
     IReadOnlyList<string> Preferences, IReadOnlyList<string> Closed, bool Searchable, OperationKind Kind = OperationKind.Remember,
-    string? TargetOperationId = null, long? Count = null);
+    string? TargetOperationId = null, long? Count = null, string Origin = "explicit");
 
 /// <summary>
 /// The durable journal of explicit writes: one JSON Lines file in a state directory held with an exclusive lock for the
@@ -280,6 +293,7 @@ internal sealed class OperationJournal : IDisposable
                 },
                 TargetOperationId = record.TargetOperationId,
                 MemoryIds = record.MemoryIds ?? [],
+                Origin = record.Origin ?? "explicit",
             };
             _byId[operation.OperationId] = operation;
             _bySource[operation.SourceId] = operation;
@@ -294,6 +308,14 @@ internal sealed class OperationJournal : IDisposable
                 known.State = OperationState.Running;
                 known.StartedAt = record.At;
                 break;
+            case "retry":
+                // Learning profile: an operation applied once by its id can run again safely (its receipt decides).
+                known.State = OperationState.Accepted;
+                known.FinishedAt = null;
+                known.Reason = record.Reason;
+                known.Retries++;
+                known.ReopenEnded();
+                break;
             case "applied" or "rejected" or "partial" or "unknown" or "kept" or "cancelled" or "forgotten" or "erased":
                 known.State = record.Kind switch
                 {
@@ -307,7 +329,8 @@ internal sealed class OperationJournal : IDisposable
                     _ => OperationState.Erased,
                 };
                 known.FinishedAt = record.At;
-                if (record.Reason is not null) known.Reason = record.Reason;
+                // An ending says why it ended, or nothing: a reason from before (a retry's) never outlives it.
+                known.Reason = record.Reason;
                 if (record.Facts is not null) known.Facts = record.Facts;
                 if (record.Preferences is not null) known.Preferences = record.Preferences;
                 if (record.Closed is not null) known.Closed = record.Closed;
@@ -399,6 +422,7 @@ internal sealed class OperationJournal : IDisposable
                         Op = operation.Kind switch { OperationKind.Forget => "forget", OperationKind.Erase => "erase", _ => null },
                         TargetOperationId = operation.TargetOperationId,
                         MemoryIds = operation.MemoryIds.Count == 0 ? null : [.. operation.MemoryIds],
+                        Origin = operation.Kind == OperationKind.Remember && operation.Origin != "explicit" ? operation.Origin : null,
                     }));
                     if (operation.StartedAt is { } started)
                         stream.Write(Line(new JournalRecord { Kind = "running", OperationId = operation.OperationId, At = started }));

@@ -103,7 +103,7 @@ internal static class ResultWriter
             writer.WriteNumber("maxPendingJobs", config.MaxPendingJobs);
             writer.WriteNumber("defaultTimeoutMs", config.DefaultTimeoutMs);
             writer.WriteNumber("maxRequestBytes", StrictObject.MaxDocumentBytes);
-            if (config.Profile == MemoryProfile.ExplicitWrite) writer.WriteNumber("maxQueuedWrites", config.MaxQueuedWrites);
+            if (config.Writes) writer.WriteNumber("maxQueuedWrites", config.MaxQueuedWrites);
             writer.WriteEndObject();
             WriteTiming(writer, timing);
         });
@@ -126,6 +126,7 @@ internal static class ResultWriter
                 _ => "remember",
             });
             writer.WriteString("sourceId", receipt.SourceId);
+            if (receipt.Kind == Journal.OperationKind.Remember) writer.WriteString("origin", receipt.Origin);
             WriteOptional(writer, "targetOperationId", receipt.TargetOperationId);
             writer.WriteBoolean("duplicate", duplicate);
             writer.WriteString("state", Journal.WriteCoordinator.Name(receipt.State));

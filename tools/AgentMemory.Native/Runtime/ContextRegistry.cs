@@ -64,9 +64,9 @@ internal static class ContextRegistry
         {
             // The journal first: its lock is the state directory's authority across processes, and a damaged journal
             // must stop the open before anything else is built.
-            if (config.Profile == MemoryProfile.ExplicitWrite)
+            if (config.Writes)
                 journal = OperationJournal.Open(config.StateDirectory!, config.FixedOwner!);
-            provider = config.Profile == MemoryProfile.ExplicitWrite
+            provider = config.Writes
                 ? WriteComposition.Build(config.Memory, config.Writer!, config.EmbeddingEndpoint!)
                 : MemoryComposition.Build(config.Memory);
             // Validates the store options and builds the driver (no I/O), so a configuration they refuse fails here.
@@ -83,7 +83,7 @@ internal static class ContextRegistry
             var writes = journal is null
                 ? null
                 : new WriteCoordinator(journal, provider, config.Memory, config.FixedOwner!, config.MaxQueuedWrites,
-                    () => context?.BumpRevision());
+                    () => context?.BumpRevision(), appliedOnce: config.Profile == MemoryProfile.Learning);
             context = new NativeContext(handle, config, provider, embeddings, writes, journal);
             Contexts[handle] = context;
             // Queued writes from before (accepted, never started) run now, in acceptance order.

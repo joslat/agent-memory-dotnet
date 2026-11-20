@@ -25,6 +25,12 @@ internal sealed record RememberInput
 
     /// <summary>When the words were said (not when they are written): relative dates are read against it.</summary>
     public required DateTimeOffset OccurredAt { get; init; }
+
+    /// <summary>
+    /// Learning profile: apply the write once by this id (ExtractionRequest.OperationId): every effect and a receipt in one
+    /// store transaction, and nothing runs again once the receipt exists. Null: the explicit-write profile's behaviour.
+    /// </summary>
+    public string? OperationId { get; init; }
 }
 
 /// <summary>What one remember wrote: the stored message and what the writer extracted from it.</summary>
@@ -160,6 +166,7 @@ internal static class WriteComposition
                     SessionId = input.SessionId,
                     // The owner of extracted memories is explicit on the request; the ambient scope does not set it.
                     UserId = input.Owner,
+                    OperationId = input.OperationId,
                 }, cancellationToken).ConfigureAwait(false);
                 return new RememberOutcome(message, extraction);
             }

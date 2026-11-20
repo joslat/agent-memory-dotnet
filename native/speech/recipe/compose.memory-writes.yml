@@ -5,6 +5,8 @@ services:
   speech:
     environment:
       S2S_MEMORY_CONTROL_TOKEN_FILE: /run/secrets/memory_control_token
+      # MEMORY_LEARNING=on (profile "learning"): also learn, unasked, what the owner tells; MEMORY_OBSERVE=0 pauses it.
+      S2S_MEMORY_OBSERVE: ${MEMORY_OBSERVE:-0}
     secrets: [memory_control_token]
     volumes:
       - journal:/var/lib/agentmemory

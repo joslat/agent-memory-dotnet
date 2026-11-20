@@ -139,7 +139,7 @@ internal sealed class NativeContext
     /// </summary>
     private async Task<byte[]> RememberAsync(RememberRequest request, NativeJob job, CancellationToken token)
     {
-        var (operation, duplicate) = _writes!.Admit(request.SourceId, request.SessionId, request.Text, request.OccurredAt);
+        var (operation, duplicate) = _writes!.Admit(request.SourceId, request.SessionId, request.Text, request.OccurredAt, request.Origin);
         byte[] Receipt() => ResultWriter.Receipt(RememberRequest.Name, request.RequestId, _writes.Snapshot(operation), duplicate, job.Timing());
         job.SetStoppedResult(Receipt);
         await operation.Ended.Task.WaitAsync(token).ConfigureAwait(false);

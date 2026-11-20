@@ -17,6 +17,9 @@ internal enum MemoryProfile
 {
     ReadOnly,
     ExplicitWrite,
+
+    /// <summary>R2: explicit writes plus observed ones, each applied once by its operation id (a receipt in the store).</summary>
+    Learning,
 }
 
 /// <summary>A validated <c>am_v1_open</c> configuration.</summary>
@@ -24,9 +27,18 @@ internal sealed record OpenConfig
 {
     public const string ReadOnlyName = "read_only";
     public const string ExplicitWriteName = "explicit_write";
+    public const string LearningName = "learning";
 
     public MemoryProfile Profile { get; init; } = MemoryProfile.ReadOnly;
-    public string ProfileName => Profile == MemoryProfile.ExplicitWrite ? ExplicitWriteName : ReadOnlyName;
+    public string ProfileName => Profile switch
+    {
+        MemoryProfile.ExplicitWrite => ExplicitWriteName,
+        MemoryProfile.Learning => LearningName,
+        _ => ReadOnlyName,
+    };
+
+    /// <summary>The profile writes (explicit_write or learning).</summary>
+    public bool Writes => Profile != MemoryProfile.ReadOnly;
 
     /// <summary>The writer's model (explicit_write only).</summary>
     public ChatEndpoint? Writer { get; init; }
@@ -67,10 +79,11 @@ internal sealed record OpenConfig
             {
                 ReadOnlyName => MemoryProfile.ReadOnly,
                 ExplicitWriteName => MemoryProfile.ExplicitWrite,
+                LearningName => MemoryProfile.Learning,
                 var other => throw new ContractException("unsupported_profile",
-                    $"$.profile '{other}' is not offered; this library offers '{ReadOnlyName}' and '{ExplicitWriteName}'."),
+                    $"$.profile '{other}' is not offered; this library offers '{ReadOnlyName}', '{ExplicitWriteName}' and '{LearningName}'."),
             };
-            var writes = profile == MemoryProfile.ExplicitWrite;
+            var writes = profile != MemoryProfile.ReadOnly;
 
             var owner = root.RequiredObject("owner");
             var mode = owner.RequiredString("mode", 32) switch
@@ -83,7 +96,7 @@ internal sealed record OpenConfig
             owner.EnsureNoUnknown();
             if (writes && mode != OwnerMode.Fixed)
                 throw new ContractException("owner_mode_not_offered",
-                    $"$.owner.mode must be 'fixed' for '{ExplicitWriteName}': one configured owner writes; several owners need their own identity design.");
+                    $"$.owner.mode must be 'fixed' for a writing profile: one configured owner writes; several owners need their own identity design.");
 
             var store = root.RequiredObject("store");
             var uri = store.RequiredString("uri", 2048);
@@ -127,7 +140,7 @@ internal sealed record OpenConfig
             {
                 if (endpoint is null)
                     throw new ContractException("missing_property",
-                        $"$.embedding.endpoint is required for '{ExplicitWriteName}': written memories are embedded by the library.");
+                        "$.embedding.endpoint is required for a writing profile: written memories are embedded by the library.");
                 var writerObject = root.RequiredObject("writer");
                 var writerModel = writerObject.RequiredString("model", 256);
                 var writerEndpoint = writerObject.RequiredObject("endpoint");
@@ -151,7 +164,7 @@ internal sealed record OpenConfig
             {
                 foreach (var name in new[] { "writer", "state" })
                     if (root.OptionalObject(name) is not null)
-                        throw new ContractException("not_in_profile", $"$.{name} belongs to '{ExplicitWriteName}'; this profile is '{ReadOnlyName}'.");
+                        throw new ContractException("not_in_profile", $"$.{name} belongs to a writing profile; this profile is '{ReadOnlyName}'.");
             }
 
             var limits = root.OptionalObject("limits");
@@ -241,12 +254,12 @@ internal abstract record NativeRequest
                 throw new ContractException("unsupported_schema", "$.schemaVersion must be 1.");
             var operation = root.RequiredString("operation", 64);
             var requestId = root.OptionalString("requestId", 256);
-            var writes = config.Profile == MemoryProfile.ExplicitWrite;
+            var writes = config.Writes;
             NativeRequest request = operation switch
             {
                 CapabilitiesRequest.Name => new CapabilitiesRequest { RequestId = requestId },
                 GetContextRequest.Name => GetContextRequest.Read(root, config, requestId),
-                RememberRequest.Name when writes => RememberRequest.Read(root, requestId),
+                RememberRequest.Name when writes => RememberRequest.Read(root, requestId, config.Profile == MemoryProfile.Learning),
                 OperationGetRequest.Name when writes => OperationGetRequest.Read(root, requestId),
                 OperationResolveRequest.Name when writes => OperationResolveRequest.Read(root, requestId),
                 ForgetRequest.Name when writes => ForgetRequest.Read(root, requestId),
@@ -266,7 +279,7 @@ internal abstract record NativeRequest
     }
 
     /// <summary>The operations a context of this configuration offers, in the order capabilities lists them.</summary>
-    public static IReadOnlyList<string> Offered(OpenConfig config) => config.Profile == MemoryProfile.ExplicitWrite
+    public static IReadOnlyList<string> Offered(OpenConfig config) => config.Writes
         ? [CapabilitiesRequest.Name, GetContextRequest.Name, RememberRequest.Name, OperationGetRequest.Name, OperationResolveRequest.Name,
             ForgetRequest.Name, EraseOwnerRequest.Name]
         : [CapabilitiesRequest.Name, GetContextRequest.Name];
@@ -293,9 +306,17 @@ internal sealed record RememberRequest : NativeRequest
     /// <summary>When the words were said, with an explicit offset.</summary>
     public required DateTimeOffset OccurredAt { get; init; }
 
-    public static RememberRequest Read(StrictObject root, string? requestId)
+    /// <summary>"explicit" (the owner asked) or "observed" (learning profile: admitted without being asked).</summary>
+    public string Origin { get; init; } = "explicit";
+
+    public static RememberRequest Read(StrictObject root, string? requestId, bool learning = false)
     {
         RefuseOwner(root);
+        var origin = root.OptionalString("origin", 16) ?? "explicit";
+        if (origin is not ("explicit" or "observed"))
+            throw new ContractException("invalid_value", "$.origin must be 'explicit' or 'observed'.");
+        if (origin == "observed" && !learning)
+            throw new ContractException("not_in_profile", "An observed remember needs the 'learning' profile; this one writes only what the owner asks for.");
         var occurred = root.RequiredString("occurredAt", 64);
         if (!(occurred.EndsWith('Z') || System.Text.RegularExpressions.Regex.IsMatch(occurred, @"[+-]\d{2}:\d{2}$"))
             || !DateTimeOffset.TryParse(occurred, System.Globalization.CultureInfo.InvariantCulture,
@@ -309,6 +330,7 @@ internal sealed record RememberRequest : NativeRequest
             SessionId = root.RequiredString("sessionId", 256),
             Text = root.RequiredString("text", 8000),
             OccurredAt = occurredAt,
+            Origin = origin,
         };
     }
 }
