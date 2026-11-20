@@ -128,4 +128,53 @@ public sealed class Neo4jMetadataJsonCompatibilityTests
     public void The_generated_contract_refuses_what_the_reflection_call_refuses(string json) =>
         FluentActions.Invoking(() => JsonSerializer.Deserialize(json, Neo4jMetadataJsonContext.Default.DictionaryStringObject))
             .Should().Throw<JsonException>();
+
+    /// <summary>Metadata as hosts and the library write it: every listed value type, nested, and values read back.</summary>
+    public static TheoryData<string, IReadOnlyDictionary<string, object>> WrittenMetadata()
+    {
+        var stored = JsonSerializer.Deserialize<Dictionary<string, object>>(
+            """{"o":{"x":[1,2.5,"y",null,true]},"n":18446744073709551615,"s":"Zürich ✓ 😀"}""")!;
+        return new()
+        {
+            { "text", new Dictionary<string, object> { ["source"] = "write-probe", ["s"] = "Zürich ✓ 😀 <b>&\"'\\" } },
+            { "numbers", new Dictionary<string, object>
+                {
+                    ["b"] = (byte)7, ["h"] = (short)-3, ["i"] = 42, ["l"] = long.MaxValue, ["f"] = 0.1f, ["d"] = 0.1,
+                    ["m"] = 12.50m, ["nan-free"] = double.Epsilon,
+                } },
+            { "booleans and times", new Dictionary<string, object>
+                {
+                    ["t"] = true, ["at"] = new DateTimeOffset(2026, 11, 20, 10, 0, 0, TimeSpan.FromHours(1)),
+                    ["utc"] = new DateTime(2026, 11, 20, 9, 0, 0, DateTimeKind.Utc), ["id"] = Guid.Parse("6f9619ff-8b86-d011-b42d-00c04fc964ff"),
+                } },
+            { "lists", new Dictionary<string, object>
+                {
+                    ["ids"] = new[] { "f1", "f2" }, ["ints"] = new[] { 1, 2 }, ["longs"] = new[] { 1L }, ["ds"] = new[] { 1.5 },
+                    ["flags"] = new[] { true, false }, ["mixed"] = new object[] { "a", 1, true, 2.5 },
+                    ["list"] = new List<object> { "a", 2 }, ["names"] = new List<string> { "x" },
+                } },
+            { "nested", new Dictionary<string, object>
+                {
+                    ["inner"] = new Dictionary<string, object> { ["depth"] = 2, ["label"] = "Zürich ✓", ["deeper"] = new Dictionary<string, object> { ["k"] = "v" } },
+                    ["rows"] = new List<Dictionary<string, object>> { new() { ["a"] = 1 } },
+                } },
+            { "values read back from the store", stored },
+        };
+    }
+
+    [Theory]
+    [MemberData(nameof(WrittenMetadata))]
+    public void The_generated_contract_writes_metadata_with_the_same_bytes_as_the_reflection_call(
+        string name, IReadOnlyDictionary<string, object> metadata) =>
+        JsonSerializer.Serialize(metadata, Neo4jMetadataJsonContext.Default.IReadOnlyDictionaryStringObject)
+            .Should().Be(JsonSerializer.Serialize(metadata), name);
+
+    private sealed record Unlisted(string Name);
+
+    [Fact]
+    public void The_generated_contract_refuses_a_value_type_it_does_not_list_instead_of_writing_it_differently() =>
+        FluentActions.Invoking(() => JsonSerializer.Serialize(
+                (IReadOnlyDictionary<string, object>)new Dictionary<string, object> { ["x"] = new Unlisted("n") },
+                Neo4jMetadataJsonContext.Default.IReadOnlyDictionaryStringObject))
+            .Should().Throw<NotSupportedException>();
 }

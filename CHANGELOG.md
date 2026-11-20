@@ -21,6 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and its salvage pass read through generated metadata there, and the writer's and identity adjudicator's reply
   schemas parse without the serializer. Managed hosts read exactly as before; parity tests read the same replies,
   readable and unreadable, both ways.
+- Writing metadata to Neo4j works in a host with reflection-based JSON off: it goes through generated metadata with
+  the same bytes for every listed value type (text, numbers, booleans, times, identifiers, values read back from the
+  store, nested dictionaries and lists) and refuses other value types. Managed hosts write exactly as before.
 
 ### Added
 
