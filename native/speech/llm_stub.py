@@ -1,6 +1,7 @@
 """A deterministic stand-in for an OpenAI-compatible language model, for speech-server tests without a real model.
 
-It answers POST /v1/chat/completions (streamed as server-sent events, or not) and GET /v1/models. The reply is made from
+It answers POST /v1/chat/completions (streamed as server-sent events, or not), POST /v1/embeddings (fixed vectors for
+the gate's seeded store, see embed) and GET /v1/models. The reply is made from
 the request, so a test can see what the model was given:
   - with no memory evidence: "You said: <last user text>."
   - when a message carries AgentMemory evidence (lines between "[memory]" and "[/memory]"): "From memory: <first line>."
@@ -19,6 +20,20 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 MODEL = "agentmemory-stub"
 LOG = os.environ.get("LLM_STUB_LOG")
 _log_lock = threading.Lock()
+
+
+def embed(text: str) -> list[float]:
+    """Eight-dimension vectors on the axes of the gate's seeded store (native/gate/seed/seed.cs): a question about work
+    points at the works_in facts, one about how to answer at the style preferences, anything else nowhere near."""
+    lowered = text.lower()
+    vector = [0.0] * 8
+    if "work" in lowered:
+        vector[0], vector[1] = 1.0, 0.1
+    elif "answer" in lowered:
+        vector[2] = 1.0
+    else:
+        vector[5] = 1.0
+    return vector
 
 
 def text_of(content) -> str:
@@ -60,6 +75,14 @@ class Handler(BaseHTTPRequestHandler):
             self._json(404, {"error": {"message": "not found"}})
 
     def do_POST(self):  # noqa: N802
+        if self.path.rstrip("/").endswith("/embeddings"):
+            request = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))) or b"{}")
+            inputs = request.get("input", [])
+            inputs = [inputs] if isinstance(inputs, str) else inputs
+            self._json(200, {"object": "list", "model": request.get("model", MODEL), "usage": {"prompt_tokens": 1},
+                             "data": [{"object": "embedding", "index": i, "embedding": embed(text)}
+                                      for i, text in enumerate(inputs)]})
+            return
         if not self.path.rstrip("/").endswith("/chat/completions"):
             self._json(404, {"error": {"message": "not found"}})
             return
