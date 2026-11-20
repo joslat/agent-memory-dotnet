@@ -36,6 +36,14 @@ native/speech/recipe/build-images.sh <speech-to-speech checkout with the memory 
   artifacts/native/cli agentmemory-speech-server:local agentmemory-speech-schema:local
 ```
 
+The speech server with the memory hooks is the branch `agentmemory/native-memory` of
+[github.com/joslat/speech-to-speech](https://github.com/joslat/speech-to-speech/tree/agentmemory/native-memory)
+(commit `eacc4cfc` is the one tested here), on top of the upstream commit `7dbbdaf`:
+
+```bash
+git clone --branch agentmemory/native-memory https://github.com/joslat/speech-to-speech
+```
+
 The server image takes only committed code from the checkout (`git archive`) and records its commit as the image's
 revision label. Its build fails if the wheel has no manifest, if the library does not load on the image or its ABI
 differs, or if `dotnet` is present.
