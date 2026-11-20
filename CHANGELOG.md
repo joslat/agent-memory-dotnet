@@ -24,6 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Writing metadata to Neo4j works in a host with reflection-based JSON off: it goes through generated metadata with
   the same bytes for every listed value type (text, numbers, booleans, times, identifiers, values read back from the
   store, nested dictionaries and lists) and refuses other value types. Managed hosts write exactly as before.
+- The store-aware writer no longer loses a statement about the user whose name it does not know yet. Models often say
+  "my cat is called Tom" as a connection, `Tom -[PET_CAT_OF]-> user`; persistence maps a `user` end to the person
+  entity named after the user, so with no name known the connection was skipped ("target entity 'user' was not
+  persisted") and only the entity Tom remained, which fact and preference recall never return. Such a connection is now
+  kept as the fact `Tom | pet cat of | user`. Once the user's name is known it stays a connection, as before.
 
 ### Added
 

@@ -558,7 +558,8 @@ public sealed class MemoryWriterTests
     [Fact]
     public void Connections_between_names_stay_connections()
     {
-        // ILC-34: proper names, names with particles, the user, and a single lowercase thing are unchanged.
+        // ILC-34: proper names, names with particles, and a single lowercase thing are unchanged. The user is a name too
+        // once their name is known (it maps to their person entity).
         var result = MemoryWriterOps.ToResult(
         [
             new("add", "relationship", "Owen -[ENGAGED_TO]-> Simone Gagné", null),
@@ -573,13 +574,32 @@ public sealed class MemoryWriterTests
             new("add", "relationship", "Ana -[MEMBER_OF]-> Association for Computing Machinery", null),
             new("add", "relationship", "Ana -[READS]-> To Kill a Mockingbird", null),
             new("add", "relationship", "Tomás -[REPORTS_TO]-> user.", null),
-        ], [], owner: null);
+        ], [], owner: "Dana");
 
         result.Facts.Should().BeEmpty();
         result.Relationships.Select(r => (r.SourceEntity, r.TargetEntity)).Should().Equal(
             ("Owen", "Simone Gagné"), ("Ana", "University of Buenos Aires"), ("María de la Cruz", "Ana"), ("Alex Kim", "user"),
             ("Ana", "jazz"), ("Bruna", "Acme."), ("Ana", "Jeanne d'Arc"), ("Ana", "Ibn al-Haytham"), ("Ana", "Apple iPhone"),
             ("Ana", "Association for Computing Machinery"), ("Ana", "To Kill a Mockingbird"), ("Tomás", "user"));
+    }
+
+    [Fact]
+    public void A_connection_to_the_user_whose_name_is_unknown_is_kept_as_a_fact()
+    {
+        // B21: with no name for the user there is no person entity to map "user" to, so the connection could never reach
+        // the graph (persistence skipped it as "target entity 'user' was not persisted"). It is kept as a fact instead.
+        var result = MemoryWriterOps.ToResult(
+        [
+            new("add", "relationship", "Tom -[PET_CAT_OF]-> user", null),
+            new("add", "relationship", "Tomás -[REPORTS_TO]-> user.", null),
+            new("add", "relationship", "me -[KNOWS]-> Ana", null),
+            new("add", "relationship", "user -[KNOWS]-> me", null),
+            new("add", "relationship", "Owen -[ENGAGED_TO]-> Simone", null),
+        ], [], owner: null);
+
+        result.Facts.Select(f => (f.Subject, f.Predicate, f.Object)).Should().Equal(
+            ("Tom", "pet cat of", "user"), ("Tomás", "reports to", "user"), ("me", "knows", "Ana"));
+        result.Relationships.Select(r => (r.SourceEntity, r.TargetEntity)).Should().Equal(("Owen", "Simone"));
     }
 
     [Fact]

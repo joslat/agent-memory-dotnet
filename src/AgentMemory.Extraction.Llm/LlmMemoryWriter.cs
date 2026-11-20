@@ -745,6 +745,19 @@ internal static class MemoryWriterOps
                 var from = End(link.Groups["s"].Value, known);
                 var to = End(link.Groups["t"].Value, known);
                 if (from.Kind == EndKind.Empty || to.Kind == EndKind.Empty) continue;   // nothing to keep: an end with no words
+                // B21: the user is never an entity of their own; persistence maps a "user" end to the person entity named
+                // after them (I-7). With their name unknown there is none, so such a connection never reached the graph:
+                // "Tom -[PET_CAT_OF]-> user" became the entity Tom and nothing else. Kept instead as what it says, a fact
+                // about the user, which recall finds. With the name known it stays a connection, as before.
+                var fromSelf = MemoryUserNames.IsSelf(from.Said);
+                var toSelf = MemoryUserNames.IsSelf(to.Said);
+                if (owner is null && (fromSelf || toSelf) && from.Kind == EndKind.Name && to.Kind == EndKind.Name)
+                {
+                    if (!(fromSelf && toSelf))
+                        facts.Add(CreateFact(op, null, from.Said,
+                            link.Groups["r"].Value.Trim().ToLowerInvariant().Replace('_', ' '), to.Said));
+                    continue;
+                }
                 if (from.Kind != EndKind.Name || to.Kind != EndKind.Name)
                 {
                     // A statement replacing a stored connection: kept alone, the fact follows the pair rule
