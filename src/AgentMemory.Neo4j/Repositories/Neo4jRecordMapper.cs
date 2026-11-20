@@ -14,8 +14,19 @@ internal static class Neo4jRecordMapper
         => metadata.Count == 0 ? "{}" : JsonSerializer.Serialize(metadata);
 
     /// <summary>Deserializes a persisted JSON string back to a metadata dictionary (null/blank → empty).</summary>
+    /// <remarks>
+    /// A host that switches reflection-based serialization off (the Native AOT speech library) reads through generated
+    /// metadata with the same options and converters; every other host runs the call it always has. The switch is a
+    /// runtime feature flag, so a native build removes the reflection branch altogether.
+    /// </remarks>
     public static IReadOnlyDictionary<string, object> DeserializeMetadata(string? json)
-        => string.IsNullOrWhiteSpace(json)
-            ? new Dictionary<string, object>()
-            : JsonSerializer.Deserialize<Dictionary<string, object>>(json) ?? new Dictionary<string, object>();
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return new Dictionary<string, object>();
+
+        var metadata = JsonSerializer.IsReflectionEnabledByDefault
+            ? JsonSerializer.Deserialize<Dictionary<string, object>>(json)
+            : JsonSerializer.Deserialize(json, Neo4jMetadataJsonContext.Default.DictionaryStringObject);
+        return metadata ?? new Dictionary<string, object>();
+    }
 }
