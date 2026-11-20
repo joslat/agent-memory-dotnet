@@ -56,6 +56,18 @@ native/gate/run-gate.sh artifacts/native/neo4j.env artifacts/native/current/bin 
 distribution's Python and no .NET, and fingerprints the whole graph before and after: a read-only run must leave it
 unchanged.
 
+The write path the next profile will offer is proven on its own, before it is exposed through the ABI:
+
+```bash
+native/gate/run-write-probe.sh artifacts/native/write-probe   # publish, own throw-away Neo4j, run on plain Ubuntu
+```
+
+The probe (`gate/writeprobe`) compiles the library's own explicit-write composition and its OpenAI-compatible chat and
+embedding clients, serves a stub model on 127.0.0.1 inside the process, and remembers two turns: the first adds a dated
+fact and a preference (after the model's first answer, a 503, is retried), the second corrects the fact, which the
+store-aware writer must see and the update judge must confirm. It reads every written property back and prints one
+JSON report; exit code 0 when every check passes.
+
 The wheel carries the library inside the package, so users only run `pip install`:
 
 ```bash

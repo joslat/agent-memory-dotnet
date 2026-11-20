@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# The R1 write path as a Native AOT executable (native/gate/writeprobe) against its own throw-away Neo4j, run on plain
-# Ubuntu 24.04 with no .NET. Usage: native/gate/run-write-probe.sh <report-dir>
+# The R1 write path as a Native AOT executable (native/gate/writeprobe: the native library's own explicit-write
+# composition and HTTP clients, a stub model inside the probe) against its own throw-away Neo4j, run on plain Ubuntu
+# 24.04 with no .NET. Usage: native/gate/run-write-probe.sh <report-dir>
 set -euo pipefail
 REPORT="$(mkdir -p "${1:?report dir}" && cd "$1" && pwd)"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -14,7 +15,7 @@ docker run --rm -v "$(win "$REPO"):/src:ro" -v "$(win "$REPORT"):/out" -v am-spe
     set -eu
     mkdir -p /work && cd /src
     tar --exclude=bin --exclude=obj -cf - global.json Directory.Build.props README.md resources/logoIcon.png shared src \
-      tools/AgentMemory.Native/ILLink.Descriptors.xml tools/AgentMemory.Native/Neo4jDriver.rd.xml native/gate/writeprobe \
+      tools/AgentMemory.Native native/gate/writeprobe \
       | tar -C /work -xf -
     cd /work/native/gate/writeprobe
     if dotnet publish WriteProbe.csproj -c Release -r linux-x64 -o /out/bin > /out/publish.log 2>&1

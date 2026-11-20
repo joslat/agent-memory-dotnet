@@ -31,6 +31,8 @@
     <ProjectReference Include="..\..\src\AgentMemory.Abstractions\AgentMemory.Abstractions.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Core\AgentMemory.Core.csproj" />
     <ProjectReference Include="..\..\src\AgentMemory.Neo4j\AgentMemory.Neo4j.csproj" />
+    <!-- The explicit-write (R1) profile's store-aware writer; asked only by that profile (Composition/WriteComposition). -->
+    <ProjectReference Include="..\..\src\AgentMemory.Extraction.Llm\AgentMemory.Extraction.Llm.csproj" />
   </ItemGroup>
 
   <ItemGroup>
