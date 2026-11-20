@@ -21,3 +21,7 @@ packs/**/*.png binary
 
 # The native library's gate scripts run inside Linux containers.
 native/**/*.sh text eol=lf
+# So do the Dockerfiles and Compose files of the native gate and the speech recipe.
+native/**/Dockerfile* text eol=lf
+native/**/*.yml text eol=lf
+native/**/*.yaml text eol=lf
