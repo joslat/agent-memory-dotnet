@@ -16,6 +16,9 @@ UTTERANCES = {
     "hello": "Hello robot, how are you today?",
     "work": "Where do I work?",
     "style": "How should you answer me?",
+    "dog": "What is my dog called?",
+    "food": "What food do I like?",
+    "instrument": "Which instrument do I play?",
 }
 
 

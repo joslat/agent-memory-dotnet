@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import os
 import sys
 import time
 import wave
@@ -25,6 +26,11 @@ RATE = 16000
 CHUNK_MS = 20
 CHUNK_SAMPLES = RATE * CHUNK_MS // 1000
 INSTRUCTIONS = "You are a friendly robot. Answer in one short sentence."
+# REALTIME_INSTRUCTIONS_FILE replaces them, for example with remembered facts written into the instructions the way
+# the Reachy Mini app's local memory does.
+if os.environ.get("REALTIME_INSTRUCTIONS_FILE"):
+    with open(os.environ["REALTIME_INSTRUCTIONS_FILE"], encoding="utf-8") as _source:
+        INSTRUCTIONS = _source.read().strip()
 TURN_LIMIT_S = 120.0
 
 
@@ -129,10 +135,24 @@ async def run_turn(session: Session, turn: str) -> dict:
 
 async def main(url: str, trace_path: str, summary_path: str, turns: list[str]) -> None:
     with open(trace_path, "w", encoding="utf-8") as trace:
-        async with websockets.connect(url, max_size=None) as socket:
+        # The server releases a closed session's slot asynchronously; a client that connects right after another one
+        # left can be refused with session_limit_reached. Retry that for up to 15 s, as a reconnecting robot would.
+        for attempt in range(30):
+            socket = await websockets.connect(url, max_size=None)
+            first = json.loads(await socket.recv())
+            if first.get("type") == "error" and (first.get("error") or {}).get("type") == "session_limit_reached":
+                await socket.close()
+                await asyncio.sleep(0.5)
+                continue
+            break
+        else:
+            sys.exit("the server kept refusing the session: all session slots in use")
+        async with socket:
+            trace.write(json.dumps({"t": time.monotonic(), "event": first, "attempts": attempt + 1}) + "\n")
             session = Session(socket, trace)
             reader = asyncio.create_task(session.reader())
-            await session.expect("session.created")
+            if first.get("type") != "session.created":
+                await session.expect("session.created")
             await session.send({"type": "session.update", "session": {
                 "type": "realtime", "instructions": INSTRUCTIONS,
                 "extensions": ["speech_to_speech.input_audio_transcription.snapshot"],
