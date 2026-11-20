@@ -59,7 +59,8 @@ unchanged.
 The wheel carries the library inside the package, so users only run `pip install`:
 
 ```bash
-python native/python/build_wheel.py artifacts/native/current/bin/agentmemory_native.so artifacts/native/wheel
+python native/python/build_wheel.py artifacts/native/current/bin/agentmemory_native.so artifacts/native/wheel \
+  --provenance artifacts/native/current/provenance --commit "$(git rev-parse HEAD)"
 GATE_MODE=wheel native/gate/run-gate.sh artifacts/native/neo4j.env artifacts/native/wheel artifacts/native/gate-wheel
 ```
 
@@ -67,6 +68,17 @@ The builder uses the standard library only and is reproducible: the same library
 is `manylinux_2_34_x86_64` because the library's newest glibc symbol is `GLIBC_2.34` and it links only `libc` and
 `libm`. Wheel mode installs it with `pip` into a fresh virtual environment on the target image and runs the same tests
 against the installed package.
+
+With `--provenance` (written by `publish-linux.sh`), the wheel carries `agentmemory_native/_native/MANIFEST.json`
+(package and ABI versions, platform tag, the library's size and SHA-256, commit, SDK and native runtime versions, every
+compiled-in package with its licence; `agentmemory_native.manifest()` returns it) and, in its `dist-info/licenses`, the
+AgentMemory licence and the third-party notices: each package's own licence and notice files, or the standard text of
+the licence it declares where it ships none, and the .NET runtime's licence and notices. The builder stops on a licence
+it has no text for.
+
+Loading refuses, with `NativeLibraryError` naming the file, the platform and what to install instead: a file that
+cannot be loaded here (another architecture or platform, damaged), a library without the AgentMemory exports, and a
+packaged library whose bytes differ from the manifest. Nothing else is tried in its place.
 
 ## Platform
 

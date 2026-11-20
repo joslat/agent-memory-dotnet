@@ -3,7 +3,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from ._library import STATUS_NAMES
+from ._library import STATUS_NAMES, NativeLibraryError
+
+__all__ = ["NativeCallError", "NativeLibraryError", "OpenError"]
 
 
 class NativeCallError(RuntimeError):

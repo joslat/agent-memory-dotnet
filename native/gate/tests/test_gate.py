@@ -17,7 +17,14 @@ import threading
 import time
 import unittest
 
-from agentmemory_native import AsyncMemoryClient, MemoryClient, NativeCallError, OpenError
+import glob
+import hashlib
+import importlib.metadata
+import platform
+import tempfile
+from pathlib import Path
+
+from agentmemory_native import AsyncMemoryClient, MemoryClient, NativeCallError, NativeLibraryError, OpenError, manifest
 from agentmemory_native import _library as abi
 
 DIMENSIONS = 8
@@ -92,6 +99,50 @@ class Test1Library(unittest.TestCase):
         else:
             self.assertEqual(path.parent.name, "_native", "an installed wheel loads the library it carries")
             self.assertEqual(path.parent.parent.name, "agentmemory_native")
+
+    def test_an_unloadable_file_is_refused_with_an_actionable_error(self):
+        with tempfile.TemporaryDirectory() as folder:
+            fake = Path(folder, "agentmemory_native.so")
+            fake.write_bytes(b"\x7fELF but not really a library")
+            with self.assertRaises(NativeLibraryError) as refused:
+                abi.load(fake)
+        message = str(refused.exception)
+        self.assertIn(str(fake), message)
+        self.assertIn(platform.machine(), message)
+        self.assertIn("built for this platform", message)
+
+    def test_a_library_without_the_exports_is_refused(self):
+        libm = next(iter(sorted(glob.glob("/lib/*/libm.so.6") + glob.glob("/usr/lib/*/libm.so.6"))), None)
+        if libm is None:
+            self.skipTest("no libm.so.6 on this image")
+        with self.assertRaises(NativeLibraryError) as refused:
+            abi.load(libm)
+        self.assertIn("not an AgentMemory native library", str(refused.exception))
+
+    def test_an_installed_wheel_carries_a_manifest_that_matches_its_library(self):
+        info = manifest()
+        if info is None:
+            self.skipTest("library mode: no wheel installed")
+        packaged = abi.resolve_library_path(None) if not os.environ.get("AGENTMEMORY_NATIVE_LIBRARY") else None
+        if packaged is None:
+            self.skipTest("an explicit library path is set")
+        self.assertEqual(info["abi"], {"major": abi.ABI_MAJOR, "minor": abi.ABI_MINOR})
+        self.assertTrue(info["platformTag"].startswith("manylinux_"))
+        self.assertEqual(info["library"]["sha256"], hashlib.sha256(packaged.read_bytes()).hexdigest())
+        licences = {d["id"]: d["license"] for d in info["dependencies"]}
+        self.assertEqual(licences.get("Neo4j.Driver"), "Apache-2.0")
+        self.assertRegex(info["build"]["commit"], r"^[0-9a-f]{40}$")
+        files = {str(f) for f in importlib.metadata.files("agentmemory-native") or []}
+        self.assertTrue(any(f.endswith("licenses/LICENSE") for f in files), files)
+        self.assertTrue(any(f.endswith("licenses/THIRD-PARTY-NOTICES.txt") for f in files), files)
+        with tempfile.TemporaryDirectory() as folder:
+            damaged = Path(folder, packaged.name)
+            data = bytearray(packaged.read_bytes())
+            data[len(data) // 2] ^= 0xFF
+            damaged.write_bytes(bytes(data))
+            with self.assertRaises(NativeLibraryError) as refused:
+                abi.verify_against_manifest(damaged, info)
+            self.assertIn("reinstall agentmemory-native", str(refused.exception))
 
     def test_freeing_null_is_a_no_op(self):
         abi.load().am_v1_buffer_free(None)

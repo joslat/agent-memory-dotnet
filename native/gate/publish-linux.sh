@@ -21,4 +21,21 @@ MSYS_NO_PATHCONV=1 docker run --rm \
     if dotnet publish tools/AgentMemory.Native/AgentMemory.Native.csproj -c Release -r linux-x64 -o /out/bin "$@" > /out/publish.log 2>&1
     then echo "publish ok, $(grep -c "warning IL" /out/publish.log || true) IL warning lines"; ls -l /out/bin/*.so
     else echo "publish FAILED"; tail -30 /out/publish.log; exit 1
-    fi' sh "$@"
+    fi
+    # Provenance for the wheel manifest and licence notices (native/python/build_wheel.py --provenance): the restore
+    # graph, every restored package description, the SDK version and the .NET runtime licence and notices.
+    rm -rf /out/provenance && mkdir -p /out/provenance/nuspecs /out/provenance/dotnet
+    cp tools/AgentMemory.Native/obj/project.assets.json /out/provenance/
+    cp /usr/share/dotnet/LICENSE.txt /usr/share/dotnet/ThirdPartyNotices.txt /out/provenance/dotnet/
+    dotnet --version > /out/provenance/sdk-version.txt
+    for spec in /root/.nuget/packages/*/*/*.nuspec; do
+      version_dir=$(dirname "$spec"); id_dir=$(dirname "$version_dir")
+      key="$(basename "$id_dir").$(basename "$version_dir")"
+      cp "$spec" "/out/provenance/nuspecs/$key.nuspec"
+      for notice in "$version_dir"/*; do
+        case "$(basename "$notice" | tr "[:upper:]" "[:lower:]")" in
+          license*|licence*|notice*|third-party-notices*|thirdpartynotices*)
+            mkdir -p "/out/provenance/packages/$key"; cp "$notice" "/out/provenance/packages/$key/" ;;
+        esac
+      done
+    done' sh "$@"

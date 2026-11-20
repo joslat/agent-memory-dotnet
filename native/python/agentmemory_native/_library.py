@@ -2,10 +2,14 @@
 from __future__ import annotations
 
 import ctypes
+import hashlib
+import json
 import os
+import platform
 import sys
 import threading
 from pathlib import Path
+from typing import Any
 
 ABI_MAJOR = 1
 ABI_MINOR = 0
@@ -34,6 +38,14 @@ WRITE_QUIESCENT = 4
 CLOSING_FLAG = 8
 ERASE_PENDING = 16
 
+MANIFEST_NAME = "MANIFEST.json"
+
+
+class NativeLibraryError(OSError):
+    """The native library cannot be used here: built for another platform or architecture, damaged, not an AgentMemory
+    library, or not the copy this package was built with. The message says which, and what to install instead."""
+
+
 _FILE_NAMES = {"win32": "agentmemory_native.dll", "darwin": "agentmemory_native.dylib"}
 
 _loaded: dict[str, ctypes.CDLL] = {}
@@ -56,13 +68,56 @@ def resolve_library_path(explicit: str | os.PathLike[str] | None = None) -> Path
     return path.resolve()
 
 
+def _packaged_dir() -> Path:
+    return Path(__file__).resolve().parent / "_native"
+
+
+def manifest() -> dict[str, Any] | None:
+    """The build manifest of the library this package carries (an installed wheel): versions, ABI, platform, the
+    library's size and SHA-256, the build's commit and dependencies. None in a source checkout."""
+    path = _packaged_dir() / MANIFEST_NAME
+    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
+
+
+def verify_against_manifest(path: Path, info: dict[str, Any]) -> None:
+    """Refuses a packaged library whose bytes are not the ones the manifest records."""
+    expected = info["library"]
+    data = path.read_bytes()
+    digest = hashlib.sha256(data).hexdigest()
+    if len(data) != expected["size"] or digest != expected["sha256"]:
+        raise NativeLibraryError(
+            f"the native library at {path} is not the one this package was built with (sha256 {digest}, "
+            f"expected {expected['sha256']}); reinstall agentmemory-native")
+
+
+def _describe_platform() -> str:
+    return f"{platform.system()} {platform.machine()}, Python {sys.version_info.major}.{sys.version_info.minor}"
+
+
 def load(explicit: str | os.PathLike[str] | None = None) -> ctypes.CDLL:
-    """Loads the library once per path and declares its signatures. A loaded library is never unloaded."""
-    path = str(resolve_library_path(explicit))
+    """Loads the library once per path and declares its signatures. A loaded library is never unloaded.
+
+    The copy inside an installed wheel is checked against the wheel's manifest first. A file that cannot be loaded
+    here, or that is not an AgentMemory native library, raises NativeLibraryError; nothing else is tried.
+    """
+    resolved = resolve_library_path(explicit)
+    path = str(resolved)
     with _load_lock:
         library = _loaded.get(path)
         if library is None:
-            library = ctypes.CDLL(path)
+            info = manifest() if resolved.parent == _packaged_dir() else None
+            if info is not None:
+                verify_against_manifest(resolved, info)
+            try:
+                library = ctypes.CDLL(path)
+            except OSError as error:
+                built_for = f" This package was built for {info['platformTag']}." if info else ""
+                raise NativeLibraryError(
+                    f"cannot load the AgentMemory native library {path} on {_describe_platform()}: {error}.{built_for} "
+                    "Install the agentmemory-native wheel built for this platform, or set AGENTMEMORY_NATIVE_LIBRARY "
+                    "to a library built for it.") from error
+            if not hasattr(library, "am_v1_abi_version"):
+                raise NativeLibraryError(f"{path} is not an AgentMemory native library (no am_v1_abi_version export)")
             _declare(library)
             _loaded[path] = library
     return library

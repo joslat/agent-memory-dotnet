@@ -21,6 +21,10 @@
     <InvariantGlobalization>true</InvariantGlobalization>
     <!-- Every trimming and AOT warning is listed on its own line, including those inside dependencies. -->
     <TrimmerSingleWarn>false</TrimmerSingleWarn>
+    <!-- Directory.Build.props makes every warning an error. The AOT compiler's trim and AOT analysis warnings are the
+         measurement here (each one classified in the design's assessment), so they stay warnings; compiler warnings in
+         this project's own C# remain errors. Without this, the documented publish command fails. -->
+    <IlcTreatWarningsAsErrors>false</IlcTreatWarningsAsErrors>
   </PropertyGroup>
 
   <ItemGroup>
