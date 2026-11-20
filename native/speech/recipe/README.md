@@ -97,6 +97,9 @@ audio in the test, the database stopped). The server keeps running. After a fail
 again in the background every 2 s, and logs `store answers again` when it does. A freshly restarted Neo4j answers its
 first query cold (2.6 s measured here), and that cost is paid by the re-warm, not by the user's next turn.
 
+For what to do when something goes wrong (a server that does not start, a database outage, a write that needs
+attention, erasing, upgrades and backups), see [RUNBOOK.md](RUNBOOK.md).
+
 ## Upgrade
 
 Build new images, change the tags in the settings file, `down`, `up`. The Neo4j volume is kept and the schema step
