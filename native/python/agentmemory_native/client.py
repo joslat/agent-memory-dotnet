@@ -180,7 +180,7 @@ class MemoryClient:
 
     def remember(self, *, source_id: str, session_id: str, text: str, occurred_at: str, origin: str | None = None,
                  request_id: str | None = None, timeout_ms: int = 0) -> WriteResult:
-        """Remembers the owner's own words (profile ``explicit_write``), through the library's durable journal.
+        """Remembers the owner's own words (``explicit_write`` or ``learning``), through the durable journal.
 
         ``source_id`` is the host's stable id for this spoken item and revision: sending it again returns the same
         receipt and runs nothing. ``occurred_at`` is when the words were said, ISO 8601 with an offset. The call waits

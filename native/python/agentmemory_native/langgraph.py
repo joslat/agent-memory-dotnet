@@ -3,7 +3,7 @@
     from agentmemory_native import MemoryClient
     from agentmemory_native.langgraph import AgentMemoryStore
 
-    memory = MemoryClient(config)          # profile "explicit_write" for puts and deletes; "read_only" for search only
+    memory = MemoryClient(config)          # "explicit_write" or "learning" for puts and deletes; "read_only" for search
     store = AgentMemoryStore(memory)
     store.put(("user", "prefs"), "drink", {"text": "I prefer tea to coffee."})
     hits = store.search(("user",), query="what do I like to drink?")

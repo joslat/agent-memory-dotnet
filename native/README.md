@@ -21,8 +21,22 @@ recall without an owner is refused either way.
 
 The `explicit_write` profile adds remembering the owner's own words (`memory_remember`) through a durable journal in a
 state directory, with receipts that say truthfully whether a write was applied and verified, rejected, or is uncertain;
-recall pauses while a write is pending or uncertain. See [CONTRACT.md](CONTRACT.md). Forgetting, correction by id and
-owner erase come next, under the same ABI.
+recall pauses while a write is pending or uncertain. It also forgets (`memory_forget`: what one remember produced, or
+memories by id, closed and kept as history) and erases everything of the owner (`memory_erase_owner`: verified against
+the store, and the remembered words purged from the journal); an uncertain write is kept or forgotten by the operator
+(`memory_operation_resolve`).
+
+The `learning` profile is `explicit_write` with every remember applied once by its operation id: the memories and a
+receipt are written in one store transaction, so a write interrupted by a crash or a store failure is simply retried
+and the receipt decides whether anything is left to do. Recall is not paused by pending remembers, and a remember may be
+marked `"origin": "observed"` for words a host learns without being asked. See [CONTRACT.md](CONTRACT.md) for every
+operation and state.
+
+| Profile | Recall | Remember | Forget, erase | A write interrupted by a crash |
+|---|---|---|---|---|
+| `read_only` | yes | no | no | (none) |
+| `explicit_write` | yes, paused while a write is pending or uncertain | asked for only | yes | ends `unknown`; the operator decides |
+| `learning` | yes, paused only by an uncertain write | asked for, or observed | yes | retried; applied once by its receipt |
 
 ```python
 from agentmemory_native import MemoryClient
@@ -114,7 +128,7 @@ The binding stays framework-neutral; two thin adapters sit beside it, each impor
   writer turns them into facts and preferences of the context's one owner), `get` returns that remember's receipt,
   `search` returns the facts and preferences recall finds for the query, and a delete forgets (closes, not deletes)
   what the key produced. Other words under the same key forget the earlier ones and remember the new. Puts and deletes
-  need the `explicit_write` profile.
+  need a writing profile (`explicit_write` or `learning`).
 
 ## Platform
 
