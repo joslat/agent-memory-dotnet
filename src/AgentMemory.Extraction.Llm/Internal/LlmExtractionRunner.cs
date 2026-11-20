@@ -1,5 +1,7 @@
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using AgentMemory.Abstractions.Diagnostics;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
@@ -16,6 +18,21 @@ internal sealed class LlmExtractionRunner
 {
     private static readonly JsonSerializerOptions JsonOptions =
         new() { PropertyNameCaseInsensitive = true };
+
+    // Managed hosts read through reflection exactly as before; with reflection-based JSON off (the native library) the
+    // same shapes read through generated metadata (LlmExtractionJsonContext). The switch is a constant in a native
+    // build, so the compiler removes the branch it rules out.
+    private static T? Read<T>(string json) => JsonSerializer.IsReflectionEnabledByDefault
+        ? JsonSerializer.Deserialize<T>(json, JsonOptions)
+        : JsonSerializer.Deserialize(json, Generated<T>());
+
+    private static T? Read<T>(JsonElement element) => JsonSerializer.IsReflectionEnabledByDefault
+        ? element.Deserialize<T>(JsonOptions)
+        : element.Deserialize(Generated<T>());
+
+    private static JsonTypeInfo<T> Generated<T>() =>
+        (JsonTypeInfo<T>)(LlmExtractionJsonContext.Default.GetTypeInfo(typeof(T))
+            ?? throw new InvalidOperationException($"no generated metadata for {typeof(T).Name}"));
 
     private readonly IChatClient _chatClient;
     private readonly LlmExtractionOptions _options;
@@ -231,6 +248,10 @@ internal sealed class LlmExtractionRunner
     /// <c>HttpRequestException.StatusCode</c> for raw HTTP, and this library should not take a
     /// package dependency to classify an error.
     /// </remarks>
+    [UnconditionalSuppressMessage("Trimming", "IL2075", Justification =
+        "Best effort for SDK exception types in managed hosts. A trimmed build may lose an unknown type's Status "
+        + "property and then reads no status from it; the native profile's own chat client throws "
+        + "HttpRequestException, whose StatusCode is read above without reflection.")]
     internal static int? TryGetStatus(Exception exception)
     {
         if (exception is HttpRequestException { StatusCode: { } code })
@@ -382,7 +403,7 @@ internal sealed class LlmExtractionRunner
             // reads every item again and records each drop once.
             using (var held = PeriodDateConverter.HoldDrops())
             {
-                dto = JsonSerializer.Deserialize<LlmExtractionResponse>(json, JsonOptions);
+                dto = Read<LlmExtractionResponse>(json);
                 held.Commit();
             }
             return dto is null
@@ -428,7 +449,7 @@ internal sealed class LlmExtractionRunner
                     // against it, so an unreadable one is a reply to repair, not one to half-accept.
                     try
                     {
-                        response.ProcessedSourceSessions = property.Value.Deserialize<List<string>>(JsonOptions);
+                        response.ProcessedSourceSessions = Read<List<string>>(property.Value);
                     }
                     catch (Exception ex) when (IsReadFailure(ex))
                     {
@@ -462,7 +483,7 @@ internal sealed class LlmExtractionRunner
                 // A dropped date is recorded only for an item that is kept: an item that fails to read is
                 // dropped whole, and its own entry in `dropped` already says why.
                 using var held = PeriodDateConverter.HoldDrops();
-                if (element.Deserialize<T>(JsonOptions) is { } item)
+                if (Read<T>(element) is { } item)
                 {
                     into.Add(item);
                     held.Commit();

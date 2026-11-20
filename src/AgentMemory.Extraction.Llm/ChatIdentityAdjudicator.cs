@@ -14,7 +14,7 @@ internal sealed class ChatIdentityAdjudicator : IIdentityAdjudicator, IAsyncDisp
 {
     // A structured protocol, not identity authority: Core still validates IDs, quotes and policy.
     private static readonly ChatResponseFormat DecisionResponseFormat=ChatResponseFormat.ForJsonSchema(
-        JsonSerializer.Deserialize<JsonElement>("""
+        Internal.SchemaText.Parse("""
         {
           "type":"object","additionalProperties":false,
           "required":["decision","candidateId","evidence"],

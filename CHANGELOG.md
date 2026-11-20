@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A live recall without a latency budget waits for every section search before it reports a failure. Before, when one
   section failed or was cancelled first, the others went on running after the recall had thrown: database work nobody
   waited for, and failures nobody saw. The result, and the first failure reported, are the same as before.
+- LLM extraction (`AgentMemory.Extraction.Llm`) works in a host with reflection-based JSON off: the extraction reply
+  and its salvage pass read through generated metadata there, and the writer's and identity adjudicator's reply
+  schemas parse without the serializer. Managed hosts read exactly as before; parity tests read the same replies,
+  readable and unreadable, both ways.
 
 ### Added
 

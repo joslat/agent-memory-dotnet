@@ -36,7 +36,7 @@ internal static class MemoryWriterContract
 
     /// <summary>The reply schema: the measured operation shape, every field present, "ref" null when unused.</summary>
     internal static ChatResponseFormat Format(int maxOperations) => ChatResponseFormat.ForJsonSchema(
-        JsonSerializer.Deserialize<JsonElement>("""
+        Internal.SchemaText.Parse("""
         {
           "type":"object","additionalProperties":false,"required":["ops"],
           "properties":{"ops":{"type":"array","maxItems":MAX,"items":{
