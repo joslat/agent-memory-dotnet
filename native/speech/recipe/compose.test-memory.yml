@@ -1,0 +1,5 @@
+# Tests only: Neo4j's bolt port on the loopback address, so the test can seed the gate's facts from the host.
+services:
+  neo4j:
+    ports:
+      - 127.0.0.1:${TEST_BOLT_PORT:-17687}:7687

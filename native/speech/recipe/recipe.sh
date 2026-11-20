@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# The one supported way to run the speech server with or without AgentMemory memory. See README.md.
+# Usage: recipe.sh <settings-file> up|down|status|logs [service]
+#   up      writes the secret files (memory on), starts Neo4j, runs the schema step, starts the speech server and
+#           waits until it listens
+#   down    stops and removes the containers; the Neo4j volume (the memory) and the model cache stay
+#   status  the containers and their state
+#   logs    the logs of one service (default speech)
+#   compose any docker compose command with this recipe's project and files, e.g. "compose stop neo4j"
+# Extra Compose files (tests): COMPOSE_EXTRA="file1.yml file2.yml".
+set -euo pipefail
+SETTINGS="${1:?settings file}"; ACTION="${2:?up|down|status|logs}"
+HERE="$(cd "$(dirname "$0")" && pwd)"
+win() { cygpath -m "$1" 2>/dev/null || echo "$1"; }
+export MSYS_NO_PATHCONV=1
+
+set -a
+# shellcheck disable=SC1090
+. "$SETTINGS"
+set +a
+: "${SERVER_IMAGE:?}" "${S2S_LLM_MODEL:?}" "${S2S_LLM_BASE_URL:?}"
+MEMORY="${MEMORY:-off}"
+STATE_DIR="${STATE_DIR:-$(dirname "$SETTINGS")/state}"
+mkdir -p "$STATE_DIR"
+export SECRETS_DIR; SECRETS_DIR="$(win "$(cd "$STATE_DIR" && pwd)/secrets")"
+export COMPOSE_PROJECT="${COMPOSE_PROJECT:-agentmemory-speech}"
+
+FILES=(-f "$(win "$HERE")/compose.yml")
+case "$MEMORY" in
+  on)  FILES+=(-f "$(win "$HERE")/compose.memory.yml") ;;
+  off) ;;
+  *)   echo "MEMORY must be on or off, not '$MEMORY'" >&2; exit 2 ;;
+esac
+for extra in ${COMPOSE_EXTRA:-}; do FILES+=(-f "$extra"); done
+compose() { docker compose -p "$COMPOSE_PROJECT" "${FILES[@]}" "$@"; }
+
+write_secrets() {
+  : "${NEO4J_PASSWORD:?}" "${MEMORY_OWNER:?}" "${EMBEDDING_URL:?}" "${EMBEDDING_MODEL:?}" "${EMBEDDING_DIMENSIONS:?}"
+  # Values go into JSON and the Neo4j auth file as they are, so only characters that need no escaping are accepted.
+  [[ "$NEO4J_PASSWORD" =~ ^[A-Za-z0-9._~+-]{12,}$ ]] \
+    || { echo "NEO4J_PASSWORD: use 12 or more of A-Z a-z 0-9 . _ ~ + -" >&2; exit 2; }
+  [[ "$MEMORY_OWNER" =~ ^[A-Za-z0-9._:@-]{1,128}$ ]] \
+    || { echo "MEMORY_OWNER: use 1-128 of A-Z a-z 0-9 . _ : @ -" >&2; exit 2; }
+  [[ "$EMBEDDING_URL" =~ ^https?://[A-Za-z0-9._:/@%-]+$ ]] || { echo "EMBEDDING_URL is not a plain http(s) URL" >&2; exit 2; }
+  [[ "$EMBEDDING_MODEL" =~ ^[A-Za-z0-9._:/@-]{1,200}$ ]] || { echo "EMBEDDING_MODEL has unexpected characters" >&2; exit 2; }
+  [[ "$EMBEDDING_DIMENSIONS" =~ ^[1-9][0-9]{0,4}$ ]] || { echo "EMBEDDING_DIMENSIONS must be a number" >&2; exit 2; }
+  local dir; dir="$(cd "$STATE_DIR" && pwd)/secrets"
+  ( umask 077
+    mkdir -p "$dir"
+    printf 'neo4j/%s' "$NEO4J_PASSWORD" > "$dir/neo4j_auth"
+    printf '%s' "$NEO4J_PASSWORD" > "$dir/neo4j_password"
+    printf '{"schemaVersion":1,"profile":"read_only","owner":{"mode":"fixed","id":"%s"},"store":{"uri":"bolt://neo4j:7687","username":"neo4j","password":"%s"},"embedding":{"dimensions":%s,"model":"%s","endpoint":{"url":"%s","timeoutMs":%s}}}\n' \
+      "$MEMORY_OWNER" "$NEO4J_PASSWORD" "$EMBEDDING_DIMENSIONS" "$EMBEDDING_MODEL" "$EMBEDDING_URL" "${EMBEDDING_TIMEOUT_MS:-1000}" \
+      > "$dir/agentmemory.json" )
+}
+
+case "$ACTION" in
+  up)
+    if [ "$MEMORY" = on ]; then : "${SCHEMA_IMAGE:?}"; write_secrets; fi
+    compose up -d
+    start=$(date +%s)
+    until compose logs speech 2>&1 | grep -q -E "Uvicorn running|Application startup complete"; do
+      if [ -z "$(compose ps -q speech --status running 2>/dev/null)" ] && [ $(( $(date +%s) - start )) -gt 20 ]; then
+        echo "the speech server is not running:" >&2; compose logs --tail 30 speech >&2; exit 1
+      fi
+      if [ $(( $(date +%s) - start )) -gt "${READY_TIMEOUT_S:-900}" ]; then
+        echo "the speech server did not start listening" >&2; compose logs --tail 30 speech >&2; exit 1
+      fi
+      sleep 3
+    done
+    echo "speech server listening after $(( $(date +%s) - start )) s (memory $MEMORY)"
+    ;;
+  down)   compose down ;;
+  status) compose ps -a ;;
+  logs)   compose logs --no-color "${3:-speech}" ;;
+  compose) shift 2; compose "$@" ;;
+  *)      echo "unknown action $ACTION" >&2; exit 2 ;;
+esac

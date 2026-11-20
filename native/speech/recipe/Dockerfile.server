@@ -1,0 +1,23 @@
+# The speech server image with optional AgentMemory memory: the CPU speech server (Dockerfile.s2s-cpu), the server
+# code from a checkout that has the memory hooks, and the agentmemory-native wheel. No .NET and no compiler.
+#   docker build -t <tag> -f native/speech/recipe/Dockerfile.server \
+#     --build-context server=<exported server tree> --build-context wheel=<folder with one wheel> \
+#     --build-arg SERVER_COMMIT=<sha> native/speech/recipe
+ARG BASE=am-s2s-cpu:7dbbdaf
+FROM ${BASE}
+ARG SERVER_COMMIT=unknown
+LABEL org.opencontainers.image.title="speech-to-speech with AgentMemory memory" \
+      org.opencontainers.image.revision="${SERVER_COMMIT}"
+
+# The base has every dependency of the server at the same upstream pin; only the server package itself is replaced.
+COPY --from=server . /tmp/server
+RUN pip install --no-cache-dir --no-deps --force-reinstall /tmp/server && rm -rf /tmp/server
+
+# The wheel brings the native library; the build fails here if it does not load on this image or its ABI differs.
+COPY --from=wheel *.whl /tmp/wheel/
+RUN pip install --no-cache-dir --no-deps /tmp/wheel/*.whl && rm -rf /tmp/wheel \
+    && python -c "import json, agentmemory_native as a; m = a.manifest(); assert m, 'the wheel has no manifest'; \
+assert a._library.load().am_v1_abi_version() >> 16 == a.ABI_MAJOR; \
+print(json.dumps({k: m[k] for k in ('version', 'abi', 'platformTag', 'build')}))" \
+    && python -c "import speech_to_speech.memory" \
+    && ! command -v dotnet

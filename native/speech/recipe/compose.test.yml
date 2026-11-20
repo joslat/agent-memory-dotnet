@@ -1,0 +1,10 @@
+# Tests only: the deterministic model stand-in (native/speech/llm_stub.py) serves chat completions and embeddings.
+services:
+  model:
+    image: ${SERVER_IMAGE}
+    command: ["python3", "/speech/llm_stub.py", "8000"]
+    volumes:
+      - ../:/speech:ro
+  speech:
+    depends_on:
+      model: {condition: service_started}
