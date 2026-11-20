@@ -31,7 +31,9 @@ INSTRUCTIONS = "You are a friendly robot. Answer in one short sentence."
 if os.environ.get("REALTIME_INSTRUCTIONS_FILE"):
     with open(os.environ["REALTIME_INSTRUCTIONS_FILE"], encoding="utf-8") as _source:
         INSTRUCTIONS = _source.read().strip()
-TURN_LIMIT_S = 120.0
+# How long a turn may wait for the server's response; a turn the server never answers (it can drop an utterance with
+# too little speech) ends there as "no_response". REALTIME_TURN_LIMIT_S changes it (tests).
+TURN_LIMIT_S = float(os.environ.get("REALTIME_TURN_LIMIT_S", "120"))
 
 
 def read_wav(path: str) -> np.ndarray:
@@ -86,6 +88,16 @@ async def run_turn(session: Session, turn: str) -> dict:
     collected: dict = {}
 
     async def watch() -> None:
+        # The turn always ends here: answered, refused, or out of time. Before, running out of time raised inside this
+        # task, nothing set `done`, and the silence stream below went on forever.
+        try:
+            await watch_events()
+        except asyncio.TimeoutError:
+            collected["status"] = "no_response"
+        finally:
+            done.set()
+
+    async def watch_events() -> None:
         deadline = time.monotonic() + TURN_LIMIT_S
         while not done.is_set():
             now, event = await asyncio.wait_for(session.events.get(), max(0.01, deadline - time.monotonic()))
@@ -134,7 +146,8 @@ async def run_turn(session: Session, turn: str) -> dict:
 
 
 async def main(url: str, trace_path: str, summary_path: str, turns: list[str]) -> None:
-    with open(trace_path, "w", encoding="utf-8") as trace:
+    # Line-buffered, so a trace read while the client runs (or after it is killed) shows every event received so far.
+    with open(trace_path, "w", encoding="utf-8", buffering=1) as trace:
         # The server releases a closed session's slot asynchronously; a client that connects right after another one
         # left can be refused with session_limit_reached. Retry that for up to 15 s, as a reconnecting robot would.
         for attempt in range(30):
