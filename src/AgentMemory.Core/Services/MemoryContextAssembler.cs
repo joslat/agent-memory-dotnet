@@ -816,6 +816,13 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
             // measured here and the hop gets only what is left.
             budgetClock = recallOpts.LatencyBudget is null ? null : Stopwatch.StartNew();
 
+            // Without a budget every section is read below, one after another. If an early one failed, the later ones
+            // went on running after the recall had already thrown: unobserved database work, and failures nobody saw.
+            // Let them all finish first, as the as-of path does; reading them in order reports the same result or the
+            // same first failure as before. With a budget, WaitWithinBudgetAsync decides what is abandoned, as designed.
+            if (recallOpts.LatencyBudget is null)
+                await SettleAllAsync(sections).ConfigureAwait(false);
+
             // Rank 13. With no budget this is the original unconditional wait, byte for byte.
             if (recallOpts.LatencyBudget is { } latencyBudget
                 && await WaitWithinBudgetAsync(sections, latencyBudget, cancellationToken).ConfigureAwait(false))
@@ -2189,6 +2196,22 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         _truncationStrategies.TryGetValue(strategy, out var resolved)
             ? resolved
             : _truncationStrategies[TruncationStrategy.OldestFirst];
+
+    /// <summary>
+    /// Waits until every section has finished, successfully or not. It never throws: each section's own await
+    /// afterwards reports its result or its failure, in the established order.
+    /// </summary>
+    private static async Task SettleAllAsync(Task[] sections)
+    {
+        try
+        {
+            await Task.WhenAll(sections).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // The caller reads each section afterwards and reports its failure there, exactly as before.
+        }
+    }
 
     /// <summary>
     /// Waits for the section tasks, giving up after <paramref name="budget"/> (rank 13).

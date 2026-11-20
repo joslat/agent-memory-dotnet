@@ -12,6 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Preserve newly carried signed attestations when refreshing identical pack content through the explicit
   `PackArchiveUpdates.MergeAttestations` helper; existing notices remain present and content changes are refused.
 
+### Fixed
+
+- A live recall without a latency budget waits for every section search before it reports a failure. Before, when one
+  section failed or was cancelled first, the others went on running after the recall had thrown: database work nobody
+  waited for, and failures nobody saw. The result, and the first failure reported, are the same as before.
+
 ### Added
 
 - `MemoryContext.QueryEmbeddingUnavailable`: true when a recall needed a query embedding, the query was not blank, and
