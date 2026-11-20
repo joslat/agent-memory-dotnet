@@ -1,0 +1,22 @@
+# speech-to-speech pipeline for tests on a CPU: Silero VAD, Parakeet TDT speech recognition, an OpenAI-compatible
+# language model (the stand-in in llm_stub.py, or Ollama), Kokoro speech synthesis. Fields per the server's
+# docs/configuration.md at 7dbbdaf.
+schema_version: 1
+blocks:
+  vad: {kind: vad, backend: silero}
+  stt: {kind: stt, backend: parakeet-tdt, settings: {parakeet_tdt_device: cpu}}
+  llm:
+    kind: llm
+    backend: chat-completions
+    settings:
+      model_name: {env: S2S_LLM_MODEL}
+      responses_api_base_url: {env: S2S_LLM_BASE_URL}
+      responses_api_api_key: local
+  tts: {kind: tts, backend: kokoro, settings: {kokoro_device: cpu}}
+pipelines:
+  cpu_speech:
+    stages: {vad: vad, stt: stt, llm: llm, tts: tts}
+runtime:
+  log_level: info
+  torch_num_threads: 8
+  server: {host: 0.0.0.0, port: 8765}

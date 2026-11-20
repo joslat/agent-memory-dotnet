@@ -92,6 +92,53 @@ public sealed class OptionsValidationTests
     }
 
     [Fact]
+    public void Neo4jOptions_DriverTimeouts_AreUnsetByDefault_SoTheDriverKeepsItsOwnDefaults()
+    {
+        var options = new Neo4jOptions();
+        options.ConnectionTimeout.Should().BeNull();
+        options.MaxTransactionRetryTime.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData(0, null)]
+    [InlineData(-1, null)]
+    [InlineData(null, -1)]
+    public void Neo4jOptions_InvalidDriverTimeouts_FailValidation(int? connectionMs, int? retryMs)
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddNeo4jAgentMemory(o =>
+        {
+            o.ConnectionTimeout = connectionMs is { } c ? TimeSpan.FromMilliseconds(c) : null;
+            o.MaxTransactionRetryTime = retryMs is { } r ? TimeSpan.FromMilliseconds(r) : null;
+        });
+
+        using var provider = services.BuildServiceProvider();
+
+        var act = () => _ = provider.GetRequiredService<IOptions<Neo4jOptions>>().Value;
+
+        act.Should().Throw<OptionsValidationException>();
+    }
+
+    [Fact]
+    public void Neo4jOptions_ZeroRetryTime_MeansOneAttempt_AndIsValid()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddNeo4jAgentMemory(o =>
+        {
+            o.ConnectionTimeout = TimeSpan.FromSeconds(2);
+            o.MaxTransactionRetryTime = TimeSpan.Zero;
+        });
+
+        using var provider = services.BuildServiceProvider();
+
+        var act = () => _ = provider.GetRequiredService<IOptions<Neo4jOptions>>().Value;
+
+        act.Should().NotThrow();
+    }
+
+    [Fact]
     public void MemoryStoreOptions_BlankDatabasePrefix_DatabasePerApplication_FailsValidation()
     {
         var services = new ServiceCollection();

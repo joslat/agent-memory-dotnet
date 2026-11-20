@@ -12,7 +12,77 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Preserve newly carried signed attestations when refreshing identical pack content through the explicit
   `PackArchiveUpdates.MergeAttestations` helper; existing notices remain present and content changes are refused.
 
+### Fixed
+
+- A live recall without a latency budget waits for every section search before it reports a failure. Before, when one
+  section failed or was cancelled first, the others went on running after the recall had thrown: database work nobody
+  waited for, and failures nobody saw. The result, and the first failure reported, are the same as before.
+- LLM extraction (`AgentMemory.Extraction.Llm`) works in a host with reflection-based JSON off: the extraction reply
+  and its salvage pass read through generated metadata there, and the writer's and identity adjudicator's reply
+  schemas parse without the serializer. Managed hosts read exactly as before; parity tests read the same replies,
+  readable and unreadable, both ways.
+- Writing metadata to Neo4j works in a host with reflection-based JSON off: it goes through generated metadata with
+  the same bytes for every listed value type (text, numbers, booleans, times, identifiers, values read back from the
+  store, nested dictionaries and lists) and refuses other value types. Managed hosts write exactly as before.
+- The store-aware writer no longer loses a statement about the user whose name it does not know yet. Models often say
+  "my cat is called Tom" as a connection, `Tom -[PET_CAT_OF]-> user`; persistence maps a `user` end to the person
+  entity named after the user, so with no name known the connection was skipped ("target entity 'user' was not
+  persisted") and only the entity Tom remained, which fact and preference recall never return. Such a connection is now
+  kept as the fact `Tom | pet cat of | user`. Once the user's name is known it stays a connection, as before.
+- A long turn on a busy machine no longer fails recall or a write. The temporal query and window parsers, the fact date
+  reader, the calendar reader and the extraction gate bound every pattern to 100 ms, but nothing caught the timeout,
+  so `RegexMatchTimeoutException` reached the recall or write that called them. Running out of time is now an answer:
+  no temporal reference, no window, no date read, extract now.
+- A turn written after it was said (a replay, an import, a write a journal retries after a restart) is read against
+  the day it was said. The store-aware writer showed the model "TODAY" from the clock and the update judge got the
+  clock's "Today", so "tomorrow" and "last month" moved with the delay; only the date fields read from the words used
+  the time the turn was said. Both now use the latest message time (the clock when none is known). Live writes are
+  unchanged: it is the same day.
+
+### Changed
+
+- The store-aware writer's rules add one sentence to "a new event ends what it changes": the replacing memory says what
+  is true now, in the words of the memory it replaces with the new value ("Anna | lives in | Madrid" replaces
+  "Anna | lives in | Lisbon" when she moves); the move itself, with its date, can be a separate memory. Before, a
+  replacement could be written as the event ("Anna | moved to | Madrid last month"), which closed the old value but no
+  longer answered the question the old value answered ("where does my sister live?"). Applies to every host using the
+  writer, the Recommended preset included.
+
 ### Added
+
+- Applied-once writes: `ExtractionRequest.OperationId`. With it, a `ConversationTurn` write whose user message is
+  stored is applied completely or not at all: if the message already carries this operation's receipt, nothing runs
+  (no model call, no write) and `ExtractionResult.AppliedBefore` is true with the stored `Receipt`; otherwise the update
+  judge decides the writer's named replacements before the store transaction opens, and the memories, closings,
+  confirmations and the receipt (`MemoryOperationReceipt`, ids only, kept on the message) are written in one fail-fast
+  transaction. A crash or a lost acknowledgement leaves the whole write with its receipt, or nothing, so asking again
+  with the same id applies it once. Needs a store that rolls back atomically and keeps receipts
+  (`IMemoryOperationReceiptStore`; Neo4j does, with no new label or constraint); options whose effects one transaction
+  cannot cover are refused with `NotSupportedException` (evidence-based identity, renaming on a corrected name,
+  derived memory, and extractor fallback while an update judge is registered). Without an operation id nothing
+  changes.
+- `MemoryContext.QueryEmbeddingUnavailable`: true when a recall needed a query embedding, the query was not blank, and
+  none could be made. The embedding orchestrator turns a failed generation into an empty vector, the same value it
+  returns for a blank query, so until now an embedding outage read to every consumer exactly like an owner with no
+  memories. Set by the live and as-of paths; nothing else about the recall changes.
+- `Neo4jOptions.ConnectionTimeout` and `Neo4jOptions.MaxTransactionRetryTime`, both unset by default (the driver keeps
+  its own defaults, configured exactly as before). The driver's transaction calls take no cancellation token, so a call
+  whose caller has stopped waiting keeps retrying an unreachable store for up to 30 seconds; a host with deadlines can
+  now bound that.
+- The AgentMemory native library (`tools/AgentMemory.Native`, `native/`): AgentMemory's read path as a Native AOT
+  shared library with a versioned C ABI (`native/include/agentmemory_native.h`, contract in `native/CONTRACT.md`) and a
+  Python binding (`native/python`), for any host with a C foreign-function interface and no .NET installation.
+  Not a NuGet package. `native/gate` proves it on Linux x64 (Ubuntu 24.04) against a real Neo4j. Three profiles:
+  `read_only` (recall only); `explicit_write` (remember the owner's own words through a durable journal with truthful
+  receipts, forget, a verified owner erase that also purges the journal); and `learning` (every write applied once by
+  its operation id, so a write interrupted by a crash is retried and its receipt decides). Python adapters for
+  LangChain (a retriever) and LangGraph (a `BaseStore`).
+- A speech recipe (`native/speech/recipe`): the speech-to-speech server with AgentMemory memory in one settings file
+  and Docker Compose (Neo4j, the schema step, the server), with an operator's runbook; memory writes and learning are
+  off unless switched on. Its gates, spoken end to end with real models (`native/speech/gr1`, `native/speech/gr2`),
+  and a benchmark harness (`native/speech/bench`) sit beside it.
+- Stored metadata and the relation vocabulary are read through generated serializer metadata when a host switches
+  reflection-based System.Text.Json off; every other host runs the call it always has.
 
 - Opt-in `MindReader` for verified native E0 Mind composites: closed versioned contracts, owned semantic roles,
   exact member selection, deterministic bounded core/stage text and signed tool/knowledge requirements.

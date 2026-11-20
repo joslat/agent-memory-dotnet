@@ -21,10 +21,15 @@ internal sealed class Neo4jDriverFactory : INeo4jDriverFactory
         _driver = GraphDatabase.Driver(
             cfg.Uri,
             AuthTokens.Basic(cfg.Username, cfg.Password),
-            c => c
-                .WithEncryptionLevel(encryptionLevel)
-                .WithMaxConnectionPoolSize(cfg.MaxConnectionPoolSize)
-                .WithConnectionAcquisitionTimeout(cfg.ConnectionAcquisitionTimeout));
+            c =>
+            {
+                c.WithEncryptionLevel(encryptionLevel)
+                    .WithMaxConnectionPoolSize(cfg.MaxConnectionPoolSize)
+                    .WithConnectionAcquisitionTimeout(cfg.ConnectionAcquisitionTimeout);
+                // Both unset by default: the driver keeps its own defaults, configured exactly as before.
+                if (cfg.ConnectionTimeout is { } connectionTimeout) c.WithConnectionTimeout(connectionTimeout);
+                if (cfg.MaxTransactionRetryTime is { } retryTime) c.WithMaxTransactionRetryTime(retryTime);
+            });
 
         _logger.LogInformation("Neo4j driver created. URI={Uri}, Database={Database}", cfg.Uri, cfg.Database);
     }

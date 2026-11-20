@@ -175,6 +175,25 @@ public sealed record MemoryContext
     public bool LatencyBudgetExceeded { get; init; }
 
     /// <summary>
+    /// The query needed an embedding to search with, was not blank, and none could be made: the embedding provider
+    /// failed or returned nothing. The vector searches did not run, so empty semantic sections mean "not searched",
+    /// not "nothing stored".
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The embedding orchestrator turns a failed generation into an empty vector so that recall does not throw when a
+    /// provider blinks, and it returns the same empty vector for a blank query, which has nothing to embed. Without
+    /// this flag the two were indistinguishable, and an embedding outage read to every consumer, and to the model,
+    /// exactly like an owner with no memories.
+    /// </para>
+    /// <para>
+    /// False for a blank query, for a caller-supplied <see cref="RecallRequest.QueryEmbedding"/>, and for a recall that
+    /// needs no vector. Setting it changes nothing else about the recall.
+    /// </para>
+    /// </remarks>
+    public bool QueryEmbeddingUnavailable { get; init; }
+
+    /// <summary>
     /// Set when the query named a past time and recall was routed bitemporally as a result (R4).
     /// Null on an ordinary recall, and null when the caller asked for an as-of recall explicitly.
     /// </summary>

@@ -584,6 +584,9 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         // after budgeting can distinguish "searched and found nothing" from "never searched". False when
         // memory was excluded by blend mode, or when no embedding was available to search with.
         bool vectorSearchRan = false;
+        // The orchestrator returns the same empty vector for a blank query and for a failed generation; only here,
+        // knowing the query was not blank and a vector was needed, can the two be told apart.
+        bool queryEmbeddingUnavailable = false;
 
         Stopwatch? budgetClock = null;
         if (includeMemory)
@@ -610,6 +613,8 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
             // searches rather than issue zero-dimension vector queries (which the index rejects).
             bool hasEmbedding = queryEmbedding is { Length: > 0 };
             vectorSearchRan = hasEmbedding;
+            queryEmbeddingUnavailable = request.QueryEmbedding is null && needsEmbedding && !hasEmbedding
+                                        && !string.IsNullOrWhiteSpace(request.Query);
             effectiveQueryEmbedding = queryEmbedding;
             static Task<IReadOnlyList<T>> Empty<T>() => Task.FromResult<IReadOnlyList<T>>(Array.Empty<T>());
 
@@ -810,6 +815,13 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
             // unmeasured it would spend the caller's budget twice over, so the time already spent is
             // measured here and the hop gets only what is left.
             budgetClock = recallOpts.LatencyBudget is null ? null : Stopwatch.StartNew();
+
+            // Without a budget every section is read below, one after another. If an early one failed, the later ones
+            // went on running after the recall had already thrown: unobserved database work, and failures nobody saw.
+            // Let them all finish first, as the as-of path does; reading them in order reports the same result or the
+            // same first failure as before. With a budget, WaitWithinBudgetAsync decides what is abandoned, as designed.
+            if (recallOpts.LatencyBudget is null)
+                await SettleAllAsync(sections).ConfigureAwait(false);
 
             // Rank 13. With no budget this is the original unconditional wait, byte for byte.
             if (recallOpts.LatencyBudget is { } latencyBudget
@@ -1138,6 +1150,7 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         {
             SessionId = request.SessionId,
             AssembledAtUtc = _clock.GetUtcNow(),
+            QueryEmbeddingUnavailable = queryEmbeddingUnavailable,
             Projection = projection,
             SeparatesSharedKnowledge = SharedBudgetFor(scope, _options.SharedRecallBudget) is not null,
             RelevantRelationships = new MemoryContextSection<RecalledRelationship> { Items = relationships },
@@ -1319,6 +1332,8 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         // the index REJECTS — throwing instead of returning empty. Mirror the live AssembleContextAsync
         // guard so temporal recall degrades gracefully to recent messages + empty semantic sections.
         bool hasEmbedding = queryEmbedding is { Length: > 0 };
+        bool queryEmbeddingUnavailable = request.QueryEmbedding is null && NeedsQueryEmbedding(recallOpts) && !hasEmbedding
+                                         && !string.IsNullOrWhiteSpace(request.Query);
         static Task<IReadOnlyList<T>> Empty<T>() => Task.FromResult<IReadOnlyList<T>>(Array.Empty<T>());
 
         // D6 clock mapping: the transaction clock ($systemAsOf) bounds every record's existence, so
@@ -1602,6 +1617,7 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         {
             SessionId = request.SessionId,
             AssembledAtUtc = _clock.GetUtcNow(),
+            QueryEmbeddingUnavailable = queryEmbeddingUnavailable,
             Projection = projection,
             SeparatesSharedKnowledge = SharedBudgetFor(scope, _options.SharedRecallBudget) is not null,
             // Design §5.5: the as-of path does not fan out. A caller who asked for it anyway is told
@@ -2180,6 +2196,22 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         _truncationStrategies.TryGetValue(strategy, out var resolved)
             ? resolved
             : _truncationStrategies[TruncationStrategy.OldestFirst];
+
+    /// <summary>
+    /// Waits until every section has finished, successfully or not. It never throws: each section's own await
+    /// afterwards reports its result or its failure, in the established order.
+    /// </summary>
+    private static async Task SettleAllAsync(Task[] sections)
+    {
+        try
+        {
+            await Task.WhenAll(sections).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // The caller reads each section afterwards and reports its failure there, exactly as before.
+        }
+    }
 
     /// <summary>
     /// Waits for the section tasks, giving up after <paramref name="budget"/> (rank 13).

@@ -52,6 +52,12 @@ internal sealed record ExtractionStageResult
     /// <summary>What the extracted turns said, for a judge on the write path (41.06); empty when nothing was extracted.</summary>
     public string SourceText { get; init; } = "";
 
+    /// <summary>
+    /// When the extracted turns were said (the latest message time); the judge on the write path reads relative dates
+    /// against it, so a turn written later means what it meant when it was said. Null: unknown, the clock is used.
+    /// </summary>
+    public DateTimeOffset? SourceSaidAtUtc { get; init; }
+
     // ── Metadata ──
 
     public MergeStrategyType MergeStrategy { get; init; }
@@ -85,4 +91,16 @@ internal sealed record ExtractionStageResult
     /// appended to by <see cref="IPersistenceStage"/>.
     /// </summary>
     public IReadOnlyList<IngestionItemOutcome> Outcomes { get; init; } = Array.Empty<IngestionItemOutcome>();
+
+    /// <summary>An applied-once write (<c>ExtractionRequest.OperationId</c>): the operation and the message its receipt goes on. Null otherwise.</summary>
+    public AppliedOnceOperation? AppliedOnce { get; init; }
+
+    /// <summary>
+    /// An applied-once write: the judge's verdicts on the writer's named replacements, taken before the store transaction
+    /// (<see cref="JudgedMemoryClosings.PrejudgeNamedAsync"/>). Null: persistence asks the judge itself, as before.
+    /// </summary>
+    public IReadOnlyDictionary<string, double>? PrejudgedNamedVerdicts { get; init; }
 }
+
+/// <summary>The operation an applied-once write applies, and the stored message its receipt is written on.</summary>
+internal sealed record AppliedOnceOperation(string OperationId, string MessageId);

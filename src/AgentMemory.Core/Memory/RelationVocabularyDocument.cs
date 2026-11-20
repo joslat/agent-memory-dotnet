@@ -5,6 +5,11 @@ using System.Text.Json.Serialization;
 namespace AgentMemory.Core.Memory;
 
 /// <summary>One canonical relation, its provenance, and the forms a question may use for it.</summary>
+/// <remarks>
+/// Settable rather than init-only, here and on <see cref="RelationVocabularyDocument"/>: generated serializer metadata
+/// (<see cref="RelationVocabularyJsonContext"/>) assigns every init-only property, null for one the JSON omits, which
+/// would replace the empty defaults below; a settable property is assigned only when present, as reflection does.
+/// </remarks>
 internal sealed class RelationVocabularyEntry
 {
     /// <summary><c>event</c> or <c>state</c>.</summary>
@@ -14,15 +19,15 @@ internal sealed class RelationVocabularyEntry
     /// seeded from different sources and reviewed against different expectations.
     /// </remarks>
     [JsonPropertyName("family")]
-    public string Family { get; init; } = "event";
+    public string Family { get; set; } = "event";
 
     /// <summary>Where the relation came from, e.g. <c>schema.org:BuyAction</c>, <c>wikidata:P108</c>.</summary>
     /// <remarks>Licence provenance ships with the package; it is part of the artifact, not a footnote.</remarks>
     [JsonPropertyName("sources")]
-    public IReadOnlyList<string> Sources { get; init; } = [];
+    public IReadOnlyList<string> Sources { get; set; } = [];
 
     [JsonPropertyName("surfaceForms")]
-    public IReadOnlyList<string> SurfaceForms { get; init; } = [];
+    public IReadOnlyList<string> SurfaceForms { get; set; } = [];
 
     /// <summary>
     /// Forms that are expansion targets but must never trigger retrieval from a question.
@@ -36,7 +41,7 @@ internal sealed class RelationVocabularyEntry
     /// because facts really are stored under them.
     /// </remarks>
     [JsonPropertyName("storedOnly")]
-    public IReadOnlyList<string> StoredOnly { get; init; } = [];
+    public IReadOnlyList<string> StoredOnly { get; set; } = [];
 
     /// <summary>
     /// <c>single</c> when a subject can hold only one live value for this relation; anything else
@@ -59,7 +64,7 @@ internal sealed class RelationVocabularyEntry
     /// </para>
     /// </remarks>
     [JsonPropertyName("cardinality")]
-    public string? Cardinality { get; init; }
+    public string? Cardinality { get; set; }
 
     /// <summary>
     /// 36.4. The state relation this event also states, with the same subject and object: "moved to X" entails
@@ -67,7 +72,7 @@ internal sealed class RelationVocabularyEntry
     /// the previous value of that state. <c>entailsWhy</c> carries the argument.
     /// </summary>
     [JsonPropertyName("entails")]
-    public string? Entails { get; init; }
+    public string? Entails { get; set; }
 
     /// <summary>
     /// 36.4. The stored forms that state this single-valued relation's CURRENT value, and so replace each other:
@@ -75,20 +80,20 @@ internal sealed class RelationVocabularyEntry
     /// replace nor are replaced. Absent, a value replaces only a value stored under its own predicate.
     /// </summary>
     [JsonPropertyName("presentForms")]
-    public IReadOnlyList<string> PresentForms { get; init; } = [];
+    public IReadOnlyList<string> PresentForms { get; set; } = [];
 
     /// <summary>
     /// 36.4. The forms of this event that entail <see cref="Entails"/>: "moved to" does, "moving to" (not yet) does not.
     /// </summary>
     [JsonPropertyName("entailsFrom")]
-    public IReadOnlyList<string> EntailsFrom { get; init; } = [];
+    public IReadOnlyList<string> EntailsFrom { get; set; } = [];
 
     /// <summary>
     /// The entity type the object must have for <see cref="Entails"/> to hold (<c>LOCATION</c> for "moved to"),
     /// or null for always. An object the extraction did not type does not entail.
     /// </summary>
     [JsonPropertyName("entailsWhen")]
-    public string? EntailsWhen { get; init; }
+    public string? EntailsWhen { get; set; }
 }
 
 internal sealed class RelationVocabularyDocument
@@ -96,10 +101,10 @@ internal sealed class RelationVocabularyDocument
     private static readonly Lazy<RelationVocabularyDocument> Cached = new(Parse);
 
     [JsonPropertyName("schemaVersion")]
-    public int SchemaVersion { get; init; }
+    public int SchemaVersion { get; set; }
 
     [JsonPropertyName("retired")]
-    public IReadOnlyList<string> Retired { get; init; } = [];
+    public IReadOnlyList<string> Retired { get; set; } = [];
 
     /// <summary>
     /// Relations the extractor may write but a question must never expand wholesale, each with its
@@ -112,7 +117,7 @@ internal sealed class RelationVocabularyDocument
     /// <c>storedOnly</c>, so the asymmetry is a recorded decision instead of an accident.
     /// </remarks>
     [JsonPropertyName("expansionExempt")]
-    public IReadOnlyDictionary<string, string> ExpansionExempt { get; init; } =
+    public IReadOnlyDictionary<string, string> ExpansionExempt { get; set; } =
         new Dictionary<string, string>(StringComparer.Ordinal);
 
     /// <summary>
@@ -120,11 +125,11 @@ internal sealed class RelationVocabularyDocument
     /// "favourite band" single-valued and "favourite food" another single-valued relation. Each with its reason.
     /// </summary>
     [JsonPropertyName("singleValuedPrefixes")]
-    public IReadOnlyDictionary<string, string> SingleValuedPrefixes { get; init; } =
+    public IReadOnlyDictionary<string, string> SingleValuedPrefixes { get; set; } =
         new Dictionary<string, string>(StringComparer.Ordinal);
 
     [JsonPropertyName("canonical")]
-    public IReadOnlyDictionary<string, RelationVocabularyEntry> Canonical { get; init; } =
+    public IReadOnlyDictionary<string, RelationVocabularyEntry> Canonical { get; set; } =
         new Dictionary<string, RelationVocabularyEntry>(StringComparer.Ordinal);
 
     /// <summary>The reviewed vocabulary, parsed once.</summary>
@@ -144,9 +149,13 @@ internal sealed class RelationVocabularyDocument
                 $"The relation vocabulary resource '{ResourceName}' is missing from {assembly.GetName().Name}. " +
                 "It must be embedded, not shipped alongside.");
 
-        var document = JsonSerializer.Deserialize<RelationVocabularyDocument>(
-            stream,
-            new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+        // Generated metadata only where a host switched reflection-based serialization off (the Native AOT speech
+        // library); every other host runs the call it always has.
+        var document = (JsonSerializer.IsReflectionEnabledByDefault
+                ? JsonSerializer.Deserialize<RelationVocabularyDocument>(
+                    stream,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+                : JsonSerializer.Deserialize(stream, RelationVocabularyJsonContext.Default.RelationVocabularyDocument))
             ?? throw new InvalidOperationException("The relation vocabulary resource is empty.");
 
         if (document.Canonical.Count == 0)

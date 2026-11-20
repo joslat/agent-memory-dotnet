@@ -60,6 +60,7 @@
     <Project Path="tools/AgentMemory.McpHost/AgentMemory.McpHost.csproj" />
     <Project Path="tools/AgentMemory.RouterArena/AgentMemory.RouterArena.csproj" />
     <Project Path="tools/AgentMemory.Scenarios/AgentMemory.Scenarios.csproj" />
+    <Project Path="tools/AgentMemory.Native/AgentMemory.Native.csproj" />
     <Project Path="tools/AgentMemory.TckBridge/AgentMemory.TckBridge.csproj" />
     <Project Path="tools/AgentMemory.TckBridge.Nams/AgentMemory.TckBridge.Nams.csproj" />
   </Folder>

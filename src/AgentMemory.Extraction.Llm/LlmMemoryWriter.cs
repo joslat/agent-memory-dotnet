@@ -72,6 +72,9 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
         // another owner's: what is read here goes into the prompt.
         var scope = SharedScopes.OwnedOrShared(SharedScopes.WriteOwner(request.Scope));
         var now = _services.GetService<TimeProvider>()?.GetUtcNow() ?? DateTimeOffset.UtcNow;
+        // When the turn was said: the model reads "tomorrow" and "last month" against it, so a turn written later (a
+        // replay, a retried journal write, an import) means what it meant when it was said. Live, it is today.
+        var saidAt = said.Select(m => m.TimestampUtc).Where(t => t != default).DefaultIfEmpty(now).Max();
         var owner = await OwnerNameAsync(scope, cancellationToken).ConfigureAwait(false);
         var text = string.Join("\n", said.Select(m => m.Content));
         var stored = await StoredAsync(text, owner, scope, now, cancellationToken).ConfigureAwait(false);
@@ -79,7 +82,7 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
 
         var system = MemoryWriterPrompt.System(owner, _options.MemoryWriterMaxOperations, _options.MemoryWriterEventIdentities == true);
         if (_options.MemoryWriterEventIdentities == true) system += MemoryWriterPrompt.EventIdentityInstructions;
-        var context = MemoryWriterPrompt.Context(now, request.Window, owner, stored);
+        var context = MemoryWriterPrompt.Context(saidAt, request.Window, owner, stored);
         var (answered, dropped, reply) = await AskAsync(system, context, cancellationToken).ConfigureAwait(false);
 
         // #249. Every operation that writes must quote the words it rests on, and the quote must be in the message: one
@@ -107,7 +110,6 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
             // The dates the facts' own words state, as date fields too (the words stay as written). A yearless date is
             // read against when the message was said, not when it is written: a replayed November 2025 turn saying
             // "December 3" means December 2025. One user message is the writer's turn; with several, the last one.
-            var saidAt = said.Select(m => m.TimestampUtc).DefaultIfEmpty(now).Max();
             result = result with { Facts = [.. result.Facts.Select(fact => AgentMemory.Core.Memory.FactDateReader.Apply(fact, saidAt))] };
         }
         if (rejected.Count > 0) result = result with { Outcomes = rejected };
@@ -351,7 +353,10 @@ internal static class MemoryWriterPrompt
           new job or a retirement ends the old job. Only the person's own event ends their state: someone else's wedding or
           move ends nothing of theirs. Replace the stored memory it ends (a fact or a connection), even when the message
           names the person by a role (mum, my sister) and the stored memory names them by name. When one event ends more
-          than one stored memory (the wedding plan and the engagement), write one replace for each.
+          than one stored memory (the wedding plan and the engagement), write one replace for each. The replacing memory
+          says what is true now, in the words of the one it replaces with the new value: when Anna moves to Madrid,
+          "Anna | lives in | Lisbon" is replaced by "Anna | lives in | Madrid"; the move itself, with its date, can be a
+          separate add.
         - A plan or a state true only for a day or a short while (tonight's plan, today's ailment or mood, this weekend's
           stay) is stored with "until": the last date it holds. Something that happened (the dog stole the butter this
           morning, she asked me to braid her hair today) stays true: store it with its date, never with "until".
@@ -745,6 +750,19 @@ internal static class MemoryWriterOps
                 var from = End(link.Groups["s"].Value, known);
                 var to = End(link.Groups["t"].Value, known);
                 if (from.Kind == EndKind.Empty || to.Kind == EndKind.Empty) continue;   // nothing to keep: an end with no words
+                // B21: the user is never an entity of their own; persistence maps a "user" end to the person entity named
+                // after them (I-7). With their name unknown there is none, so such a connection never reached the graph:
+                // "Tom -[PET_CAT_OF]-> user" became the entity Tom and nothing else. Kept instead as what it says, a fact
+                // about the user, which recall finds. With the name known it stays a connection, as before.
+                var fromSelf = MemoryUserNames.IsSelf(from.Said);
+                var toSelf = MemoryUserNames.IsSelf(to.Said);
+                if (owner is null && (fromSelf || toSelf) && from.Kind == EndKind.Name && to.Kind == EndKind.Name)
+                {
+                    if (!(fromSelf && toSelf))
+                        facts.Add(CreateFact(op, null, from.Said,
+                            link.Groups["r"].Value.Trim().ToLowerInvariant().Replace('_', ' '), to.Said));
+                    continue;
+                }
                 if (from.Kind != EndKind.Name || to.Kind != EndKind.Name)
                 {
                     // A statement replacing a stored connection: kept alone, the fact follows the pair rule

@@ -10,6 +10,8 @@
 *.userosscache
 *.sln.docstates
 *.env
+# The recipe's example settings: placeholders only, and the README tells operators to copy it.
+!native/speech/recipe/example.env
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs

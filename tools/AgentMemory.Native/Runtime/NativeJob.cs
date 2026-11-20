@@ -1,0 +1,104 @@
+using System.Diagnostics;
+using AgentMemory.Native.Contract;
+
+namespace AgentMemory.Native.Runtime;
+
+/// <summary>Why a job was told to stop before its work finished.</summary>
+internal enum StopReason
+{
+    None = 0,
+    CancelledByCaller = 1,
+    ContextClosing = 2,
+}
+
+/// <summary>
+/// One submitted operation. Its result can be delivered (a timeout or cancel retires it at once) while its work is
+/// still running; <see cref="Settled"/> turns true only when the work itself has ended, and only then does the job give
+/// back its capacity.
+/// </summary>
+internal sealed class NativeJob(ulong handle, byte[] request, string? operation, string? requestId)
+{
+    private long _startedAt;
+    private int _stopReason;
+    private volatile bool _settled;
+
+    public ulong Handle { get; } = handle;
+    public byte[] Request { get; } = request;
+    public long SubmittedAt { get; } = Stopwatch.GetTimestamp();
+    public CancellationTokenSource Cancellation { get; } = new();
+    public TaskCompletionSource<byte[]> Result { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    /// <summary>Read leniently at submit, before the job is published, so every result can carry them.</summary>
+    public string? Operation { get; } = operation;
+    public string? RequestId { get; } = requestId;
+    public bool Settled => _settled;
+    public StopReason StopReason => (StopReason)Volatile.Read(ref _stopReason);
+
+    public void MarkStarted() => Interlocked.CompareExchange(ref _startedAt, Stopwatch.GetTimestamp(), 0);
+
+    public JobTiming Timing()
+    {
+        var now = Stopwatch.GetTimestamp();
+        var started = Interlocked.Read(ref _startedAt);
+        return started == 0
+            ? new JobTiming((long)Stopwatch.GetElapsedTime(SubmittedAt, now).TotalMilliseconds, 0)
+            : new JobTiming((long)Stopwatch.GetElapsedTime(SubmittedAt, started).TotalMilliseconds,
+                (long)Stopwatch.GetElapsedTime(started, now).TotalMilliseconds);
+    }
+
+    /// <summary>Delivers a result; the first delivery wins, so a late finish never replaces a timeout.</summary>
+    public void Finish(byte[] result) => Result.TrySetResult(result);
+
+    /// <summary>Records why the job must stop, then signals its work; the first reason wins.</summary>
+    public void RequestStop(StopReason reason)
+    {
+        Interlocked.CompareExchange(ref _stopReason, (int)reason, (int)StopReason.None);
+        if (_settled) return;
+        try
+        {
+            Cancellation.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // The work settled between the check and the call; there is nothing left to stop.
+        }
+    }
+
+    private Func<byte[]>? _stoppedResult;
+
+    /// <summary>
+    /// From now on a stop delivers this result instead of a bare timeout or cancellation: once a write is durably
+    /// accepted, the caller who stops waiting still gets its receipt (the operation goes on without the job).
+    /// </summary>
+    public void SetStoppedResult(Func<byte[]> result) => Volatile.Write(ref _stoppedResult, result);
+
+    /// <summary>Delivers the stop result: cancelled by the caller, cancelled by closing, or else the deadline passed.</summary>
+    public void FinishStopped()
+    {
+        if (Volatile.Read(ref _stoppedResult) is { } stopped)
+        {
+            Finish(stopped());
+            return;
+        }
+        var (status, code, message) = StopReason switch
+        {
+            StopReason.CancelledByCaller => ("cancelled", "cancelled", "The caller cancelled the job."),
+            StopReason.ContextClosing => ("cancelled", "closing", "The context is closing."),
+            _ => ("timeout", "timeout", "The job did not finish within its time."),
+        };
+        Finish(ResultWriter.Failure(Operation, RequestId, status, code, message, Timing()));
+    }
+
+    /// <summary>The work has ended. The deadline timer is stopped; the job keeps its delivered result.</summary>
+    public void MarkSettled()
+    {
+        _settled = true;
+        try
+        {
+            Cancellation.CancelAfter(Timeout.Infinite);
+        }
+        catch (ObjectDisposedException)
+        {
+            // Nothing disposes a job's cancellation source today; this keeps a future change from turning into a crash.
+        }
+    }
+}

@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Neo4j.Driver 6.3.0 turns an object passed as Cypher parameters into a map through
+  ObjectToCypherParameterDictionaryConverter, whose type initializer builds the default converters, among them the
+  vector conversions DefaultConverters.VectorToArray<T> and VectorToList<T>, through MethodInfo.MakeGenericMethod.
+  Native AOT compiles only the generic instantiations it can see, so the initializer failed with "missing native
+  code" for VectorToArray<sbyte> and every object-parameter query failed (native write probe, 20 November 2026:
+  bug B6). These directives compile both methods for the six vector element types (INT8, INT16, INT32, INT64,
+  FLOAT32, FLOAT64). The write probe (native/gate/run-write-probe.sh) is the evidence.
+-->
+<Directives xmlns="http://schemas.microsoft.com/netfx/2013/01/metadata">
+  <Application>
+    <Assembly Name="Neo4j.Driver">
+      <Type Name="Neo4j.Driver.Internal.Mapping.TypeConversion.DefaultConverters">
+        <Method Name="VectorToArray" Dynamic="Required">
+          <GenericArgument Name="System.SByte, System.Private.CoreLib" />
+        </Method>
+        <Method Name="VectorToArray" Dynamic="Required">
+          <GenericArgument Name="System.Int16, System.Private.CoreLib" />
+        </Method>
+        <Method Name="VectorToArray" Dynamic="Required">
+          <GenericArgument Name="System.Int32, System.Private.CoreLib" />
+        </Method>
+        <Method Name="VectorToArray" Dynamic="Required">
+          <GenericArgument Name="System.Int64, System.Private.CoreLib" />
+        </Method>
+        <Method Name="VectorToArray" Dynamic="Required">
+          <GenericArgument Name="System.Single, System.Private.CoreLib" />
+        </Method>
+        <Method Name="VectorToArray" Dynamic="Required">
+          <GenericArgument Name="System.Double, System.Private.CoreLib" />
+        </Method>
+        <Method Name="VectorToList" Dynamic="Required">
+          <GenericArgument Name="System.SByte, System.Private.CoreLib" />
+        </Method>
+        <Method Name="VectorToList" Dynamic="Required">
+          <GenericArgument Name="System.Int16, System.Private.CoreLib" />
+        </Method>
+        <Method Name="VectorToList" Dynamic="Required">
+          <GenericArgument Name="System.Int32, System.Private.CoreLib" />
+        </Method>
+        <Method Name="VectorToList" Dynamic="Required">
+          <GenericArgument Name="System.Int64, System.Private.CoreLib" />
+        </Method>
+        <Method Name="VectorToList" Dynamic="Required">
+          <GenericArgument Name="System.Single, System.Private.CoreLib" />
+        </Method>
+        <Method Name="VectorToList" Dynamic="Required">
+          <GenericArgument Name="System.Double, System.Private.CoreLib" />
+        </Method>
+      </Type>
+    </Assembly>
+  </Application>
+</Directives>

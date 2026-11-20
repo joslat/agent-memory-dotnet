@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The R1 write path as a Native AOT executable, run against a throw-away Neo4j on plain Ubuntu (run-write-probe.sh).
+       It compiles the native library's own explicit-write composition and its chat and embedding clients (linked below,
+       not copied), and drives them against a stub model on 127.0.0.1: remember, store-aware writer, update judge,
+       persistence, read-back. Proves the write path works natively, including the driver's anonymous-object Cypher
+       parameters (B6), metadata writes (B20) and the retry policy's view of an HTTP status (B5). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <PublishAot>true</PublishAot>
+    <IsPackable>false</IsPackable>
+    <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <TrimmerSingleWarn>false</TrimmerSingleWarn>
+    <IlcTreatWarningsAsErrors>false</IlcTreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../../tools/AgentMemory.Native/Composition/*.cs" Link="Native/Composition/%(Filename)%(Extension)" />
+    <Compile Include="../../../tools/AgentMemory.Native/Chat/*.cs" Link="Native/Chat/%(Filename)%(Extension)" />
+    <Compile Include="../../../tools/AgentMemory.Native/Embeddings/*.cs" Link="Native/Embeddings/%(Filename)%(Extension)" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../src/AgentMemory.Abstractions/AgentMemory.Abstractions.csproj" />
+    <ProjectReference Include="../../../src/AgentMemory.Core/AgentMemory.Core.csproj" />
+    <ProjectReference Include="../../../src/AgentMemory.Neo4j/AgentMemory.Neo4j.csproj" />
+    <ProjectReference Include="../../../src/AgentMemory.Extraction.Llm/AgentMemory.Extraction.Llm.csproj" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.12" />
+    <TrimmerRootDescriptor Include="../../../tools/AgentMemory.Native/ILLink.Descriptors.xml" />
+    <RdXmlFile Include="../../../tools/AgentMemory.Native/Neo4jDriver.rd.xml" />
+  </ItemGroup>
+</Project>

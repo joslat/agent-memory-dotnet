@@ -152,7 +152,12 @@ internal static class TemporalWindowParser
     internal static TemporalWindowQuery? Resolve(string? query, DateTimeOffset now)
     {
         if (string.IsNullOrWhiteSpace(query)) return null;
+        // A pattern that runs out of time names no window: the question is answered live, as without windows.
+        return BoundedParse.OrElse(() => ResolveCore(query, now), null);
+    }
 
+    private static TemporalWindowQuery? ResolveCore(string query, DateTimeOffset now)
+    {
         if (MonthFirstRange.Match(query) is { Success: true } range)
         {
             var month1 = MonthNumber(range.Groups["m1"].Value);
@@ -240,7 +245,8 @@ internal static class TemporalWindowParser
     /// or names a window still to come. <c>RecallOptions.Upcoming</c> fires only for such a question by default.
     /// </summary>
     internal static bool LooksAhead(string? query) =>
-        !string.IsNullOrWhiteSpace(query) && AheadQuestion.IsMatch(query);
+        // Out of time: not seen as looking ahead, so the ordinary recall with nothing added.
+        !string.IsNullOrWhiteSpace(query) && BoundedParse.OrElse(() => AheadQuestion.IsMatch(query), false);
 
     private static readonly Regex AheadQuestion = new(
         @"\b(plan|plans|planning|prep|prepare|preparing|schedule|scheduled|calendar|agenda|upcoming|coming\s+up|ahead|"

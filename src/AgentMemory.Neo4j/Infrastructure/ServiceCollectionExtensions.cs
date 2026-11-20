@@ -37,6 +37,12 @@ public static class ServiceCollectionExtensions
                 + "an operator who configured a bound would then be running without one.")
             .Validate(o => o.EmbeddingDimensions > 0, "Neo4j EmbeddingDimensions must be positive.")
             .Validate(o => o.ConnectionAcquisitionTimeout > TimeSpan.Zero, "Neo4j ConnectionAcquisitionTimeout must be positive.")
+            .Validate(
+                o => o.ConnectionTimeout is null || o.ConnectionTimeout > TimeSpan.Zero,
+                "Neo4j ConnectionTimeout must be positive when set; use null for the driver's default.")
+            .Validate(
+                o => o.MaxTransactionRetryTime is null || o.MaxTransactionRetryTime >= TimeSpan.Zero,
+                "Neo4j MaxTransactionRetryTime must be zero (one attempt) or positive when set; use null for the driver's default.")
             .ValidateOnStart();
 
         // The working-memory tier (on by default) writes one :User node per owner, and its schema
@@ -170,6 +176,8 @@ public static class ServiceCollectionExtensions
 
         // G3 (40.47). Erase, export and import an owner's data. Scoped: it writes through the scoped repositories.
         services.TryAddScoped<IMemoryOwnerDataService, Neo4jMemoryOwnerDataService>();
+        // Applied-once writes (ExtractionRequest.OperationId): receipts on the stored message, in the persistence transaction.
+        services.TryAddScoped<IMemoryOperationReceiptStore, Neo4jMemoryOperationReceiptStore>();
 
         // Memory-hygiene / consolidation (PR #113) — dry-run by default.
         services.TryAddTransient<IConsolidationService, Neo4jConsolidationService>();

@@ -1,0 +1,10 @@
+# The schema step: the managed AgentMemory command line on the .NET runtime (no SDK), running `bootstrap` once, which
+# creates or completes the schema (constraints, indexes, vector indexes of NEO4J_EMBEDDING_DIMENSIONS, migrations)
+# and changes nothing that is already in place. The password comes from the secret file, never the environment.
+#   docker build -t <tag> -f native/speech/recipe/Dockerfile.schema --build-context cli=<published CLI> native/speech/recipe
+FROM mcr.microsoft.com/dotnet/runtime:10.0-noble
+ARG CLI_COMMIT=unknown
+LABEL org.opencontainers.image.title="AgentMemory schema step" org.opencontainers.image.revision="${CLI_COMMIT}"
+COPY --from=cli . /opt/agentmemory-cli
+ENTRYPOINT ["sh", "-c", "NEO4J_PASSWORD=\"$(cat /run/secrets/neo4j_password)\" exec dotnet /opt/agentmemory-cli/AgentMemory.Cli.dll \"$@\"", "schema"]
+CMD ["bootstrap"]

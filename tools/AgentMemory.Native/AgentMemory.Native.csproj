@@ -1,0 +1,49 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- AgentMemory as a Native AOT shared library with a versioned C ABI (native/include/agentmemory_native.h), for
+       any host with a C foreign-function interface: agents, agent frameworks, the speech-to-speech server. One framework
+       and one runtime per published artifact; never packed as a NuGet package and not part of the release list. -->
+  <PropertyGroup>
+    <!-- Directory.Build.props multi-targets every AgentMemory.* project; a native library has exactly one runtime. -->
+    <TargetFrameworks></TargetFrameworks>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Library</OutputType>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>AgentMemory.Native</RootNamespace>
+    <AssemblyName>agentmemory_native</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <PublishAot>true</PublishAot>
+    <NativeLib>Shared</NativeLib>
+    <!-- Reflection-based JSON is off in this host only: a reachable serializer call without generated metadata fails
+         loudly here instead of silently working under JIT. Managed hosts keep their default. -->
+    <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
+    <!-- The speech server image (Ubuntu 24.04) ships no ICU, and nothing in the read path is culture-sensitive. -->
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Every trimming and AOT warning is listed on its own line, including those inside dependencies. -->
+    <TrimmerSingleWarn>false</TrimmerSingleWarn>
+    <!-- Directory.Build.props makes every warning an error. The AOT compiler's trim and AOT analysis warnings are the
+         measurement here (each one classified in the design's assessment), so they stay warnings; compiler warnings in
+         this project's own C# remain errors. Without this, the documented publish command fails. -->
+    <IlcTreatWarningsAsErrors>false</IlcTreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AgentMemory.Abstractions\AgentMemory.Abstractions.csproj" />
+    <ProjectReference Include="..\..\src\AgentMemory.Core\AgentMemory.Core.csproj" />
+    <ProjectReference Include="..\..\src\AgentMemory.Neo4j\AgentMemory.Neo4j.csproj" />
+    <!-- The explicit-write (R1) profile's store-aware writer; asked only by that profile (Composition/WriteComposition). -->
+    <ProjectReference Include="..\..\src\AgentMemory.Extraction.Llm\AgentMemory.Extraction.Llm.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Keeps what Neo4j.Driver finds by reflection at run time; see the file for the evidence. -->
+    <TrimmerRootDescriptor Include="ILLink.Descriptors.xml" />
+    <!-- Generic instantiations Neo4j.Driver builds by reflection; see the file. -->
+    <RdXmlFile Include="Neo4jDriver.rd.xml" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.12" />
+  </ItemGroup>
+</Project>

@@ -102,7 +102,7 @@ internal sealed class JudgedMemoryClosings
                 return;
             }
             var verdicts = await _policy.EvaluateAsync(
-                new MemoryUpdateRequest(extraction.SourceText.Length > 0 ? extraction.SourceText : null, _clock.GetUtcNow(), pairs),
+                new MemoryUpdateRequest(extraction.SourceText.Length > 0 ? extraction.SourceText : null, extraction.SourceSaidAtUtc ?? _clock.GetUtcNow(), pairs),
                 cancellationToken).ConfigureAwait(false);
             var closedOnce = new HashSet<string>(StringComparer.Ordinal);
             var closings = 0;
@@ -181,9 +181,12 @@ internal sealed class JudgedMemoryClosings
         }
         // The owner's own memories only, as the judge's own path (JudgeUpdatesAsync) reads them.
         var scope = string.IsNullOrEmpty(ownerId) ? null : MemoryScope.For(ownerId, includeShared: false);
-        bool Closable(string? owner) => string.IsNullOrEmpty(ownerId) ? string.IsNullOrEmpty(owner) : owner == ownerId;
+        bool Closable(string? owner) => ClosableBy(owner, ownerId);
+        Task<(string Id, string Text)?> LiveEdgeAsync(string id) => LiveEdgeOfAsync(id, ownerId, cancellationToken);
         var pairs = new List<MemoryUpdatePair>();
         var targets = new Dictionary<string, (Fact? NewFact, string Winner, string Loser, bool Correction, bool Edge)>(StringComparer.Ordinal);
+        // Applied-once writes: each pair's verdict was taken before the store transaction, found again by this key.
+        var verdictKeys = new Dictionary<string, string>(StringComparer.Ordinal);
         try
         {
             foreach (var item in namedFacts)
@@ -204,6 +207,7 @@ internal sealed class JudgedMemoryClosings
                     var edgeKey = $"p{pairs.Count + 1}";
                     pairs.Add(new MemoryUpdatePair(edgeKey, NamedFactText(written), edge.Text));
                     targets[edgeKey] = (written, written.FactId, edge.Id, item.ReplacementIsCorrection, true);
+                    verdictKeys[edgeKey] = VerdictKey(item);
                     continue;
                 }
                 if (stored is null || stored.InvalidatedAtUtc is not null || !Closable(stored.OwnerId) || stored.FactId == written.FactId)
@@ -215,6 +219,7 @@ internal sealed class JudgedMemoryClosings
                 var key = $"p{pairs.Count + 1}";
                 pairs.Add(new MemoryUpdatePair(key, NamedFactText(written), NamedFactText(stored)));
                 targets[key] = (written, written.FactId, stored.FactId, item.ReplacementIsCorrection, false);
+                verdictKeys[key] = VerdictKey(item);
             }
             foreach (var item in namedPreferences)
             {
@@ -234,6 +239,7 @@ internal sealed class JudgedMemoryClosings
                 var key = $"p{pairs.Count + 1}";
                 pairs.Add(new MemoryUpdatePair(key, written.PreferenceText, stored.PreferenceText));
                 targets[key] = (null, written.PreferenceId, stored.PreferenceId, false, false);
+                verdictKeys[key] = VerdictKey(item);
             }
             foreach (var item in namedRelationships)
             {
@@ -255,11 +261,16 @@ internal sealed class JudgedMemoryClosings
                 var key = $"p{pairs.Count + 1}";
                 pairs.Add(new MemoryUpdatePair(key, text, edge.Text));
                 targets[key] = (null, writtenId, edge.Id, false, true);
+                verdictKeys[key] = VerdictKey(item);
             }
             if (pairs.Count == 0) return;
-            var verdicts = await _policy.EvaluateAsync(
-                new MemoryUpdateRequest(extraction.SourceText.Length > 0 ? extraction.SourceText : null, _clock.GetUtcNow(), pairs) { Named = true },
-                cancellationToken).ConfigureAwait(false);
+            // An applied-once write asked the judge before its transaction opened: no model call while it is open.
+            var verdicts = extraction.PrejudgedNamedVerdicts is { } prejudged
+                ? targets.Keys.Where(key => prejudged.ContainsKey(verdictKeys[key]))
+                    .ToDictionary(key => key, key => prejudged[verdictKeys[key]], StringComparer.Ordinal)
+                : await _policy.EvaluateAsync(
+                    new MemoryUpdateRequest(extraction.SourceText.Length > 0 ? extraction.SourceText : null, extraction.SourceSaidAtUtc ?? _clock.GetUtcNow(), pairs) { Named = true },
+                    cancellationToken).ConfigureAwait(false);
             var closings = 0;
             var closedOnce = new HashSet<string>(StringComparer.Ordinal);
             foreach (var (key, (newFact, winner, loser, correction, edge)) in targets)
@@ -308,20 +319,6 @@ internal sealed class JudgedMemoryClosings
 
         static string NamedFactText(Fact fact) => $"{fact.Subject} | {fact.Predicate} | {fact.Object}";
 
-        // A connection as the judge reads a fact: "Owen Hnatiuk | engaged to | Simone Gagné".
-        static string EdgeText(string source, string type, string target) =>
-            $"{source} | {type.Replace('_', ' ').ToLowerInvariant()} | {target}";
-
-        // A stored relationship the writer named: live, this owner's, with its two ends' names; else null.
-        async Task<(string Id, string Text)?> LiveEdgeAsync(string id)
-        {
-            var stored = await _relationshipRepository.GetByIdAsync(id, cancellationToken).ConfigureAwait(false);
-            if (stored is null || stored.ValidUntil is { } until && until <= _clock.GetUtcNow() || !Closable(stored.OwnerId)) return null;
-            var source = await _entityRepository.GetByIdAsync(stored.SourceEntityId, cancellationToken).ConfigureAwait(false);
-            var target = await _entityRepository.GetByIdAsync(stored.TargetEntityId, cancellationToken).ConfigureAwait(false);
-            return source is null || target is null ? null : (stored.RelationshipId, EdgeText(source.Name, stored.RelationshipType, target.Name));
-        }
-
         // A change's edge ends when the change took effect (with BitemporalChanges, as its fact does), never later than now;
         // a correction's, and a connection's, at once.
         DateTimeOffset EdgeEnd(Fact? winner, bool correction)
@@ -329,5 +326,98 @@ internal sealed class JudgedMemoryClosings
             var now = _clock.GetUtcNow();
             return winner is not null && !correction && _options.BitemporalChanges && ChangedAt(winner, now) is var at && at <= now ? at : now;
         }
+    }
+
+    /// <summary>The stable key of a named replacement's verdict: the item as extracted and the stored memory it names.</summary>
+    internal static string VerdictKey(ExtractedFact item) => $"F|{item.ReplacesId}|{item.Subject}|{item.Predicate}|{item.Object}";
+
+    internal static string VerdictKey(ExtractedPreference item) => $"P|{item.ReplacesId}|{item.PreferenceText}";
+
+    internal static string VerdictKey(ExtractedRelationship item) =>
+        $"R|{item.ReplacesId}|{item.SourceEntity}|{item.RelationshipType}|{item.TargetEntity}";
+
+    private static bool ClosableBy(string? owner, string? ownerId) =>
+        string.IsNullOrEmpty(ownerId) ? string.IsNullOrEmpty(owner) : owner == ownerId;
+
+    // A connection as the judge reads a fact: "Owen Hnatiuk | engaged to | Simone Gagné".
+    private static string EdgeText(string source, string type, string target) =>
+        $"{source} | {type.Replace('_', ' ').ToLowerInvariant()} | {target}";
+
+    /// <summary>A stored relationship the writer named: live, this owner's, with its two ends' names; else null.</summary>
+    private async Task<(string Id, string Text)?> LiveEdgeOfAsync(string id, string? ownerId, CancellationToken cancellationToken)
+    {
+        var stored = await _relationshipRepository.GetByIdAsync(id, cancellationToken).ConfigureAwait(false);
+        if (stored is null || stored.ValidUntil is { } until && until <= _clock.GetUtcNow() || !ClosableBy(stored.OwnerId, ownerId)) return null;
+        var source = await _entityRepository.GetByIdAsync(stored.SourceEntityId, cancellationToken).ConfigureAwait(false);
+        var target = await _entityRepository.GetByIdAsync(stored.TargetEntityId, cancellationToken).ConfigureAwait(false);
+        return source is null || target is null ? null : (stored.RelationshipId, EdgeText(source.Name, stored.RelationshipType, target.Name));
+    }
+
+    /// <summary>
+    /// Applied-once writes (R2): the judge's verdicts on the stored memories the writer named as replaced, asked before the
+    /// store transaction opens, keyed by <see cref="VerdictKey(ExtractedFact)"/>. The same pairs <see cref="CloseNamedAsync"/>
+    /// would ask about, with each new memory as extracted (the transaction has not written it yet). A judge that fails, or
+    /// none, gives no verdicts, so nothing named is closed, as on the ordinary path. Persistence then reads the verdicts
+    /// instead of asking: no model call is made while the transaction is open.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<string, double>> PrejudgeNamedAsync(
+        ExtractionStageResult extraction, string? ownerId, IReadOnlyList<ExtractedFact> facts, IReadOnlyList<ExtractedPreference> preferences,
+        CancellationToken cancellationToken = default)
+    {
+        var verdicts = new Dictionary<string, double>(StringComparer.Ordinal);
+        var asked = new HashSet<string>(StringComparer.Ordinal);
+        var namedFacts = facts.Where(f => !string.IsNullOrWhiteSpace(f.ReplacesId) && asked.Add(f.ReplacesId!)).ToList();
+        var namedPreferences = preferences.Where(p => !string.IsNullOrWhiteSpace(p.ReplacesId) && asked.Add(p.ReplacesId!)).ToList();
+        var namedRelationships = extraction.FilteredRelationships
+            .Where(r => !string.IsNullOrWhiteSpace(r.ReplacesId) && asked.Add(r.ReplacesId!)).ToList();
+        if (namedFacts.Count + namedPreferences.Count + namedRelationships.Count == 0 || !_policy.CanJudgeNamed) return verdicts;
+        var pairs = new List<MemoryUpdatePair>();
+        var keys = new Dictionary<string, string>(StringComparer.Ordinal);
+        void Add(string verdictKey, string newText, string storedText)
+        {
+            var key = $"p{pairs.Count + 1}";
+            pairs.Add(new MemoryUpdatePair(key, newText, storedText));
+            keys[key] = verdictKey;
+        }
+        try
+        {
+            foreach (var item in namedFacts)
+            {
+                var text = $"{item.Subject} | {item.Predicate} | {item.Object}";
+                var stored = await _factRepository.GetByIdAsync(item.ReplacesId!, cancellationToken).ConfigureAwait(false);
+                if (stored is null && await LiveEdgeOfAsync(item.ReplacesId!, ownerId, cancellationToken).ConfigureAwait(false) is { } edge)
+                    Add(VerdictKey(item), text, edge.Text);
+                else if (stored is not null && stored.InvalidatedAtUtc is null && ClosableBy(stored.OwnerId, ownerId))
+                    Add(VerdictKey(item), text, $"{stored.Subject} | {stored.Predicate} | {stored.Object}");
+            }
+            foreach (var item in namedPreferences)
+            {
+                var stored = await _preferenceRepository.GetByIdAsync(item.ReplacesId!, cancellationToken).ConfigureAwait(false);
+                if (stored is not null && stored.InvalidatedAtUtc is null && ClosableBy(stored.OwnerId, ownerId))
+                    Add(VerdictKey(item), item.PreferenceText, stored.PreferenceText);
+            }
+            foreach (var item in namedRelationships)
+            {
+                var text = EdgeText(item.SourceEntity, item.RelationshipType, item.TargetEntity);
+                if (await LiveEdgeOfAsync(item.ReplacesId!, ownerId, cancellationToken).ConfigureAwait(false) is { } edge
+                    && !string.Equals(edge.Text, text, StringComparison.OrdinalIgnoreCase))
+                    Add(VerdictKey(item), text, edge.Text);
+            }
+            if (pairs.Count == 0) return verdicts;
+            var answered = await _policy.EvaluateAsync(
+                new MemoryUpdateRequest(extraction.SourceText.Length > 0 ? extraction.SourceText : null, extraction.SourceSaidAtUtc ?? _clock.GetUtcNow(), pairs) { Named = true },
+                cancellationToken).ConfigureAwait(false);
+            foreach (var (key, probability) in answered)
+                if (keys.TryGetValue(key, out var verdictKey)) verdicts[verdictKey] = probability;
+            _logger.LogInformation("Memory writer: {Pairs} named closing(s) judged before the write; {Answered} answered.",
+                pairs.Count, verdicts.Count);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Memory writer: the judge FAILED before the write ({Error}); nothing the writer named will be closed.", ex.Message);
+            verdicts.Clear();
+        }
+        return verdicts;
     }
 }

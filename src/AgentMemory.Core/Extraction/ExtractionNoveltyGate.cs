@@ -251,7 +251,11 @@ internal static class ExtractionNoveltyGate
     /// <see cref="IsPlainQuestion"/>, the strict rule for skipping (a skipped fact is never formed), and it holds every
     /// plain question: a plain question only asks. False for a turn without a user sentence.
     /// </summary>
-    internal static bool OnlyAsks(IReadOnlyList<Message> turn)
+    internal static bool OnlyAsks(IReadOnlyList<Message> turn) =>
+        // Out of time: not deferred, so the turn is extracted now and nothing it says waits or is lost.
+        BoundedParse.OrElse(() => OnlyAsksCore(turn), false);
+
+    private static bool OnlyAsksCore(IReadOnlyList<Message> turn)
     {
         var sentences = turn
             .Where(message => string.Equals(message.Role, "user", StringComparison.OrdinalIgnoreCase))

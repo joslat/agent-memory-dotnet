@@ -1,0 +1,21 @@
+# The speech-to-speech server on CPU, the baseline: no memory, no database, no AgentMemory library loaded.
+# Start it with recipe.sh (which adds compose.memory.yml when MEMORY=on); see README.md.
+name: ${COMPOSE_PROJECT:-agentmemory-speech}
+
+services:
+  speech:
+    image: ${SERVER_IMAGE:?SERVER_IMAGE is required}
+    command: ["speech-to-speech", "serve", "-f", "/recipe/pipeline.yaml", "--name", "cpu_speech"]
+    environment:
+      S2S_LLM_MODEL: ${S2S_LLM_MODEL:?S2S_LLM_MODEL is required}
+      S2S_LLM_BASE_URL: ${S2S_LLM_BASE_URL:?S2S_LLM_BASE_URL is required}
+    volumes:
+      - ${PIPELINE_FILE:-../cpu_speech.yaml}:/recipe/pipeline.yaml:ro
+      - speech-cache:/root/.cache
+    ports:
+      - ${S2S_PUBLISH:-127.0.0.1:8765}:8765
+    restart: unless-stopped
+
+volumes:
+  speech-cache:
+    name: ${SPEECH_CACHE_VOLUME:-agentmemory-speech-cache}
