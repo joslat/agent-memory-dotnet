@@ -64,8 +64,8 @@ docker run -d --name am-s2s --network "$NETWORK" -v "$CACHE:/root/.cache" -v "$(
   "$IMAGE" "${SERVE[@]}" >/dev/null
 
 START=$(date +%s)
-until docker logs am-s2s 2>&1 | grep -q -i -E "Uvicorn running|Application startup complete|listening on"; do
-  if ! docker ps -q -f name=am-s2s | grep -q .; then docker logs --tail 40 am-s2s; exit 1; fi
+until grep -q -i -E "Uvicorn running|Application startup complete|listening on" <<< "$(docker logs am-s2s 2>&1)"; do
+  if [ -z "$(docker ps -q -f name=am-s2s)" ]; then docker logs --tail 40 am-s2s; exit 1; fi
   if [ $(( $(date +%s) - START )) -gt 900 ]; then echo "server not ready after 900 s"; docker logs --tail 40 am-s2s; exit 1; fi
   sleep 3
 done

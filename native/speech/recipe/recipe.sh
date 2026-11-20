@@ -106,7 +106,8 @@ case "$ACTION" in
       local id since
       id="$(compose ps -q speech 2>/dev/null)"; [ -n "$id" ] || return 1
       since="$(docker inspect -f "{{.State.StartedAt}}" "$id" 2>/dev/null)" || return 1
-      docker logs --since "$since" "$id" 2>&1 | grep -q -E "Uvicorn running|Application startup complete"
+      # The log is read whole, then searched: piped into "grep -q" under pipefail, a long log fails the check (B28).
+      grep -q -E "Uvicorn running|Application startup complete" <<< "$(docker logs --since "$since" "$id" 2>&1)"
     }
     until listening; do
       if [ -z "$(compose ps -q speech --status running 2>/dev/null)" ] && [ $(( $(date +%s) - start )) -gt 20 ]; then

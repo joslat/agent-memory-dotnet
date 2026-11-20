@@ -92,8 +92,13 @@ neo4j_healthy() {
   done; return 1
 }
 
-off_log_has_no_memory() { ! recipe "$OFF" logs speech | grep -q 'memory:'; }
-schema_exited_0() { recipe "$ON" compose ps -a schema --format '{{.State}} {{.ExitCode}}' | tee /dev/stderr | grep -q '^exited 0$'; }
+# A log is read whole before it is searched: "producer | grep -q" under pipefail fails when grep stops reading early
+# (B28), and negated it would pass.
+off_log_has_no_memory() { local log; log="$(recipe "$OFF" logs speech)" || return 1; [ -n "$log" ] && ! grep -q 'memory:' <<< "$log"; }
+schema_exited_0() {
+  local state; state="$(recipe "$ON" compose ps -a schema --format '{{.State}} {{.ExitCode}}')"; echo "$state" >&2
+  grep -q '^exited 0$' <<< "$state"
+}
 rewarmed() {
   for _ in $(seq 1 40); do recipe "$ON" logs speech | grep 'memory: store answers again' && return 0; sleep 2; done
   return 1

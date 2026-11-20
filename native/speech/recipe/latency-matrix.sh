@@ -109,7 +109,7 @@ recipe "$ON" up > "$REPORT/on-up.log" 2>&1 || { cat "$REPORT/on-up.log"; exit 1;
 for round in 1 2 3; do
   since="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   recipe "$ON" compose restart speech > /dev/null 2>&1
-  until recipe "$ON" compose logs --since "$since" speech 2>&1 | grep -q "Uvicorn running"; do sleep 2; done
+  until grep -q "Uvicorn running" <<< "$(recipe "$ON" compose logs --since "$since" speech 2>&1)"; do sleep 2; done
   client "cold-$round" "$WORK"
 done
 # shellcheck disable=SC2046

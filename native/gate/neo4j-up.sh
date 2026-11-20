@@ -25,7 +25,7 @@ MSYS_NO_PATHCONV=1 docker run -d --name "$NAME" --network "$NETWORK" --network-a
   neo4j:5.26 >/dev/null
 
 for _ in $(seq 1 90); do
-  if docker logs "$NAME" 2>&1 | grep -q "Started\."; then echo "ready: $NAME on 127.0.0.1:${HOST_PORT} (alias neo4j on $NETWORK)"; exit 0; fi
+  if grep -q "Started\." <<< "$(docker logs "$NAME" 2>&1)"; then echo "ready: $NAME on 127.0.0.1:${HOST_PORT} (alias neo4j on $NETWORK)"; exit 0; fi
   sleep 2
 done
 echo "Neo4j did not start in 180 s"; docker logs --tail 20 "$NAME"; exit 1

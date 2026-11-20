@@ -22,6 +22,7 @@ file and each with its own gate passed:
 | `Dockerfile.schema` | The schema step: the managed AgentMemory command line on the .NET runtime |
 | `build-images.sh` | Builds both images from exact inputs |
 | `recipe-test.sh`, `compose.test*.yml` | The acceptance test |
+| `test-readiness.sh` | A regression test for `up`'s readiness wait, with a stand-in `docker` (no Docker needed) |
 
 ## Build the images
 
@@ -149,3 +150,10 @@ checks: memory off (no database, replies without memory, no memory activity); me
 vector indexes, warm-up, answers from memory, graph unchanged by recall); a restart with the memory kept; the database
 stopped (turns still answered within 3 s, server running) and back (re-warm, recall again without a restart); a damaged
 library refused with the reason and what to do; no recalled evidence in the server log.
+
+```bash
+native/speech/recipe/test-readiness.sh
+```
+
+Checks that `up` sees a server that is already running, with a long log, as listening at once (it used to wait until
+its timeout: a log piped into `grep -q` fails under `pipefail` when grep stops reading early).
