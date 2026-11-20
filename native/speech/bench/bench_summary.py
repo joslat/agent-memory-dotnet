@@ -1,4 +1,4 @@
-"""Summarizes bench-run.sh (SPEECH_BENCH_PLAN.md). Usage: python bench_summary.py <report-dir> <llm> <embedder> <writer>
+"""Summarizes bench-run.sh (the speech benchmark: three arms over a spoken development corpus). Usage: python bench_summary.py <report-dir> <llm> <embedder> <writer>
 
 Every question turn is scored by deterministic predicates from gold.json (words an answer must or must not hold);
 store checks come from the memory arm's own counts. Denominators are kept: selected, completed, scored, failed. Writes
@@ -61,9 +61,9 @@ def misheard(cluster_dir: pathlib.Path, cid: str) -> bool:
 
 
 def check(rule: dict, reply: str, said_at: datetime.date) -> bool | None:
-    if rule.get("control"):
-        return bool(reply.strip())
     ok = True
+    if rule.get("control"):  # a reply, holding none of the cluster's told words (and the forbid rules below)
+        ok = bool(reply.strip())
     if "expect" in rule:
         ok = ok and any(has(reply, w) for w in rule["expect"])
     if "forbid" in rule:
@@ -96,10 +96,15 @@ for arm in order:
                 result = turns[turn - 1] if len(turns) >= turn else {}
                 completed = result.get("status") == "completed"
                 reply = result.get("reply") or ""
-                rows.append({"arm": arm, "repeat": rep_dir.name, "cluster": cid, "category": corpus[cid]["category"],
-                             "question": key, "control": bool(rule.get("control")), "completed": completed,
-                             "pass": check(rule, reply, said_at) if completed else None,
-                             "first_audio_s": result.get("client_first_audio_s"), "misheard": heard_wrong})
+                row = {"arm": arm, "repeat": rep_dir.name, "cluster": cid, "category": corpus[cid]["category"],
+                       "question": key, "control": bool(rule.get("control")), "completed": completed,
+                       "pass": check(rule, reply, said_at) if completed else None,
+                       "first_audio_s": result.get("client_first_audio_s"), "misheard": heard_wrong}
+                if rule.get("control"):  # a missing reply is harm; a told word in it is an intrusion
+                    row["answered"] = completed and bool(reply.strip())
+                    row["intruded"] = completed and not check({k: v for k, v in rule.items() if k != "control"}, reply,
+                                                              said_at)
+                rows.append(row)
             if arm == "memory" and store:
                 live = number(cluster_dir / "memories.txt")
                 if "memories_after" in store:
@@ -147,7 +152,7 @@ def p(values: list[float], q: float) -> str:
 
 
 print(f"# SPEECH-BENCH, development corpus\n\nConversation model {llm}, embeddings {embedder}, writer {writer}. Every turn "
-      "spoken (Kokoro in, Parakeet out). A capability study, not the release gate (SPEECH_BENCH_PLAN.md).\n")
+      "spoken (Kokoro in, Parakeet out). A capability study on fictional templates, not a release study.\n")
 print("## Effective success on questions that need memory (categories 1-7)\n")
 print("| Arm | Selected | Completed | Passed | Failed to complete | Effective success |\n|---|---|---|---|---|---|")
 for arm in order:
@@ -177,14 +182,28 @@ for a, b in (("off", "memory"), ("oracle", "memory"), ("off", "oracle")):
         mean, low, high = bootstrap(success[a], success[b])
         print(f"- {b} minus {a}: {mean:+.1%} (95% interval {low:+.1%} to {high:+.1%}), "
               f"{len(set(success[a]) & set(success[b]))} clusters")
-print("\n## Controls (no memory needed): replies that went missing with memory on\n")
-off_controls = {(r["cluster"], r["repeat"], r["question"]): r["pass"] for r in rows if r["arm"] == "off" and r["control"]}
-for arm in [a for a in order if a != "off"]:
-    harmed = [k for k, ok in off_controls.items() if ok and not next(
-        (r["pass"] for r in rows if r["arm"] == arm and (r["cluster"], r["repeat"], r["question"]) == k), False)]
-    n = len(off_controls)
-    bound = 1 - 0.025 ** (1 / n) if n else float("nan")
-    print(f"- {arm}: {len(harmed)} harmed of {n} control turns (zero harmed: exact 95% upper bound {bound:.1%})")
+print("\n## Controls (a turn that needs no memory: a greeting, small talk)\n")
+print("Harm: memory off answered the control turn and the arm gave no reply. Intrusion: the reply holds one of the "
+      "conversation's told words (or obeys a told instruction) in a turn that did not ask for it. Both count "
+      "conversations, not repeats.\n")
+off_answered = {(r["cluster"], r["repeat"], r["question"]) for r in rows
+                if r["arm"] == "off" and r["control"] and r.get("answered")}
+for arm in order:
+    mine = [r for r in rows if r["arm"] == arm and r["control"]]
+    answered = sum(1 for r in mine if r.get("answered"))
+    intruded = sorted({r["cluster"] for r in mine if r.get("intruded")})
+    conversations = len({r["cluster"] for r in mine})
+    line = f"- {arm}: {answered} of {len(mine)} control turns answered"
+    if arm != "off" and off_answered:
+        harmed = sorted({r["cluster"] for r in mine
+                         if (r["cluster"], r["repeat"], r["question"]) in off_answered and not r.get("answered")})
+        n = len({k[0] for k in off_answered})
+        bound = 1 - 0.025 ** (1 / n) if n else float("nan")
+        line += (f"; harm in {len(harmed)} of {n} conversations"
+                 + (f" ({', '.join(harmed)})" if harmed else f" (zero: exact 95% upper bound {bound:.1%})"))
+    line += f"; intrusions in {len(intruded)} of {conversations} conversations" + (
+        f" ({', '.join(intruded)})" if intruded else "")
+    print(line)
 print("\n## Invariants (memory arm; any failure is a blocker)\n")
 for category, label in ((8, "forget"), (10, "nothing learned from questions, assent, greetings"),
                         (11, "a write killed mid-run is stored once and answered"), (12, "instruction-like memory not obeyed")):
@@ -205,5 +224,14 @@ misses = len(re.findall(r"missed its deadline", log))
 if recalls or misses:
     print(f"\nRecall in the memory arm: {len(recalls)} in time (p50 {statistics.median(recalls):.0f} ms, p95 "
           f"{p([float(x) for x in recalls], 0.95)} ms), {misses} missed the 450 ms deadline.")
+tally = json.loads(read(root / "writer-calls.json", "null") or "null")
+if tally:
+    kinds = {}
+    for call in (c for c in tally["log"] if c["status"] != 429):
+        kinds[call["kind"]] = kinds.get(call["kind"], 0) + 1
+    print(f"\nPaid writer calls, measured by the proxy: {tally['calls']} made ("
+          + ", ".join(f"{k} {n}" for k, n in sorted(kinds.items())) + f"), {tally['failed']} failed, "
+          f"{tally['refused']} refused at the cap of {tally['max_calls']}; {tally['input_tokens']:,} input and "
+          f"{tally['output_tokens']:,} output tokens.")
 (root / "bench-results.json").write_text(json.dumps({"llm": llm, "embedder": embedder, "writer": writer, "rows": rows},
                                                     indent=1), encoding="utf-8")

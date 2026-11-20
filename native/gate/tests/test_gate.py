@@ -437,7 +437,7 @@ class Test6Embeddings(unittest.TestCase):
 
 
 class Test8ReviewFindings(unittest.TestCase):
-    """The G-AOT review's findings B7-B15, each tested at its trigger (BUGS_AND_RCA.md in the design folder)."""
+    """The G-AOT review's findings B7-B15, each tested at its trigger."""
 
     def test_b7_cancelling_async_calls_at_any_point_leaks_no_job(self):
         """Leaked handles stay in the job table forever, and past 257 of them every submit is refused. A cancelled

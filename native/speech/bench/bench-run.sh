@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# SPEECH-BENCH: the development corpus spoken through the recipe, in three arms (SPEECH_BENCH_PLAN.md):
+# SPEECH-BENCH: the development corpus (corpus.py) spoken through the recipe, in three arms:
 #   off     memory off
 #   oracle  memory off, the cluster's gold memories written into the instructions (the Reachy app's local-memory format)
 #   memory  AgentMemory, profile learning, learning unasked on; a fresh memory per cluster (the operator's erase)
 # Usage: native/speech/bench/bench-run.sh <report-dir> <server-image> <schema-image>
 #   ARMS (default "off oracle memory"), REPEATS (default 1), CLUSTERS (default all; e.g. "first" = one per category,
-#   or "c03-1,c11-2"), WRITER (stub: the scripted writer, no paid call; real: WRITER_URL, WRITER_MODEL, WRITER_API_KEY_ENV),
+#   or "c03-1,c11-2"), WRITER (stub: the scripted writer, no paid call; real: WRITER_URL, WRITER_MODEL, WRITER_API_KEY_ENV,
+#   MAX_WRITER_CALLS (default 60), through writer_meter.py),
 #   LLM_MODEL (default llama3.2:3b), EMBED_MODEL (default bge-m3), EMBED_DIMENSIONS (1024),
 #   MODEL_HOST (default http://host.docker.internal:11434)
 set -uo pipefail
@@ -22,6 +23,7 @@ export MSYS_NO_PATHCONV=1
 PROJECT=am-bench
 PUBLISH=127.0.0.1:18773
 STUB_PORT=18802
+METER_PORT=18803
 PRIVATE="$REPORT/private"
 SETTINGS="$PRIVATE/bench.env"
 PASSWORD="$(python -I -c "import secrets, string; print(''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(24)))")"
@@ -40,9 +42,17 @@ rm -f "$REPORT"/speech-*.log
 
 echo "== corpus and fixtures"
 python -I "$(win "$HERE/corpus.py")" "$(win "$REPORT/corpus")"
-if [ ! -s "$REPORT/fixtures/u001.wav" ]; then
+# Fixture names follow the corpus's order, so spoken files are reused only for the exact same list of utterances.
+utterances="$(python -I -c "import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], 'rb').read()).hexdigest())" \
+  "$(win "$REPORT/corpus/utterances.json")")"
+if [ "$(cat "$REPORT/fixtures/utterances.sha256" 2>/dev/null)" != "$utterances" ]; then
+  rm -rf "$REPORT/fixtures"
   docker run --rm -v am-s2s-cache:/root/.cache -v "$(win "$SPEECH"):/speech:ro" -v "$(win "$REPORT"):/out" "$SERVER_IMAGE" \
     python3 /speech/make_fixtures.py /out/fixtures /out/corpus/utterances.json > "$REPORT/fixtures.log" 2>&1
+  want="$(python -I -c "import json, sys; print(len(json.load(open(sys.argv[1]))))" "$(win "$REPORT/corpus/utterances.json")")"
+  have="$(ls "$REPORT/fixtures" 2>/dev/null | grep -c '\.wav$')"
+  [ "$have" = "$want" ] || { echo "fixtures: $have of $want made"; tail -5 "$REPORT/fixtures.log"; exit 1; }
+  echo "$utterances" > "$REPORT/fixtures/utterances.sha256"
 fi
 echo "  $(ls "$REPORT/fixtures" | grep -c '\.wav$') fixtures"
 SELECTED="$(python -I - "$(win "$REPORT/corpus/corpus.json")" "$CLUSTERS" <<'EOF'
@@ -69,8 +79,15 @@ if [ "$WRITER" = stub ]; then
   STUB_PID=$!
   WRITER_URL="http://host.docker.internal:$STUB_PORT/v1/chat/completions"; WRITER_MODEL="writer-stub"; WRITER_KEY=""
 else
-  : "${WRITER_URL:?}" "${WRITER_MODEL:?}"
-  WRITER_KEY="${WRITER_API_KEY_ENV:+${!WRITER_API_KEY_ENV}}"
+  # The paid writer is reached through a counting proxy that holds the key: the server gets none, and every call and
+  # its tokens are measured (writer-calls.json); calls beyond MAX_WRITER_CALLS are refused.
+  : "${WRITER_URL:?}" "${WRITER_MODEL:?}" "${WRITER_API_KEY_ENV:?}"
+  python -I "$(win "$HERE/writer_meter.py")" "$WRITER_URL" "$WRITER_API_KEY_ENV" "$METER_PORT" "${MAX_WRITER_CALLS:-60}" \
+    "$(win "$REPORT/writer-calls.json")" > "$REPORT/writer-meter.log" 2>&1 &
+  STUB_PID=$!
+  sleep 2
+  kill -0 "$STUB_PID" 2>/dev/null || { cat "$REPORT/writer-meter.log"; exit 1; }
+  WRITER_URL="http://host.docker.internal:$METER_PORT/v1/chat/completions"; WRITER_KEY=""
 fi
 
 settings() { # <arm>
@@ -163,7 +180,7 @@ EOF
           session "$dir/s$k" "$instructions" $rest &
           local client=$! result="the write ended before the kill"
           for _ in $(seq 1 600); do
-            if journal_last | grep -q '"kind":"running"'; then
+            if grep -q '"kind":"running"' <<< "$(journal_last)"; then
               docker kill "$(recipe compose ps -q speech)" > /dev/null 2>&1; result="killed while running"; break
             fi
             kill -0 "$client" 2>/dev/null || break
