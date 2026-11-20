@@ -46,6 +46,7 @@ SPEECH_CACHE_VOLUME=am-s2s-cache
 COMPOSE_PROJECT=$PROJECT
 STATE_DIR=$PRIVATE/state
 TEST_BOLT_PORT=$BOLT_PORT
+TEST_REPORT_DIR=$(win "$REPORT")
 COMPOSE_EXTRA="$extra"
 EOF
   )
@@ -120,6 +121,12 @@ from reachy_mini_conversation_app.memory_routes import _server_memory_status
 status = asyncio.run(_server_memory_status())
 print("reachy app sees:", status)
 raise SystemExit(0 if status.get("reachable") and status.get("enabled") and status.get("state") == "ready" else 1)'
+}
+model_never_saw_owner_b() { # the gate's owner-B values; this server is bound to owner A
+  test -s "$REPORT/llm-requests.jsonl" || return 1
+  grep -c . "$REPORT/llm-requests.jsonl"
+  grep -q 'user works in Zurich' "$REPORT/llm-requests.jsonl" || return 1  # owner A's evidence did reach it
+  ! grep -q -E 'Barcelona|Prefers detailed answers' "$REPORT/llm-requests.jsonl"
 }
 warm_up_logged() { recipe "$ON" logs speech | grep 'memory: warm-up recall'; }
 vector_indexes_of_8() {
@@ -202,6 +209,7 @@ check "damaged: the log says why and what to do" bash -c "grep -q 'AgentMemory c
 
 echo "== logs"
 speech_log > "$REPORT/speech.log" 2>&1
+check "isolation: owner B's facts never reached the model" model_never_saw_owner_b
 check "logs: no recalled evidence block in the server log" bash -c "! grep -q -F '[memory]' '$REPORT/speech.log' && ! grep -q 'Things remembered about the user' '$REPORT/speech.log'"
 grep -h "memory:" "$REPORT/speech.log" | sed -E 's/^[^|]*\| //' > "$REPORT/memory-lines.log"
 

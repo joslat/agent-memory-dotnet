@@ -3,8 +3,11 @@ services:
   model:
     image: ${SERVER_IMAGE}
     command: ["python3", "/speech/llm_stub.py", "8000"]
+    environment:
+      LLM_STUB_LOG: /out/llm-requests.jsonl
     volumes:
       - ../:/speech:ro
+      - ${TEST_REPORT_DIR:?TEST_REPORT_DIR is required}:/out
   speech:
     depends_on:
       model: {condition: service_started}
