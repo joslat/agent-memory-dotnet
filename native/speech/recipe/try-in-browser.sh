@@ -44,8 +44,10 @@ case "$ACTION" in
     echo "== the recipe"
     recipe up
     stop_ui
-    # The browser opens the WebSocket itself, so the address is this computer's localhost.
-    ( cd "$CHECKOUT" && SPEECH_TO_SPEECH_URL="${UI_SERVER_URL:-ws://localhost:$PORT/v1/realtime}" \
+    # The browser opens the WebSocket itself, so the address is this computer's: 127.0.0.1, where the server is
+    # published, not "localhost". A browser tries localhost's IPv6 address (::1) first; nothing listens there, and on
+    # Windows giving up on it takes about 2 seconds, as long as the page allows its check of the server's voices.
+    ( cd "$CHECKOUT" && SPEECH_TO_SPEECH_URL="${UI_SERVER_URL:-ws://127.0.0.1:$PORT/v1/realtime}" \
         nohup "$PY" -m uvicorn --app-dir demo server:app --host 127.0.0.1 --port 7860 > "$LOG" 2>&1 & echo $! > "$PIDFILE" )
     ui_up() { [ "$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 http://127.0.0.1:7860/)" = 200 ]; }
     for _ in $(seq 1 30); do ui_up && break; sleep 2; done

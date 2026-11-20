@@ -1,8 +1,13 @@
-# Opt-in, for trying the recipe by hand: Neo4j's own browser and its Bolt port on this computer only (127.0.0.1), so
+# Opt-in, for trying the recipe by hand in a browser. The voice UI's page may read the speech server's voices.
+# Neo4j's own browser and its Bolt port on this computer only (127.0.0.1), so
 # you can watch the memories form while you talk. Ports 17474 and 17687, so a developer Neo4j already on 7474/7687 is
 # left alone. Not for a shared machine: anyone on it who knows the password can read the memory. try-in-browser.sh adds
 # this file through COMPOSE_EXTRA.
 services:
+  # The voice UI's page (port 7860) may read the speech server's capabilities: its voices and languages.
+  speech:
+    environment:
+      S2S_CAPABILITIES_ALLOWED_ORIGINS: http://localhost:7860,http://127.0.0.1:7860
   neo4j:
     ports:
       - "127.0.0.1:17474:7474"

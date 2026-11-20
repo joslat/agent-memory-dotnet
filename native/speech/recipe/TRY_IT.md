@@ -87,8 +87,11 @@ file. In the voice UI's Settings:
 - **Camera tool: off** unless your conversation model handles tools well: a small model may speak a tool call aloud
   instead of making it.
 
-The UI's default voice ("Aiden") is a Qwen3-TTS voice;
-with Kokoro the server falls back to its own voice, which is harmless.
+- **Voice:** the menu lists the voices of the server's speech engine, which the server reports (a speech server
+  with the voice list; `compose.inspect.yml` lets the UI's page read it). With Kokoro: 54 voices grouped by the
+  language each was made for. An English reply uses the voice you pick; a reply in another language uses that
+  language's voice unless yours belongs to it. Against a server without the voice list the menu shows Qwen3-TTS
+  speakers, which Kokoro cannot load (it falls back to its own voice).
 
 ## 4. Things to try
 

@@ -3,7 +3,8 @@
 Clients connect to the tap instead of the server; every event in both directions is passed through unchanged and
 logged as one line: the time, the direction (client>server or server>client), the event type and, for the events
 that configure or explain a session (session.*, error, response.done, transcription and transcript events), the
-event itself with audio payloads replaced by their size. Audio chunks are counted, never logged.
+event itself with audio payloads replaced by their size. Audio chunks are counted, never logged. Plain HTTP reads (the
+page asks the server which voices and languages it has) are forwarded too, and logged with their status.
 
 Usage: python realtime_tap.py <server ws URL, e.g. ws://127.0.0.1:18765> <port> <log file>
 """
@@ -13,8 +14,13 @@ import asyncio
 import json
 import sys
 import time
+import urllib.error
+import urllib.request
+from http import HTTPStatus
 
 import websockets
+from websockets.datastructures import Headers
+from websockets.http11 import Response
 
 SERVER, PORT, LOG = sys.argv[1].rstrip("/"), int(sys.argv[2]), sys.argv[3]
 SHOWN = ("session.", "error", "response.done", "response.created", "conversation.item.input_audio_transcription",
@@ -71,8 +77,36 @@ async def handle(client) -> None:
         log("tap", json.dumps({"type": "connection closed"}))
 
 
+def fetch(path: str, origin: str | None) -> tuple[int, bytes, list[tuple[str, str]]]:
+    url = SERVER.replace("ws://", "http://", 1).replace("wss://", "https://", 1) + path
+    request = urllib.request.Request(url, headers={"Origin": origin} if origin else {})
+    try:
+        with urllib.request.urlopen(request, timeout=5) as answer:
+            status, body, headers = answer.status, answer.read(), answer.headers
+    except urllib.error.HTTPError as error:
+        status, body, headers = error.code, error.read(), error.headers
+    kept = [(k, v) for k, v in headers.items() if k.lower() in ("content-type", "access-control-allow-origin", "vary")]
+    return status, body, kept
+
+
+async def forward_http(connection, request):
+    """A plain HTTP read (the page's capability check: its voices and languages) goes to the server too, with the
+    page's Origin, so the server's own allowed-origins rule decides. WebSocket upgrades pass on to handle()."""
+    if request.headers.get("Upgrade", "").lower() == "websocket":
+        return None
+    try:
+        status, body, kept = await asyncio.to_thread(fetch, request.path, request.headers.get("Origin"))
+    except OSError as error:
+        log("tap", json.dumps({"type": f"http {request.path} failed: {type(error).__name__}: {error}"}))
+        return connection.respond(502, f"{type(error).__name__}: {error}\n")
+    log("tap", json.dumps({"type": f"http {request.path} -> {status}"}))
+    headers = Headers(kept)
+    headers["Content-Length"] = str(len(body))
+    return Response(status, HTTPStatus(status).phrase, headers, body)
+
+
 async def main() -> None:
-    async with websockets.serve(handle, "127.0.0.1", PORT, max_size=None):
+    async with websockets.serve(handle, "127.0.0.1", PORT, max_size=None, process_request=forward_http):
         print(f"realtime tap on ws://127.0.0.1:{PORT} -> {SERVER}", flush=True)
         await asyncio.Future()
 
