@@ -26,7 +26,7 @@ The contract is for any host: an agent, an agent framework (LangChain, LangGraph
 
 | Property | Meaning |
 |---|---|
-| `profile` | `read_only` is the only profile of version 1.0: recall of facts and preferences, no writes of any kind (no access stamps, no working-memory rebuild). |
+| `profile` | `read_only`: recall of facts and preferences, no writes of any kind (no access stamps, no working-memory rebuild). `explicit_write`: the same recall, plus remembering the owner's own words through a durable journal (see [Explicit writes](#explicit-writes-profile-explicit_write)). |
 | `owner.mode` | `fixed`: every request reads this one owner, and a request that names an owner is refused (the speech server: one configured owner). `per_request`: every request must name its owner (a multi-user application whose own trusted code knows who is asking). Recall without an owner is refused in both modes. |
 | `store` | The Neo4j connection. The password is used to connect and never written to a result or an error. `verifyConnectivity` (default `true`) makes `am_v1_open` fail at once on a wrong address or password. |
 | `embedding` | `dimensions` must match the store's vector index; `model` names the embedding model that made the stored vectors (the store does not record it, so it cannot be verified). Optional `endpoint` `{ "url", "apiKey", "timeoutMs" }`: an OpenAI-compatible `/v1/embeddings` URL (Ollama, llama.cpp, vLLM, OpenAI) that the library asks for `model` vectors, so requests may send `query` text; every vector it returns must have `dimensions` numbers. The API key is sent only to that URL. |
@@ -102,3 +102,67 @@ Recall reads the owner's own memory only (shared memory excluded), at the curren
 | `error` | Anything else; `error.code` and `error.message` say what. |
 
 Every status other than `ok` carries `"error": {"code": "…", "message": "…"}`. Metadata is returned exactly as stored. Results never contain vectors, passwords or stack traces.
+
+## Explicit writes (profile `explicit_write`)
+
+The owner says "remember that …", and the host can tell truthfully whether it was saved, is being saved, failed, or is uncertain. Writes go through one durable journal per state directory; one writer runs them in acceptance order.
+
+Configuration, in addition to the read-only properties:
+
+```json
+{
+  "profile": "explicit_write",
+  "owner": { "mode": "fixed", "id": "owner-1" },
+  "embedding": { "dimensions": 1024, "model": "bge-m3",
+                 "endpoint": { "url": "http://ollama:11434/v1/embeddings" } },
+  "writer": { "model": "llama3.2:3b",
+              "endpoint": { "url": "http://ollama:11434/v1/chat/completions", "apiKey": "…", "timeoutMs": 60000 } },
+  "state": { "directory": "/var/lib/agentmemory" },
+  "limits": { "maxQueuedWrites": 16 }
+}
+```
+
+| Property | Meaning |
+|---|---|
+| `owner.mode` | Must be `fixed`: one configured owner writes. |
+| `embedding.endpoint` | Required: the library embeds what it writes. |
+| `writer` | The model that turns the owner's words into facts and preferences: any OpenAI-compatible `/v1/chat/completions` endpoint. It runs AgentMemory's store-aware writer (it sees the owner's most relevant stored memories, so a change replaces what it changes), with no fallback to other extractors, the update judge on, and entity identity off; no setting turns identity on. `timeoutMs` (default 60000) bounds one model call. |
+| `state.directory` | An absolute path. The library creates it (mode 0700) and keeps the journal there (`journal.jsonl`, mode 0600), held with an exclusive lock: a second open of the same directory, in this process or another, returns `AM_V1_BUSY` with code `state_locked`. A journal damaged before its last line refuses the open (`journal_corrupt`); an unfinished last line (an append that never returned) is cut off. |
+| `limits.maxQueuedWrites` | The most writes accepted and not yet finished (default 16); past it, `memory_remember` is refused with `write_queue_full` and nothing is accepted. |
+
+### `memory_remember`
+
+```json
+{"schemaVersion": 1, "operation": "memory_remember", "requestId": "r-7",
+ "sourceId": "local-demo/session-3/item-17/rev-1", "sessionId": "session-3",
+ "text": "Please remember that I prefer concise answers.", "occurredAt": "2026-11-20T10:00:00Z"}
+```
+
+`sourceId` (up to 256 characters) is the host's stable identity for this spoken item and revision. The same `sourceId` with the same session, text and time returns the existing receipt (`duplicate: true`) and runs nothing, which is the right retry after a lost answer; the same `sourceId` with anything else changed is refused as `source_conflict`. `occurredAt` is when the words were said, with an explicit offset: dates the words state are read against it. No request may name an owner.
+
+The job ends when the write ends or the job's time runs out. From the moment the write is accepted (durably appended to the journal), every result is a receipt with `status: "ok"`, even when the caller stops waiting, cancels, or the context closes: the write goes on without the job. A result without a receipt means nothing was accepted: `invalid` (the request), or `unavailable` with `journal_unavailable`, `write_queue_full` or `closing`.
+
+### Receipts
+
+```json
+{"schemaVersion": 1, "operation": "memory_remember", "requestId": "r-7", "status": "ok",
+ "receipt": {"operationId": "op-…", "sourceId": "local-demo/session-3/item-17/rev-1", "duplicate": false,
+             "state": "applied", "reason": null, "searchable": true,
+             "occurredAt": "…", "acceptedAt": "…", "startedAt": "…", "finishedAt": "…",
+             "facts": [], "preferences": ["…"], "closed": []},
+ "timing": {"queuedMs": 0, "runMs": 2140}}
+```
+
+| State | Meaning | Recall |
+|---|---|---|
+| `accepted` | Durable, waiting for the writer. Survives a crash and runs after the next open. | Paused |
+| `running` | The writer is working on it. | Paused |
+| `applied` | Done and verified: every fact and preference the store links to the remembered message is live, owned by the owner and embedded with the store's dimensions. `searchable` is true when there is at least one; an applied write with none (`reason: "nothing_to_keep"`) stored nothing to recall. Only this state supports saying "remembered". | Open |
+| `rejected` | It failed, and the store shows nothing recall reads came from it; `reason` says why (`model_unavailable`, `model_gave_no_usable_reply`, …). Submit again under a new `sourceId` to try again. | Open |
+| `partial` | Some of it was written, but not everything succeeded or verified. | Paused until resolved |
+| `unknown` | The store failed while writing (a transaction may still commit), the evidence could not be read, or the process ended while it ran. It is never run again. | Paused until resolved |
+| `kept` | A partial or unknown write resolved by keeping what it wrote, as it is (not verified). | Open |
+
+`closed` lists the stored memories this write replaced (the update judge confirmed each one). `memory_operation_get` takes `operationId` or `sourceId` and returns the same receipt. `memory_operation_resolve` takes `operationId` and `"resolution": "keep"`; removing what a write produced arrives with the privacy controls.
+
+While any write is accepted, running, partial or unknown, `memory_get_context` ends `unavailable` with `reads_paused`, and `am_v1_state` reports `READ_ALLOWED` off; `WRITE_QUIESCENT` is off while one is accepted or running. Closing never interrupts a running write: `am_v1_close` returns `AM_V1_BUSY` until it ends; writes still accepted run after the next open. The journal holds the remembered words (they are the evidence) and nothing is logged.

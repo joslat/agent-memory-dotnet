@@ -1,6 +1,7 @@
 using AgentMemory.Native.Abi;
 using AgentMemory.Native.Composition;
 using AgentMemory.Native.Contract;
+using AgentMemory.Native.Journal;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -23,16 +24,21 @@ internal sealed class NativeContext
     private readonly TaskCompletionSource _closingSignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly ServiceProvider _provider;
     private readonly IEmbeddingGenerator<string, Embedding<float>>? _embeddings;
+    private readonly WriteCoordinator? _writes;
+    private readonly OperationJournal? _journal;
     private bool _closing;
     private ulong _stateRevision = 1;
 
     public NativeContext(ulong handle, OpenConfig config, ServiceProvider provider,
-        IEmbeddingGenerator<string, Embedding<float>>? embeddings = null)
+        IEmbeddingGenerator<string, Embedding<float>>? embeddings = null, WriteCoordinator? writes = null,
+        OperationJournal? journal = null)
     {
         Handle = handle;
         Config = config;
         _provider = provider;
         _embeddings = embeddings;
+        _writes = writes;
+        _journal = journal;
         _running = new SemaphoreSlim(config.MaxRunningJobs, config.MaxRunningJobs);
     }
 
@@ -114,11 +120,33 @@ internal sealed class NativeContext
             CapabilitiesRequest => ResultWriter.Capabilities(request.RequestId, Config, ContextRegistry.LibraryVersion, job.Timing()),
             GetContextRequest recall => ResultWriter.Context(
                 recall.RequestId, await RecallAsync(recall, token).ConfigureAwait(false), job.Timing()),
+            RememberRequest remember => await RememberAsync(remember, job, token).ConfigureAwait(false),
+            OperationGetRequest get => _writes!.Find(get.OperationId, get.SourceId) is { } found
+                ? ResultWriter.Receipt(OperationGetRequest.Name, get.RequestId, found, duplicate: false, job.Timing())
+                : throw new ContractException("operation_not_found", "No operation with that id is in this journal."),
+            OperationResolveRequest resolve => ResultWriter.Receipt(OperationResolveRequest.Name, resolve.RequestId,
+                _writes!.Keep(resolve.OperationId), duplicate: false, job.Timing()),
             _ => throw new ContractException("unknown_operation", $"Operation '{request.Operation}' is not offered."),
         };
 
+    /// <summary>
+    /// Accepts the words durably (or finds the earlier acceptance of the same source), then waits for the operation to
+    /// end. From acceptance on, a job that stops waiting (deadline, cancel, close) still delivers the receipt.
+    /// </summary>
+    private async Task<byte[]> RememberAsync(RememberRequest request, NativeJob job, CancellationToken token)
+    {
+        var (operation, duplicate) = _writes!.Admit(request.SourceId, request.SessionId, request.Text, request.OccurredAt);
+        byte[] Receipt() => ResultWriter.Receipt(RememberRequest.Name, request.RequestId, _writes.Snapshot(operation), duplicate, job.Timing());
+        job.SetStoppedResult(Receipt);
+        await operation.Ended.Task.WaitAsync(token).ConfigureAwait(false);
+        return Receipt();
+    }
+
     private async Task<Abstractions.Domain.MemoryContext> RecallAsync(GetContextRequest recall, CancellationToken token)
     {
+        // Recall quarantine: while a write is accepted, running, partial or unknown, the owner's memory may be changing.
+        if (_writes is { ReadAllowed: false })
+            throw new ReadsPausedException();
         // Query text is embedded here, not inside the library, so a failed or wrong-sized embedding is reported as such
         // instead of becoming an empty recall.
         var vector = recall.QueryVector;
@@ -152,6 +180,8 @@ internal sealed class NativeContext
         InvalidOperationException when exception.Message == RefusingEmbeddingGenerator.Message =>
             ("error", "embedding_required", exception.Message),
         ContractException contract => ("invalid", contract.Code, contract.Message),
+        ReadsPausedException => ("unavailable", "reads_paused", exception.Message),
+        JournalException journal => ("unavailable", journal.Code, journal.Message),
         _ => ("error", "internal", $"{exception.GetType().Name}: {exception.Message}"),
     };
 
@@ -195,12 +225,28 @@ internal sealed class NativeContext
         lock (_gate)
         {
             stateRevision = _stateRevision;
-            // Read-only profile: no admission, and no effect-capable work exists, so writes are always quiescent.
-            flags = StateFlags.WriteQuiescent | (_closing ? StateFlags.Closing : StateFlags.ReadAllowed);
+            if (_writes is null)
+            {
+                // Read-only profile: no admission, and no effect-capable work exists, so writes are always quiescent.
+                flags = StateFlags.WriteQuiescent | (_closing ? StateFlags.Closing : StateFlags.ReadAllowed);
+                return;
+            }
+            flags = (_writes.WriteQuiescent ? StateFlags.WriteQuiescent : 0)
+                | (_closing ? StateFlags.Closing : StateFlags.AdmissionAllowed | (_writes.ReadAllowed ? StateFlags.ReadAllowed : 0));
         }
     }
 
-    /// <summary>Stops admission and asks every unsettled job to stop. True when no work is left running.</summary>
+    /// <summary>A write changed state: the snapshot's revision moves, so a host polling state sees it.</summary>
+    public void BumpRevision()
+    {
+        lock (_gate) _stateRevision++;
+    }
+
+    /// <summary>
+    /// Stops admission and asks every unsettled job to stop. True when no work is left running. A write that is running
+    /// is never interrupted (half a write is worse than a whole one): close stays busy until it ends; writes still queued
+    /// stay accepted in the journal and run after the next open.
+    /// </summary>
     public bool BeginClose()
     {
         List<NativeJob> running;
@@ -212,20 +258,22 @@ internal sealed class NativeContext
                 _stateRevision++;
                 _closingSignal.TrySetResult();
             }
-            if (_active.Count == 0) return true;
             running = [.. _active];
         }
         foreach (var job in running) job.RequestStop(StopReason.ContextClosing);
+        var writerIdle = _writes?.Stop() ?? true;
         lock (_gate)
         {
-            return _active.Count == 0;
+            return _active.Count == 0 && writerIdle;
         }
     }
 
     /// <summary>Disposes the services; called once, after <see cref="BeginClose"/> reported no running work.</summary>
     public void Dispose()
     {
+        _writes?.WaitStopped();
         _provider.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        _journal?.Dispose();
         _embeddings?.Dispose();
         lock (_gate)
         {
@@ -233,3 +281,7 @@ internal sealed class NativeContext
         }
     }
 }
+
+/// <summary>Recall refused while the owner's memory may be changing (a write is pending, partial or unknown).</summary>
+internal sealed class ReadsPausedException() : Exception(
+    "Recall is paused while a write is accepted, running, partial or unknown; it resumes when every write has ended (or is resolved).");

@@ -17,8 +17,12 @@ host needs no .NET installation. Any language with a C foreign-function interfac
 The `read_only` profile: owner-scoped recall of facts and preferences by a query vector the caller supplies
 (`memory_get_context`), and `capabilities_get`. It writes nothing to the store, not even access stamps. The owner is
 fixed by configuration (one trusted owner) or named by the host's own code on every request (a multi-user application);
-recall without an owner is refused either way. Embedding, writes and the other memory operations come later, under the
-same ABI.
+recall without an owner is refused either way.
+
+The `explicit_write` profile adds remembering the owner's own words (`memory_remember`) through a durable journal in a
+state directory, with receipts that say truthfully whether a write was applied and verified, rejected, or is uncertain;
+recall pauses while a write is pending or uncertain. See [CONTRACT.md](CONTRACT.md). Forgetting, correction by id and
+owner erase come next, under the same ABI.
 
 ```python
 from agentmemory_native import MemoryClient
@@ -56,7 +60,13 @@ native/gate/run-gate.sh artifacts/native/neo4j.env artifacts/native/current/bin 
 distribution's Python and no .NET, and fingerprints the whole graph before and after: a read-only run must leave it
 unchanged.
 
-The write path the next profile will offer is proven on its own, before it is exposed through the ABI:
+The explicit-write tests (`gate/writetests`) run on their own throw-away store, because they write:
+
+```bash
+native/gate/run-write-gate.sh artifacts/native/current/bin artifacts/native/write-gate
+```
+
+The write path itself is also proven on its own, outside the ABI:
 
 ```bash
 native/gate/run-write-probe.sh artifacts/native/write-probe   # publish, own throw-away Neo4j, run on plain Ubuntu

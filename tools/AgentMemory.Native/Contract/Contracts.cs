@@ -1,3 +1,4 @@
+using AgentMemory.Native.Chat;
 using AgentMemory.Native.Composition;
 using System.Text.Json;
 using AgentMemory.Native.Embeddings;
@@ -11,9 +12,31 @@ internal enum OwnerMode
     PerRequest,
 }
 
+/// <summary>What a context may do: read only, or also remember the owner's own words through the journal.</summary>
+internal enum MemoryProfile
+{
+    ReadOnly,
+    ExplicitWrite,
+}
+
 /// <summary>A validated <c>am_v1_open</c> configuration.</summary>
 internal sealed record OpenConfig
 {
+    public const string ReadOnlyName = "read_only";
+    public const string ExplicitWriteName = "explicit_write";
+
+    public MemoryProfile Profile { get; init; } = MemoryProfile.ReadOnly;
+    public string ProfileName => Profile == MemoryProfile.ExplicitWrite ? ExplicitWriteName : ReadOnlyName;
+
+    /// <summary>The writer's model (explicit_write only).</summary>
+    public ChatEndpoint? Writer { get; init; }
+
+    /// <summary>Where the journal lives (explicit_write only).</summary>
+    public string? StateDirectory { get; init; }
+
+    /// <summary>The most writes accepted and not yet finished (explicit_write only).</summary>
+    public int MaxQueuedWrites { get; init; } = 16;
+
     public required MemorySettings Memory { get; init; }
     public required OwnerMode OwnerMode { get; init; }
     public string? FixedOwner { get; init; }
@@ -40,9 +63,14 @@ internal sealed record OpenConfig
         {
             if (root.OptionalInt("schemaVersion", 0, 0, int.MaxValue) != 1)
                 throw new ContractException("unsupported_schema", "$.schemaVersion must be 1.");
-            var profile = root.RequiredString("profile", 64);
-            if (profile != "read_only")
-                throw new ContractException("unsupported_profile", $"$.profile '{profile}' is not offered; this library offers 'read_only'.");
+            var profile = root.RequiredString("profile", 64) switch
+            {
+                ReadOnlyName => MemoryProfile.ReadOnly,
+                ExplicitWriteName => MemoryProfile.ExplicitWrite,
+                var other => throw new ContractException("unsupported_profile",
+                    $"$.profile '{other}' is not offered; this library offers '{ReadOnlyName}' and '{ExplicitWriteName}'."),
+            };
+            var writes = profile == MemoryProfile.ExplicitWrite;
 
             var owner = root.RequiredObject("owner");
             var mode = owner.RequiredString("mode", 32) switch
@@ -53,6 +81,9 @@ internal sealed record OpenConfig
             };
             var fixedOwner = mode == OwnerMode.Fixed ? owner.RequiredString("id", 256) : null;
             owner.EnsureNoUnknown();
+            if (writes && mode != OwnerMode.Fixed)
+                throw new ContractException("owner_mode_not_offered",
+                    $"$.owner.mode must be 'fixed' for '{ExplicitWriteName}': one configured owner writes; several owners need their own identity design.");
 
             var store = root.RequiredObject("store");
             var uri = store.RequiredString("uri", 2048);
@@ -90,10 +121,44 @@ internal sealed record OpenConfig
             }
             embedding.EnsureNoUnknown();
 
+            ChatEndpoint? writer = null;
+            string? stateDirectory = null;
+            if (writes)
+            {
+                if (endpoint is null)
+                    throw new ContractException("missing_property",
+                        $"$.embedding.endpoint is required for '{ExplicitWriteName}': written memories are embedded by the library.");
+                var writerObject = root.RequiredObject("writer");
+                var writerModel = writerObject.RequiredString("model", 256);
+                var writerEndpoint = writerObject.RequiredObject("endpoint");
+                var writerUrl = writerEndpoint.RequiredString("url", 2048);
+                var writerKey = writerEndpoint.OptionalString("apiKey", 4096);
+                var writerTimeoutMs = writerEndpoint.OptionalInt("timeoutMs", 60_000, 1, 600_000);
+                writerEndpoint.EnsureNoUnknown();
+                writerObject.EnsureNoUnknown();
+                if (!Uri.TryCreate(writerUrl, UriKind.Absolute, out var parsedWriterUrl)
+                    || (parsedWriterUrl.Scheme != Uri.UriSchemeHttp && parsedWriterUrl.Scheme != Uri.UriSchemeHttps))
+                    throw new ContractException("invalid_value", "$.writer.endpoint.url must be an absolute http or https URL.");
+                writer = new ChatEndpoint(parsedWriterUrl, writerModel, writerKey, TimeSpan.FromMilliseconds(writerTimeoutMs));
+
+                var state = root.RequiredObject("state");
+                stateDirectory = state.RequiredString("directory", 1024);
+                state.EnsureNoUnknown();
+                if (!Path.IsPathFullyQualified(stateDirectory))
+                    throw new ContractException("invalid_value", "$.state.directory must be an absolute path.");
+            }
+            else
+            {
+                foreach (var name in new[] { "writer", "state" })
+                    if (root.OptionalObject(name) is not null)
+                        throw new ContractException("not_in_profile", $"$.{name} belongs to '{ExplicitWriteName}'; this profile is '{ReadOnlyName}'.");
+            }
+
             var limits = root.OptionalObject("limits");
             var maxRunning = limits?.OptionalInt("maxRunningJobs", 4, 1, 64) ?? 4;
             var maxPending = limits?.OptionalInt("maxPendingJobs", 32, 1, 1024) ?? 32;
             var defaultTimeout = limits?.OptionalInt("defaultTimeoutMs", 2000, 1, 600_000) ?? 2000;
+            var maxQueuedWrites = writes ? limits?.OptionalInt("maxQueuedWrites", 16, 1, 256) ?? 16 : 16;
             limits?.EnsureNoUnknown();
             if (maxPending < maxRunning)
                 throw new ContractException("invalid_value", "$.limits.maxPendingJobs must be at least maxRunningJobs.");
@@ -101,6 +166,10 @@ internal sealed record OpenConfig
             root.EnsureNoUnknown();
             return new OpenConfig
             {
+                Profile = profile,
+                Writer = writer,
+                StateDirectory = stateDirectory,
+                MaxQueuedWrites = maxQueuedWrites,
                 Memory = new MemorySettings
                 {
                     Uri = uri,
@@ -172,12 +241,16 @@ internal abstract record NativeRequest
                 throw new ContractException("unsupported_schema", "$.schemaVersion must be 1.");
             var operation = root.RequiredString("operation", 64);
             var requestId = root.OptionalString("requestId", 256);
+            var writes = config.Profile == MemoryProfile.ExplicitWrite;
             NativeRequest request = operation switch
             {
                 CapabilitiesRequest.Name => new CapabilitiesRequest { RequestId = requestId },
                 GetContextRequest.Name => GetContextRequest.Read(root, config, requestId),
+                RememberRequest.Name when writes => RememberRequest.Read(root, requestId),
+                OperationGetRequest.Name when writes => OperationGetRequest.Read(root, requestId),
+                OperationResolveRequest.Name when writes => OperationResolveRequest.Read(root, requestId),
                 _ => throw new ContractException("unknown_operation",
-                    $"Operation '{operation}' is not offered; this library offers '{CapabilitiesRequest.Name}' and '{GetContextRequest.Name}'."),
+                    $"Operation '{operation}' is not offered by profile '{config.ProfileName}'; it offers {string.Join(", ", Offered(config).Select(o => $"'{o}'"))}."),
             };
             root.EnsureNoUnknown();
             return request;
@@ -188,6 +261,90 @@ internal abstract record NativeRequest
             // lookup by property name unescapes on its own path); every kind is checked before it is read.
             throw new ContractException("malformed_json", "The request holds text that is not valid Unicode.");
         }
+    }
+
+    /// <summary>The operations a context of this configuration offers, in the order capabilities lists them.</summary>
+    public static IReadOnlyList<string> Offered(OpenConfig config) => config.Profile == MemoryProfile.ExplicitWrite
+        ? [CapabilitiesRequest.Name, GetContextRequest.Name, RememberRequest.Name, OperationGetRequest.Name, OperationResolveRequest.Name]
+        : [CapabilitiesRequest.Name, GetContextRequest.Name];
+
+    /// <summary>A fixed context's requests may not name an owner: the configured one is the only one.</summary>
+    protected static void RefuseOwner(StrictObject root)
+    {
+        if (root.OptionalString("owner", 256) is not null)
+            throw new ContractException("owner_not_allowed", "This context writes for one configured owner; a request may not name an owner.");
+    }
+}
+
+/// <summary><c>memory_remember</c>: the owner's own words, to be remembered through the journal.</summary>
+internal sealed record RememberRequest : NativeRequest
+{
+    public const string Name = "memory_remember";
+    public override string Operation => Name;
+
+    /// <summary>The host's stable identity for this spoken item and revision; a retry sends the same one.</summary>
+    public required string SourceId { get; init; }
+    public required string SessionId { get; init; }
+    public required string Text { get; init; }
+
+    /// <summary>When the words were said, with an explicit offset.</summary>
+    public required DateTimeOffset OccurredAt { get; init; }
+
+    public static RememberRequest Read(StrictObject root, string? requestId)
+    {
+        RefuseOwner(root);
+        var occurred = root.RequiredString("occurredAt", 64);
+        if (!(occurred.EndsWith('Z') || System.Text.RegularExpressions.Regex.IsMatch(occurred, @"[+-]\d{2}:\d{2}$"))
+            || !DateTimeOffset.TryParse(occurred, System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.None, out var occurredAt))
+            throw new ContractException("invalid_value",
+                "$.occurredAt must be an ISO 8601 time with an explicit offset, such as 2026-11-20T10:00:00Z.");
+        return new RememberRequest
+        {
+            RequestId = requestId,
+            SourceId = root.RequiredString("sourceId", 256),
+            SessionId = root.RequiredString("sessionId", 256),
+            Text = root.RequiredString("text", 8000),
+            OccurredAt = occurredAt,
+        };
+    }
+}
+
+/// <summary><c>memory_operation_get</c>: the receipt of one operation, by its id or its source id.</summary>
+internal sealed record OperationGetRequest : NativeRequest
+{
+    public const string Name = "memory_operation_get";
+    public override string Operation => Name;
+
+    public string? OperationId { get; init; }
+    public string? SourceId { get; init; }
+
+    public static OperationGetRequest Read(StrictObject root, string? requestId)
+    {
+        var operationId = root.OptionalString("operationId", 64);
+        var sourceId = root.OptionalString("sourceId", 256);
+        if ((operationId is null) == (sourceId is null))
+            throw new ContractException("operation_required", "A request carries exactly one of $.operationId and $.sourceId.");
+        return new OperationGetRequest { RequestId = requestId, OperationId = operationId, SourceId = sourceId };
+    }
+}
+
+/// <summary><c>memory_operation_resolve</c>: ends a partial or unknown operation; R1 offers only "keep".</summary>
+internal sealed record OperationResolveRequest : NativeRequest
+{
+    public const string Name = "memory_operation_resolve";
+    public override string Operation => Name;
+
+    public required string OperationId { get; init; }
+
+    public static OperationResolveRequest Read(StrictObject root, string? requestId)
+    {
+        var operationId = root.RequiredString("operationId", 64);
+        var resolution = root.RequiredString("resolution", 32);
+        if (resolution != "keep")
+            throw new ContractException("invalid_value",
+                "$.resolution must be 'keep' (accept what the operation wrote, as it is); removing it arrives with the privacy controls.");
+        return new OperationResolveRequest { RequestId = requestId, OperationId = operationId };
     }
 }
 

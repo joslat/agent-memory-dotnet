@@ -63,9 +63,22 @@ internal sealed class NativeJob(ulong handle, byte[] request, string? operation,
         }
     }
 
+    private Func<byte[]>? _stoppedResult;
+
+    /// <summary>
+    /// From now on a stop delivers this result instead of a bare timeout or cancellation: once a write is durably
+    /// accepted, the caller who stops waiting still gets its receipt (the operation goes on without the job).
+    /// </summary>
+    public void SetStoppedResult(Func<byte[]> result) => Volatile.Write(ref _stoppedResult, result);
+
     /// <summary>Delivers the stop result: cancelled by the caller, cancelled by closing, or else the deadline passed.</summary>
     public void FinishStopped()
     {
+        if (Volatile.Read(ref _stoppedResult) is { } stopped)
+        {
+            Finish(stopped());
+            return;
+        }
         var (status, code, message) = StopReason switch
         {
             StopReason.CancelledByCaller => ("cancelled", "cancelled", "The caller cancelled the job."),

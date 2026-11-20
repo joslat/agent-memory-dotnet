@@ -93,6 +93,80 @@ class ContextResult:
 
 
 @dataclass(frozen=True)
+class Receipt:
+    """Where one explicit write stands. Only ``state == "applied"`` with ``searchable`` supports saying "remembered".
+
+    States: "accepted" (durable, not started), "running", "applied", "rejected" (nothing recall reads was written; see
+    ``reason``), "partial" and "unknown" (recall stays paused until resolved), "kept" (resolved by keeping what it wrote).
+    """
+
+    operation_id: str
+    source_id: str
+    state: str
+    duplicate: bool
+    searchable: bool
+    reason: str | None
+    occurred_at: str
+    accepted_at: str
+    started_at: str | None
+    finished_at: str | None
+    facts: tuple[str, ...]
+    preferences: tuple[str, ...]
+    closed: tuple[str, ...]
+
+    @property
+    def ended(self) -> bool:
+        return self.state not in ("accepted", "running")
+
+    @property
+    def remembered(self) -> bool:
+        return self.state == "applied" and self.searchable
+
+    @staticmethod
+    def from_json(item: dict[str, Any]) -> "Receipt":
+        return Receipt(item["operationId"], item["sourceId"], item["state"], bool(item.get("duplicate", False)),
+                       bool(item.get("searchable", False)), item.get("reason"), item["occurredAt"], item["acceptedAt"],
+                       item.get("startedAt"), item.get("finishedAt"), tuple(item.get("facts", ())),
+                       tuple(item.get("preferences", ())), tuple(item.get("closed", ())))
+
+
+@dataclass(frozen=True)
+class WriteResult:
+    """The outcome of memory_remember, memory_operation_get or memory_operation_resolve.
+
+    ``status == "ok"`` means a receipt came back (read its state); any other status means the request itself was refused
+    or could not be accepted, and nothing was saved by it (``error`` says why).
+    """
+
+    status: str
+    request_id: str | None
+    receipt: Receipt | None = None
+    error: OperationError | None = None
+    queued_ms: int = 0
+    run_ms: int = 0
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False)
+
+    @property
+    def ok(self) -> bool:
+        return self.status == "ok"
+
+    @staticmethod
+    def from_json(document: dict[str, Any]) -> "WriteResult":
+        error = document.get("error")
+        timing = document.get("timing") or {}
+        receipt = document.get("receipt")
+        return WriteResult(
+            status=document["status"],
+            request_id=document.get("requestId"),
+            receipt=Receipt.from_json(receipt) if receipt else None,
+            error=OperationError(error["code"], error["message"]) if error else None,
+            queued_ms=int(timing.get("queuedMs", 0)),
+            run_ms=int(timing.get("runMs", 0)),
+            raw=_frozen(document),
+        )
+
+
+@dataclass(frozen=True)
 class ContextState:
     state_revision: int
     policy_epoch: int
@@ -103,6 +177,14 @@ class ContextState:
     @property
     def read_allowed(self) -> bool:
         return bool(self.flags & 1)
+
+    @property
+    def admission_allowed(self) -> bool:
+        return bool(self.flags & 2)
+
+    @property
+    def write_quiescent(self) -> bool:
+        return bool(self.flags & 4)
 
     @property
     def closing(self) -> bool:

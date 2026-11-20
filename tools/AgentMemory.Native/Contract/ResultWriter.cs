@@ -78,7 +78,7 @@ internal static class ResultWriter
             writer.WriteNumber("major", Abi.AbiVersion.Major);
             writer.WriteNumber("minor", Abi.AbiVersion.Minor);
             writer.WriteEndObject();
-            writer.WriteString("profile", "read_only");
+            writer.WriteString("profile", config.ProfileName);
             writer.WriteStartObject("owner");
             writer.WriteString("mode", config.OwnerMode == OwnerMode.Fixed ? "fixed" : "per_request");
             writer.WriteEndObject();
@@ -88,17 +88,59 @@ internal static class ResultWriter
             writer.WriteBoolean("generatesEmbeddings", config.EmbeddingEndpoint is not null);
             writer.WriteEndObject();
             writer.WriteStartArray("operations");
-            writer.WriteStringValue(CapabilitiesRequest.Name);
-            writer.WriteStringValue(GetContextRequest.Name);
+            foreach (var operation in NativeRequest.Offered(config)) writer.WriteStringValue(operation);
             writer.WriteEndArray();
+            if (config.Writer is { } model)
+            {
+                // The writer's model is named; its address and key are not.
+                writer.WriteStartObject("writer");
+                writer.WriteString("model", model.Model);
+                writer.WriteBoolean("entityIdentity", false);
+                writer.WriteEndObject();
+            }
             writer.WriteStartObject("limits");
             writer.WriteNumber("maxRunningJobs", config.MaxRunningJobs);
             writer.WriteNumber("maxPendingJobs", config.MaxPendingJobs);
             writer.WriteNumber("defaultTimeoutMs", config.DefaultTimeoutMs);
             writer.WriteNumber("maxRequestBytes", StrictObject.MaxDocumentBytes);
+            if (config.Profile == MemoryProfile.ExplicitWrite) writer.WriteNumber("maxQueuedWrites", config.MaxQueuedWrites);
             writer.WriteEndObject();
             WriteTiming(writer, timing);
         });
+
+    /// <summary>
+    /// The receipt of an explicit write: where it stands, by evidence. <c>duplicate</c> is true when the source was
+    /// accepted before and this request ran nothing.
+    /// </summary>
+    public static byte[] Receipt(string operation, string? requestId, Journal.OperationSnapshot receipt, bool duplicate,
+        JobTiming timing) =>
+        Write(writer =>
+        {
+            WriteHead(writer, operation, requestId, "ok");
+            writer.WriteStartObject("receipt");
+            writer.WriteString("operationId", receipt.OperationId);
+            writer.WriteString("sourceId", receipt.SourceId);
+            writer.WriteBoolean("duplicate", duplicate);
+            writer.WriteString("state", Journal.WriteCoordinator.Name(receipt.State));
+            WriteOptional(writer, "reason", receipt.Reason);
+            writer.WriteBoolean("searchable", receipt.Searchable);
+            WriteInstant(writer, "occurredAt", receipt.OccurredAt);
+            WriteInstant(writer, "acceptedAt", receipt.AcceptedAt);
+            WriteInstant(writer, "startedAt", receipt.StartedAt);
+            WriteInstant(writer, "finishedAt", receipt.FinishedAt);
+            WriteIds(writer, "facts", receipt.Facts);
+            WriteIds(writer, "preferences", receipt.Preferences);
+            WriteIds(writer, "closed", receipt.Closed);
+            writer.WriteEndObject();
+            WriteTiming(writer, timing);
+        });
+
+    private static void WriteIds(Utf8JsonWriter writer, string name, IReadOnlyList<string> ids)
+    {
+        writer.WriteStartArray(name);
+        foreach (var id in ids) writer.WriteStringValue(id);
+        writer.WriteEndArray();
+    }
 
     public static byte[] Context(string? requestId, MemoryContext context, JobTiming timing) =>
         Write(writer =>

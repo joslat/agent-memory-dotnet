@@ -1,0 +1,422 @@
+"""G-R1 (library part): explicit writes through the journal, on the target image, against a real Neo4j and a stub model.
+
+Standard library only. The stub model (chat completions, the update judge, embeddings) runs in this process; crash
+cases run the library in a child process and kill it. Each test gets its own state directory. These tests write to the
+store, so they run on their own store (native/gate/run-write-gate.sh), never inside the read-only gate.
+Environment: AGENTMEMORY_NATIVE_LIBRARY, AMP_URI, AMP_USER, AMP_PASSWORD, PYTHONPATH (the binding).
+"""
+from __future__ import annotations
+
+import hashlib
+import http.server
+import json
+import math
+import os
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import unittest
+import uuid
+from pathlib import Path
+
+from agentmemory_native import MemoryClient, OpenError
+from agentmemory_native import _library as abi
+
+DIMENSIONS = 8
+OWNER = "gate-writer-owner"
+SAID = "2026-11-20T10:00:00Z"
+
+
+def letters(text: str) -> list[float]:
+    """Deterministic vectors from letter counts, the same rule as the native write probe."""
+    vector = [0.0] * DIMENSIONS
+    for c in text.lower():
+        if "a" <= c <= "z":
+            vector[(ord(c) - ord("a")) % DIMENSIONS] += 1.0
+    norm = math.sqrt(sum(v * v for v in vector))
+    return [v / norm for v in vector] if norm else [1.0] + [0.0] * (DIMENSIONS - 1)
+
+
+class StubModel(http.server.BaseHTTPRequestHandler):
+    """An OpenAI-compatible model: the writer's operations, the judge's verdicts and embeddings.
+
+    ``mode`` is "ok" (the writer keeps the last message as one fact, or as a preference when it says "prefer"),
+    "fail" (every chat call answers 500), or "hold" (chat calls wait until ``release`` is set, then answer as "ok").
+    """
+
+    mode = "ok"
+    release = threading.Event()
+    lock = threading.Lock()
+    writer_calls = 0
+    judge_calls = 0
+
+    def do_POST(self):  # noqa: N802 - the http.server naming
+        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        if self.path.endswith("/embeddings"):
+            # Text about a zebra gets a vector of the wrong size: the store cannot embed it (the verification test).
+            self.answer({"data": [{"index": i, "embedding": [1.0, 0.0, 0.0] if "zebra" in t.lower() else letters(t)}
+                                  for i, t in enumerate(body["input"])]})
+            return
+        system = body["messages"][0]["content"]
+        if system.startswith("You keep a person's long-term memory"):
+            with StubModel.lock:
+                StubModel.judge_calls += 1
+            self.reply('{"p1": "no"}')
+            return
+        with StubModel.lock:
+            StubModel.writer_calls += 1
+        if StubModel.mode == "fail":
+            self.send_response(500)
+            self.end_headers()
+            return
+        if StubModel.mode == "hold":
+            StubModel.release.wait(120)
+        context = body["messages"][-1]["content"]
+        said = next(line.split("(LAST MESSAGE): ", 1)[1] for line in context.splitlines() if "(LAST MESSAGE): " in line)
+        words = said.rstrip(".")
+        operation = (
+            {"op": "add", "kind": "preference", "text": words, "quote": said}
+            if "prefer" in said
+            else {"op": "add", "kind": "fact", "text": f"user | said | {words}", "quote": said}
+        )
+        operation.update({"id": None, "until": None, "ref": None})
+        self.reply(json.dumps({"ops": [operation]}))
+
+    def reply(self, content: str) -> None:
+        self.answer({"model": "stub-writer", "choices": [{"message": {"role": "assistant", "content": content},
+                                                          "finish_reason": "stop"}],
+                     "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}})
+
+    def answer(self, document: dict) -> None:
+        data = json.dumps(document).encode()
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # a held call whose caller was killed (the crash tests)
+
+    def log_message(self, *_):
+        pass
+
+
+SERVER = http.server.ThreadingHTTPServer(("127.0.0.1", 0), StubModel)
+threading.Thread(target=SERVER.serve_forever, daemon=True).start()
+BASE = f"http://127.0.0.1:{SERVER.server_address[1]}"
+
+
+def config(state: str, *, uri: str | None = None, writer_timeout_ms: int = 30_000, profile: str = "explicit_write",
+           owner_mode: str = "fixed") -> dict:
+    document = {
+        "schemaVersion": 1,
+        "profile": profile,
+        "owner": {"mode": "fixed", "id": OWNER} if owner_mode == "fixed" else {"mode": owner_mode},
+        "store": {"uri": uri or os.environ["AMP_URI"], "username": os.environ["AMP_USER"],
+                  "password": os.environ["AMP_PASSWORD"]},
+        "embedding": {"dimensions": DIMENSIONS, "model": "stub-embedder",
+                      "endpoint": {"url": f"{BASE}/v1/embeddings", "timeoutMs": 5000}},
+        "writer": {"model": "stub-writer",
+                   "endpoint": {"url": f"{BASE}/v1/chat/completions", "timeoutMs": writer_timeout_ms}},
+        "state": {"directory": state},
+        "limits": {"defaultTimeoutMs": 20_000},
+    }
+    return document
+
+
+def new_state() -> str:
+    return str(Path(tempfile.mkdtemp(prefix="am-state-")) / "state")
+
+
+def source(tag: str) -> str:
+    return f"gate/{tag}/{uuid.uuid4().hex}"
+
+
+def journal_line(record: dict) -> bytes:
+    data = json.dumps(record, separators=(",", ":")).encode()
+    return hashlib.sha256(data).hexdigest().encode() + b" " + data + b"\n"
+
+
+CHILD = r"""
+import json, os, sys, time
+from agentmemory_native import MemoryClient
+memory = MemoryClient(json.loads(os.environ["GATE_CONFIG"]))
+print("open", flush=True)
+if os.environ.get("GATE_TEXT"):
+    result = memory.remember(source_id=os.environ["GATE_SOURCE"], session_id="crash", text=os.environ["GATE_TEXT"],
+                             occurred_at="2026-11-20T10:00:00Z", timeout_ms=1500)
+    print(json.dumps({"status": result.status, "state": result.receipt.state if result.receipt else None,
+                      "operationId": result.receipt.operation_id if result.receipt else None}), flush=True)
+time.sleep(600)
+"""
+
+
+def child(document: dict, text: str | None = None, source_id: str | None = None) -> subprocess.Popen:
+    environment = dict(os.environ, GATE_CONFIG=json.dumps(document), GATE_TEXT=text or "", GATE_SOURCE=source_id or "")
+    return subprocess.Popen([sys.executable, "-c", CHILD], env=environment, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True)
+
+
+def wait_until(predicate, timeout_s: float = 20.0) -> bool:
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.05)
+    return False
+
+
+class Test1Contract(unittest.TestCase):
+    def setUp(self):
+        StubModel.mode = "ok"
+
+    def test_capabilities_name_the_profile_its_operations_and_the_writer(self):
+        with MemoryClient(config(new_state())) as memory:
+            caps = memory.capabilities()
+            state = memory.state()
+        self.assertEqual(caps["profile"], "explicit_write")
+        self.assertEqual(caps["operations"], ["capabilities_get", "memory_get_context", "memory_remember",
+                                              "memory_operation_get", "memory_operation_resolve"])
+        self.assertEqual(caps["writer"], {"model": "stub-writer", "entityIdentity": False})
+        self.assertNotIn(BASE, json.dumps(caps))
+        self.assertTrue(state.read_allowed and state.admission_allowed and state.write_quiescent)
+
+    def test_the_read_only_profile_offers_no_write(self):
+        document = config(new_state(), profile="read_only")
+        del document["writer"], document["state"]
+        with MemoryClient(document) as memory:
+            refused = memory.remember(source_id=source("ro"), session_id="s", text="I like tea.", occurred_at=SAID)
+        self.assertEqual((refused.status, refused.error.code), ("invalid", "unknown_operation"))
+        document["writer"] = {"model": "x", "endpoint": {"url": f"{BASE}/v1/chat/completions"}}
+        with self.assertRaises(OpenError) as wrong:
+            MemoryClient(document)
+        self.assertEqual(wrong.exception.code, "not_in_profile")
+
+    def test_configurations_the_profile_cannot_serve_are_refused(self):
+        with self.assertRaises(OpenError) as per_request:
+            MemoryClient(config(new_state(), owner_mode="per_request"))
+        self.assertEqual(per_request.exception.code, "owner_mode_not_offered")
+        missing = config(new_state())
+        del missing["writer"]
+        with self.assertRaises(OpenError) as no_writer:
+            MemoryClient(missing)
+        self.assertEqual(no_writer.exception.code, "missing_property")
+        relative = config("relative/state")
+        with self.assertRaises(OpenError) as not_absolute:
+            MemoryClient(relative)
+        self.assertEqual(not_absolute.exception.code, "invalid_value")
+
+    def test_requests_are_checked_strictly(self):
+        with MemoryClient(config(new_state())) as memory:
+            no_offset = memory.remember(source_id=source("t"), session_id="s", text="x", occurred_at="2026-11-20T10:00:00")
+            named = memory.call({"schemaVersion": 1, "operation": "memory_remember", "sourceId": source("t"),
+                                 "sessionId": "s", "text": "x", "occurredAt": SAID, "owner": "someone-else"})
+            neither = memory.call({"schemaVersion": 1, "operation": "memory_operation_get"})
+            unknown = memory.operation(operation_id="op-missing")
+        self.assertEqual((no_offset.status, no_offset.error.code), ("invalid", "invalid_value"))
+        self.assertEqual((named["status"], named["error"]["code"]), ("invalid", "owner_not_allowed"))
+        self.assertEqual((neither["status"], neither["error"]["code"]), ("invalid", "operation_required"))
+        self.assertEqual((unknown.status, unknown.error.code), ("invalid", "operation_not_found"))
+
+
+class Test2Remember(unittest.TestCase):
+    def setUp(self):
+        StubModel.mode = "ok"
+
+    def test_applied_means_verified_and_recall_finds_it(self):
+        with MemoryClient(config(new_state())) as memory:
+            result = memory.remember(source_id=source("apply"), session_id="s1", text="I play the cello every Sunday.",
+                                     occurred_at=SAID)
+            receipt = result.receipt
+            self.assertEqual(result.status, "ok", result.raw)
+            self.assertEqual(receipt.state, "applied", receipt)
+            self.assertTrue(receipt.remembered)
+            self.assertEqual(len(receipt.facts), 1)
+            self.assertFalse(receipt.duplicate)
+            state = memory.state()
+            self.assertTrue(state.read_allowed and state.write_quiescent)
+            recalled = memory.get_context(session_id="s1", query="cello every Sunday", max_facts=50, min_score=0.0)
+            self.assertEqual(recalled.status, "ok")
+            self.assertIn(receipt.facts[0], {f.id for f in recalled.facts})
+            again = memory.operation(operation_id=receipt.operation_id)
+            self.assertEqual(again.receipt.state, "applied")
+            by_source = memory.operation(source_id=receipt.source_id)
+            self.assertEqual(by_source.receipt.operation_id, receipt.operation_id)
+
+    def test_duplicate_source_returns_the_same_receipt_and_a_changed_payload_is_refused(self):
+        sid = source("dup")
+        with MemoryClient(config(new_state())) as memory:
+            first = memory.remember(source_id=sid, session_id="s", text="My bicycle is green.", occurred_at=SAID)
+            calls = StubModel.writer_calls
+            second = memory.remember(source_id=sid, session_id="s", text="My bicycle is green.", occurred_at=SAID)
+            conflict = memory.remember(source_id=sid, session_id="s", text="My bicycle is red.", occurred_at=SAID)
+        self.assertEqual(first.receipt.state, "applied")
+        self.assertTrue(second.receipt.duplicate)
+        self.assertEqual(second.receipt.operation_id, first.receipt.operation_id)
+        self.assertEqual(StubModel.writer_calls, calls, "a duplicate ran the writer again")
+        self.assertEqual((conflict.status, conflict.error.code), ("invalid", "source_conflict"))
+
+    def test_a_model_that_always_fails_is_rejected_and_reads_reopen(self):
+        StubModel.mode = "fail"
+        with MemoryClient(config(new_state())) as memory:
+            result = memory.remember(source_id=source("fail"), session_id="s", text="I collect old maps.",
+                                     occurred_at=SAID)
+            state = memory.state()
+        self.assertEqual(result.receipt.state, "rejected", result.receipt)
+        self.assertFalse(result.receipt.searchable)
+        self.assertEqual(result.receipt.facts, ())
+        self.assertIsNotNone(result.receipt.reason)
+        self.assertTrue(state.read_allowed and state.write_quiescent)
+
+    def test_memories_the_store_cannot_embed_are_partial_not_applied(self):
+        with MemoryClient(config(new_state())) as memory:
+            result = memory.remember(source_id=source("zebra"), session_id="s", text="My zebra is called Stripes.",
+                                     occurred_at=SAID)
+            receipt = result.receipt
+            self.assertEqual(receipt.state, "partial", receipt)
+            self.assertTrue(receipt.reason.startswith("not_verified"), receipt.reason)
+            self.assertFalse(receipt.searchable)
+            self.assertFalse(memory.state().read_allowed, "an unverified write must pause recall")
+            self.assertEqual(memory.resolve(operation_id=receipt.operation_id).receipt.state, "kept")
+            self.assertTrue(memory.state().read_allowed)
+
+    def test_recall_is_paused_while_a_write_runs_and_finds_it_after(self):
+        StubModel.mode = "hold"
+        StubModel.release.clear()
+        memory = MemoryClient(config(new_state()))
+        try:
+            first = memory.remember(source_id=source("hold"), session_id="s", text="I prefer tea to coffee.",
+                                    occurred_at=SAID, timeout_ms=500)
+            self.assertEqual(first.status, "ok")
+            self.assertEqual(first.receipt.state, "running", "a job past its deadline still returns the receipt")
+            state = memory.state()
+            self.assertFalse(state.read_allowed)
+            self.assertFalse(state.write_quiescent)
+            paused = memory.get_context(session_id="s", query="tea", min_score=0.0)
+            self.assertEqual((paused.status, paused.error.code), ("unavailable", "reads_paused"))
+            StubModel.release.set()
+            self.assertTrue(wait_until(lambda: memory.operation(operation_id=first.receipt.operation_id)
+                                       .receipt.state == "applied"))
+            after = memory.operation(operation_id=first.receipt.operation_id).receipt
+            self.assertEqual(len(after.preferences), 1)
+            recalled = memory.get_context(session_id="s", query="tea to coffee", max_preferences=50, min_score=0.0)
+            self.assertIn(after.preferences[0], {p.id for p in recalled.preferences})
+        finally:
+            # The held call is released before the close: closing waits for a running write, so a failed assertion
+            # above must not leave this context open for the tests after it.
+            StubModel.mode = "ok"
+            StubModel.release.set()
+            memory.close(timeout_s=60)
+
+
+class Test3Journal(unittest.TestCase):
+    def setUp(self):
+        StubModel.mode = "ok"
+
+    def test_accepted_but_never_started_runs_after_the_next_open(self):
+        state = Path(new_state())
+        state.mkdir(parents=True)
+        operation = "op-" + uuid.uuid4().hex
+        sid = source("resume")
+        (state / "journal.jsonl").write_bytes(journal_line({
+            "kind": "accepted", "operationId": operation, "at": SAID, "sourceId": sid, "sourceSha256": "x" * 64,
+            "owner": OWNER, "sessionId": "s", "text": "I keep bees on the roof.", "occurredAt": SAID}))
+        with MemoryClient(config(str(state))) as memory:
+            self.assertTrue(wait_until(lambda: memory.operation(operation_id=operation).receipt.state == "applied"))
+            receipt = memory.operation(operation_id=operation).receipt
+        self.assertTrue(receipt.remembered)
+        kinds = [json.loads(line.split(b" ", 1)[1])["kind"] for line in (state / "journal.jsonl").read_bytes().splitlines()]
+        self.assertEqual(kinds, ["accepted", "running", "applied"])
+
+    def test_a_torn_last_line_is_dropped_and_a_damaged_middle_line_refuses_the_open(self):
+        state = Path(new_state())
+        with MemoryClient(config(str(state))) as memory:
+            memory.remember(source_id=source("torn"), session_id="s", text="I swim in the lake.", occurred_at=SAID)
+        journal = state / "journal.jsonl"
+        good = journal.read_bytes()
+        journal.write_bytes(good + b'0123abcd {"kind":"accep')
+        with MemoryClient(config(str(state))) as memory:
+            self.assertTrue(memory.state().read_allowed)
+        self.assertEqual(journal.read_bytes(), good, "the unfinished line was not cut off")
+        damaged = bytearray(good)
+        damaged[70] ^= 0x01
+        journal.write_bytes(bytes(damaged))
+        with self.assertRaises(OpenError) as refused:
+            MemoryClient(config(str(state)))
+        self.assertEqual(refused.exception.code, "journal_corrupt")
+
+    def test_a_second_open_of_the_state_directory_is_busy(self):
+        state = new_state()
+        other_scheme = os.environ["AMP_URI"].replace("bolt://", "neo4j://")
+        with MemoryClient(config(state)):
+            with self.assertRaises(OpenError) as same_process:
+                MemoryClient(config(state, uri=other_scheme))
+        self.assertEqual((same_process.exception.status, same_process.exception.code), (abi.BUSY, "state_locked"))
+        holder = child(config(state))
+        try:
+            self.assertEqual(holder.stdout.readline().strip(), "open")
+            with self.assertRaises(OpenError) as other_process:
+                MemoryClient(config(state))
+            self.assertEqual((other_process.exception.status, other_process.exception.code), (abi.BUSY, "state_locked"))
+        finally:
+            holder.kill()
+            holder.communicate()
+        MemoryClient(config(state)).close()
+
+    def test_a_write_running_when_the_process_dies_is_unknown_and_never_rerun(self):
+        state = new_state()
+        StubModel.mode = "hold"
+        StubModel.release.clear()
+        sid = source("crash")
+        dying = child(config(state), text="I sleep with the window open.", source_id=sid)
+        try:
+            self.assertEqual(dying.stdout.readline().strip(), "open")
+            receipt = json.loads(dying.stdout.readline())
+            self.assertEqual(receipt["state"], "running")
+            dying.kill()
+            dying.wait()
+            calls = StubModel.writer_calls
+            with MemoryClient(config(state)) as memory:
+                found = memory.operation(source_id=sid).receipt
+                self.assertEqual((found.state, found.reason), ("unknown", "process_ended_while_running"))
+                state_now = memory.state()
+                self.assertFalse(state_now.read_allowed)
+                paused = memory.get_context(session_id="s", query="window", min_score=0.0)
+                self.assertEqual(paused.error.code, "reads_paused")
+                time.sleep(1.0)
+                self.assertEqual(StubModel.writer_calls, calls, "an unknown write ran again")
+                again = memory.remember(source_id=sid, session_id="crash", text="I sleep with the window open.",
+                                        occurred_at=SAID)
+                self.assertTrue(again.receipt.duplicate)
+                self.assertEqual(again.receipt.state, "unknown")
+                kept = memory.resolve(operation_id=found.operation_id)
+                self.assertEqual(kept.receipt.state, "kept")
+                self.assertTrue(memory.state().read_allowed)
+                self.assertTrue(memory.get_context(session_id="s", query="window", min_score=0.0).ok)
+        finally:
+            StubModel.mode = "ok"
+            StubModel.release.set()
+            if dying.poll() is None:
+                dying.kill()
+            dying.communicate()
+
+    def test_the_journal_is_private_and_logs_hold_no_memory_text(self):
+        state = new_state()
+        words = "My locker code is behind the blue door."
+        talker = child(config(state), text=words, source_id=source("quiet"))
+        try:
+            self.assertEqual(talker.stdout.readline().strip(), "open")
+            self.assertIn('"state": "applied"', talker.stdout.readline())
+        finally:
+            talker.kill()
+            _, errors = talker.communicate()
+        self.assertNotIn("locker", errors)
+        self.assertEqual(os.stat(state).st_mode & 0o777, 0o700)
+        self.assertEqual(os.stat(Path(state) / "journal.jsonl").st_mode & 0o777, 0o600)
+
+
+if __name__ == "__main__":
+    unittest.main()

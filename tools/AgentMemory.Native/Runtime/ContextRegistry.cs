@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using AgentMemory.Native.Abi;
 using AgentMemory.Native.Composition;
 using AgentMemory.Native.Contract;
+using AgentMemory.Native.Journal;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Neo4j.Driver;
@@ -58,9 +59,16 @@ internal static class ContextRegistry
         }
 
         ServiceProvider? provider = null;
+        OperationJournal? journal = null;
         try
         {
-            provider = MemoryComposition.Build(config.Memory);
+            // The journal first: its lock is the state directory's authority across processes, and a damaged journal
+            // must stop the open before anything else is built.
+            if (config.Profile == MemoryProfile.ExplicitWrite)
+                journal = OperationJournal.Open(config.StateDirectory!, config.FixedOwner!);
+            provider = config.Profile == MemoryProfile.ExplicitWrite
+                ? WriteComposition.Build(config.Memory, config.Writer!, config.EmbeddingEndpoint!)
+                : MemoryComposition.Build(config.Memory);
             // Validates the store options and builds the driver (no I/O), so a configuration they refuse fails here.
             var driver = provider.GetRequiredService<IDriver>();
             if (config.VerifyConnectivity)
@@ -71,7 +79,15 @@ internal static class ContextRegistry
             var embeddings = config.EmbeddingEndpoint is { } endpoint
                 ? new Embeddings.OpenAiCompatibleEmbeddingGenerator(endpoint, config.Memory.EmbeddingDimensions)
                 : null;
-            Contexts[handle] = new NativeContext(handle, config, provider, embeddings);
+            NativeContext? context = null;
+            var writes = journal is null
+                ? null
+                : new WriteCoordinator(journal, provider, config.Memory, config.FixedOwner!, config.MaxQueuedWrites,
+                    () => context?.BumpRevision());
+            context = new NativeContext(handle, config, provider, embeddings, writes, journal);
+            Contexts[handle] = context;
+            // Queued writes from before (accepted, never started) run now, in acceptance order.
+            writes?.Start();
             lock (AuthorityGate)
             {
                 Authorities[authority] = handle;
@@ -85,6 +101,11 @@ internal static class ContextRegistry
                 Authorities.Remove(authority);
             }
             DisposeQuietly(provider);
+            journal?.Dispose();
+            if (exception is JournalException held && held.Code == "state_locked")
+                return (AbiStatus.Busy, 0, ResultWriter.OpenError(held.Code, held.Message));
+            if (exception is JournalException damaged)
+                return (AbiStatus.InternalError, 0, ResultWriter.OpenError(damaged.Code, damaged.Message));
             if (exception is OptionsValidationException or ArgumentException or NotSupportedException)
                 return (AbiStatus.InvalidArgument, 0, ResultWriter.OpenError("invalid_value", exception.Message));
             var (_, code, message) = exception is TimeoutException

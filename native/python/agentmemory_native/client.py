@@ -11,7 +11,7 @@ from typing import Any, Mapping, Sequence
 
 from . import _library as abi
 from .errors import NativeCallError, OpenError
-from .results import ContextResult, ContextState
+from .results import ContextResult, ContextState, WriteResult
 
 #: How long one poll waits inside the library before control returns to Python (milliseconds).
 POLL_SLICE_MS = 50
@@ -178,6 +178,29 @@ class MemoryClient:
                                 max_preferences=max_preferences, min_score=min_score, request_id=request_id),
             timeout_ms))
 
+    def remember(self, *, source_id: str, session_id: str, text: str, occurred_at: str,
+                 request_id: str | None = None, timeout_ms: int = 0) -> WriteResult:
+        """Remembers the owner's own words (profile ``explicit_write``), through the library's durable journal.
+
+        ``source_id`` is the host's stable id for this spoken item and revision: sending it again returns the same
+        receipt and runs nothing. ``occurred_at`` is when the words were said, ISO 8601 with an offset. The call waits
+        until the write ends or ``timeout_ms`` passes; either way an accepted write comes back as a receipt.
+        """
+        return WriteResult.from_json(self.call(
+            remember_request(source_id=source_id, session_id=session_id, text=text, occurred_at=occurred_at,
+                             request_id=request_id), timeout_ms))
+
+    def operation(self, *, operation_id: str | None = None, source_id: str | None = None,
+                  request_id: str | None = None, timeout_ms: int = 0) -> WriteResult:
+        """The receipt of one write, by its operation id or its source id."""
+        return WriteResult.from_json(self.call(
+            operation_get_request(operation_id=operation_id, source_id=source_id, request_id=request_id), timeout_ms))
+
+    def resolve(self, *, operation_id: str, request_id: str | None = None, timeout_ms: int = 0) -> WriteResult:
+        """Ends a partial or unknown write by keeping what it wrote, as it is; recall resumes when nothing else is open."""
+        return WriteResult.from_json(self.call(
+            operation_resolve_request(operation_id=operation_id, request_id=request_id), timeout_ms))
+
     # Lifetime ------------------------------------------------------------------------------------------------------
     def close(self, timeout_s: float = 10.0) -> None:
         """Stops admission and waits until running work has settled, then disposes the context."""
@@ -225,6 +248,35 @@ def get_context_request(*, session_id: str, query: str | None = None, query_vect
         request["owner"] = owner
     if min_score is not None:
         request["minScore"] = min_score
+    if request_id is not None:
+        request["requestId"] = request_id
+    return request
+
+
+def remember_request(*, source_id: str, session_id: str, text: str, occurred_at: str,
+                     request_id: str | None = None) -> dict[str, Any]:
+    request: dict[str, Any] = {"schemaVersion": 1, "operation": "memory_remember", "sourceId": source_id,
+                               "sessionId": session_id, "text": text, "occurredAt": occurred_at}
+    if request_id is not None:
+        request["requestId"] = request_id
+    return request
+
+
+def operation_get_request(*, operation_id: str | None = None, source_id: str | None = None,
+                          request_id: str | None = None) -> dict[str, Any]:
+    request: dict[str, Any] = {"schemaVersion": 1, "operation": "memory_operation_get"}
+    if operation_id is not None:
+        request["operationId"] = operation_id
+    if source_id is not None:
+        request["sourceId"] = source_id
+    if request_id is not None:
+        request["requestId"] = request_id
+    return request
+
+
+def operation_resolve_request(*, operation_id: str, request_id: str | None = None) -> dict[str, Any]:
+    request: dict[str, Any] = {"schemaVersion": 1, "operation": "memory_operation_resolve",
+                               "operationId": operation_id, "resolution": "keep"}
     if request_id is not None:
         request["requestId"] = request_id
     return request
@@ -290,6 +342,18 @@ class AsyncMemoryClient:
     async def get_context(self, **arguments: Any) -> ContextResult:
         timeout_ms = int(arguments.pop("timeout_ms", 0))
         return ContextResult.from_json(await self.call(get_context_request(**arguments), timeout_ms))
+
+    async def remember(self, **arguments: Any) -> WriteResult:
+        timeout_ms = int(arguments.pop("timeout_ms", 0))
+        return WriteResult.from_json(await self.call(remember_request(**arguments), timeout_ms))
+
+    async def operation(self, **arguments: Any) -> WriteResult:
+        timeout_ms = int(arguments.pop("timeout_ms", 0))
+        return WriteResult.from_json(await self.call(operation_get_request(**arguments), timeout_ms))
+
+    async def resolve(self, **arguments: Any) -> WriteResult:
+        timeout_ms = int(arguments.pop("timeout_ms", 0))
+        return WriteResult.from_json(await self.call(operation_resolve_request(**arguments), timeout_ms))
 
     async def state(self) -> ContextState:
         return await asyncio.get_running_loop().run_in_executor(self._bridge, self._client.state)

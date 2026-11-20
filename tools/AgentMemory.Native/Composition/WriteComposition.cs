@@ -30,6 +30,24 @@ internal sealed record RememberInput
 /// <summary>What one remember wrote: the stored message and what the writer extracted from it.</summary>
 internal sealed record RememberOutcome(Message Message, ExtractionResult Extraction);
 
+/// <summary>A fact or preference the store links to a remembered message, as the store shows it.</summary>
+internal sealed record WrittenItem(string Id, string Kind, string? Owner, bool Live, long Dimensions);
+
+/// <summary>What the store shows a remembered message produced: its facts and preferences, and what they closed.</summary>
+internal sealed record WrittenEvidence(IReadOnlyList<WrittenItem> Items, IReadOnlyList<string> Closed)
+{
+    /// <summary>Anything recall reads came from the message.</summary>
+    public bool Any => Items.Count > 0 || Closed.Count > 0;
+
+    /// <summary>The first reason the items cannot be called searchable by the owner, or null when every one is.</summary>
+    public string? Problem(string owner, int dimensions) =>
+        Items.FirstOrDefault(i => i.Owner != owner) is { } foreign ? $"{foreign.Kind} {foreign.Id} is not the owner's"
+        : Items.FirstOrDefault(i => !i.Live) is { } closed ? $"{closed.Kind} {closed.Id} is closed"
+        : Items.FirstOrDefault(i => i.Dimensions != dimensions) is { } bare
+            ? $"{bare.Kind} {bare.Id} has {bare.Dimensions} embedding dimensions, not {dimensions}"
+        : null;
+}
+
 /// <summary>
 /// The composition root of the explicit-write (R1) native profile: the read-only profile's narrowing (no working
 /// memory, strict owner isolation, fail-fast store timeouts) plus the write path, with the native core's own
@@ -145,6 +163,54 @@ internal static class WriteComposition
                 }, cancellationToken).ConfigureAwait(false);
                 return new RememberOutcome(message, extraction);
             }
+        }
+    }
+
+    private const string ItemsQuery = """
+        MATCH (:Message {id: $messageId})<-[:EXTRACTED_FROM]-(n)
+        WHERE n:Fact OR n:Preference
+        RETURN DISTINCT n.id AS id, CASE WHEN n:Fact THEN 'fact' ELSE 'preference' END AS kind, n.owner_id AS owner,
+               n.invalidated_at IS NULL AS live, CASE WHEN n.embedding IS NULL THEN 0 ELSE size(n.embedding) END AS dims
+        """;
+
+    private const string ClosedQuery = """
+        MATCH (:Message {id: $messageId})<-[:EXTRACTED_FROM]-(n)<-[:SUPERSEDED_BY]-(old)
+        WHERE (n:Fact OR n:Preference) AND (old:Fact OR old:Preference)
+        RETURN DISTINCT old.id AS id
+        """;
+
+    /// <summary>
+    /// Reads, in one read transaction, what the store links to a remembered message: the facts and preferences extracted
+    /// from it (with owner, liveness and embedding size) and the memories they closed. This is the evidence a receipt
+    /// rests on, independent of what the writer reported.
+    /// </summary>
+    public static async Task<WrittenEvidence> EvidenceAsync(
+        ServiceProvider provider, MemorySettings settings, string messageId, CancellationToken cancellationToken)
+    {
+        var driver = provider.GetRequiredService<global::Neo4j.Driver.IDriver>();
+        var session = driver.AsyncSession(o => o.WithDatabase(settings.Database)
+            .WithDefaultAccessMode(global::Neo4j.Driver.AccessMode.Read));
+        await using (session.ConfigureAwait(false))
+        {
+            return await session.ExecuteReadAsync(async transaction =>
+            {
+                // Dictionary parameters: the driver's object-to-map conversion is not needed (B6).
+                var parameters = new Dictionary<string, object> { ["messageId"] = messageId };
+                var items = new List<WrittenItem>();
+                var cursor = await transaction.RunAsync(ItemsQuery, parameters).ConfigureAwait(false);
+                while (await cursor.FetchAsync().ConfigureAwait(false))
+                {
+                    var record = cursor.Current;
+                    items.Add(new WrittenItem(
+                        (string)record["id"], (string)record["kind"], record["owner"] as string, record["live"] is true,
+                        record["dims"] is long dims ? dims : 0));
+                }
+                var closed = new List<string>();
+                cursor = await transaction.RunAsync(ClosedQuery, parameters).ConfigureAwait(false);
+                while (await cursor.FetchAsync().ConfigureAwait(false))
+                    closed.Add((string)cursor.Current["id"]);
+                return new WrittenEvidence(items, closed);
+            }).ConfigureAwait(false);
         }
     }
 }
