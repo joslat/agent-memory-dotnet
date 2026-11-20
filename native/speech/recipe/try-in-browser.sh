@@ -9,6 +9,8 @@
 #   down    stop the UI and the recipe; the memory (Neo4j volume) stays
 #   status  the recipe's containers, the UI and the server's memory status
 #   trace   follow the server live, coloured, and save the full log and the conversation (logs/ next to the settings)
+#   memory  follow what the server remembers for the owner: each memory as it is written, replaced or forgotten
+# UI_SERVER_URL sends the UI somewhere else than the server itself, for example through realtime_tap.py.
 # The settings file is the recipe's (see TRY_IT.md); the UI and the status check follow its S2S_PUBLISH (default
 # 127.0.0.1:8765), which must be on this computer.
 # The UI's Python environment, process id and log live next to the settings file (ui-venv, ui.pid, ui.log).
@@ -43,7 +45,7 @@ case "$ACTION" in
     recipe up
     stop_ui
     # The browser opens the WebSocket itself, so the address is this computer's localhost.
-    ( cd "$CHECKOUT" && SPEECH_TO_SPEECH_URL=ws://localhost:$PORT/v1/realtime \
+    ( cd "$CHECKOUT" && SPEECH_TO_SPEECH_URL="${UI_SERVER_URL:-ws://localhost:$PORT/v1/realtime}" \
         nohup "$PY" -m uvicorn --app-dir demo server:app --host 127.0.0.1 --port 7860 > "$LOG" 2>&1 & echo $! > "$PIDFILE" )
     ui_up() { [ "$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 http://127.0.0.1:7860/)" = 200 ]; }
     for _ in $(seq 1 30); do ui_up && break; sleep 2; done
@@ -87,5 +89,32 @@ case "$ACTION" in
           -e 's/^(.* - WARNING - .*)$/\x1b[33m\1\x1b[0m/' \
           -e 's/^(.*memory: .*)$/\x1b[35m\1\x1b[0m/'
     ;;
-  *) echo "up, down, status or trace" >&2; exit 2 ;;
+  memory)
+    # Every 2 s: the owner's facts and preferences, printed when one appears, is replaced or is forgotten.
+    owner="$(sed -n 's/^MEMORY_OWNER=//p' "$SETTINGS" | tail -1 | tr -d '\r')"
+    id="$(recipe compose ps -q neo4j)"; [ -n "$id" ] || { echo "Neo4j is not running" >&2; exit 1; }
+    query="MATCH (n) WHERE (n:Fact OR n:Preference) AND n.owner_id = '$owner' RETURN n.id, labels(n)[0], coalesce(n.subject + ' | ' + n.predicate + ' | ' + n.object, n.preference), n.invalidated_at IS NULL, toString(n.valid_from), toString(n.valid_until) ORDER BY n.created_at"
+    echo "what the server remembers for '$owner' (Ctrl+C to stop)"; echo
+    declare -A seen=()
+    while true; do
+      rows="$(docker exec "$id" sh -c "cypher-shell -u neo4j -p \"\$(cut -d/ -f2- /run/secrets/neo4j_auth)\" --format plain \"$query\"" 2> /dev/null | tail -n +2)"
+      [ -n "$rows" ] || { [ ${#seen[@]} -gt 0 ] && { echo "$(date +%H:%M:%S)  (nothing left: erased)"; seen=(); }; }
+      while IFS= read -r row; do
+        [ -n "$row" ] || continue
+        key="$(cut -d, -f1 <<< "$row")"; live="$(cut -d, -f4 <<< "$row" | tr -d ' ')"; state="$key:$live"
+        [ "${seen[$key]:-}" = "$state" ] && continue
+        text="$(cut -d, -f2- <<< "$row" | sed -E 's/, (TRUE|FALSE)(,.*)$//; s/^ *"?([A-Za-z]+)"?, */\1: /')"
+        dates="$(sed -E 's/.*, (TRUE|FALSE), //; s/NULL//g; s/"//g' <<< "$row")"
+        [[ "$dates" =~ [0-9] ]] && dates="valid ${dates/, / to }" || dates=""
+        if [ "$live" = TRUE ]; then
+          printf '\e[1;32m%s  remembered  %s\e[0m  %s\n' "$(date +%H:%M:%S)" "$text" "$dates"
+        else
+          printf '\e[33m%s  closed      %s\e[0m  %s\n' "$(date +%H:%M:%S)" "$text" "$dates"
+        fi
+        seen[$key]="$state"
+      done <<< "$rows"
+      sleep 2
+    done
+    ;;
+  *) echo "up, down, status, trace or memory" >&2; exit 2 ;;
 esac
