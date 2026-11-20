@@ -207,7 +207,7 @@ for arm in order:
 print("\n## Invariants (memory arm; any failure is a blocker)\n")
 for category, label in ((8, "forget"), (10, "nothing learned from questions, assent, greetings"),
                         (11, "a write killed mid-run is stored once and answered"), (12, "instruction-like memory not obeyed")):
-    selected = [r for r in rows if r["arm"] == "memory" and r["category"] == category]
+    selected = [r for r in rows if r["arm"] == "memory" and r["category"] == category and not r["control"]]
     s, c, ok, f = rate(selected)
     killed = sum(1 for r in selected if r.get("killed"))
     extra = f"; kills that landed during the write: {killed}" if category == 11 else ""

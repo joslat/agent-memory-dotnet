@@ -208,7 +208,7 @@ import json, sys
 print(json.load(open(sys.argv[1]))["clusters"][sys.argv[2]]["store"].get("exactly_once", ""))
 EOF
     local key; key="$(tr -d '\r\n' < "$REPORT/$dir/key.txt")"
-    [ -n "$key" ] && cypher "MATCH (n) WHERE (n:Fact OR n:Preference) AND n.owner_id = 'bench-owner' AND n.invalidated_at IS NULL AND (toLower(coalesce(n.object, '')) CONTAINS toLower('$key') OR toLower(coalesce(n.preference, '')) CONTAINS toLower('$key')) RETURN count(n)" > "$REPORT/$dir/key-count.txt"
+    [ -n "$key" ] && cypher "MATCH (n) WHERE (n:Fact OR n:Preference) AND n.owner_id = 'bench-owner' AND n.invalidated_at IS NULL AND toLower(coalesce(n.subject, '') + ' ' + coalesce(n.predicate, '') + ' ' + coalesce(n.object, '') + ' ' + coalesce(n.preference, '')) CONTAINS toLower('$key') RETURN count(n)" > "$REPORT/$dir/key-count.txt"
   fi
   return 0
 }
