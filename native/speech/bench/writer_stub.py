@@ -67,10 +67,26 @@ def writer_answer(prompt: str) -> dict:
     return {"ops": ops}
 
 
+JUDGE_MIDDLE = '" replace this stored one: "'
+
+
+def judge_pairs(prompt: str) -> list[tuple[str, str, str]]:
+    """The judge's lines 'pN: Does the new memory "NEW" replace this stored one: "OLD"?', read without a regular
+    expression (two greedy groups backtrack polynomially on a crafted line)."""
+    pairs = []
+    for line in prompt.splitlines():
+        key, sep, rest = line.partition(': Does the new memory "')
+        if not sep or not key.startswith("p") or not key[1:].isdigit() or not rest.endswith('"?'):
+            continue
+        new, middle, old = rest[:-2].rpartition(JUDGE_MIDDLE)
+        if middle:
+            pairs.append((key, new, old))
+    return pairs
+
+
 def judge_answer(prompt: str) -> dict:
     answer = {}
-    for key, new, old in re.findall(r'^(p\d+): Does the new memory "(.*)" replace this stored one: "(.*)"\?$', prompt,
-                                    re.MULTILINE):
+    for key, new, old in judge_pairs(prompt):
         with _lock:
             answer[key] = "yes" if any(new == n and r in old for n, r in REPLACEMENTS) else "no"
     return answer
