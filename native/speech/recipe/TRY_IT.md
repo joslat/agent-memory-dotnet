@@ -79,8 +79,15 @@ native/speech/recipe/try-in-browser.sh ~/my-speech.env <speech-to-speech checkou
 
 follows the server live: what it heard (green), what it said (cyan), memory events (magenta), warnings and errors
 (yellow, red) and every turn's latency. It saves the full log and the conversation in `logs/` next to your settings
-file. In the voice UI's Settings, switch off the camera tool unless your conversation model handles tools well: a
-small model may speak a tool call aloud instead of making it. The UI's default voice ("Aiden") is a Qwen3-TTS voice;
+file. In the voice UI's Settings:
+
+- **Language: Auto.** Parakeet detects the language itself and cannot be told one; the server refuses a session
+  update that names a language, and with it the UI's 24 kHz audio format, so the UI then plays the server's 16 kHz
+  voice 1.5 times too fast (it sounds like helium). Auto is accepted, and English, Spanish and German are recognised.
+- **Camera tool: off** unless your conversation model handles tools well: a small model may speak a tool call aloud
+  instead of making it.
+
+The UI's default voice ("Aiden") is a Qwen3-TTS voice;
 with Kokoro the server falls back to its own voice, which is harmless.
 
 ## 4. Things to try
