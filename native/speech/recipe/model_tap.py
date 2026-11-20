@@ -54,7 +54,7 @@ def shape(body: dict) -> dict:
         if message.get("tool_call_id"):
             item["tool_call_id"] = True
         if options.with_text and isinstance(content, str):
-            item["text"] = content[:300]
+            item["text"] = content[:2000]
         messages.append(item)
     return {"model": body.get("model"), "stream": body.get("stream"), "messages": messages,
             "tools": [tool.get("function", tool).get("name") for tool in body.get("tools") or []],
