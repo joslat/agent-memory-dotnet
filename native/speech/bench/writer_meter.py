@@ -23,6 +23,8 @@ UPSTREAM, KEY_ENV, PORT, MAX_CALLS, TALLY = sys.argv[1], sys.argv[2], int(sys.ar
 KEY = os.environ.get(KEY_ENV, "")
 if not KEY:
     sys.exit(f"refuse: the environment variable {KEY_ENV} is empty")
+# A generic agent: some endpoints refuse Python's default one with 403 (seen on 20 November 2026).
+AGENT = "agentmemory-bench/1.0"
 _lock = threading.Lock()
 state = {"upstream": UPSTREAM.split("/v1/")[0], "max_calls": MAX_CALLS, "calls": 0, "refused": 0, "failed": 0,
          "input_tokens": 0, "output_tokens": 0, "log": []}
@@ -78,7 +80,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         started = time.monotonic()
         request = urllib.request.Request(UPSTREAM, data=raw, method="POST", headers={
-            "Content-Type": "application/json", "Authorization": f"Bearer {KEY}"})
+            "Content-Type": "application/json", "Authorization": f"Bearer {KEY}", "User-Agent": AGENT})
         status, body, usage = 502, b'{"error":{"message":"upstream unreachable"}}', {}
         try:
             with urllib.request.urlopen(request, timeout=300) as response:
@@ -106,7 +108,24 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
+def check_upstream() -> None:
+    """Before any paid call: the key and agent are accepted (GET .../models costs nothing). Refusal stops the run."""
+    url = UPSTREAM.rsplit("/chat/completions", 1)[0] + "/models"
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers={
+                "Authorization": f"Bearer {KEY}", "User-Agent": AGENT}), timeout=30) as response:
+            status = response.status
+    except urllib.error.HTTPError as e:
+        status = e.code
+    except Exception as e:  # noqa: BLE001
+        status = f"unreachable ({type(e).__name__})"
+    if status in (401, 403):
+        sys.exit(f"refuse: the upstream refused the key or agent (HTTP {status} on {url.split('/v1/')[0]}/v1/models)")
+    print(f"upstream check: HTTP {status}", flush=True)
+
+
 if __name__ == "__main__":
+    check_upstream()
     save()
     print(f"writer meter listening on {PORT}, at most {MAX_CALLS} calls", flush=True)
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()

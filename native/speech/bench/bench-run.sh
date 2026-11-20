@@ -85,8 +85,12 @@ else
   python -I "$(win "$HERE/writer_meter.py")" "$WRITER_URL" "$WRITER_API_KEY_ENV" "$METER_PORT" "${MAX_WRITER_CALLS:-60}" \
     "$(win "$REPORT/writer-calls.json")" > "$REPORT/writer-meter.log" 2>&1 &
   STUB_PID=$!
-  sleep 2
-  kill -0 "$STUB_PID" 2>/dev/null || { cat "$REPORT/writer-meter.log"; exit 1; }
+  for _ in $(seq 1 60); do  # the meter first checks that the upstream accepts the key (no paid call)
+    grep -q "writer meter listening" "$REPORT/writer-meter.log" 2>/dev/null && break
+    kill -0 "$STUB_PID" 2>/dev/null || break
+    sleep 1
+  done
+  grep -q "writer meter listening" "$REPORT/writer-meter.log" 2>/dev/null || { cat "$REPORT/writer-meter.log"; exit 1; }
   WRITER_URL="http://host.docker.internal:$METER_PORT/v1/chat/completions"; WRITER_KEY=""
 fi
 
