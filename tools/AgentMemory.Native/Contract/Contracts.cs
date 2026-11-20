@@ -1,4 +1,5 @@
 using AgentMemory.Native.Composition;
+using System.Text.Json;
 using AgentMemory.Native.Embeddings;
 
 namespace AgentMemory.Native.Contract;
@@ -25,6 +26,9 @@ internal sealed record OpenConfig
     public int MaxPendingJobs { get; init; } = 32;
     public int DefaultTimeoutMs { get; init; } = 2000;
 
+    private static readonly HashSet<string> StoreSchemes =
+        new(["bolt", "bolt+s", "bolt+ssc", "neo4j", "neo4j+s", "neo4j+ssc"], StringComparer.OrdinalIgnoreCase);
+
     /// <summary>One context per store and database in a process.</summary>
     public string AuthorityKey => $"{Memory.Uri.Trim().ToLowerInvariant()}|{Memory.Database}";
 
@@ -32,6 +36,7 @@ internal sealed record OpenConfig
     {
         var (document, root) = StrictObject.Parse(utf8, "configuration");
         using (document)
+        try
         {
             if (root.OptionalInt("schemaVersion", 0, 0, int.MaxValue) != 1)
                 throw new ContractException("unsupported_schema", "$.schemaVersion must be 1.");
@@ -60,8 +65,9 @@ internal sealed record OpenConfig
             var acquisitionTimeoutMs = store.OptionalInt("connectionAcquisitionTimeoutMs", 5000, 1, 600_000);
             var maxRetryTimeMs = store.OptionalInt("maxRetryTimeMs", 1000, 0, 600_000);
             store.EnsureNoUnknown();
-            if (!Uri.TryCreate(uri, UriKind.Absolute, out _))
-                throw new ContractException("invalid_value", "$.store.uri must be an absolute URI such as bolt://host:7687.");
+            if (!Uri.TryCreate(uri, UriKind.Absolute, out var storeUri) || !StoreSchemes.Contains(storeUri.Scheme))
+                throw new ContractException("invalid_value",
+                    "$.store.uri must be a Neo4j URI: bolt://, bolt+s://, bolt+ssc://, neo4j://, neo4j+s:// or neo4j+ssc://.");
 
             var embedding = root.RequiredObject("embedding");
             var dimensions = embedding.OptionalInt("dimensions", 0, 1, 8192);
@@ -117,6 +123,12 @@ internal sealed record OpenConfig
                 DefaultTimeoutMs = defaultTimeout,
             };
         }
+        catch (InvalidOperationException)
+        {
+            // Raised by the JSON reader only for text it cannot decode (a lone surrogate escape, which a
+            // lookup by property name unescapes on its own path); every kind is checked before it is read.
+            throw new ContractException("malformed_json", "The configuration holds text that is not valid Unicode.");
+        }
     }
 }
 
@@ -126,10 +138,35 @@ internal abstract record NativeRequest
     public string? RequestId { get; init; }
     public abstract string Operation { get; }
 
+    /// <summary>
+    /// The operation and request id as far as they can be read, to label a result even when the request is refused.
+    /// Never throws; strict validation is the job of Parse.
+    /// </summary>
+    public static (string? Operation, string? RequestId) Peek(ReadOnlyMemory<byte> utf8)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(utf8, new JsonDocumentOptions { MaxDepth = 16 });
+            if (document.RootElement.ValueKind != JsonValueKind.Object) return (null, null);
+            return (Label(document.RootElement, "operation", 64), Label(document.RootElement, "requestId", 256));
+        }
+        catch (Exception exception) when (exception is JsonException or ArgumentException or InvalidOperationException)
+        {
+            return (null, null);
+        }
+
+        static string? Label(JsonElement root, string name, int maxLength) =>
+            root.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
+            && value.GetString() is { Length: > 0 } text && text.Length <= maxLength
+                ? text
+                : null;
+    }
+
     public static NativeRequest Parse(ReadOnlyMemory<byte> utf8, OpenConfig config)
     {
         var (document, root) = StrictObject.Parse(utf8, "request");
         using (document)
+        try
         {
             if (root.OptionalInt("schemaVersion", 0, 0, int.MaxValue) != 1)
                 throw new ContractException("unsupported_schema", "$.schemaVersion must be 1.");
@@ -144,6 +181,12 @@ internal abstract record NativeRequest
             };
             root.EnsureNoUnknown();
             return request;
+        }
+        catch (InvalidOperationException)
+        {
+            // Raised by the JSON reader only for text it cannot decode (a lone surrogate escape, which a
+            // lookup by property name unescapes on its own path); every kind is checked before it is read.
+            throw new ContractException("malformed_json", "The request holds text that is not valid Unicode.");
         }
     }
 }

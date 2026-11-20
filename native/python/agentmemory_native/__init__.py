@@ -9,12 +9,12 @@ Every request carries its query vector; owner binding, limits and the store come
 (see native/CONTRACT.md). The async client runs every native call off the event loop.
 """
 from ._library import ABI_MAJOR, ABI_MINOR, library_file_name, resolve_library_path
-from .client import AsyncMemoryClient, Job, MemoryClient, get_context_request
+from .client import AsyncMemoryClient, Job, JobStopped, MemoryClient, get_context_request
 from .errors import NativeCallError, OpenError
 from .results import ContextResult, ContextState, Fact, OperationError, Preference
 
 __all__ = [
-    "ABI_MAJOR", "ABI_MINOR", "AsyncMemoryClient", "ContextResult", "ContextState", "Fact", "Job", "MemoryClient",
+    "ABI_MAJOR", "ABI_MINOR", "AsyncMemoryClient", "ContextResult", "ContextState", "Fact", "Job", "JobStopped", "MemoryClient",
     "NativeCallError", "OpenError", "OperationError", "Preference", "get_context_request", "library_file_name",
     "resolve_library_path",
 ]

@@ -16,7 +16,7 @@ internal enum StopReason
 /// still running; <see cref="Settled"/> turns true only when the work itself has ended, and only then does the job give
 /// back its capacity.
 /// </summary>
-internal sealed class NativeJob(ulong handle, byte[] request)
+internal sealed class NativeJob(ulong handle, byte[] request, string? operation, string? requestId)
 {
     private long _startedAt;
     private int _stopReason;
@@ -27,16 +27,11 @@ internal sealed class NativeJob(ulong handle, byte[] request)
     public long SubmittedAt { get; } = Stopwatch.GetTimestamp();
     public CancellationTokenSource Cancellation { get; } = new();
     public TaskCompletionSource<byte[]> Result { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    public string? Operation { get; private set; }
-    public string? RequestId { get; private set; }
+    /// <summary>Read leniently at submit, before the job is published, so every result can carry them.</summary>
+    public string? Operation { get; } = operation;
+    public string? RequestId { get; } = requestId;
     public bool Settled => _settled;
     public StopReason StopReason => (StopReason)Volatile.Read(ref _stopReason);
-
-    public void Describe(NativeRequest request)
-    {
-        Operation = request.Operation;
-        RequestId = request.RequestId;
-    }
 
     public void MarkStarted() => Interlocked.CompareExchange(ref _startedAt, Stopwatch.GetTimestamp(), 0);
 

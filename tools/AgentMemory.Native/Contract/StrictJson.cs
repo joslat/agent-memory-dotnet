@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Unicode;
 
 namespace AgentMemory.Native.Contract;
 
@@ -39,6 +40,10 @@ internal sealed class StrictObject
     {
         if (utf8.Length > MaxDocumentBytes)
             throw new ContractException("too_large", $"The {what} is {utf8.Length} bytes; the limit is {MaxDocumentBytes}.");
+        // The parser checks structure; string contents are decoded only when read, so a bad byte inside a string or a
+        // lone surrogate escape would surface later as an unrelated error. Both are refused here, up front.
+        if (!Utf8.IsValid(utf8.Span))
+            throw new ContractException("malformed_json", $"The {what} is not valid UTF-8.");
         JsonDocument document;
         try
         {
@@ -52,12 +57,49 @@ internal sealed class StrictObject
         {
             throw new ContractException("malformed_json", $"The {what} is not valid UTF-8 JSON: {exception.Message}");
         }
+        catch (InvalidOperationException)
+        {
+            // Refusing repeated properties makes the parser compare property names, which it unescapes to do so; a name
+            // with a lone surrogate escape fails there, during the parse.
+            throw new ContractException("malformed_json", $"The {what} holds a property name that is not valid Unicode.");
+        }
         if (document.RootElement.ValueKind != JsonValueKind.Object)
         {
             document.Dispose();
             throw new ContractException("not_an_object", $"The {what} must be one JSON object.");
         }
+        try
+        {
+            DecodeAllStrings(document.RootElement);
+        }
+        catch (InvalidOperationException)
+        {
+            document.Dispose();
+            throw new ContractException("malformed_json",
+                $"The {what} holds a string that is not valid Unicode (for example a lone surrogate escape).");
+        }
         return (document, new StrictObject(document.RootElement, "$"));
+    }
+
+    /// <summary>Decodes every property name and string value once, so invalid text fails here and nowhere later.</summary>
+    private static void DecodeAllStrings(JsonElement element)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Object:
+                foreach (var property in element.EnumerateObject())
+                {
+                    _ = property.Name;
+                    DecodeAllStrings(property.Value);
+                }
+                break;
+            case JsonValueKind.Array:
+                foreach (var item in element.EnumerateArray()) DecodeAllStrings(item);
+                break;
+            case JsonValueKind.String:
+                _ = element.GetString();
+                break;
+        }
     }
 
     private bool TryGet(string name, out JsonElement value)
@@ -77,7 +119,8 @@ internal sealed class StrictObject
         if (!TryGet(name, out var value)) return null;
         if (value.ValueKind != JsonValueKind.String) throw Wrong(name, "a string");
         var text = value.GetString()!;
-        if (text.Length == 0 || text.Length > maxLength) throw Wrong(name, $"a non-empty string of at most {maxLength} characters");
+        if (string.IsNullOrWhiteSpace(text) || text.Length > maxLength)
+            throw Wrong(name, $"a string of at most {maxLength} characters that is not blank");
         return text;
     }
 

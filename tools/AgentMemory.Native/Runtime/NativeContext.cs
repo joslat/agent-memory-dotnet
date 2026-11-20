@@ -42,13 +42,14 @@ internal sealed class NativeContext
     public int Submit(byte[] request, uint timeoutMs, out ulong jobHandle)
     {
         jobHandle = 0;
+        var (operation, requestId) = NativeRequest.Peek(request);
         NativeJob job;
         lock (_gate)
         {
             if (_closing) return AbiStatus.Closing;
             if (_active.Count >= Config.MaxPendingJobs || _jobs.Count >= Config.MaxPendingJobs + MaxRetainedBeyondPending)
                 return AbiStatus.Overloaded;
-            job = new NativeJob(ContextRegistry.NextJobHandle(), request);
+            job = new NativeJob(ContextRegistry.NextJobHandle(), request, operation, requestId);
             _jobs.Add(job.Handle, job);
             _active.Add(job);
         }
@@ -73,11 +74,10 @@ internal sealed class NativeContext
             }
             catch (ContractException invalid)
             {
-                job.Finish(ResultWriter.Failure(null, null, "invalid", invalid.Code, invalid.Message, job.Timing()));
+                job.Finish(ResultWriter.Failure(job.Operation, job.RequestId, "invalid", invalid.Code, invalid.Message, job.Timing()));
                 return;
             }
 
-            job.Describe(request);
             await _running.WaitAsync(token).ConfigureAwait(false);
             try
             {

@@ -3,6 +3,7 @@ using AgentMemory.Native.Abi;
 using AgentMemory.Native.Composition;
 using AgentMemory.Native.Contract;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Neo4j.Driver;
 
 namespace AgentMemory.Native.Runtime;
@@ -60,8 +61,10 @@ internal static class ContextRegistry
         try
         {
             provider = MemoryComposition.Build(config.Memory);
+            // Validates the store options and builds the driver (no I/O), so a configuration they refuse fails here.
+            var driver = provider.GetRequiredService<IDriver>();
             if (config.VerifyConnectivity)
-                provider.GetRequiredService<IDriver>().VerifyConnectivityAsync()
+                driver.VerifyConnectivityAsync()
                     .WaitAsync(ConnectivityTimeout).GetAwaiter().GetResult();
 
             var handle = (ulong)Interlocked.Increment(ref _nextContext);
@@ -82,6 +85,8 @@ internal static class ContextRegistry
                 Authorities.Remove(authority);
             }
             DisposeQuietly(provider);
+            if (exception is OptionsValidationException or ArgumentException or NotSupportedException)
+                return (AbiStatus.InvalidArgument, 0, ResultWriter.OpenError("invalid_value", exception.Message));
             var (_, code, message) = exception is TimeoutException
                 ? ("unavailable", "store_unavailable", $"The store did not answer within {ConnectivityTimeout.TotalSeconds:0} s.")
                 : NativeContext.Classify(exception);

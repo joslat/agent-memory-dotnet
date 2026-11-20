@@ -119,16 +119,16 @@ internal static unsafe class Exports
     public static int State(ulong context, ulong* outStateRevision, ulong* outPolicyEpoch, ulong* outDeletionEpoch,
         ulong* outMemoryRevision, uint* outFlags)
     {
+        if (outStateRevision != null) *outStateRevision = 0;
+        if (outPolicyEpoch != null) *outPolicyEpoch = 0;
+        if (outDeletionEpoch != null) *outDeletionEpoch = 0;
+        if (outMemoryRevision != null) *outMemoryRevision = 0;
+        if (outFlags != null) *outFlags = 0;
         try
         {
             if (outStateRevision == null || outPolicyEpoch == null || outDeletionEpoch == null || outMemoryRevision == null
                 || outFlags == null)
                 return AbiStatus.InvalidArgument;
-            *outStateRevision = 0;
-            *outPolicyEpoch = 0;
-            *outDeletionEpoch = 0;
-            *outMemoryRevision = 0;
-            *outFlags = 0;
             if (!ContextRegistry.TryGet(context, out var target)) return AbiStatus.InvalidHandle;
             target.State(out var revision, out var flags);
             *outStateRevision = revision;

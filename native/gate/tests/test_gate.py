@@ -385,6 +385,106 @@ class Test6Embeddings(unittest.TestCase):
         self.assertEqual((neither.status, neither.error.code), ("invalid", "query_required"))
 
 
+class Test8ReviewFindings(unittest.TestCase):
+    """The G-AOT review's findings B7-B15, each tested at its trigger (BUGS_AND_RCA.md in the design folder)."""
+
+    def test_b7_cancelling_async_calls_at_any_point_leaks_no_job(self):
+        """Leaked handles stay in the job table forever, and past 257 of them every submit is refused. A cancelled
+        job instead holds its place only until its work ends, so capacity must come back within seconds."""
+        async def scenario():
+            async with await AsyncMemoryClient.open(config(limits={"maxRunningJobs": 1, "maxPendingJobs": 1})) as memory:
+                for i in range(300):
+                    task = asyncio.create_task(memory.get_context(session_id="c", query_vector=NEAR_AXIS_0, timeout_ms=5000))
+                    for _ in range(i % 4):
+                        await asyncio.sleep(0)
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+                    except NativeCallError as busy:
+                        self.assertEqual(busy.status, abi.OVERLOADED, "only backpressure may refuse a submit here")
+                for _ in range(100):
+                    try:
+                        return await memory.get_context(session_id="after", query_vector=NEAR_AXIS_0, min_score=0.0)
+                    except NativeCallError as busy:
+                        self.assertEqual(busy.status, abi.OVERLOADED)
+                        await asyncio.sleep(0.1)
+                raise AssertionError("capacity never came back: jobs leaked")
+
+        self.assertEqual(ids(asyncio.run(scenario())), A_IDS, "300 cancelled calls must leave the context usable")
+
+    def test_b8_a_cancelled_open_does_not_keep_the_store(self):
+        async def scenario():
+            for i in range(30):
+                try:
+                    await asyncio.wait_for(AsyncMemoryClient.open(config()), timeout=0.0005 * (i % 6))
+                except (asyncio.TimeoutError, TimeoutError):
+                    pass
+                except OpenError as busy:
+                    self.assertEqual(busy.code, "authority_held", "a cancelled open is still being closed")
+                else:
+                    raise AssertionError("an open finished; the scenario needs it cancelled")
+            await asyncio.sleep(1.0)
+
+        try:
+            asyncio.run(scenario())
+        except AssertionError as finished:
+            if "authority_held" in str(finished):
+                raise
+        for _ in range(50):
+            try:
+                MemoryClient(config()).close()
+                return
+            except OpenError as busy:
+                self.assertEqual(busy.code, "authority_held")
+                time.sleep(0.1)
+        raise AssertionError("the store stayed held: a cancelled open was never closed")
+
+    def test_b11_a_null_default_timeout_is_treated_as_absent(self):
+        with MemoryClient(config(limits={"defaultTimeoutMs": None})) as memory:
+            self.assertTrue(memory.get_context(session_id="s", query_vector=NEAR_AXIS_0).ok)
+
+    def test_b12_invalid_text_inside_strings_is_malformed_json(self):
+        with MemoryClient(config()) as memory:
+            for data in (b'{"schemaVersion":1,"operation":"capabilities_get","requestId":"\xff\xfe"}',
+                         b'{"schemaVersion":1,"operation":"capabilities_get","requestId":"\\ud800"}',
+                         b'{"schemaVersion":1,"operation":"capabilities_get","\\udc00":1}'):
+                with self.subTest(data=data):
+                    result = result_of(memory, data)
+                    self.assertEqual((result["status"], result["error"]["code"]), ("invalid", "malformed_json"))
+        broken = json.dumps(config()).replace(os.environ["AMP_PASSWORD"], "\\ud800").encode()
+        lib = abi.load()
+        context = ctypes.c_uint64()
+        error, length = ctypes.c_void_p(), ctypes.c_size_t()
+        status = lib.am_v1_open(abi.ABI_VERSION, broken, len(broken), ctypes.byref(context), ctypes.byref(error), ctypes.byref(length))
+        document = json.loads(abi.take_buffer(lib, error, length))
+        self.assertEqual((status, document["error"]["code"]), (abi.INVALID_ARGUMENT, "malformed_json"))
+
+    def test_b13_invalid_results_echo_the_request_id_and_operation(self):
+        with MemoryClient(config()) as memory:
+            result = result_of(memory, json.dumps({"schemaVersion": 1, "operation": "memory_get_context", "requestId": "r-13",
+                                                   "sessionId": "s", "queryVector": [1, 2]}).encode())
+        self.assertEqual((result["status"], result["requestId"], result["operation"]), ("invalid", "r-13", "memory_get_context"))
+
+    def test_b14_configurations_the_store_refuses_fail_at_open_as_invalid(self):
+        blank_user = config(verify=False)
+        blank_user["store"]["username"] = "   "
+        http_uri = config(uri="http://neo4j:7474", verify=False)
+        for document in (blank_user, http_uri):
+            with self.subTest(store=document["store"]["uri"]):
+                with self.assertRaises(OpenError) as refused:
+                    MemoryClient(document)
+                self.assertEqual((refused.exception.status, refused.exception.code), (abi.INVALID_ARGUMENT, "invalid_value"))
+
+    def test_b15_state_with_a_null_output_still_clears_the_others(self):
+        with MemoryClient(config()) as memory:
+            values = [ctypes.c_uint64(0xDEAD) for _ in range(4)]
+            status = memory._lib.am_v1_state(memory.handle, *(ctypes.byref(v) for v in values), None)
+        self.assertEqual(status, abi.INVALID_ARGUMENT)
+        self.assertEqual([v.value for v in values], [0, 0, 0, 0])
+
+
 class Test9StoreFailures(unittest.TestCase):
     def test_unreachable_store_fails_open_with_a_reason(self):
         with self.assertRaises(OpenError) as refused:

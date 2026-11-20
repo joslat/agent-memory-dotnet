@@ -6,7 +6,7 @@ import ctypes
 import json
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any, Mapping, Sequence
 
 from . import _library as abi
@@ -19,6 +19,10 @@ POLL_SLICE_MS = 50
 
 def _encode(document: Mapping[str, Any]) -> bytes:
     return json.dumps(document, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode("utf-8")
+
+
+class JobStopped(Exception):
+    """The caller stopped waiting before the job was submitted; nothing ran."""
 
 
 class Job:
@@ -88,6 +92,10 @@ class MemoryClient:
         if version >> 16 != abi.ABI_MAJOR:
             raise NativeCallError("am_v1_abi_version", abi.UNSUPPORTED_ABI,
                                   f"library ABI {version >> 16}.{version & 0xFFFF}, binding ABI {abi.ABI_MAJOR}.{abi.ABI_MINOR}")
+        limits = config.get("limits") or {}
+        # The library reads a JSON null as "absent"; so does this, before anything is opened.
+        self.default_timeout_ms = int(limits.get("defaultTimeoutMs") or 2000)
+        self.max_pending_jobs = int(limits.get("maxPendingJobs") or 32)
         data = _encode(config)
         context = ctypes.c_uint64(0)
         pointer = ctypes.c_void_p()
@@ -99,7 +107,6 @@ class MemoryClient:
             raise OpenError(status, json.loads(error.decode("utf-8")) if error else None)
         self._context = context.value
         self._closed = False
-        self.default_timeout_ms = int((config.get("limits") or {}).get("defaultTimeoutMs", 2000))
 
     # Low level -----------------------------------------------------------------------------------------------------
     def submit(self, request: Mapping[str, Any], timeout_ms: int = 0) -> Job:
@@ -113,9 +120,37 @@ class MemoryClient:
 
     def call(self, request: Mapping[str, Any], timeout_ms: int = 0) -> dict[str, Any]:
         """Submits, waits for the result document, and releases the job."""
-        budget_ms = timeout_ms or self.default_timeout_ms
-        with self.submit(request, timeout_ms) as job:
-            return job.wait(budget_ms / 1000 + 5)
+        return self.run_job(request, timeout_ms)
+
+    def run_job(self, request: Mapping[str, Any], timeout_ms: int = 0,
+                stop: threading.Event | None = None) -> dict[str, Any]:
+        """One job from submit to release, in the calling thread.
+
+        When ``stop`` is set, the job is cancelled first and released after its result arrives, in that order, here:
+        the handle never leaves this function, so nothing can drop it.
+        """
+        if stop is not None and stop.is_set():
+            raise JobStopped("stopped before it was submitted")
+        budget_s = (timeout_ms or self.default_timeout_ms) / 1000 + 5
+        job = self.submit(request, timeout_ms)
+        try:
+            deadline = time.monotonic() + budget_s
+            cancelled = False
+            while True:
+                if stop is not None and stop.is_set() and not cancelled:
+                    job.cancel()
+                    cancelled = True
+                result = job.poll(POLL_SLICE_MS)
+                if result is not None:
+                    return result
+                if time.monotonic() > deadline and not cancelled:
+                    job.cancel()
+                    cancelled = True
+                    deadline = time.monotonic() + 5
+                elif time.monotonic() > deadline:
+                    raise TimeoutError(f"job {job.handle:#x} delivered no result, even after a cancel")
+        finally:
+            job.release()
 
     def state(self) -> ContextState:
         values = [ctypes.c_uint64(0) for _ in range(4)]
@@ -196,23 +231,42 @@ def get_context_request(*, session_id: str, query: str | None = None, query_vect
 
 
 class AsyncMemoryClient:
-    """The same operations for asyncio. Every native call runs on a small bounded thread pool, never on the loop.
+    """The same operations for asyncio. Native calls never run on the event loop.
 
-    Cancelling an awaiting task cancels the native job; its capacity is returned when its work has really ended.
+    Each call runs from submit to release in one bridge thread; the pool has a thread for every job the context can
+    admit, so no call waits behind another. Cancelling an awaiting task returns at once and asks that thread to cancel
+    the native job and release it; the job keeps its capacity until its work has really ended.
     """
 
-    def __init__(self, client: MemoryClient, *, bridge_threads: int = 4) -> None:
+    def __init__(self, client: MemoryClient, *, bridge_threads: int | None = None) -> None:
         self._client = client
-        self._bridge = ThreadPoolExecutor(max_workers=bridge_threads, thread_name_prefix="agentmemory-native")
+        self._bridge = ThreadPoolExecutor(max_workers=bridge_threads or client.max_pending_jobs + 2,
+                                          thread_name_prefix="agentmemory-native")
+        self._closed = False
 
     @classmethod
-    async def open(cls, config: Mapping[str, Any], *, library: str | None = None, bridge_threads: int = 4) -> "AsyncMemoryClient":
-        loop = asyncio.get_running_loop()
-        bridge = ThreadPoolExecutor(max_workers=1, thread_name_prefix="agentmemory-native-open")
+    async def open(cls, config: Mapping[str, Any], *, library: str | None = None,
+                   bridge_threads: int | None = None) -> "AsyncMemoryClient":
+        """Opens off the event loop. If the awaiting task is cancelled, a context that still opens is closed again."""
+        opened: Future = Future()
+
+        def run() -> None:
+            if not opened.set_running_or_notify_cancel():
+                return
+            try:
+                opened.set_result(MemoryClient(config, library=library))
+            except BaseException as error:  # noqa: BLE001 - handed to the awaiting task
+                opened.set_exception(error)
+
+        threading.Thread(target=run, name="agentmemory-native-open", daemon=True).start()
         try:
-            client = await loop.run_in_executor(bridge, lambda: MemoryClient(config, library=library))
-        finally:
-            bridge.shutdown(wait=False)
+            client = await asyncio.wrap_future(opened)
+        except asyncio.CancelledError:
+            def close_late(future: Future) -> None:
+                if not future.cancelled() and future.exception() is None:
+                    future.result().close()
+            opened.add_done_callback(close_late)
+            raise
         return cls(client, bridge_threads=bridge_threads)
 
     @property
@@ -220,18 +274,15 @@ class AsyncMemoryClient:
         return self._client
 
     async def call(self, request: Mapping[str, Any], timeout_ms: int = 0) -> dict[str, Any]:
-        loop = asyncio.get_running_loop()
-        job = await loop.run_in_executor(self._bridge, self._client.submit, request, timeout_ms)
+        if self._closed:
+            raise RuntimeError("the client is closed")
+        stop = threading.Event()
+        running = self._bridge.submit(self._client.run_job, request, timeout_ms, stop)
         try:
-            while True:
-                result = await loop.run_in_executor(self._bridge, job.poll, POLL_SLICE_MS)
-                if result is not None:
-                    return result
+            return await asyncio.wrap_future(running)
         except asyncio.CancelledError:
-            self._bridge.submit(job.cancel)
+            stop.set()
             raise
-        finally:
-            self._bridge.submit(job.release)
 
     async def capabilities(self) -> dict[str, Any]:
         return await self.call({"schemaVersion": 1, "operation": "capabilities_get"})
@@ -244,11 +295,14 @@ class AsyncMemoryClient:
         return await asyncio.get_running_loop().run_in_executor(self._bridge, self._client.state)
 
     async def close(self, timeout_s: float = 10.0) -> None:
-        loop = asyncio.get_running_loop()
+        """Closes on its own thread. The event loop never blocks on it, even when this await is cancelled."""
+        if self._closed:
+            return
+        self._closed = True
         try:
-            await loop.run_in_executor(self._bridge, self._client.close, timeout_s)
+            await asyncio.to_thread(self._client.close, timeout_s)
         finally:
-            self._bridge.shutdown(wait=True)
+            self._bridge.shutdown(wait=False)
 
     async def __aenter__(self) -> "AsyncMemoryClient":
         return self
