@@ -351,7 +351,10 @@ internal static class MemoryWriterPrompt
           new job or a retirement ends the old job. Only the person's own event ends their state: someone else's wedding or
           move ends nothing of theirs. Replace the stored memory it ends (a fact or a connection), even when the message
           names the person by a role (mum, my sister) and the stored memory names them by name. When one event ends more
-          than one stored memory (the wedding plan and the engagement), write one replace for each.
+          than one stored memory (the wedding plan and the engagement), write one replace for each. The replacing memory
+          says what is true now, in the words of the one it replaces with the new value: when Anna moves to Madrid,
+          "Anna | lives in | Lisbon" is replaced by "Anna | lives in | Madrid"; the move itself, with its date, can be a
+          separate add.
         - A plan or a state true only for a day or a short while (tonight's plan, today's ailment or mood, this weekend's
           stay) is stored with "until": the last date it holds. Something that happened (the dog stole the butter this
           morning, she asked me to braid her hair today) stays true: store it with its date, never with "until".

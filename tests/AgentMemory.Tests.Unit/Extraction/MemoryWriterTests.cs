@@ -25,6 +25,8 @@ public sealed class MemoryWriterTests
     /// line and one operation added on 2026-10-10 (what the turn says again is confirmed, so it is reinforced), and two rules
     /// the same day: an event ends what it changes, and a one-off is stored with the date it ends ("until").
     /// The 13 October aspiration rule distinguishes desired contributions from reactions and invented commitments.
+    /// 20 November: the replacing memory says what is true now in the replaced one's words ("lives in Madrid", not "moved
+    /// to Madrid last month"), found by G-R2 when a moved sister's new city no longer answered "where does she live?".
     /// </summary>
     private const string HarnessSystemLukas =
         "You write Lukas's long-term memory of one kind: every kind = \n" +
@@ -39,7 +41,10 @@ public sealed class MemoryWriterTests
         "  new job or a retirement ends the old job. Only the person's own event ends their state: someone else's wedding or\n" +
         "  move ends nothing of theirs. Replace the stored memory it ends (a fact or a connection), even when the message\n" +
         "  names the person by a role (mum, my sister) and the stored memory names them by name. When one event ends more\n" +
-        "  than one stored memory (the wedding plan and the engagement), write one replace for each.\n" +
+        "  than one stored memory (the wedding plan and the engagement), write one replace for each. The replacing memory\n" +
+        "  says what is true now, in the words of the one it replaces with the new value: when Anna moves to Madrid,\n" +
+        "  \"Anna | lives in | Lisbon\" is replaced by \"Anna | lives in | Madrid\"; the move itself, with its date, can be a\n" +
+        "  separate add.\n" +
         "- A plan or a state true only for a day or a short while (tonight's plan, today's ailment or mood, this weekend's\n" +
         "  stay) is stored with \"until\": the last date it holds. Something that happened (the dog stole the butter this\n" +
         "  morning, she asked me to braid her hair today) stays true: store it with its date, never with \"until\".\n" +
