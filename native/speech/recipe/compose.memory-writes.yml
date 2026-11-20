@@ -1,0 +1,18 @@
+# Memory writes on (R1, added by recipe.sh when MEMORY_WRITES=on): the owner can say "remember that ..." and "forget what
+# I just told you", through the AgentMemory library's journal, which lives on its own persistent volume; and an operator
+# can erase everything of the owner (recipe.sh erase), with a control token that is a secret file recipe.sh writes.
+services:
+  speech:
+    environment:
+      S2S_MEMORY_CONTROL_TOKEN_FILE: /run/secrets/memory_control_token
+    secrets: [memory_control_token]
+    volumes:
+      - journal:/var/lib/agentmemory
+
+secrets:
+  memory_control_token:
+    file: ${SECRETS_DIR}/memory_control_token
+
+volumes:
+  journal:
+    name: ${JOURNAL_VOLUME:-agentmemory-speech-journal}

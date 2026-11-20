@@ -19,6 +19,13 @@ UTTERANCES = {
     "dog": "What is my dog called?",
     "food": "What food do I like?",
     "instrument": "Which instrument do I play?",
+    # G-R1: remember, change, forget, by voice.
+    "remember_colour": "Please remember that my favourite colour is green.",
+    "ask_colour": "What is my favourite colour?",
+    "remember_colour_blue": "Please remember that my favourite colour is blue now.",
+    "remember_cat": "Please remember that my cat is called Tom.",
+    "forget_last": "Forget what I just told you.",
+    "ask_cat": "What is my cat called?",
 }
 
 

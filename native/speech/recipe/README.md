@@ -54,8 +54,35 @@ With `MEMORY=on`, `up`:
 4. starts the server, which opens the library at startup (a refused configuration or library stops it, with the reason
    in the log), runs one warm-up recall, and listens.
 
-Memories come from elsewhere in R0: a managed AgentMemory host (or an import) writes them for `MEMORY_OWNER`, embedded
-with the same model and dimension as `EMBEDDING_MODEL` and `EMBEDDING_DIMENSIONS`.
+With `MEMORY_WRITES=off` (read-only), memories come from elsewhere: a managed AgentMemory host (or an import) writes
+them for `MEMORY_OWNER`, embedded with the same model and dimension as `EMBEDDING_MODEL` and `EMBEDDING_DIMENSIONS`.
+
+## Remembering and forgetting by voice (`MEMORY_WRITES=on`)
+
+Set `MEMORY_WRITES=on` with `WRITER_URL` and `WRITER_MODEL` (an OpenAI-compatible chat-completions endpoint; it can be
+the same model as the conversation). Then the owner can say:
+
+- "Please remember that ...", "remember that ...", "don't forget ...", "can you remember that ...": the server keeps the
+  words exactly as heard (never the robot's words) and the library turns them into facts and preferences. A question
+  ("do you remember ...?") is not a request.
+- "Forget what I just told you", "please forget that": the library stops using what this conversation last remembered.
+  It closes those memories; it does not delete them.
+
+Each request goes through the library's journal (its own volume, `JOURNAL_VOLUME`) and ends with a receipt. The robot
+is told only what the receipt supports: that it is saving and not confirmed yet, that it is saved, or that it was not
+saved; if the outcome comes later, it hears it on the next turn. While a write is being saved, or if one ends
+uncertain, recall pauses and turns are answered without memory. `GET /v1/realtime/capabilities` shows how many writes
+are saving and whether one needs attention, never their content.
+
+To delete everything remembered for the owner (memories, conversations, and the remembered words in the journal):
+
+```bash
+native/speech/recipe/recipe.sh my.env erase      # asks you to type "erase"
+```
+
+The server refuses while a write is still being saved; try again a moment later. The erase is reported as done only
+when nothing of the owner is left in the store. The control behind it (`POST /v1/memory/erase`) needs a token that
+`recipe.sh` creates in `STATE_DIR/secrets` and never prints.
 
 ## What a turn does
 
@@ -74,12 +101,15 @@ first query cold (2.6 s measured here), and that cost is paid by the re-warm, no
 
 Build new images, change the tags in the settings file, `down`, `up`. The Neo4j volume is kept and the schema step
 completes the schema. The library cannot be swapped under a running server: a new library means a new image and a
-restart. To delete all memory: `down`, then `docker volume rm <NEO4J_DATA_VOLUME>`.
+restart. To delete all memory: `down`, then `docker volume rm <NEO4J_DATA_VOLUME>` (and `<JOURNAL_VOLUME>` with memory
+writes on).
 
 ## Privacy
 
 - The memory configuration holds the database password: keep the settings file and `STATE_DIR` private.
-- The server's own log lines about memory hold item ids, counts and times, never recalled text.
+- The server's own log lines about memory hold item ids, counts, states and times, never recalled or remembered text.
+- With memory writes on, the journal volume holds the words the owner asked to remember (they are the evidence of each
+  write), readable only by the server's user; `erase` removes them.
 - The speech server prints every user transcript and assistant reply to its console (upstream behaviour, with or without
   memory), and replies may repeat remembered facts. Container logs therefore hold conversation text: restrict who can
   read them and set a log retention.
