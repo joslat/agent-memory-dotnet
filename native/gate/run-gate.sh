@@ -25,9 +25,13 @@ set +e
 if [ "${GATE_MODE:-library}" = wheel ]; then
   docker image inspect am-speech-gate-pip:24.04 >/dev/null 2>&1 \
     || docker build -q -t am-speech-gate-pip:24.04 -f "$HERE/Dockerfile.pip" "$HERE" >/dev/null
-  RUNTIME_IMAGE=am-speech-gate-pip:24.04 bash "$HERE/run-in-runtime.sh" "$ENV_FILE" "$BIN" sh -c \
-    'python3 -m venv /tmp/venv && /tmp/venv/bin/pip install -q --no-index /opt/am/*.whl && cd /tmp \
-     && /tmp/venv/bin/python -m unittest discover -v -s /native/gate/tests -t /native/gate/tests' \
+  # GATE_EXTRAS=langchain also installs langchain-core from the package index, so the retriever's tests run too.
+  RUNTIME_ENV="-e GATE_EXTRAS=${GATE_EXTRAS:-}" RUNTIME_IMAGE=am-speech-gate-pip:24.04 \
+    bash "$HERE/run-in-runtime.sh" "$ENV_FILE" "$BIN" sh -c \
+    'python3 -m venv /tmp/venv && /tmp/venv/bin/pip install -q --no-index /opt/am/*.whl \
+     && if [ "$GATE_EXTRAS" = langchain ]; then /tmp/venv/bin/pip install -q langchain-core \
+          && /tmp/venv/bin/pip show langchain-core | head -2; fi \
+     && cd /tmp && /tmp/venv/bin/python -m unittest discover -v -s /native/gate/tests -t /native/gate/tests' \
     > "$REPORT/gate-tests.log" 2>&1
 else
   RUNTIME_ENV="-e PYTHONPATH=/native/python -e AGENTMEMORY_NATIVE_LIBRARY=/opt/am/agentmemory_native.so" \
