@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `MemoryContext.QueryEmbeddingUnavailable`: true when a recall needed a query embedding, the query was not blank, and
+  none could be made. The embedding orchestrator turns a failed generation into an empty vector, the same value it
+  returns for a blank query, so until now an embedding outage read to every consumer exactly like an owner with no
+  memories. Set by the live and as-of paths; nothing else about the recall changes.
 - `Neo4jOptions.ConnectionTimeout` and `Neo4jOptions.MaxTransactionRetryTime`, both unset by default (the driver keeps
   its own defaults, configured exactly as before). The driver's transaction calls take no cancellation token, so a call
   whose caller has stopped waiting keeps retrying an unreachable store for up to 30 seconds; a host with deadlines can
