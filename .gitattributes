@@ -18,3 +18,6 @@ packs/**/*.png binary
 
 # Canonical licence hashes must be identical on Windows and Unix checkouts.
 **/LICENSE text eol=lf
+
+# The native library's gate scripts run inside Linux containers.
+native/**/*.sh text eol=lf

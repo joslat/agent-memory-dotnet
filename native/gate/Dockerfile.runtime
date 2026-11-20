@@ -1,0 +1,6 @@
+# The gate's runtime: the speech server's base distribution (Ubuntu 24.04, glibc 2.39) with the distribution's Python
+# and nothing else. No .NET runtime or SDK: the native library must carry what it needs.
+FROM ubuntu:24.04
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
