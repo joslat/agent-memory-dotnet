@@ -85,7 +85,7 @@ internal static class ResultWriter
             writer.WriteStartObject("embedding");
             writer.WriteNumber("dimensions", config.Memory.EmbeddingDimensions);
             if (config.EmbeddingModel is null) writer.WriteNull("model"); else writer.WriteString("model", config.EmbeddingModel);
-            writer.WriteBoolean("generatesEmbeddings", false);
+            writer.WriteBoolean("generatesEmbeddings", config.EmbeddingEndpoint is not null);
             writer.WriteEndObject();
             writer.WriteStartArray("operations");
             writer.WriteStringValue(CapabilitiesRequest.Name);

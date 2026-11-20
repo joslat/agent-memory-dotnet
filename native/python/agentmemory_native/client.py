@@ -129,12 +129,17 @@ class MemoryClient:
     def capabilities(self) -> dict[str, Any]:
         return self.call({"schemaVersion": 1, "operation": "capabilities_get"})
 
-    def get_context(self, *, session_id: str, query_vector: Sequence[float], owner: str | None = None,
+    def get_context(self, *, session_id: str, query: str | None = None, query_vector: Sequence[float] | None = None,
+                    owner: str | None = None,
                     max_facts: int = 5, max_preferences: int = 5, min_score: float | None = None,
                     request_id: str | None = None, timeout_ms: int = 0) -> ContextResult:
-        """Owner-scoped recall of facts and preferences by a query vector the caller supplies."""
+        """Owner-scoped recall of facts and preferences.
+
+        Pass ``query`` (text, embedded by the context's embedding endpoint) or ``query_vector`` (made by the caller).
+        """
         return ContextResult.from_json(self.call(
-            get_context_request(session_id=session_id, query_vector=query_vector, owner=owner, max_facts=max_facts,
+            get_context_request(session_id=session_id, query=query, query_vector=query_vector, owner=owner,
+                                max_facts=max_facts,
                                 max_preferences=max_preferences, min_score=min_score, request_id=request_id),
             timeout_ms))
 
@@ -166,17 +171,21 @@ class MemoryClient:
         self.close()
 
 
-def get_context_request(*, session_id: str, query_vector: Sequence[float], owner: str | None = None,
+def get_context_request(*, session_id: str, query: str | None = None, query_vector: Sequence[float] | None = None,
+                        owner: str | None = None,
                         max_facts: int = 5, max_preferences: int = 5, min_score: float | None = None,
                         request_id: str | None = None) -> dict[str, Any]:
     request: dict[str, Any] = {
         "schemaVersion": 1,
         "operation": "memory_get_context",
         "sessionId": session_id,
-        "queryVector": [float(v) for v in query_vector],
         "maxFacts": max_facts,
         "maxPreferences": max_preferences,
     }
+    if query is not None:
+        request["query"] = query
+    if query_vector is not None:
+        request["queryVector"] = [float(v) for v in query_vector]
     if owner is not None:
         request["owner"] = owner
     if min_score is not None:

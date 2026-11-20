@@ -1,4 +1,5 @@
 using AgentMemory.Native.Composition;
+using AgentMemory.Native.Embeddings;
 
 namespace AgentMemory.Native.Contract;
 
@@ -16,6 +17,9 @@ internal sealed record OpenConfig
     public required OwnerMode OwnerMode { get; init; }
     public string? FixedOwner { get; init; }
     public string? EmbeddingModel { get; init; }
+
+    /// <summary>Where query text becomes a vector; null when every request must carry its vector.</summary>
+    public EmbeddingEndpoint? EmbeddingEndpoint { get; init; }
     public bool VerifyConnectivity { get; init; } = true;
     public int MaxRunningJobs { get; init; } = 4;
     public int MaxPendingJobs { get; init; } = 32;
@@ -64,6 +68,20 @@ internal sealed record OpenConfig
             if (dimensions == 0)
                 throw new ContractException("missing_property", "$.embedding.dimensions is required.");
             var model = embedding.OptionalString("model", 256);
+            EmbeddingEndpoint? endpoint = null;
+            if (embedding.OptionalObject("endpoint") is { } endpointObject)
+            {
+                var endpointUrl = endpointObject.RequiredString("url", 2048);
+                var apiKey = endpointObject.OptionalString("apiKey", 4096);
+                var endpointTimeoutMs = endpointObject.OptionalInt("timeoutMs", 2000, 1, 600_000);
+                endpointObject.EnsureNoUnknown();
+                if (!Uri.TryCreate(endpointUrl, UriKind.Absolute, out var parsedUrl)
+                    || (parsedUrl.Scheme != Uri.UriSchemeHttp && parsedUrl.Scheme != Uri.UriSchemeHttps))
+                    throw new ContractException("invalid_value", "$.embedding.endpoint.url must be an absolute http or https URL.");
+                if (model is null)
+                    throw new ContractException("missing_property", "$.embedding.model is required with an endpoint: it names the model to ask for.");
+                endpoint = new EmbeddingEndpoint(parsedUrl, model, apiKey, TimeSpan.FromMilliseconds(endpointTimeoutMs));
+            }
             embedding.EnsureNoUnknown();
 
             var limits = root.OptionalObject("limits");
@@ -92,6 +110,7 @@ internal sealed record OpenConfig
                 OwnerMode = mode,
                 FixedOwner = fixedOwner,
                 EmbeddingModel = model,
+                EmbeddingEndpoint = endpoint,
                 VerifyConnectivity = verify,
                 MaxRunningJobs = maxRunning,
                 MaxPendingJobs = maxPending,
@@ -144,7 +163,9 @@ internal sealed record GetContextRequest : NativeRequest
 
     public required string Owner { get; init; }
     public required string SessionId { get; init; }
-    public required float[] QueryVector { get; init; }
+    /// <summary>Exactly one of <see cref="QueryVector"/> and <see cref="QueryText"/> is set.</summary>
+    public float[]? QueryVector { get; init; }
+    public string? QueryText { get; init; }
     public int MaxFacts { get; init; } = 5;
     public int MaxPreferences { get; init; } = 5;
     public double MinScore { get; init; } = 0.7;
@@ -160,12 +181,20 @@ internal sealed record GetContextRequest : NativeRequest
             _ => named ?? throw new ContractException("owner_required",
                 "This context serves several owners; every request must name its owner."),
         };
+        var text = root.OptionalString("query", 8000);
+        var vector = root.OptionalVector("queryVector", config.Memory.EmbeddingDimensions);
+        if ((text is null) == (vector is null))
+            throw new ContractException("query_required", "A request carries exactly one of $.query (text) and $.queryVector.");
+        if (text is not null && config.EmbeddingEndpoint is null)
+            throw new ContractException("embedding_required",
+                "This context has no embedding endpoint; send $.queryVector, or configure $.embedding.endpoint.");
         return new GetContextRequest
         {
             RequestId = requestId,
             Owner = owner,
             SessionId = root.RequiredString("sessionId", 256),
-            QueryVector = root.RequiredVector("queryVector", config.Memory.EmbeddingDimensions),
+            QueryVector = vector,
+            QueryText = text,
             MaxFacts = root.OptionalInt("maxFacts", 5, 0, 50),
             MaxPreferences = root.OptionalInt("maxPreferences", 5, 0, 50),
             MinScore = root.OptionalDouble("minScore", 0.7, 0.0, 1.0),

@@ -37,6 +37,8 @@ internal static class MemoryComposition
 
         var services = new ServiceCollection();
         services.AddLogging();
+        // The library never embeds on its own here: its orchestrator turns a failed embedding into an empty vector and
+        // an empty recall, which would read as "no memories". The native layer embeds query text itself and reports.
         services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(new RefusingEmbeddingGenerator());
         services.AddAgentMemoryCore(options =>
         {
@@ -97,7 +99,8 @@ internal static class MemoryComposition
         ServiceProvider provider,
         string ownerId,
         string sessionId,
-        float[] queryEmbedding,
+        string? queryText,
+        float[]? queryEmbedding,
         RecallOptions options,
         CancellationToken cancellationToken)
     {
@@ -109,7 +112,7 @@ internal static class MemoryComposition
             {
                 SessionId = sessionId,
                 UserId = ownerId,
-                Query = string.Empty,
+                Query = queryText ?? string.Empty,
                 QueryEmbedding = queryEmbedding,
                 Options = options,
             };

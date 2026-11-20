@@ -1,6 +1,7 @@
 using AgentMemory.Native.Abi;
 using AgentMemory.Native.Composition;
 using AgentMemory.Native.Contract;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace AgentMemory.Native.Runtime;
@@ -21,14 +22,17 @@ internal sealed class NativeContext
     private readonly SemaphoreSlim _running;
     private readonly TaskCompletionSource _closingSignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly ServiceProvider _provider;
+    private readonly IEmbeddingGenerator<string, Embedding<float>>? _embeddings;
     private bool _closing;
     private ulong _stateRevision = 1;
 
-    public NativeContext(ulong handle, OpenConfig config, ServiceProvider provider)
+    public NativeContext(ulong handle, OpenConfig config, ServiceProvider provider,
+        IEmbeddingGenerator<string, Embedding<float>>? embeddings = null)
     {
         Handle = handle;
         Config = config;
         _provider = provider;
+        _embeddings = embeddings;
         _running = new SemaphoreSlim(config.MaxRunningJobs, config.MaxRunningJobs);
     }
 
@@ -109,18 +113,30 @@ internal sealed class NativeContext
         {
             CapabilitiesRequest => ResultWriter.Capabilities(request.RequestId, Config, ContextRegistry.LibraryVersion, job.Timing()),
             GetContextRequest recall => ResultWriter.Context(
-                recall.RequestId,
-                await MemoryComposition.RecallAsync(
-                        _provider,
-                        recall.Owner,
-                        recall.SessionId,
-                        recall.QueryVector,
-                        MemoryComposition.ReadOnlyRecall(recall.Owner, recall.MaxFacts, recall.MaxPreferences, recall.MinScore),
-                        token)
-                    .ConfigureAwait(false),
-                job.Timing()),
+                recall.RequestId, await RecallAsync(recall, token).ConfigureAwait(false), job.Timing()),
             _ => throw new ContractException("unknown_operation", $"Operation '{request.Operation}' is not offered."),
         };
+
+    private async Task<Abstractions.Domain.MemoryContext> RecallAsync(GetContextRequest recall, CancellationToken token)
+    {
+        // Query text is embedded here, not inside the library, so a failed or wrong-sized embedding is reported as such
+        // instead of becoming an empty recall.
+        var vector = recall.QueryVector;
+        if (vector is null)
+        {
+            var generated = await _embeddings!.GenerateAsync([recall.QueryText!], cancellationToken: token).ConfigureAwait(false);
+            vector = generated[0].Vector.ToArray();
+        }
+        return await MemoryComposition.RecallAsync(
+                _provider,
+                recall.Owner,
+                recall.SessionId,
+                recall.QueryText,
+                vector,
+                MemoryComposition.ReadOnlyRecall(recall.Owner, recall.MaxFacts, recall.MaxPreferences, recall.MinScore),
+                token)
+            .ConfigureAwait(false);
+    }
 
     /// <summary>A failure as the contract reports it. Messages never carry credentials or stack traces.</summary>
     public static (string Status, string Code, string Message) Classify(Exception exception) => exception switch
@@ -129,6 +145,10 @@ internal sealed class NativeContext
         global::Neo4j.Driver.ServiceUnavailableException or global::Neo4j.Driver.SessionExpiredException =>
             ("unavailable", "store_unavailable", exception.Message),
         global::Neo4j.Driver.Neo4jException store => ("error", "store_error", $"{store.Code}: {store.Message}"),
+        HttpRequestException => ("unavailable", "embedding_unavailable", $"The embedding endpoint failed: {exception.Message}"),
+        TaskCanceledException { InnerException: TimeoutException } =>
+            ("unavailable", "embedding_timeout", "The embedding endpoint did not answer in time."),
+        Embeddings.EmbeddingMismatchException => ("error", "embedding_mismatch", exception.Message),
         InvalidOperationException when exception.Message == RefusingEmbeddingGenerator.Message =>
             ("error", "embedding_required", exception.Message),
         ContractException contract => ("invalid", contract.Code, contract.Message),
@@ -206,6 +226,7 @@ internal sealed class NativeContext
     public void Dispose()
     {
         _provider.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        _embeddings?.Dispose();
         lock (_gate)
         {
             _jobs.Clear();

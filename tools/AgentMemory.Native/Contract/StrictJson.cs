@@ -119,10 +119,12 @@ internal sealed class StrictObject
         return new StrictObject(value, $"{_path}.{name}");
     }
 
-    public float[] RequiredVector(string name, int length)
+    public float[] RequiredVector(string name, int length) =>
+        OptionalVector(name, length) ?? throw new ContractException("missing_property", $"{_path}.{name} is required.");
+
+    public float[]? OptionalVector(string name, int length)
     {
-        if (!TryGet(name, out var value))
-            throw new ContractException("missing_property", $"{_path}.{name} is required.");
+        if (!TryGet(name, out var value)) return null;
         if (value.ValueKind != JsonValueKind.Array) throw Wrong(name, "an array of numbers");
         var count = value.GetArrayLength();
         if (count != length)

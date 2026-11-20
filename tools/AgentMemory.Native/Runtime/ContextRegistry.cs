@@ -65,7 +65,10 @@ internal static class ContextRegistry
                     .WaitAsync(ConnectivityTimeout).GetAwaiter().GetResult();
 
             var handle = (ulong)Interlocked.Increment(ref _nextContext);
-            Contexts[handle] = new NativeContext(handle, config, provider);
+            var embeddings = config.EmbeddingEndpoint is { } endpoint
+                ? new Embeddings.OpenAiCompatibleEmbeddingGenerator(endpoint, config.Memory.EmbeddingDimensions)
+                : null;
+            Contexts[handle] = new NativeContext(handle, config, provider, embeddings);
             lock (AuthorityGate)
             {
                 Authorities[authority] = handle;

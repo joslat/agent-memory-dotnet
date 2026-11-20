@@ -8,10 +8,12 @@ from __future__ import annotations
 
 import asyncio
 import ctypes
+import http.server
 import json
 import os
 import shutil
 import statistics
+import threading
 import time
 import unittest
 
@@ -294,6 +296,84 @@ class Test5Lifecycle(unittest.TestCase):
         p50, p95 = statistics.median(latencies), latencies[int(len(latencies) * 0.95) - 1]
         print(f"\nMETRIC recall_p50_ms={p50:.2f} recall_p95_ms={p95:.2f} rss_growth_kib={after - before}", flush=True)
         self.assertLess(after - before, 64 * 1024, "500 recalls must not grow the process by 64 MiB")
+
+
+class FakeEmbeddings(http.server.BaseHTTPRequestHandler):
+    """An OpenAI-compatible /v1/embeddings endpoint with fixed answers, so the library's HTTP path is tested exactly."""
+
+    seen: list[dict] = []
+
+    def do_POST(self):  # noqa: N802 - the http.server naming
+        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        FakeEmbeddings.seen.append({"body": body, "authorization": self.headers.get("Authorization")})
+        vectors = []
+        for text in body["input"]:
+            if text == "wrong dimensions":
+                vectors.append([1.0, 0.0, 0.0])
+            elif "work" in text:
+                vectors.append(NEAR_AXIS_0)
+            else:
+                vectors.append([0, 0, 1.0, 0, 0, 0, 0, 0])
+        answer = json.dumps({"object": "list", "model": body["model"], "usage": {"prompt_tokens": 1},
+                             "data": [{"object": "embedding", "index": i, "embedding": v} for i, v in enumerate(vectors)]})
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(answer.encode())
+
+    def log_message(self, *_):
+        pass
+
+
+class Test6Embeddings(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), FakeEmbeddings)
+        threading.Thread(target=cls.server.serve_forever, daemon=True).start()
+        cls.url = f"http://127.0.0.1:{cls.server.server_address[1]}/v1/embeddings"
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+
+    def endpoint_config(self, url=None):
+        document = config()
+        document["embedding"]["endpoint"] = {"url": url or self.url, "apiKey": "gate-key", "timeoutMs": 2000}
+        return document
+
+    def test_query_text_is_embedded_through_the_endpoint(self):
+        FakeEmbeddings.seen.clear()
+        with MemoryClient(self.endpoint_config()) as memory:
+            self.assertTrue(memory.capabilities()["embedding"]["generatesEmbeddings"])
+            work = memory.get_context(session_id="s", query="where do I work?", min_score=0.0)
+            # Neo4j vector scores are (1 + cosine) / 2: an unrelated (orthogonal) item scores exactly 0.5.
+            style = memory.get_context(session_id="s", query="how should answers sound?", min_score=0.75)
+        self.assertEqual(work.status, "ok")
+        self.assertEqual(work.facts[0].id, "gate-fact-a-work")
+        self.assertEqual(ids(style), {"gate-pref-a-concise"})
+        self.assertEqual(FakeEmbeddings.seen[0]["body"]["model"], "gate-unit-axes")
+        self.assertEqual(FakeEmbeddings.seen[0]["body"]["input"], ["where do I work?"])
+        self.assertEqual(FakeEmbeddings.seen[0]["authorization"], "Bearer gate-key")
+        self.assertNotIn("gate-key", json.dumps(work.raw if isinstance(work.raw, dict) else dict(work.raw), default=str))
+
+    def test_vectors_of_the_wrong_size_are_refused(self):
+        with MemoryClient(self.endpoint_config()) as memory:
+            result = memory.get_context(session_id="s", query="wrong dimensions")
+        self.assertEqual((result.status, result.error.code), ("error", "embedding_mismatch"))
+
+    def test_an_unreachable_endpoint_reports_unavailable(self):
+        with MemoryClient(self.endpoint_config(url="http://127.0.0.1:9/v1/embeddings")) as memory:
+            result = memory.get_context(session_id="s", query="where do I work?")
+        self.assertEqual((result.status, result.error.code), ("unavailable", "embedding_unavailable"))
+
+    def test_text_without_an_endpoint_and_both_inputs_are_refused(self):
+        with MemoryClient(config()) as memory:
+            text_only = memory.get_context(session_id="s", query="where do I work?")
+            both = memory.get_context(session_id="s", query="x", query_vector=NEAR_AXIS_0)
+            neither = memory.get_context(session_id="s")
+        self.assertEqual((text_only.status, text_only.error.code), ("invalid", "embedding_required"))
+        self.assertEqual((both.status, both.error.code), ("invalid", "query_required"))
+        self.assertEqual((neither.status, neither.error.code), ("invalid", "query_required"))
 
 
 class Test9StoreFailures(unittest.TestCase):
