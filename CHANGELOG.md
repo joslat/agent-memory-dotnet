@@ -29,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   entity named after the user, so with no name known the connection was skipped ("target entity 'user' was not
   persisted") and only the entity Tom remained, which fact and preference recall never return. Such a connection is now
   kept as the fact `Tom | pet cat of | user`. Once the user's name is known it stays a connection, as before.
+- A long turn on a busy machine no longer fails recall or a write. The temporal query and window parsers, the fact date
+  reader, the calendar reader and the extraction gate bound every pattern to 100 ms, but nothing caught the timeout,
+  so `RegexMatchTimeoutException` reached the recall or write that called them. Running out of time is now an answer:
+  no temporal reference, no window, no date read, extract now.
 - A turn written after it was said (a replay, an import, a write a journal retries after a restart) is read against
   the day it was said. The store-aware writer showed the model "TODAY" from the clock and the update judge got the
   clock's "Today", so "tomorrow" and "last month" moved with the delay; only the date fields read from the words used

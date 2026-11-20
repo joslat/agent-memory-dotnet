@@ -104,7 +104,9 @@ internal static class TemporalQueryParser
     {
         if (string.IsNullOrWhiteSpace(query)) return null;
 
-        var resolved = ResolveCore(query, now);
+        // Every pattern is bounded so a pathological or very long turn cannot stall recall; when one runs out of time
+        // the turn degrades to "no temporal reference" and recalls against now, the safe answer.
+        var resolved = BoundedParse.OrElse(() => ResolveCore(query, now), null);
 
         // Never ahead of the reference instant. A parse that lands in the future is either a
         // misreading or a question about the future, and neither should narrow a recall window.

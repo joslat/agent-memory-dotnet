@@ -64,7 +64,14 @@ internal static class CalendarValues
 
     /// <summary>True means this is not eligible for approximate name identity; null means unresolved.</summary>
     internal static bool TryRead(string? text, string? type, out CalendarValue? value)
-        => TryReadCore(text, type, allowRange: true, out value);
+    {
+        // Out of time: read as a surface the parser will not take (as an empty or over-long one is): unresolved.
+        var (read, found) = BoundedParse.OrElse(
+            () => (TryReadCore(text, type, allowRange: true, out var parsed), parsed),
+            (IsExplicitTemporalType(type), (CalendarValue?)null));
+        value = found;
+        return read;
+    }
 
     private static bool TryReadCore(string? text, string? type, bool allowRange, out CalendarValue? value)
     {

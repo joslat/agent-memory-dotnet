@@ -102,7 +102,12 @@ internal static class FactDateReader
     internal static (DateTimeOffset? OccurredOn, DateTimeOffset? ValidFrom, DateTimeOffset? ValidUntil)? Read(string text, DateTimeOffset said)
     {
         if (string.IsNullOrWhiteSpace(text)) return null;
+        // A pattern that runs out of time reads no date: the fact is kept as the writer gave it, never dropped.
+        return BoundedParse.OrElse(() => ReadCore(text, said), null);
+    }
 
+    private static (DateTimeOffset? OccurredOn, DateTimeOffset? ValidFrom, DateTimeOffset? ValidUntil)? ReadCore(string text, DateTimeOffset said)
+    {
         var dates = OneDate.Matches(text);
         if (ReadRange(text, said) is { } stay)
         {
