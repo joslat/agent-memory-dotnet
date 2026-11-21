@@ -52,13 +52,28 @@ An open that fails returns an error document: `{"schemaVersion":1,"error":{"code
   "queryVector": [0.012, -0.044, 0.31],
   "maxFacts": 5,
   "maxPreferences": 5,
-  "minScore": 0.7
+  "minScore": 0.7,
+  "maxMessages": 5,
+  "maxEntities": 10,
+  "maxRelationships": 10,
+  "timeWindows": true
 }
 ```
 
 Exactly one of `query` (text, up to 8,000 characters; needs `embedding.endpoint` in the configuration, and the library embeds it and reports any embedding failure as such) and `queryVector`. `owner` only in the `per_request` mode. `requestId` is the caller's own correlation value, echoed in the result. `queryVector` must have the configured number of dimensions. `maxFacts` and `maxPreferences` are 0-50, `minScore` 0-1 (default 0.7). Scores are Neo4j vector-index scores, `(1 + cosine) / 2`: an unrelated item (cosine 0) scores 0.5, so a useful threshold sits well above 0.5.
 
-Recall reads the owner's own memory only (shared memory excluded), at the current valid time, with every expansion, transcript, trace and graph section off.
+Recall reads the owner's own memory only (shared memory excluded), at the current valid time, with every expansion, transcript, trace and graph section off unless a request asks for one of these:
+
+| Property | Default | Adds to the result |
+|---|---|---|
+| `maxMessages` (0-20) | 0 | `messages`: the messages of this request's `sessionId` most like the question (not other sessions). |
+| `maxEntities` (0-50) | 0 | `entities`: the people, places and things most like the question. |
+| `maxRelationships` (0-50) | 0 | `relationships`: how those relate ("Sam is the user's sister"). |
+| `timeWindows` | false | `windowFacts`: the facts of a time the question names ("yesterday", "last week"), by their date fields (a date only inside a fact's text is not one). |
+
+Person and event details are not offered: they need identity-evidence storage, which the native profiles have not.
+
+With none of them, a recall is exactly what it was before they existed, and its new result arrays are empty.
 
 ### `capabilities_get`
 
@@ -85,6 +100,10 @@ Recall reads the owner's own memory only (shared memory excluded), at the curren
       "confidence": 0.9, "createdAt": "2026-11-20T01:15:00+00:00", "metadata": {}
     }
   ],
+  "windowFacts": [],
+  "messages": [ { "id": "m-1", "role": "user", "text": "Yesterday I had dinner with the speakers.", "at": "2026-11-19T20:00:00+00:00" } ],
+  "entities": [ { "id": "e-1", "name": "Sam", "type": "PERSON", "description": null } ],
+  "relationships": [ { "id": "r-1", "source": "Sam", "type": "SISTER_OF", "target": "user", "description": null } ],
   "truncated": false,
   "timing": { "queuedMs": 0, "runMs": 31 }
 }
@@ -115,7 +134,7 @@ Configuration, in addition to the read-only properties:
   "owner": { "mode": "fixed", "id": "owner-1" },
   "embedding": { "dimensions": 1024, "model": "bge-m3",
                  "endpoint": { "url": "http://ollama:11434/v1/embeddings" } },
-  "writer": { "model": "llama3.2:3b",
+  "writer": { "model": "llama3.2:3b", "reasoningEffort": "low", "contextTurns": 4,
               "endpoint": { "url": "http://ollama:11434/v1/chat/completions", "apiKey": "…", "timeoutMs": 60000 } },
   "state": { "directory": "/var/lib/agentmemory" },
   "limits": { "maxQueuedWrites": 16 }
@@ -126,7 +145,7 @@ Configuration, in addition to the read-only properties:
 |---|---|
 | `owner.mode` | Must be `fixed`: one configured owner writes. |
 | `embedding.endpoint` | Required: the library embeds what it writes. |
-| `writer` | The model that turns the owner's words into facts and preferences: any OpenAI-compatible `/v1/chat/completions` endpoint. It runs AgentMemory's store-aware writer (it sees the owner's most relevant stored memories, so a change replaces what it changes), with no fallback to other extractors, the update judge on, and entity identity off; no setting turns identity on. `timeoutMs` (default 60000) bounds one model call. |
+| `writer` | The model that turns the owner's words into facts and preferences: any OpenAI-compatible `/v1/chat/completions` endpoint. It runs AgentMemory's store-aware writer (it sees the owner's most relevant stored memories, so a change replaces what it changes), with no fallback to other extractors, the update judge on, and entity identity off; no setting turns identity on. `timeoutMs` (default 60000) bounds one model call. `reasoningEffort` (`none`, `low`, `medium` or `high`; default: not sent) is sent as `reasoning_effort` to models that think before answering: GLM-5.3-Flash took 2.1 s and 607 thinking tokens on a small extraction by default, 0.5 s and 3 with `low`. Leave it out for an endpoint or model that refuses the field. `contextTurns` (0-32, default 0) gives the writer that many earlier turns of the same session as read-only context, so "his name is Sam" can reach "I met somebody at dinner"; nothing is ever kept from a context turn. A turn that cannot carry a fact (a plain question, "ok, thanks") is stored but costs no model call and ends `applied` with `nothing_to_keep`. |
 | `state.directory` | An absolute path. The library creates it (mode 0700) and keeps the journal there (`journal.jsonl`, mode 0600), held with an exclusive lock: a second open of the same directory, in this process or another, returns `AM_V1_BUSY` with code `state_locked`. A journal damaged before its last line refuses the open (`journal_corrupt`); an unfinished last line (an append that never returned) is cut off. |
 | `limits.maxQueuedWrites` | The most writes accepted and not yet finished (default 16); past it, `memory_remember` is refused with `write_queue_full` and nothing is accepted. |
 

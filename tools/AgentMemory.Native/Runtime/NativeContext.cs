@@ -175,7 +175,13 @@ internal sealed class NativeContext
                 recall.SessionId,
                 recall.QueryText,
                 vector,
-                MemoryComposition.ReadOnlyRecall(recall.Owner, recall.MaxFacts, recall.MaxPreferences, recall.MinScore),
+                MemoryComposition.ReadOnlyRecall(recall.Owner, recall.MaxFacts, recall.MaxPreferences, recall.MinScore) with
+                {
+                    MaxRelevantMessages = recall.MaxMessages,
+                    MaxEntities = recall.MaxEntities,
+                    MaxRelationships = recall.MaxRelationships,
+                    TimeWindows = recall.TimeWindows,
+                },
                 token)
             .ConfigureAwait(false);
     }

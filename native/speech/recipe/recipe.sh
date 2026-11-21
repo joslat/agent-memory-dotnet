@@ -76,11 +76,19 @@ write_secrets() {
         || { echo "WRITER_API_KEY: use 8-512 of A-Z a-z 0-9 . _ ~ + / = -" >&2; exit 2; }
       key="$(printf ',"apiKey":"%s"' "$WRITER_API_KEY")"
     fi
+    # Off by default, both measured on the owner's spoken test (GLM-5.3-Flash, six told sentences, 21 Nov 2026): the
+    # model's own reasoning kept 9 precise facts in 2-10 s a save; "low" kept 6 in 1-2 s and lost the person's name;
+    # 4 context turns kept 8 and linked nothing a lone "his name is Andy" left open. WRITER_REASONING (none, low,
+    # medium, high) and WRITER_CONTEXT_TURNS (0-32) turn them on.
+    local reasoning="${WRITER_REASONING:-off}" turns="${WRITER_CONTEXT_TURNS:-0}" effort=""
+    [[ "$reasoning" =~ ^(off|none|low|medium|high)$ ]] || { echo "WRITER_REASONING: off, none, low, medium or high" >&2; exit 2; }
+    [[ "$turns" =~ ^([0-9]|[12][0-9]|3[0-2])$ ]] || { echo "WRITER_CONTEXT_TURNS must be 0-32" >&2; exit 2; }
+    [ "$reasoning" = off ] || effort="$(printf ',"reasoningEffort":"%s"' "$reasoning")"
     profile="explicit_write"
     [ "$MEMORY_LEARNING" = on ] && profile="learning"
     # The journal lives on its own volume (compose.memory-writes.yml); the library creates this directory, mode 0700.
-    writes="$(printf ',"writer":{"model":"%s","endpoint":{"url":"%s","timeoutMs":%s%s}},"state":{"directory":"/var/lib/agentmemory/journal"}' \
-      "$WRITER_MODEL" "$WRITER_URL" "${WRITER_TIMEOUT_MS:-60000}" "$key")"
+    writes="$(printf ',"writer":{"model":"%s"%s,"contextTurns":%s,"endpoint":{"url":"%s","timeoutMs":%s%s}},"state":{"directory":"/var/lib/agentmemory/journal"}' \
+      "$WRITER_MODEL" "$effort" "$turns" "$WRITER_URL" "${WRITER_TIMEOUT_MS:-60000}" "$key")"
   fi
   ( umask 077
     mkdir -p "$dir"

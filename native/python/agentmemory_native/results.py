@@ -52,6 +52,45 @@ class Preference:
 
 
 @dataclass(frozen=True)
+class PastMessage:
+    """Something the owner said in an earlier conversation, in their own words."""
+
+    id: str
+    role: str
+    text: str
+    at: str | None
+
+    @staticmethod
+    def from_json(item: dict[str, Any]) -> "PastMessage":
+        return PastMessage(item["id"], item.get("role", "user"), item["text"], item.get("at"))
+
+
+@dataclass(frozen=True)
+class Entity:
+    id: str
+    name: str
+    type: str
+    description: str | None
+
+    @staticmethod
+    def from_json(item: dict[str, Any]) -> "Entity":
+        return Entity(item["id"], item["name"], item.get("type", ""), item.get("description"))
+
+
+@dataclass(frozen=True)
+class Relationship:
+    id: str
+    source: str
+    type: str
+    target: str
+    description: str | None
+
+    @staticmethod
+    def from_json(item: dict[str, Any]) -> "Relationship":
+        return Relationship(item["id"], item["source"], item["type"], item["target"], item.get("description"))
+
+
+@dataclass(frozen=True)
 class OperationError:
     code: str
     message: str
@@ -65,6 +104,11 @@ class ContextResult:
     request_id: str | None
     facts: tuple[Fact, ...] = ()
     preferences: tuple[Preference, ...] = ()
+    #: Sections a request may ask for; empty when not asked for, and from a library that does not have them.
+    window_facts: tuple[Fact, ...] = ()
+    messages: tuple[PastMessage, ...] = ()
+    entities: tuple[Entity, ...] = ()
+    relationships: tuple[Relationship, ...] = ()
     truncated: bool = False
     error: OperationError | None = None
     queued_ms: int = 0
@@ -84,6 +128,10 @@ class ContextResult:
             request_id=document.get("requestId"),
             facts=tuple(Fact.from_json(item) for item in document.get("facts", [])),
             preferences=tuple(Preference.from_json(item) for item in document.get("preferences", [])),
+            window_facts=tuple(Fact.from_json(item) for item in document.get("windowFacts", [])),
+            messages=tuple(PastMessage.from_json(item) for item in document.get("messages", [])),
+            entities=tuple(Entity.from_json(item) for item in document.get("entities", [])),
+            relationships=tuple(Relationship.from_json(item) for item in document.get("relationships", [])),
             truncated=bool(document.get("truncated", False)),
             error=OperationError(error["code"], error["message"]) if error else None,
             queued_ms=int(timing.get("queuedMs", 0)),

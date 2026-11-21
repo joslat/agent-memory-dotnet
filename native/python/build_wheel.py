@@ -226,8 +226,15 @@ def main() -> None:
         "Summary: AgentMemory for Python through the AgentMemory native library (no .NET installation needed)\n"
         f"License: {licence_field}\n"
         "Requires-Python: >=3.10\n"
+        "Project-URL: Homepage, https://github.com/joslat/agent-memory-dotnet\n"
+        "Project-URL: Documentation, https://github.com/joslat/agent-memory-dotnet/blob/main/native/CONTRACT.md\n"
+        "Project-URL: Source, https://github.com/joslat/agent-memory-dotnet/tree/main/native/python\n"
         "Provides-Extra: langchain\n"
         "Requires-Dist: langchain-core>=0.3; extra == \"langchain\"\n"
+        # The page PyPI shows: this package's README, next to this script.
+        "Description-Content-Type: text/markdown\n"
+        "\n"
+        + (Path(__file__).parent / "README.md").read_text(encoding="utf-8")
     ).encode()
     files[f"{dist_info}/WHEEL"] = (
         "Wheel-Version: 1.0\nGenerator: agentmemory build_wheel.py\nRoot-Is-Purelib: false\n" f"Tag: py3-none-{tag}\n"

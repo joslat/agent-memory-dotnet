@@ -12,6 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Preserve newly carried signed attestations when refreshing identical pack content through the explicit
   `PackArchiveUpdates.MergeAttestations` helper; existing notices remain present and content changes are refused.
 
+- Native library: a recall can ask for more of the sections a full Agent Framework recall has (the session's own
+  earlier messages, entities, relationships, the facts of a time the question names), each off unless a request asks
+  (`maxMessages`, `maxEntities`, `maxRelationships`, `timeWindows`); results carry them in new arrays, empty otherwise. The writer takes an optional `reasoningEffort` (sent as `reasoning_effort`; GLM-5.3-Flash
+  took 2.1 s and 607 thinking tokens on a small extraction by default, 0.5 s and 3 with `low`) and `contextTurns`
+  (earlier turns of the session, read and never kept from), and turns that cannot carry a fact cost no model call.
+  Defaults keep every existing configuration and request behaving as before.
+
 ### Fixed
 
 - A live recall without a latency budget waits for every section search before it reports a failure. Before, when one

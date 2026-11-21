@@ -23,6 +23,7 @@ file and each with its own gate passed:
 | `build-images.sh` | Builds both images from exact inputs |
 | `recipe-test.sh`, `compose.test*.yml` | The acceptance test |
 | `test-readiness.sh` | A regression test for `up`'s readiness wait, with a stand-in `docker` (no Docker needed) |
+| `TRY_IT.md`, `try-in-browser.sh`, `compose.inspect.yml` | Talk to it by voice in your browser and watch the memory form in Neo4j's browser |
 
 ## Build the images
 

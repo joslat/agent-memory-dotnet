@@ -67,7 +67,7 @@ internal static class ContextRegistry
             if (config.Writes)
                 journal = OperationJournal.Open(config.StateDirectory!, config.FixedOwner!);
             provider = config.Writes
-                ? WriteComposition.Build(config.Memory, config.Writer!, config.EmbeddingEndpoint!)
+                ? WriteComposition.Build(config.Memory, config.Writer!, config.EmbeddingEndpoint!, config.WriterContextTurns)
                 : MemoryComposition.Build(config.Memory);
             // Validates the store options and builds the driver (no I/O), so a configuration they refuse fails here.
             var driver = provider.GetRequiredService<IDriver>();
