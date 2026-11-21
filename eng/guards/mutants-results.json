@@ -1,6 +1,6 @@
 {
  "format": "agentmemory.guards.mutants-results/2",
- "commit": "a55ca8ba",
+ "commit": "8abc28dd",
  "results": [
   {
    "id": "archive-ratio",
@@ -1255,14 +1255,14 @@
    "id": "erase-after-import",
    "rule": "ERASED-STAYS-GONE",
    "door": "install",
-   "mutant_sha256": "6cfd27b30edaffaf639edebcd31c359813e18cfebf540f8e7694f249d9dede21",
+   "mutant_sha256": "616629a22d14757a9bf05131276f7e26dd974587d93d3bbe10f92c1d15695f3a",
    "killed": true,
-   "file_sha256": "1c8fad7aa5b19039fa6909e1dbf2c4dbb39862f141f8e2eca3f0f4bd625812c3",
+   "file_sha256": "5816f06e97f8989d1d51f5d0ecc5b12cb779027785588cefbf1a133960c36cdd",
    "failed": [
     "ErasureTests.A_loaded_packs_import_applies_the_erasures_it_carries_first",
     "ErasureTests.An_import_applies_the_erasures_that_name_its_pack_before_it_writes"
    ],
-   "seconds": 7
+   "seconds": 10
   },
   {
    "id": "memory-keeps-erased",
@@ -2502,13 +2502,13 @@
    "id": "meaning-closed-kept-on-removal",
    "rule": "MEANING-LIVE-AND-JUDGED",
    "door": "install",
-   "mutant_sha256": "c3f7fd93d807e86ee8f9d517549dbd383891e0fcd98287860506d59563065969",
+   "mutant_sha256": "65da3da3aee6feaf198d7160dec381057524854fdb608b51544b26103c5b8936",
    "killed": true,
-   "file_sha256": "11661a3794ebddae73c65221cf569bd9389011bd03ed803f5f90acc79221d8b4",
+   "file_sha256": "bd0652deba209171c7955eb507ec8d706ec84493ecf784f2463680ac3b74c3c7",
    "failed": [
     "ModuleRecordWriteIntegrationTests.APackSearchedByMeaningFindsAReworded_question_LeavesItsRecordsAsTheyWere_AndClosedRecordsKeepNoVector"
    ],
-   "seconds": 37
+   "seconds": 44
   },
   {
    "id": "meaning-other-model",

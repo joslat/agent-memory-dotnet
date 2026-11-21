@@ -12,6 +12,7 @@ using AgentMemory.Extensibility.Modules;
 using AgentMemory.Extensibility.Packs;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Neo4j.Queries;
+using Microsoft.Extensions.Logging;
 using Neo4j.Driver;
 using static AgentMemory.Extensibility.Neo4j.Storage.ModuleRecordTransaction;
 
@@ -23,6 +24,22 @@ public sealed class Neo4jPackLocalStore(INeo4jTransactionRunner runner, IMemoryI
     IReadOnlyList<KnowledgePack> packs, TimeProvider? timeProvider = null) : IPackLocalStore
 {
     private readonly TimeProvider _clock = timeProvider ?? TimeProvider.System;
+    private readonly ILogger? _logger;
+
+    /// <summary>
+    /// The same store; each mount and detach writes one log line, and a failure says its pack, step and
+    /// <see cref="PackFailure.Code"/>.
+    /// </summary>
+    public Neo4jPackLocalStore(INeo4jTransactionRunner runner, IMemoryIsolationPolicy isolation, IReadOnlyList<KnowledgePack> packs,
+        TimeProvider? timeProvider, ILogger<Neo4jPackLocalStore>? logger)
+        : this(runner, isolation, packs, timeProvider) => _logger = logger;
+
+    private PackOperationTrace Trace(string operation, PackLocalIdentity identity) =>
+        PackOperationTrace.Start(operation, identity.PackId ?? "", packs.FirstOrDefault(p => p.Id == identity.PackId && p.Digest == identity.BaseDigest)?.Version,
+            string.IsNullOrEmpty(identity.BaseDigest) ? null : identity.BaseDigest, _logger);
+
+    private static string Summary(PackLocalPolicy policy) =>
+        $"revision {policy.Revision}, {(policy.Active ? "active" : "inactive")}, {(policy.WriteProtected ? "write-protected" : "writable")}";
 
     private Dictionary<string, object?> Parameters(PackLocalIdentity identity, bool writing = false, bool requirePack = true)
     {
@@ -50,8 +67,25 @@ public sealed class Neo4jPackLocalStore(INeo4jTransactionRunner runner, IMemoryI
     /// <inheritdoc/>
     public async Task<PackLocalPolicy> MountAsync(PackLocalIdentity identity, bool writeProtected = true, CancellationToken cancellationToken = default)
     {
-        var args = Parameters(identity, writing: true); args["protected"] = writeProtected;
-        return await runner.WriteAsync(async transaction =>
+        using var trace = Trace(PackOperations.Mount, identity);
+        try
+        {
+            trace.Step = PackSteps.Validate;
+            var args = Parameters(identity, writing: true); args["protected"] = writeProtected;
+            trace.Step = PackSteps.LocalCopy;
+            var policy = await MountInAsync(identity, args, cancellationToken).ConfigureAwait(false);
+            trace.Completed(Summary(policy));
+            return policy;
+        }
+        catch (Exception error)
+        {
+            trace.Failed(error, cancellationToken);
+            throw;
+        }
+    }
+
+    private Task<PackLocalPolicy> MountInAsync(PackLocalIdentity identity, Dictionary<string, object?> args, CancellationToken cancellationToken) =>
+        runner.WriteAsync(async transaction =>
         {
             if ((await RowsAsync(transaction, PackLocalQueries.Ready, new { }, cancellationToken).ConfigureAwait(false)).Single()["count"].As<long>() != 4)
                 throw new InvalidOperationException("Activate and migrate the pack-local-state schema extension before mounting editable knowledge.");
@@ -68,8 +102,7 @@ public sealed class Neo4jPackLocalStore(INeo4jTransactionRunner runner, IMemoryI
             var rebased = Policy((await RowsAsync(transaction, PackLocalQueries.Rebase, args, cancellationToken).ConfigureAwait(false)).Single());
             await RowsAsync(transaction, PackLocalQueries.RecordRevision, args, cancellationToken).ConfigureAwait(false);
             return rebased;
-        }, cancellationToken).ConfigureAwait(false);
-    }
+        }, cancellationToken);
 
     /// <summary>Reads the committed pin without rebasing it. No mount is created.</summary>
     public Task<IReadOnlyDictionary<string, PackLocalStatus>> PeekManyAsync(IReadOnlyList<PackLocalIdentity> identities, CancellationToken cancellationToken = default)
@@ -100,18 +133,31 @@ public sealed class Neo4jPackLocalStore(INeo4jTransactionRunner runner, IMemoryI
     }
 
     /// <inheritdoc/>
-    public Task<PackLocalPolicy> DetachAsync(PackLocalIdentity identity, long expectedRevision, CancellationToken cancellationToken = default)
+    public async Task<PackLocalPolicy> DetachAsync(PackLocalIdentity identity, long expectedRevision, CancellationToken cancellationToken = default)
     {
-        var args = Parameters(identity, writing: true, requirePack: false);
-        args["protected"] = true; args["automatic"] = false; args["active"] = false;
-        return runner.WriteAsync(async tx =>
+        using var trace = Trace(PackOperations.Detach, identity);
+        try
         {
-            var policy = await LockedAsync(tx, args, expectedRevision, cancellationToken).ConfigureAwait(false);
-            if (!policy.Active && policy.WriteProtected && !policy.AutomaticLearning) return policy;
-            var changed = Policy((await RowsAsync(tx, PackLocalQueries.Policy, args, cancellationToken).ConfigureAwait(false)).Single());
-            await RowsAsync(tx, PackLocalQueries.RecordRevision, args, cancellationToken).ConfigureAwait(false);
-            return changed;
-        }, cancellationToken);
+            trace.Step = PackSteps.Validate;
+            var args = Parameters(identity, writing: true, requirePack: false);
+            args["protected"] = true; args["automatic"] = false; args["active"] = false;
+            trace.Step = PackSteps.LocalCopy;
+            var detached = await runner.WriteAsync(async tx =>
+            {
+                var policy = await LockedAsync(tx, args, expectedRevision, cancellationToken).ConfigureAwait(false);
+                if (!policy.Active && policy.WriteProtected && !policy.AutomaticLearning) return policy;
+                var changed = Policy((await RowsAsync(tx, PackLocalQueries.Policy, args, cancellationToken).ConfigureAwait(false)).Single());
+                await RowsAsync(tx, PackLocalQueries.RecordRevision, args, cancellationToken).ConfigureAwait(false);
+                return changed;
+            }, cancellationToken).ConfigureAwait(false);
+            trace.Completed(Summary(detached));
+            return detached;
+        }
+        catch (Exception error)
+        {
+            trace.Failed(error, cancellationToken);
+            throw;
+        }
     }
 
     /// <summary>Checks a proposed mount without creating or changing its committed policy. Mount rechecks under its write lock.</summary>

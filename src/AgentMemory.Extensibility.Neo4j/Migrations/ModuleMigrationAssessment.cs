@@ -56,7 +56,9 @@ internal static class ModuleMigrationAssessment
             };
             if (entries.TryGetValue((ModuleBookkeepingSchema.NamespaceLedgerId, claim.Key), out var row))
             {
-                if (row.Owner != claim.Owner || row.State != "owned") problems.Add("Namespace is owned by another module or has invalid ownership: " + claim.Name);
+                // PACK-RELOAD-RCA: name the owner, so a pack that changed its id reads as such and not as a broken database.
+                if (row.Owner != claim.Owner) problems.Add($"Namespace is owned by another module ({row.Owner ?? "no owner recorded"}): {claim.Name}");
+                else if (row.State != "owned") problems.Add($"Namespace has invalid ownership ({row.State ?? "no state recorded"}): {claim.Name}");
             }
             else
             {

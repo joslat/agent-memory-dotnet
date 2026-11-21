@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Pack operations say what failed. An import, removal, erasure, local-copy mount or detach that fails carries a
+  `PackFailure` on the exception it throws, whose type does not change: the pack id, version and digest, the
+  operation, the step (`schema`, `records`, `meaning_index`, ...) and a stable code such as
+  `pack.import.schema.refused`; read it with `PackFailure.Of`. Each operation is a `memory.pack` span with a
+  `memory.pack.step` child per step, and `KnowledgePackImporter` and `Neo4jPackLocalStore` write one log line per
+  operation when given a logger (`AddNeo4jKnowledgePacks` passes one). A host can now tell a refused pack from a
+  database that did not answer.
+
 - Separate frozen NuGet knowledge-package compatibility fixtures from native v1.2 pack authoring;
   add a direct native Martial Arts build, load and query regression that needs no private checkout.
 
@@ -21,6 +29,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A pack whose schema names another pack id already holds is refused with that owner named:
+  `Namespace is owned by another module (io.agentmemory.packs.martialarts): MartialArtsKata`, instead of
+  "owned by another module or has invalid ownership". A removal keeps a pack's schema and its owner, so the
+  martial arts pack under its new id could not load over the old id's names; DemoBrain showed that refusal as
+  a Neo4j that was not reachable.
 - A live recall without a latency budget waits for every section search before it reports a failure. Before, when one
   section failed or was cancelled first, the others went on running after the recall had thrown: database work nobody
   waited for, and failures nobody saw. The result, and the first failure reported, are the same as before.
