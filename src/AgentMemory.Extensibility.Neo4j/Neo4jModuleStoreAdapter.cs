@@ -57,7 +57,8 @@ public static class Neo4jKnowledgePackServiceCollectionExtensions
         services.AddSingleton<Packs.IKnowledgePackStore>(sp =>
             new Neo4jKnowledgePackStore(sp.GetRequiredService<INeo4jTransactionRunner>(), sp.GetService<TimeProvider>(), Storage.PackMeaning.Of(sp),
                 sp.GetService<IOptions<Neo4jOptions>>()?.Value.Extensions.Contains("pack-local-state") == true));
-        services.AddSingleton(sp => new Packs.KnowledgePackImporter(sp.GetRequiredService<Packs.IKnowledgePackStore>(), sp.GetService<TimeProvider>()));
+        services.AddSingleton(sp => new Packs.KnowledgePackImporter(sp.GetRequiredService<Packs.IKnowledgePackStore>(), sp.GetService<TimeProvider>(),
+            sp.GetService<Microsoft.Extensions.Logging.ILogger<Packs.KnowledgePackImporter>>()));
         // CMP-2a: host-generated snapshots, such as the code map of a repository at a commit.
         services.AddSingleton<Packs.IModuleSnapshotStore>(sp =>
             new Neo4jModuleSnapshotStore(sp.GetRequiredService<INeo4jTransactionRunner>(), sp.GetService<TimeProvider>()));

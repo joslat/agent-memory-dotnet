@@ -773,6 +773,28 @@ transaction tests verify attribution, nesting, failure/cancellation, privacy and
 real-Neo4j test verifies successful steps and read-only repeat Apply. Native package trace acceptance
 and hosted execution of this new integration test must be verified before claiming full acceptance.
 
+## Pack operation telemetry and failures
+
+A knowledge pack import, removal or erasure through `KnowledgePackImporter`, and a local-copy mount or detach
+through `Neo4jPackLocalStore`, is one `memory.pack` activity on the same source. `Neo4jKnowledgePackStore` runs
+each step inside it as a child `memory.pack.step`: `state`, `schema`, `records`, `erasures`, `meaning_index`
+and `meaning_forget`. Both carry `memory.pack.operation`, `memory.pack.id`, `memory.pack.version` and
+`memory.pack.digest` (public pack metadata, never owner data), and the step its `memory.pack.step.name`.
+Outcomes are `Completed`, `Refused`, `Unavailable`, `Failed` and `Cancelled`; all but `Completed` have Error status.
+
+A failure attaches a `PackFailure` to the exception the operation throws, without changing its type, so
+existing `catch` blocks still match. `PackFailure.Of(exception)` reads it, through wrapping and aggregate
+exceptions: the pack id, version and digest, the operation, the step that failed, a kind (`refused` for a pack
+or request the library refuses, `unavailable` for a timeout or a lost database connection, `failed` for
+anything else) and a stable code, `pack.{operation}.{step}.{kind}`, for example `pack.import.schema.refused`.
+The deepest step that saw the failure names it. The same code is the span's `memory.pack.failure.code`;
+no exception text goes on a span. Given a logger (`AddNeo4jKnowledgePacks` passes one to the importer), each
+operation writes one log line: Information when it completes, Error with the exception when it fails.
+
+A pack's schema names belong to the pack id that first claimed them, and a removal keeps them. A pack under
+another id that declares the same names is refused at `schema`, and the refusal names the owner:
+`Namespace is owned by another module (io.agentmemory.packs.martialarts): MartialArtsKata`.
+
 ## Admission before module selection
 
 Derived Agent Framework adapters can use `AdmitMemoryItem(category, text)` to evaluate an

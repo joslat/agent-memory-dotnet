@@ -56,4 +56,20 @@ public static class ModuleTelemetry
     public const string MigrationProblems = "memory.module.migration.problems";
     /// <summary>Frozen host-bound provider identity.</summary>
     public const string ProviderId = "memory.provider.id";
+    /// <summary>One pack import, removal, erasure, mount or detach.</summary>
+    public const string Pack = "memory.pack";
+    /// <summary>One step inside a pack operation (schema, records, meaning index, local copy).</summary>
+    public const string PackStep = "memory.pack.step";
+    /// <summary>The pack operation (see <see cref="Packs.PackOperations"/>).</summary>
+    public const string PackOperation = "memory.pack.operation";
+    /// <summary>The step a pack span ran, or the step a pack failure happened at (see <see cref="Packs.PackSteps"/>).</summary>
+    public const string PackStepName = "memory.pack.step.name";
+    /// <summary>The pack id; a pack's id, version and digest are public metadata, never owner data.</summary>
+    public const string PackId = "memory.pack.id";
+    /// <summary>The pack version.</summary>
+    public const string PackVersion = "memory.pack.version";
+    /// <summary>The pack's bundle digest.</summary>
+    public const string PackDigest = "memory.pack.digest";
+    /// <summary>The <see cref="Packs.PackFailure.Code"/> of a failed pack operation or step; no exception text.</summary>
+    public const string PackFailureCode = "memory.pack.failure.code";
 }

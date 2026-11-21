@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 using System.Diagnostics.CodeAnalysis;
 using AgentMemory.Extensibility.Modules;
+using Microsoft.Extensions.Logging;
 
 namespace AgentMemory.Extensibility.Packs;
 
@@ -72,13 +73,24 @@ public sealed class KnowledgePackImporter
 {
     private readonly IKnowledgePackStore _store;
     private readonly TimeProvider _clock;
+    private readonly ILogger? _logger;
 
     /// <summary>Binds the importer to the host's pack store.</summary>
     public KnowledgePackImporter(IKnowledgePackStore store, TimeProvider? clock = null)
+        : this(store, clock, logger: null)
+    {
+    }
+
+    /// <summary>
+    /// Binds the importer to the host's pack store; each import and removal writes one log line, and a failure says its pack, step
+    /// and <see cref="PackFailure.Code"/>.
+    /// </summary>
+    public KnowledgePackImporter(IKnowledgePackStore store, TimeProvider? clock, ILogger<KnowledgePackImporter>? logger)
     {
         ArgumentNullException.ThrowIfNull(store);
         _store = store;
         _clock = clock ?? TimeProvider.System;
+        _logger = logger;
     }
 
     /// <summary>What the store holds of a pack now.</summary>
@@ -92,12 +104,33 @@ public sealed class KnowledgePackImporter
     public async Task<KnowledgePackImportResult> ImportAsync(KnowledgePack pack, bool allowDowngrade = false, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(pack);
+        using var trace = PackOperationTrace.Start(PackOperations.Import, pack.Id, pack.Version, pack.Digest, _logger);
+        try
+        {
+            var result = await ImportCheckedAsync(pack, allowDowngrade, trace, cancellationToken).ConfigureAwait(false);
+            trace.Completed($"{result.Created} new, {result.Changed} changed, {result.Unchanged} unchanged, {result.Closed} closed");
+            return result;
+        }
+        catch (Exception error)
+        {
+            trace.Failed(error, cancellationToken);
+            throw;
+        }
+    }
+
+    private async Task<KnowledgePackImportResult> ImportCheckedAsync(KnowledgePack pack, bool allowDowngrade, PackOperationTrace trace,
+        CancellationToken cancellationToken)
+    {
+        trace.Step = PackSteps.Validate;
         // A pack past its validUntil writes nothing, on this path too (review 2, M9).
         if (pack.ValidUntil is { } until && _clock.GetUtcNow() > until)
             throw new KnowledgePackException([$"{pack.Id} {pack.Version} was valid until {until:u}; it is not imported."]);
+        trace.Step = PackSteps.State;
         var state = await _store.GetStateAsync(pack.Manifest, cancellationToken).ConfigureAwait(false);
+        trace.Step = PackSteps.Validate;
         if (!allowDowngrade && state.Version is { } stored && ModuleVersion.Parse(stored).CompareTo(pack.Manifest.Version) > 0)
             throw new KnowledgePackException([$"The store holds {pack.Id} {stored}, newer than {pack.Version}; ask for a downgrade explicitly."]);
+        trace.Step = PackSteps.Store;
         return await _store.ImportAsync(pack, _clock.GetUtcNow(), cancellationToken).ConfigureAwait(false);
     }
 
@@ -111,14 +144,38 @@ public sealed class KnowledgePackImporter
         ArgumentNullException.ThrowIfNull(pack);
         ArgumentNullException.ThrowIfNull(erasures);
         var mine = erasures.Where(e => e.PackId == pack.Id).ToList();
-        if (mine.Count > 0) await _store.EraseAsync(pack.Manifest, mine, _clock.GetUtcNow(), cancellationToken).ConfigureAwait(false);
+        if (mine.Count > 0)
+        {
+            using var trace = PackOperationTrace.Start(PackOperations.Erase, pack.Id, pack.Version, pack.Digest, _logger);
+            try
+            {
+                var erased = await _store.EraseAsync(pack.Manifest, mine, _clock.GetUtcNow(), cancellationToken).ConfigureAwait(false);
+                trace.Completed($"{erased.Erased} erased, {erased.Tombstones} tombstones");
+            }
+            catch (Exception error)
+            {
+                trace.Failed(error, cancellationToken);
+                throw;
+            }
+        }
         return await ImportAsync(pack, allowDowngrade, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Closes every live record of a pack.</summary>
-    public Task<KnowledgePackImportResult> RemoveAsync(ModuleManifest pack, CancellationToken cancellationToken = default)
+    public async Task<KnowledgePackImportResult> RemoveAsync(ModuleManifest pack, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(pack);
-        return _store.RemoveAsync(pack, _clock.GetUtcNow(), cancellationToken);
+        using var trace = PackOperationTrace.Start(PackOperations.Remove, pack.Id, pack.Version.Value, digest: null, _logger);
+        try
+        {
+            var result = await _store.RemoveAsync(pack, _clock.GetUtcNow(), cancellationToken).ConfigureAwait(false);
+            trace.Completed($"{result.Closed} closed");
+            return result;
+        }
+        catch (Exception error)
+        {
+            trace.Failed(error, cancellationToken);
+            throw;
+        }
     }
 }

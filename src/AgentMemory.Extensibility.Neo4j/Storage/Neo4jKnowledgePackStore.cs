@@ -50,12 +50,16 @@ public sealed class Neo4jKnowledgePackStore : IKnowledgePackStore
     {
         ArgumentNullException.ThrowIfNull(pack);
         var resolution = pack.Resolution;
-        var migration = await new ModuleMigrator(_runner, resolution, _clock).ApplyAsync("knowledge-pack:" + pack.Id, cancellationToken).ConfigureAwait(false);
-        if (migration.Problems.Count != 0) throw new KnowledgePackException(migration.Problems);
-        var result = await new Neo4jModuleStore(_runner, resolution).ImportPackAsync(pack, atUtc.ToUniversalTime(), cancellationToken).ConfigureAwait(false);
+        Task<T> Step<T>(string step, Func<Task<T>> work) =>
+            PackOperationTrace.StepAsync(PackOperations.Import, step, pack.Id, pack.Version, pack.Digest, work, cancellationToken, RefusalKind);
+        await Step(PackSteps.Schema, () => ApplySchemaAsync(resolution, pack.Id, cancellationToken)).ConfigureAwait(false);
+        var result = await Step(PackSteps.Records, () => new Neo4jModuleStore(_runner, resolution).ImportPackAsync(pack, atUtc.ToUniversalTime(), cancellationToken))
+            .ConfigureAwait(false);
         // After the records' transaction (feature 19): an embedder that fails leaves the pack imported and found by words; the
         // next import embeds what is still missing.
-        if (_meaning is not null) await _meaning.IndexAsync(_runner, resolution, cancellationToken).ConfigureAwait(false);
+        if (_meaning is not null)
+            await Step(PackSteps.MeaningIndex, async () => { await _meaning.IndexAsync(_runner, resolution, cancellationToken).ConfigureAwait(false); return true; })
+                .ConfigureAwait(false);
         return result;
     }
 
@@ -65,12 +69,15 @@ public sealed class Neo4jKnowledgePackStore : IKnowledgePackStore
         ArgumentNullException.ThrowIfNull(pack);
         ArgumentNullException.ThrowIfNull(erasures);
         var resolution = KnowledgePack.ResolutionOf(pack);
-        var migration = await new ModuleMigrator(_runner, resolution, _clock).ApplyAsync("knowledge-pack:" + pack.Id, cancellationToken).ConfigureAwait(false);
-        if (migration.Problems.Count != 0) throw new KnowledgePackException(migration.Problems);
+        Task<T> Step<T>(string step, Func<Task<T>> work) =>
+            PackOperationTrace.StepAsync(PackOperations.Erase, step, pack.Id, pack.Version.Value, null, work, cancellationToken, RefusalKind);
+        await Step(PackSteps.Schema, () => ApplySchemaAsync(resolution, pack.Id, cancellationToken)).ConfigureAwait(false);
         var erasureRunner = _maintainLocalCopies ? new PackLocalErasureRunner(_runner, pack, erasures) : _runner;
-        var erased = await new Neo4jModuleStore(erasureRunner, resolution).ErasePackAsync(pack.Id, erasures, atUtc.ToUniversalTime(), cancellationToken).ConfigureAwait(false);
+        var erased = await Step(PackSteps.Erasures, () => new Neo4jModuleStore(erasureRunner, resolution).ErasePackAsync(pack.Id, erasures, atUtc.ToUniversalTime(), cancellationToken))
+            .ConfigureAwait(false);
         // An erased record's vector is made from its text: it goes too (feature 19, R-CORE-133).
-        await PackMeaning.ForgetOrphansAsync(_runner, cancellationToken).ConfigureAwait(false);
+        await Step(PackSteps.MeaningForget, async () => { await PackMeaning.ForgetOrphansAsync(_runner, cancellationToken).ConfigureAwait(false); return true; })
+            .ConfigureAwait(false);
         return erased;
     }
 
@@ -79,11 +86,27 @@ public sealed class Neo4jKnowledgePackStore : IKnowledgePackStore
     {
         ArgumentNullException.ThrowIfNull(pack);
         var resolution = KnowledgePack.ResolutionOf(pack);
-        var plan = await new ModuleMigrator(_runner, resolution, _clock).PlanAsync(cancellationToken).ConfigureAwait(false);
+        Task<T> Step<T>(string step, Func<Task<T>> work) =>
+            PackOperationTrace.StepAsync(PackOperations.Remove, step, pack.Id, pack.Version.Value, null, work, cancellationToken, RefusalKind);
+        var plan = await Step(PackSteps.State, () => new ModuleMigrator(_runner, resolution, _clock).PlanAsync(cancellationToken)).ConfigureAwait(false);
         if (plan.Applied.Count == 0) return new KnowledgePackImportResult { PackId = pack.Id };
-        var removed = await new Neo4jModuleStore(_runner, resolution).RemovePackAsync(pack.Id, atUtc.ToUniversalTime(), cancellationToken).ConfigureAwait(false);
+        var removed = await Step(PackSteps.Records, () => new Neo4jModuleStore(_runner, resolution).RemovePackAsync(pack.Id, atUtc.ToUniversalTime(), cancellationToken))
+            .ConfigureAwait(false);
         // Closed records keep no vector (feature 19).
-        await PackMeaning.ForgetClosedAsync(_runner, cancellationToken).ConfigureAwait(false);
+        await Step(PackSteps.MeaningForget, async () => { await PackMeaning.ForgetClosedAsync(_runner, cancellationToken).ConfigureAwait(false); return true; })
+            .ConfigureAwait(false);
         return removed;
     }
+
+    /// <summary>Applies the pack's derived schema; a problem the migrator finds is a refusal, not a database failure.</summary>
+    private async Task<bool> ApplySchemaAsync(ModuleResolution resolution, string packId, CancellationToken cancellationToken)
+    {
+        var migration = await new ModuleMigrator(_runner, resolution, _clock).ApplyAsync("knowledge-pack:" + packId, cancellationToken).ConfigureAwait(false);
+        if (migration.Problems.Count != 0) throw new KnowledgePackException(migration.Problems);
+        return true;
+    }
+
+    /// <summary>A record the module store refuses, or a schema the migrator refuses, is the pack's problem, not the database's.</summary>
+    private static string? RefusalKind(Exception error) =>
+        error is ModuleRecordRefusal || error.Data.Contains(ModuleMigrator.RefusalKey) ? PackFailureKinds.Refused : null;
 }

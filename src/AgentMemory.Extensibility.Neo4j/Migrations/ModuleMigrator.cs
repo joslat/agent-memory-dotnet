@@ -152,11 +152,14 @@ public sealed partial class ModuleMigrator
     private ModuleMigrationPlan Assess(ModuleDatabaseSnapshot snapshot) =>
         ModuleMigrationAssessment.Assess(_compilation, snapshot);
 
+    /// <summary>Marks the migrator's own refusal, so a caller can tell it from a database failure without a new exception type.</summary>
+    internal const string RefusalKey = "AgentMemory.ModuleMigration.Refused";
+
     private static void RefuseProblems(ModuleMigrationPlan plan, System.Diagnostics.Activity? activity)
     {
         if (plan.Problems.Count == 0) return;
         ObserveMigrationOutcome(activity, "Refused");
-        throw new InvalidOperationException(string.Join(Environment.NewLine, plan.Problems));
+        throw new InvalidOperationException(string.Join(Environment.NewLine, plan.Problems)) { Data = { [RefusalKey] = true } };
     }
 
     // Two first-time migrators race on the shared bookkeeping constraints exactly as on module DDL; the reserved

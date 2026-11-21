@@ -1569,13 +1569,17 @@
    "file": "src/AgentMemory.Extensibility/Packs/KnowledgePackImporter.cs",
    "edits": [
     {
-     "old": "        if (mine.Count > 0) await _store.EraseAsync(pack.Manifest, mine, _clock.GetUtcNow(), cancellationToken).ConfigureAwait(false);\n        return await ImportAsync(pack, allowDowngrade, cancellationToken).ConfigureAwait(false);",
-     "new": "        var result = await ImportAsync(pack, allowDowngrade, cancellationToken).ConfigureAwait(false);\n        if (mine.Count > 0) await _store.EraseAsync(pack.Manifest, mine, _clock.GetUtcNow(), cancellationToken).ConfigureAwait(false);\n        return result;"
+     "old": "        if (mine.Count > 0)\n        {",
+     "new": "        var result = await ImportAsync(pack, allowDowngrade, cancellationToken).ConfigureAwait(false);\n        if (mine.Count > 0)\n        {"
+    },
+    {
+     "old": "        return await ImportAsync(pack, allowDowngrade, cancellationToken).ConfigureAwait(false);",
+     "new": "        return result;"
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
    "filter": "FullyQualifiedName~ErasureTests",
-   "sha256": "6cfd27b30edaffaf639edebcd31c359813e18cfebf540f8e7694f249d9dede21"
+   "sha256": "616629a22d14757a9bf05131276f7e26dd974587d93d3bbe10f92c1d15695f3a"
   },
   {
    "id": "memory-keeps-erased",
@@ -3114,13 +3118,13 @@
    "file": "src/AgentMemory.Extensibility.Neo4j/Storage/Neo4jKnowledgePackStore.cs",
    "edits": [
     {
-     "old": "        await PackMeaning.ForgetClosedAsync(_runner, cancellationToken).ConfigureAwait(false);\n        return removed;",
+     "old": "        await Step(PackSteps.MeaningForget, async () => { await PackMeaning.ForgetClosedAsync(_runner, cancellationToken).ConfigureAwait(false); return true; })\n            .ConfigureAwait(false);\n        return removed;",
      "new": "        return removed;"
     }
    ],
    "project": "tests/AgentMemory.Tests.Integration",
    "filter": "FullyQualifiedName~APackSearchedByMeaning",
-   "sha256": "c3f7fd93d807e86ee8f9d517549dbd383891e0fcd98287860506d59563065969"
+   "sha256": "65da3da3aee6feaf198d7160dec381057524854fdb608b51544b26103c5b8936"
   },
   {
    "id": "meaning-other-model",
