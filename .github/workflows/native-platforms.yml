@@ -1,0 +1,126 @@
+# The AgentMemory native library on four platforms (NATIVE-PLAT-M1). Native AOT does not cross-compile between operating
+# systems, so each platform builds on its own free GitHub-hosted runner. There it checks the compiler against the security
+# floor, writes a manifest (size, SHA-256, compiler, glibc baseline on Linux), checks the signature on macOS, and loads the
+# library from Python to run the gate's tier A: everything the gate tests that needs no store. The store tiers, wheels and
+# releases are later rows (NATIVE-PLAT-STORE, NATIVE-PLAT-WHEELS, NATIVE-RELEASE).
+#
+# Nothing is published: no secret, no environment, nothing leaves the run but its artifacts, kept 7 days.
+name: Native platforms
+
+on:
+  pull_request:
+    paths:
+      - 'native/**'
+      - 'tools/AgentMemory.Native/**'
+      - '.github/workflows/native-platforms.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-platforms-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.rid }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { rid: linux-x64, os: ubuntu-24.04, library: agentmemory_native.so }
+          - { rid: linux-arm64, os: ubuntu-24.04-arm, library: agentmemory_native.so }
+          - { rid: osx-arm64, os: macos-15, library: agentmemory_native.dylib }
+          - { rid: win-x64, os: windows-2025, library: agentmemory_native.dll }
+    defaults:
+      run:
+        shell: bash
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+
+      - name: Setup Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+
+      # Native AOT links with the platform's own toolchain: clang on Linux, Xcode's on macOS, MSVC on Windows (both on the
+      # runner images already).
+      - name: Native AOT prerequisites (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq clang zlib1g-dev
+
+      - name: Publish
+        run: |
+          mkdir -p out
+          if dotnet publish tools/AgentMemory.Native/AgentMemory.Native.csproj -c Release -r "${{ matrix.rid }}" -o out/bin > out/publish.log 2>&1
+          then echo "publish ok, $(grep -c 'warning IL' out/publish.log || true) IL warning lines"; ls -l out/bin
+          else echo "publish FAILED"; tail -60 out/publish.log; exit 1
+          fi
+
+      - name: Toolchain floor
+        run: python native/packaging/check_toolchain.py tools/AgentMemory.Native/obj/project.assets.json
+
+      - name: Manifest
+        run: >-
+          python native/packaging/native_manifest.py --rid "${{ matrix.rid }}" --bin out/bin
+          --assets tools/AgentMemory.Native/obj/project.assets.json --out out/bin/MANIFEST.json
+          ${{ startsWith(matrix.rid, 'linux') && '--max-glibc 2.34' || '' }}
+
+      # Apple Silicon runs only signed code; the linker signs ad hoc, and this proves the signature is whole.
+      - name: Signature (macOS)
+        if: runner.os == 'macOS'
+        run: codesign -v --verbose=2 "out/bin/${{ matrix.library }}"
+
+      - name: Gate, tier A
+        env:
+          GATE_TIER: A
+          PYTHONPATH: native/python
+          AGENTMEMORY_NATIVE_LIBRARY: ${{ github.workspace }}/out/bin/${{ matrix.library }}
+        run: |
+          set +e
+          python -m unittest discover -v -s native/gate/tests -t native/gate/tests -p test_gate.py > out/gate.log 2>&1
+          status=$?
+          set -e
+          cat out/gate.log
+          {
+            echo "### ${{ matrix.rid }}: gate tier A"
+            echo
+            echo '```'
+            grep -E ' \.\.\. (ok|skipped|FAIL|ERROR)' out/gate.log | sed -E 's/ \(test_gate\.[^)]*\)//' || true
+            tail -3 out/gate.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
+      - name: Timings
+        env:
+          PYTHONPATH: native/python
+        run: |
+          python native/gate/timings.py "${{ github.workspace }}/out/bin/${{ matrix.library }}" --rid "${{ matrix.rid }}" | tee out/timings.md
+          { echo; echo "### ${{ matrix.rid }}: load and open times"; echo; cat out/timings.md; echo; echo '```json'; cat out/bin/MANIFEST.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the library and its manifest
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agentmemory-native-${{ matrix.rid }}
+          path: |
+            out/bin
+            out/publish.log
+            out/gate.log
+            out/timings.md
+          retention-days: 7
+          if-no-files-found: warn

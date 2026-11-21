@@ -135,3 +135,12 @@ The binding stays framework-neutral; two thin adapters sit beside it, each impor
 Built and proven for linux-x64 on Ubuntu 24.04 (glibc 2.39). A binary built against a newer glibc does not load on an
 older one, so build on the oldest distribution you support. Windows and macOS builds are possible from the same project
 on those systems; they are not qualified yet. Plain `bolt://` is qualified; TLS (`bolt+s://`) is not yet.
+
+The workflow `.github/workflows/native-platforms.yml` builds the library for linux-x64, linux-arm64, osx-arm64 and win-x64,
+each on its own runner, as pull requests that touch the native library run it. It checks the compiler against the
+security floor (`packaging/check_toolchain.py`), writes `MANIFEST.json` (`packaging/native_manifest.py`: size, SHA-256,
+compiler, and on Linux the newest glibc symbol, at most 2.34), checks the macOS signature, and runs the gate's tier A from
+Python on each. Tier A is what the gate tests that needs no store: loading, the ABI, handles, configuration and contract
+refusals, closed contexts, the embedding checks that end before the store, and an unreachable store. Run it anywhere with
+`GATE_TIER=A` and `AGENTMEMORY_NATIVE_LIBRARY` set; the store tiers still run in `run-gate.sh`. This builds and loads the
+library on those platforms; it does not yet qualify them against a store, and nothing is published from it.

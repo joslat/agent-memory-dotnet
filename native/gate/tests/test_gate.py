@@ -3,6 +3,8 @@
 Standard library only (the target image has nothing else). Classes run in name order; failures that touch the
 store's authentication run last, because Neo4j briefly locks a user after failed logins.
 Environment: AGENTMEMORY_NATIVE_LIBRARY, AMP_URI, AMP_USER, AMP_PASSWORD. Fixture: native/gate/seed/seed.cs.
+GATE_TIER=A runs only what needs no store, on any platform (NATIVE-PLAT-M1): no AMP_* variables are needed, a context is
+opened against a closed local port without connecting, and every test that reads the seeded store is skipped with its reason.
 """
 from __future__ import annotations
 
@@ -26,6 +28,15 @@ from pathlib import Path
 
 from agentmemory_native import AsyncMemoryClient, MemoryClient, NativeCallError, NativeLibraryError, OpenError, manifest
 from agentmemory_native import _library as abi
+
+# Tier A: the build runners of every platform, where there is no store (NATIVE-PLAT-M1).
+TIER_A = os.environ.get("GATE_TIER", "").upper() == "A"
+UNREACHABLE = "bolt://127.0.0.1:9"
+if TIER_A:
+    os.environ.setdefault("AMP_URI", UNREACHABLE)
+    os.environ.setdefault("AMP_USER", "neo4j")
+    os.environ.setdefault("AMP_PASSWORD", "gate-tier-a-unused")
+needs_store = unittest.skipIf(TIER_A, "tier A: needs the seeded store")
 
 DIMENSIONS = 8
 OWNER_A = "gate-owner-a"
@@ -58,6 +69,11 @@ def config(*, mode: str = "fixed", owner: str = OWNER_A, uri: str | None = None,
     return document
 
 
+def opened(**kwargs) -> dict:
+    """A configuration whose context needs no answer from the store: verified against it in the store tiers, not in tier A."""
+    return config(verify=not TIER_A, **kwargs)
+
+
 def ids(result) -> set[str]:
     return {f.id for f in result.facts} | {p.id for p in result.preferences}
 
@@ -86,10 +102,13 @@ def result_of(client: MemoryClient, data: bytes) -> dict:
 
 
 class Test1Library(unittest.TestCase):
-    def test_loads_without_dotnet_and_reports_abi_1_0(self):
+    def test_loads_and_reports_abi_1_0(self):
+        self.assertEqual(abi.load().am_v1_abi_version(), 0x00010000)
+
+    @unittest.skipIf(TIER_A, "tier A runs on a build runner, which has .NET")
+    def test_the_target_image_has_no_dotnet(self):
         self.assertIsNone(shutil.which("dotnet"), "the target image must not have .NET")
         self.assertFalse(os.path.exists("/usr/share/dotnet") or os.path.exists("/usr/lib/dotnet"))
-        self.assertEqual(abi.load().am_v1_abi_version(), 0x00010000)
 
     def test_the_library_comes_from_a_known_place(self):
         path = abi.resolve_library_path()
@@ -112,11 +131,17 @@ class Test1Library(unittest.TestCase):
         self.assertIn("built for this platform", message)
 
     def test_a_library_without_the_exports_is_refused(self):
-        libm = next(iter(sorted(glob.glob("/lib/*/libm.so.6") + glob.glob("/usr/lib/*/libm.so.6"))), None)
-        if libm is None:
+        # A real system library of this platform, which has none of the exports.
+        if platform.system() == "Windows":
+            other = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "kernel32.dll")
+        elif platform.system() == "Darwin":
+            other = "/usr/lib/libSystem.B.dylib"
+        else:
+            other = next(iter(sorted(glob.glob("/lib/*/libm.so.6") + glob.glob("/usr/lib/*/libm.so.6"))), None)
+        if other is None:
             self.skipTest("no libm.so.6 on this image")
         with self.assertRaises(NativeLibraryError) as refused:
-            abi.load(libm)
+            abi.load(other)
         self.assertIn("not an AgentMemory native library", str(refused.exception))
 
     def test_an_installed_wheel_carries_a_manifest_that_matches_its_library(self):
@@ -155,10 +180,22 @@ class Test1Library(unittest.TestCase):
         self.assertEqual(lib.am_v1_close(12345), abi.INVALID_HANDLE)
         self.assertEqual(lib.am_v1_cancel(12345, 1), abi.INVALID_HANDLE)
 
+    def test_handles_round_trip_as_64_bit_integers(self):
+        """Handles are opaque 64-bit values. A binding must carry all 64 bits: a JavaScript Number keeps only 53."""
+        with MemoryClient(opened()) as memory:
+            self.assertTrue(0 < memory.handle < 2 ** 64)
+            status, handle = submit_raw(memory, b'{"schemaVersion":1,"operation":"capabilities_get"}')
+            self.assertEqual(status, abi.OK)
+            self.assertTrue(0 < handle < 2 ** 64)
+            from agentmemory_native.client import Job
+            with Job(memory, handle) as job:
+                self.assertEqual(job.wait(10)["status"], "ok")
+            print(f"\nMETRIC context_handle_bits={memory.handle.bit_length()} job_handle_bits={handle.bit_length()}", flush=True)
+
 
 class Test2Open(unittest.TestCase):
     def test_capabilities_and_state(self):
-        with MemoryClient(config()) as memory:
+        with MemoryClient(opened()) as memory:
             caps = memory.capabilities()
             self.assertEqual(caps["status"], "ok")
             self.assertEqual(caps["profile"], "read_only")
@@ -170,23 +207,26 @@ class Test2Open(unittest.TestCase):
             self.assertFalse(state.closing)
 
     def test_one_context_per_store_until_it_closes(self):
-        first = MemoryClient(config())
+        first = MemoryClient(opened())
         try:
             with self.assertRaises(OpenError) as refused:
-                MemoryClient(config(owner=OWNER_B))
+                MemoryClient(opened(owner=OWNER_B))
             self.assertEqual(refused.exception.status, abi.BUSY)
             self.assertEqual(refused.exception.code, "authority_held")
         finally:
             first.close()
-        MemoryClient(config()).close()
+        MemoryClient(opened()).close()
 
     def test_open_close_open_repeatedly(self):
         for _ in range(5):
-            with MemoryClient(config()) as memory:
-                self.assertTrue(memory.get_context(session_id="loop", query_vector=NEAR_AXIS_0, min_score=0.0).ok)
+            with MemoryClient(opened()) as memory:
+                if TIER_A:
+                    self.assertEqual(memory.capabilities()["status"], "ok")
+                else:
+                    self.assertTrue(memory.get_context(session_id="loop", query_vector=NEAR_AXIS_0, min_score=0.0).ok)
 
     def test_bad_configuration_is_refused_with_a_reason(self):
-        broken = config()
+        broken = opened()
         broken["store"]["surprise"] = 1
         with self.assertRaises(OpenError) as refused:
             MemoryClient(broken)
@@ -194,6 +234,7 @@ class Test2Open(unittest.TestCase):
         self.assertEqual(refused.exception.code, "unknown_property")
 
 
+@needs_store
 class Test3Recall(unittest.TestCase):
     def test_owned_recall_decodes_facts_preferences_and_metadata(self):
         with MemoryClient(config()) as memory:
@@ -274,7 +315,7 @@ class Test4Contract(unittest.TestCase):
             json.dumps({"schemaVersion": 1, "operation": "memory_get_context", "sessionId": "s",
                         "queryVector": NEAR_AXIS_0, "nested": {"a": 1}}).encode(): "unknown_property",
         }
-        with MemoryClient(config()) as memory:
+        with MemoryClient(opened()) as memory:
             for data, code in cases.items():
                 with self.subTest(code=code, data=data[:40]):
                     result = result_of(memory, data)
@@ -282,17 +323,19 @@ class Test4Contract(unittest.TestCase):
                     self.assertEqual(result["error"]["code"], code)
 
     def test_what_cannot_become_a_job_is_refused_at_submit(self):
-        with MemoryClient(config()) as memory:
+        with MemoryClient(opened()) as memory:
             self.assertEqual(submit_raw(memory, b"")[0], abi.INVALID_ARGUMENT)
             self.assertEqual(submit_raw(memory, b" " * (64 * 1024 + 1))[0], abi.INVALID_ARGUMENT)
 
 
 class Test5Lifecycle(unittest.TestCase):
+    @needs_store
     def test_timeout_retires_the_result(self):
         with MemoryClient(config()) as memory:
             result = memory.get_context(session_id="s", query_vector=NEAR_AXIS_0, timeout_ms=1)
         self.assertEqual((result.status, result.error.code), ("timeout", "timeout"))
 
+    @needs_store
     def test_cancel_then_release_then_the_handle_is_dead(self):
         with MemoryClient(config()) as memory:
             job = memory.submit({"schemaVersion": 1, "operation": "memory_get_context", "sessionId": "s",
@@ -306,12 +349,13 @@ class Test5Lifecycle(unittest.TestCase):
             self.assertEqual(dead.exception.status, abi.INVALID_HANDLE)
 
     def test_repeated_terminal_polls_return_independent_copies(self):
-        with MemoryClient(config()) as memory:
+        with MemoryClient(opened()) as memory:
             with memory.submit({"schemaVersion": 1, "operation": "capabilities_get"}) as job:
                 first = job.wait(10)
                 second = job.poll()
                 self.assertEqual(first, second)
 
+    @needs_store
     def test_overload_is_refused_at_submit_and_capacity_returns(self):
         with MemoryClient(config(limits={"maxRunningJobs": 1, "maxPendingJobs": 2})) as memory:
             request = {"schemaVersion": 1, "operation": "memory_get_context", "sessionId": "s", "queryVector": NEAR_AXIS_0}
@@ -329,7 +373,7 @@ class Test5Lifecycle(unittest.TestCase):
             self.assertTrue(memory.get_context(session_id="s", query_vector=NEAR_AXIS_0).ok, "capacity came back")
 
     def test_closed_context_refuses_everything(self):
-        memory = MemoryClient(config())
+        memory = MemoryClient(opened())
         handle = memory.handle
         memory.close()
         lib = abi.load()
@@ -338,6 +382,7 @@ class Test5Lifecycle(unittest.TestCase):
         self.assertEqual(lib.am_v1_submit(handle, data, len(data), 0, ctypes.byref(job)), abi.INVALID_HANDLE)
         self.assertEqual(lib.am_v1_close(handle), abi.INVALID_HANDLE)
 
+    @needs_store
     def test_async_client_and_task_cancellation(self):
         async def scenario():
             async with await AsyncMemoryClient.open(config()) as memory:
@@ -355,6 +400,7 @@ class Test5Lifecycle(unittest.TestCase):
         self.assertEqual(ids(ok), A_IDS)
         self.assertTrue(all(ids(r) == A_IDS for r in many))
 
+    @needs_store
     def test_many_recalls_keep_memory_bounded(self):
         def rss_kib() -> int:
             with open("/proc/self/status", encoding="ascii") as status:
@@ -416,10 +462,11 @@ class Test6Embeddings(unittest.TestCase):
         cls.server.shutdown()
 
     def endpoint_config(self, url=None):
-        document = config()
+        document = opened()
         document["embedding"]["endpoint"] = {"url": url or self.url, "apiKey": "gate-key", "timeoutMs": 2000}
         return document
 
+    @needs_store
     def test_query_text_is_embedded_through_the_endpoint(self):
         FakeEmbeddings.seen.clear()
         with MemoryClient(self.endpoint_config()) as memory:
@@ -446,7 +493,7 @@ class Test6Embeddings(unittest.TestCase):
         self.assertEqual((result.status, result.error.code), ("unavailable", "embedding_unavailable"))
 
     def test_text_without_an_endpoint_and_both_inputs_are_refused(self):
-        with MemoryClient(config()) as memory:
+        with MemoryClient(opened()) as memory:
             text_only = memory.get_context(session_id="s", query="where do I work?")
             both = memory.get_context(session_id="s", query="x", query_vector=NEAR_AXIS_0)
             neither = memory.get_context(session_id="s")
@@ -458,6 +505,7 @@ class Test6Embeddings(unittest.TestCase):
 class Test8ReviewFindings(unittest.TestCase):
     """The G-AOT review's findings B7-B15, each tested at its trigger."""
 
+    @needs_store
     def test_b7_cancelling_async_calls_at_any_point_leaks_no_job(self):
         """Leaked handles stay in the job table forever, and past 257 of them every submit is refused. A cancelled
         job instead holds its place only until its work ends, so capacity must come back within seconds."""
@@ -484,6 +532,7 @@ class Test8ReviewFindings(unittest.TestCase):
 
         self.assertEqual(ids(asyncio.run(scenario())), A_IDS, "300 cancelled calls must leave the context usable")
 
+    @needs_store
     def test_b8_a_cancelled_open_does_not_keep_the_store(self):
         async def scenario():
             for i in range(30):
@@ -511,19 +560,20 @@ class Test8ReviewFindings(unittest.TestCase):
                 time.sleep(0.1)
         raise AssertionError("the store stayed held: a cancelled open was never closed")
 
+    @needs_store
     def test_b11_a_null_default_timeout_is_treated_as_absent(self):
         with MemoryClient(config(limits={"defaultTimeoutMs": None})) as memory:
             self.assertTrue(memory.get_context(session_id="s", query_vector=NEAR_AXIS_0).ok)
 
     def test_b12_invalid_text_inside_strings_is_malformed_json(self):
-        with MemoryClient(config()) as memory:
+        with MemoryClient(opened()) as memory:
             for data in (b'{"schemaVersion":1,"operation":"capabilities_get","requestId":"\xff\xfe"}',
                          b'{"schemaVersion":1,"operation":"capabilities_get","requestId":"\\ud800"}',
                          b'{"schemaVersion":1,"operation":"capabilities_get","\\udc00":1}'):
                 with self.subTest(data=data):
                     result = result_of(memory, data)
                     self.assertEqual((result["status"], result["error"]["code"]), ("invalid", "malformed_json"))
-        broken = json.dumps(config()).replace(os.environ["AMP_PASSWORD"], "\\ud800").encode()
+        broken = json.dumps(opened()).replace(os.environ["AMP_PASSWORD"], "\\ud800").encode()
         lib = abi.load()
         context = ctypes.c_uint64()
         error, length = ctypes.c_void_p(), ctypes.c_size_t()
@@ -532,7 +582,7 @@ class Test8ReviewFindings(unittest.TestCase):
         self.assertEqual((status, document["error"]["code"]), (abi.INVALID_ARGUMENT, "malformed_json"))
 
     def test_b13_invalid_results_echo_the_request_id_and_operation(self):
-        with MemoryClient(config()) as memory:
+        with MemoryClient(opened()) as memory:
             result = result_of(memory, json.dumps({"schemaVersion": 1, "operation": "memory_get_context", "requestId": "r-13",
                                                    "sessionId": "s", "queryVector": [1, 2]}).encode())
         self.assertEqual((result["status"], result["requestId"], result["operation"]), ("invalid", "r-13", "memory_get_context"))
@@ -548,7 +598,7 @@ class Test8ReviewFindings(unittest.TestCase):
                 self.assertEqual((refused.exception.status, refused.exception.code), (abi.INVALID_ARGUMENT, "invalid_value"))
 
     def test_b15_state_with_a_null_output_still_clears_the_others(self):
-        with MemoryClient(config()) as memory:
+        with MemoryClient(opened()) as memory:
             values = [ctypes.c_uint64(0xDEAD) for _ in range(4)]
             status = memory._lib.am_v1_state(memory.handle, *(ctypes.byref(v) for v in values), None)
         self.assertEqual(status, abi.INVALID_ARGUMENT)
@@ -573,6 +623,7 @@ class Test9StoreFailures(unittest.TestCase):
         self.assertIn(result.status, ("unavailable", "timeout"))
         self.assertLess(settle_s, 10, "the driver bounds must end abandoned work within seconds")
 
+    @needs_store
     def test_wrong_password_is_reported_as_authentication(self):
         with self.assertRaises(OpenError) as refused:
             MemoryClient(config(password="not-the-password"))
