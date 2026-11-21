@@ -115,7 +115,11 @@ pub fn read_zip(devices: &[String], data: &[u8]) -> R<Files> {
             refuse!("a central entry is malformed");
         }
         let name = String::from_utf8_lossy(name_bytes).into_owned();
-        if (made >> 8) != 0 || (made & 0xFF) > 63 || !(need == 10 || need == 20) || flags != 0 || !(method == 0 || method == 8) || time != 0 || date != 0x21 {
+        // R-CORE-016: 'version made by' is exactly 20 (MS-DOS, ZIP 2.0), so no bit of an entry is free to change.
+        if made != 20 {
+            refuse!("entry '{name}' has version made by {made:04x}; the profile writes 0014 (MS-DOS, ZIP 2.0)");
+        }
+        if !(need == 10 || need == 20) || flags != 0 || !(method == 0 || method == 8) || time != 0 || date != 0x21 {
             refuse!("entry '{name}' is not in the profile");
         }
         if xlen != 0 || clen != 0 || dsk != 0 || iattr != 0 || eattr != 0 || name.ends_with('/') || !safe_path(devices, &name) {
@@ -244,6 +248,18 @@ pub mod tests {
         let mut z = write(&[("a", b"1")]);
         z.insert(0, 0);
         assert!(read_zip(&z).is_err());
+    }
+
+    #[test]
+    fn a_version_made_by_other_than_20_refuses() {
+        let z = write(&[("a", b"1")]);
+        let cd = u32::from_le_bytes([z[z.len() - 6], z[z.len() - 5], z[z.len() - 4], z[z.len() - 3]]) as usize;
+        for made in [21u16, 63, 0x031E] {
+            let mut changed = z.clone();
+            changed[cd + 4..cd + 6].copy_from_slice(&made.to_le_bytes());
+            assert!(read_zip(&changed).is_err(), "version made by {made:#06x}");
+        }
+        assert!(read_zip(&z).is_ok());
     }
 
     #[test]

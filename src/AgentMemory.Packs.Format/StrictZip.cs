@@ -23,6 +23,8 @@ internal static class StrictZip
 {
     private const uint LocalSignature = 0x04034b50, CentralSignature = 0x02014b50, EndSignature = 0x06054b50;
     private const int LocalHeaderSize = 30, CentralHeaderSize = 46, EndSize = 22;
+    /// <summary>The only 'version made by' the profile accepts: MS-DOS, ZIP 2.0 (R-CORE-016).</summary>
+    private const ushort MadeBy = 20;
     private const ushort DosDate1980 = 0x0021; // 1980-01-01
     private const ushort Stored = 0, Deflate = 8;
 
@@ -78,7 +80,7 @@ internal static class StrictZip
             var nameBytes = Encoding.ASCII.GetBytes(entry.Name);
             Array.Clear(header);
             BinaryPrimitives.WriteUInt32LittleEndian(header, CentralSignature);
-            BinaryPrimitives.WriteUInt16LittleEndian(header.AsSpan(4), 20); // made by: spec 2.0, MS-DOS
+            BinaryPrimitives.WriteUInt16LittleEndian(header.AsSpan(4), MadeBy); // made by: spec 2.0, MS-DOS
             BinaryPrimitives.WriteUInt16LittleEndian(header.AsSpan(6), entry.Method == Deflate ? (ushort)20 : (ushort)10);
             BinaryPrimitives.WriteUInt16LittleEndian(header.AsSpan(10), entry.Method);
             BinaryPrimitives.WriteUInt16LittleEndian(header.AsSpan(14), DosDate1980);
@@ -149,7 +151,8 @@ internal static class StrictZip
             if (position + CentralHeaderSize + nameLength > zip.Length - EndSize) throw Bad("has a truncated central directory");
             var name = AsciiName(c.Slice(CentralHeaderSize, nameLength));
             var where = $"entry '{name}'";
-            if ((madeBy >> 8) != 0 || (madeBy & 0xFF) > 63) throw Bad($"{where} was not made by an MS-DOS profile writer");
+            // R-CORE-016: one value, so no bit of an entry is free to change (FORMAT-ZIP-VERSION-FIELD, 21 Nov 2026).
+            if (madeBy != MadeBy) throw Bad($"{where} has version made by {madeBy:x4}; the profile writes {MadeBy:x4} (MS-DOS, ZIP 2.0)");
             if (needed is not (10 or 20)) throw Bad($"{where} needs ZIP version {needed}");
             if (flags != 0) throw Bad($"{where} sets flags {flags:x4} (data descriptors, encryption and options are refused)");
             if (method is not (Stored or Deflate)) throw Bad($"{where} uses compression method {method}");

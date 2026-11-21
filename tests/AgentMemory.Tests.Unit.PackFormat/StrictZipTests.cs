@@ -78,6 +78,19 @@ public sealed class StrictZipTests
         Reading(withAttributes).Should().Throw<InvalidDataException>().WithMessage("*attributes*");
     }
 
+    [Theory]
+    [InlineData(21)]
+    [InlineData(63)]
+    [InlineData(0x031E)]
+    public void A_version_made_by_other_than_20_is_refused(int madeBy)
+    {
+        // FORMAT-ZIP-VERSION-FIELD: the reader took any value from 0 to 63 here, so six bits of a signed pack could change
+        // and it still verified.
+        var zip = StrictZip.Write(Two());
+        BinaryPrimitives.WriteUInt16LittleEndian(zip.AsSpan(CentralOffset(zip) + 4), (ushort)madeBy);
+        Reading(zip).Should().Throw<InvalidDataException>().WithMessage("*version made by*");
+    }
+
     [Fact]
     public void An_ordinary_zip_tool_archive_is_not_a_strict_archive()
     {

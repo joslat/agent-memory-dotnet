@@ -114,7 +114,8 @@ overlap; the archive MUST end with the end-of-central-directory record, with no 
 encryption, extra fields or a comment; the archive MUST NOT hold directory entries, and MUST NOT use ZIP64.
 
 **R-CORE-016.** Entries MUST be sorted by name, each name at most once; every entry MUST carry the fixed time
-1980-01-01 00:00 and external attributes 0.
+1980-01-01 00:00 and external attributes 0, and its central-directory entry MUST give "version made by" 20
+(0x0014: MS-DOS, ZIP 2.0), so that no bit of an archive is free to change.
 
 **R-CORE-017.** Every entry name MUST be a path in the grammar of §5.
 

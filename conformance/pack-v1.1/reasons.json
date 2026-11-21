@@ -809,6 +809,10 @@
    "(data descriptors, encryption and options are refused)",
    "is not in the profile"
   ],
+  "version-made-by-not-20": [
+   "has version made by",
+   "has version made by"
+  ],
   "local-name-differs": [
    "has a local header that differs from its central-directory entry",
    "has a local header that differs from the central directory"
@@ -820,6 +824,14 @@
   "deflate-without-its-final-block": [
    "has a deflate stream without its final block",
    "does not inflate to its declared size"
+  ],
+  "deflate-incomplete-distance-code": [
+   "is not a valid deflate stream",
+   "is not a valid deflate stream"
+  ],
+  "zip-compressed-size-wraps-32-bit": [
+   "runs into the central directory",
+   "breaks a size rule"
   ],
   "attestation-stray-file": [
    "holds <stem>.certificate.dsse.json, <stem>.erasure.dsse.json and",
