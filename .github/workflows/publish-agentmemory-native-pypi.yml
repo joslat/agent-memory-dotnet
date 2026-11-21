@@ -1,0 +1,98 @@
+# Uploads the AgentMemory native library for Python (agentmemory-native: native/python with the Native AOT library
+# inside) to PyPI.
+#
+# No key is stored. PyPI accepts a short-lived proof from GitHub that this workflow file, in this repository and in the
+# 'pypi' environment, is the publisher its project 'agentmemory-native' names (Trusted Publishing). The file name, the
+# repository and the environment are what PyPI checks: renaming any of them breaks the upload until PyPI's setting is
+# changed too.
+#
+# It runs only when it is started by hand (Actions, "Publish agentmemory-native (PyPI)", Run workflow). The build job
+# publishes the library in the Ubuntu 24.04 .NET SDK image, builds the wheel with its manifest (the commit, the SDK and
+# every package compiled in, with their licences), checks the metadata, and runs the read-only gate on the installed
+# wheel against a seeded throw-away Neo4j. The upload job then waits for the reviewer of the 'pypi' environment, so
+# nothing leaves without a click.
+name: Publish agentmemory-native (PyPI)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-agentmemory-native-pypi
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and test the wheel
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The SDK runs the gate's seed (a file-based .NET program); the library itself is published inside Docker.
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+
+      - name: Setup Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+
+      - name: Tools
+        run: python -m pip install --disable-pip-version-check "twine==7.0.0"
+
+      - name: Publish the native library (Native AOT, Ubuntu 24.04 SDK image)
+        run: bash native/gate/publish-linux.sh artifacts/native/current
+
+      - name: Build the wheel with its manifest
+        run: >
+          python native/python/build_wheel.py artifacts/native/current/bin/agentmemory_native.so dist
+          --platform-tag manylinux_2_34_x86_64
+          --provenance artifacts/native/current/provenance
+          --commit "$GITHUB_SHA"
+
+      - name: Check the metadata
+        run: python -m twine check --strict dist/*
+
+      # What is uploaded is what a user installs: the gate installs the wheel with pip into a clean environment on plain
+      # Ubuntu 24.04 (no .NET) and recalls from a real, seeded Neo4j; the graph must be unchanged afterwards.
+      - name: Read-only gate on the installed wheel
+        run: |
+          bash native/gate/neo4j-up.sh "$RUNNER_TEMP/neo4j.env"
+          (set -a; . "$RUNNER_TEMP/neo4j.env"; set +a; AM_GATE_PW="$PASSWORD" \
+            dotnet run native/gate/seed/seed.cs -- "bolt://127.0.0.1:$HOST_PORT" neo4j AM_GATE_PW)
+          GATE_MODE=wheel bash native/gate/run-gate.sh "$RUNNER_TEMP/neo4j.env" dist "$RUNNER_TEMP/gate"
+
+      - name: Keep the built files for the upload job
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agentmemory-native-dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Upload to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/project/agentmemory-native/
+    permissions:
+      id-token: write     # the short-lived proof PyPI checks; nothing else
+    steps:
+      - name: Fetch the built files
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: agentmemory-native-dist
+          path: dist/
+
+      - name: Upload
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
