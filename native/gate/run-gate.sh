@@ -23,8 +23,6 @@ IMAGE=am-speech-gate-runtime:24.04
 BEFORE="$(fingerprint)"
 set +e
 if [ "${GATE_MODE:-library}" = wheel ]; then
-  docker image inspect am-speech-gate-pip:24.04 >/dev/null 2>&1 \
-    || docker build -q -t am-speech-gate-pip:24.04 -f "$HERE/Dockerfile.pip" "$HERE" >/dev/null
   # GATE_EXTRAS=langchain also installs langchain-core from the package index, so the retriever's tests run too.
   RUNTIME_ENV="-e GATE_EXTRAS=${GATE_EXTRAS:-}" RUNTIME_IMAGE=am-speech-gate-pip:24.04 \
     bash "$HERE/run-in-runtime.sh" "$ENV_FILE" "$BIN" sh -c \
