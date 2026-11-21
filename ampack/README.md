@@ -49,5 +49,5 @@ client package ships one of them unchanged.
 ## Licence
 
 Apache-2.0 (`LICENSE` and `NOTICE` here); the specification is CC BY 4.0. Patent pending (Swiss application
-CH001531/2026); the proposed pledge for implementations is [`PATENTS.md`](../PATENTS.md). The full map is
+CH001531/2026); the pledge for implementations is [`PATENTS.md`](../PATENTS.md). The full map is
 [`LICENSING.md`](../LICENSING.md).

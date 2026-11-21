@@ -1,6 +1,6 @@
 # Licensing of this repository
 
-This repository holds work under three licences and one proposed patent pledge (a draft until issued). This file is the complete map. The root [LICENSE](LICENSE) file is the MIT licence: it is the default that applies to every file that is not inside a project with its own `LICENSE` file. The projects listed below carry their own licence files, which take precedence for their folders, and each NuGet package states its licence in its metadata.
+This repository holds work under three licences and one patent pledge. This file is the complete map. The root [LICENSE](LICENSE) file is the MIT licence: it is the default that applies to every file that is not inside a project with its own `LICENSE` file. The projects listed below carry their own licence files, which take precedence for their folders, and each NuGet package states its licence in its metadata.
 
 ## The map (from version 2.0.0)
 
@@ -19,10 +19,10 @@ This repository holds work under three licences and one proposed patent pledge (
 | `src/Ampack` (the package `Ampack`: the .NET client, a reader-only build of the format library's sources) | Apache-2.0 | as above | in the folder |
 | `tools/Ampack.Tool` (the package `Ampack.Tool`: the command `ampack`, the client with a command line) | Apache-2.0 | as above | in the folder |
 | `shared/` (source files compiled into several packages: the format's text, number and namespace rules, the record frame, the instruction-like detector and others) | MIT (no SPDX header; rule 2 below), including where an Apache-2.0 package compiles them in, which the MIT licence permits | Not covered by the Apache-2.0 patent grant | the root `LICENSE` |
-| `spec/` (the specification texts and its data files) | CC BY 4.0 | CC BY 4.0 licenses no patent rights; the proposed pledge below would apply once issued | [`spec/LICENSE.md`](spec/LICENSE.md) |
-| Everything else: `AgentMemory.Core`, `AgentMemory.Abstractions`, `AgentMemory.Neo4j`, the Agent Framework, Semantic Kernel and MCP adapters, the samples, the benchmarks, the remaining tools, the tests, the sample knowledge pack under `packs/` | MIT | Not covered by the proposed pledge; MIT has no express patent-grant clause, and whether any claim reads on a component is a question of the claims, not of the copyright licence | root [`LICENSE`](LICENSE) |
+| `spec/` (the specification texts and its data files) | CC BY 4.0 | CC BY 4.0 licenses no patent rights; the pledge below applies | [`spec/LICENSE.md`](spec/LICENSE.md) |
+| Everything else: `AgentMemory.Core`, `AgentMemory.Abstractions`, `AgentMemory.Neo4j`, the Agent Framework, Semantic Kernel and MCP adapters, the samples, the benchmarks, the remaining tools, the tests, the sample knowledge pack under `packs/` | MIT | Not covered by the pledge; MIT has no express patent-grant clause, and whether any claim reads on a component is a question of the claims, not of the copyright licence | root [`LICENSE`](LICENSE) |
 
-The proposed patent non-assertion pledge is [PATENTS.md](PATENTS.md): the canonical draft of a royalty-free promise for conforming implementations of the listed specification versions that do not use the Apache-2.0 code, with the conditions stated there. It is a draft until the author issues it, after a check by patent counsel; until then it grants nothing. The Apache-2.0 patent licence for users of the code is in force regardless. "2.0.0" is the repository release; each package has its own version.
+The patent non-assertion pledge is [PATENTS.md](PATENTS.md): a royalty-free promise for conforming implementations of the listed specification versions that do not use the Apache-2.0 code, with the conditions stated there. The Apache-2.0 patent licence for users of the code is separate. "2.0.0" is the repository release; each package has its own version.
 
 ## Why two code licences
 
@@ -47,7 +47,7 @@ packs, so the package is licensed `MIT AND Apache-2.0` and carries both licence 
 - **MIT:** keep the copyright notice and the licence text with copies of the code.
 - **Apache-2.0:** keep the `LICENSE` and the `NOTICE` with copies, keep the header lines, mark files you changed, and read section 4 for redistribution and section 5 for contributions. Section 3 is the patent licence for the code you use; it has its own termination rule.
 - **CC BY 4.0:** credit the author, link the licence, and say so if you changed the text.
-- **The proposed pledge:** if you implement the specification without this code, read `PATENTS.md`; once issued, the promise would hold for conforming implementations of the listed versions under its conditions, and it does not touch what Apache-2.0 already grants.
+- **The pledge:** if you implement the specification without this code, read `PATENTS.md`; the promise holds for conforming implementations of the listed versions under its conditions, and it does not touch what Apache-2.0 already grants.
 
 ## How this is kept consistent
 
@@ -64,7 +64,7 @@ It is the licence of the largest part of the repository and the default for ever
 - Root `LICENSE`: the MIT licence.
 - Each Apache-2.0 folder: the canonical Apache License 2.0 text and a `NOTICE`.
 - `spec/LICENSE.md`: the CC BY 4.0 notice.
-- `PATENTS.md`: the proposed pledge (draft).
+- `PATENTS.md`: the pledge.
 - `CHANGELOG.md`, "Licensing" under the next release: what changed and when.
 
-This file is a plain-language map, not legal advice. The licence texts are the operative documents; the pledge is a draft until issued.
+This file is a plain-language map, not legal advice. The licence texts and the pledge are the operative documents.
