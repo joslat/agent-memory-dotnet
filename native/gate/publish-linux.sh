@@ -3,7 +3,10 @@
 # The repository is mounted read-only and copied without bin/obj, so the container never touches the checkout's build
 # folders. Usage: native/gate/publish-linux.sh <output-dir> [extra dotnet publish arguments]
 set -euo pipefail
-OUT="$(cd "$(dirname "${1:?usage: publish-linux.sh <output-dir>}")" && pwd)/$(basename "$1")"
+# The output's parent may not exist yet (a fresh CI checkout has no artifacts/ folder); without it the path resolved to
+# "/<name>" and the publish failed.
+mkdir -p "$(dirname "${1:?usage: publish-linux.sh <output-dir>}")"
+OUT="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
 shift
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 mkdir -p "$OUT"
