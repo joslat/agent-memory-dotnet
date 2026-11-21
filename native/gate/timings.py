@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import statistics
 import subprocess
 import sys
@@ -41,8 +42,13 @@ def main() -> None:
     parser.add_argument("--runs", type=int, default=5)
     args = parser.parse_args()
     runs = []
+    library = str(args.library.resolve())
+    # The client looks the library up again by this variable, so the child loads the one being timed.
+    env = os.environ | {"AGENTMEMORY_NATIVE_LIBRARY": library}
     for _ in range(args.runs):
-        out = subprocess.run([sys.executable, "-c", CHILD, str(args.library.resolve())], capture_output=True, text=True, check=True)
+        out = subprocess.run([sys.executable, "-c", CHILD, library], capture_output=True, text=True, env=env)
+        if out.returncode != 0:
+            sys.exit(f"the timing run failed ({out.returncode}): {out.stderr}")
         runs.append(json.loads(out.stdout.strip().splitlines()[-1]))
     median = {key: statistics.median(run[key] for run in runs) for key in runs[0]}
     size_mib = args.library.stat().st_size / (1024 * 1024)

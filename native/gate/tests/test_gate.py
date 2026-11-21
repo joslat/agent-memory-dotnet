@@ -126,7 +126,9 @@ class Test1Library(unittest.TestCase):
             with self.assertRaises(NativeLibraryError) as refused:
                 abi.load(fake)
         message = str(refused.exception)
-        self.assertIn(str(fake), message)
+        # The resolved path: on Windows a temporary folder can come back in its short (8.3) form.
+        self.assertIn(fake.name, message)
+        self.assertIn(str(fake.resolve()) if os.name == "nt" else str(fake), message)
         self.assertIn(platform.machine(), message)
         self.assertIn("built for this platform", message)
 
@@ -135,7 +137,9 @@ class Test1Library(unittest.TestCase):
         if platform.system() == "Windows":
             other = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "kernel32.dll")
         elif platform.system() == "Darwin":
-            other = "/usr/lib/libSystem.B.dylib"
+            # macOS keeps its system libraries in the dyld cache, not as files: use a module of this Python instead.
+            import _ctypes
+            other = getattr(_ctypes, "__file__", None)
         else:
             other = next(iter(sorted(glob.glob("/lib/*/libm.so.6") + glob.glob("/usr/lib/*/libm.so.6"))), None)
         if other is None:
@@ -461,9 +465,9 @@ class Test6Embeddings(unittest.TestCase):
     def tearDownClass(cls):
         cls.server.shutdown()
 
-    def endpoint_config(self, url=None):
+    def endpoint_config(self, url=None, timeout_ms=2000):
         document = opened()
-        document["embedding"]["endpoint"] = {"url": url or self.url, "apiKey": "gate-key", "timeoutMs": 2000}
+        document["embedding"]["endpoint"] = {"url": url or self.url, "apiKey": "gate-key", "timeoutMs": timeout_ms}
         return document
 
     @needs_store
@@ -488,8 +492,9 @@ class Test6Embeddings(unittest.TestCase):
         self.assertEqual((result.status, result.error.code), ("error", "embedding_mismatch"))
 
     def test_an_unreachable_endpoint_reports_unavailable(self):
-        with MemoryClient(self.endpoint_config(url="http://127.0.0.1:9/v1/embeddings")) as memory:
-            result = memory.get_context(session_id="s", query="where do I work?")
+        # Windows retries a refused local connection for about two seconds before it gives up, so allow longer than that.
+        with MemoryClient(self.endpoint_config(url="http://127.0.0.1:9/v1/embeddings", timeout_ms=10000)) as memory:
+            result = memory.get_context(session_id="s", query="where do I work?", timeout_ms=15000)
         self.assertEqual((result.status, result.error.code), ("unavailable", "embedding_unavailable"))
 
     def test_text_without_an_endpoint_and_both_inputs_are_refused(self):
