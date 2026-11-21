@@ -18,8 +18,6 @@ trap 'docker rm -f "$NAME" >/dev/null 2>&1; rm -f "$ENV_FILE"' EXIT
 set +e
 if [ "${WRITE_GATE_EXTRAS:-}" = langgraph ]; then
   # The LangGraph store's tests too: langgraph from the package index, in a fresh virtual environment on the target image.
-  docker image inspect am-speech-gate-pip:24.04 >/dev/null 2>&1 \
-    || docker build -q -t am-speech-gate-pip:24.04 -f "$(win "$REPO/native/gate/Dockerfile.pip")" "$(win "$REPO/native/gate")" >/dev/null
   RUNTIME_IMAGE=am-speech-gate-pip:24.04 \
   RUNTIME_ENV="-e PYTHONPATH=/native/python -e AGENTMEMORY_NATIVE_LIBRARY=/opt/am/agentmemory_native.so" \
     bash "$REPO/native/gate/run-in-runtime.sh" "$ENV_FILE" "$BIN" sh -c \
