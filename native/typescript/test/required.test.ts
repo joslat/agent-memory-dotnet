@@ -100,11 +100,14 @@ describe("REQUIRED.md: handles, state and the waiter", () => {
     }
   });
 
-  test("R-WAITER-CLOSE: a thread blocked in am_v1_wait is woken by close, within seconds, with no job", async () => {
+  test("R-WAITER-CLOSE: a thread blocked in am_v1_wait is woken by close, within seconds, with no job", { timeout: 60_000 }, async () => {
     const memory = new MemoryClient(config());
     const worker = new Worker(new URL("./waiter-worker.js", import.meta.url), {
       workerData: { library: load().path, context: memory.handle.toString() },
     });
+    // Listened for from the start: when the worker ends before its last message is handled, Node delivers that message
+    // and then 'exit' in one callback, before a listener attached after the message could see it.
+    const exited = new Promise((resolve) => worker.once("exit", resolve));
     const messages: Array<{ kind: string; status?: number; job?: string; ms?: number }> = [];
     const woken = new Promise<{ status?: number; job?: string; ms?: number }>((resolve, reject) => {
       worker.on("message", (message) => {
@@ -117,7 +120,9 @@ describe("REQUIRED.md: handles, state and the waiter", () => {
     assert.deepEqual(messages.map((m) => m.kind), ["waiting"], "the worker is blocked in am_v1_wait");
     memory.close();
     const result = await woken;
-    await worker.terminate();
+    // The worker ends on its own, its script done: terminate() stopped it while koffi and the library were still set up
+    // in its isolate, and the process then failed as it exited, about one run in thirty (SIGSEGV, Linux).
+    await exited;
     assert.ok([Status.OK, Status.INVALID_HANDLE].includes(result.status as 0 | 3), `status ${result.status}`);
     assert.equal(result.job, "0");
     assert.ok((result.ms ?? 99_999) < 5000, `the waiter was woken after ${result.ms} ms`);
