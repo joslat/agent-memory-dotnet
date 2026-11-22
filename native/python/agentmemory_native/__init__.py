@@ -23,4 +23,4 @@ __all__ = [
     "remember_request",
     "library_file_name", "manifest", "resolve_library_path",
 ]
-__version__ = "0.2.0"
+__version__ = "0.2.1"
