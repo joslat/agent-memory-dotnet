@@ -24,6 +24,12 @@ using Testcontainers.Neo4j;
 //   ... --identity-gold-select ecbplus|conel2 [--dataset <dir>] --out <slice.json>        (no model: freeze a slice)
 //   ... --identity-gold-score --report <report.json> --gold <gold.json> --scenario <scenario.json> --view decisions|entities
 //
+// Identity Kinds Benchmark, tier 2 (IKB-2): a scenario with an answer key beside it (<name>.gold.json), under
+// --identity-validation --identity-writer [--legacy-comparison]; every store is scored against the key, no model judges:
+//   ... --scenario scenarios/identity-kinds/whos-who-v1.json --identity-validation --identity-writer [--legacy-comparison]
+//   ... --identity-kinds-score --report <report.json> --scenario <scenario.json> [--gold <gold.json>]   (no model: re-score)
+//   ... --identity-kinds-sessions <n>: the first n sessions only and the key's mentions in them (a trial; not comparable)
+//
 // Models come from the environment, as AgentMemory.Inference resolves them (docs/configuration/inference-providers.md).
 // The Recommended arm's judge is JEV and needs TYPESAFE_API_KEY.
 
@@ -72,6 +78,30 @@ if (args.Contains("--identity-gold-score"))
     Console.WriteLine(JsonSerializer.Serialize(IdentityGoldScorer.Score(scoredGold, scoredScenario.Turns().Select(t => t.Text).ToList(), recordedStore, scoreView), IdentityGold.Json));
     return 0;
 }
+if (args.Contains("--identity-kinds-score"))
+{
+    if (Argument("--report") is not { } kindsReport || Argument("--scenario") is not { } kindsScenarioPath)
+    {
+        Console.Error.WriteLine("--identity-kinds-score needs --report and --scenario (and --gold unless the key is beside the scenario).");
+        return 2;
+    }
+    var kindsScenario = Scenario.Load(kindsScenarioPath);
+    var kindsKeyPath = Argument("--gold") ?? IdentityKindsGold.BesideScenario(kindsScenarioPath);
+    if (kindsKeyPath is null)
+    {
+        Console.Error.WriteLine($"No answer key beside {kindsScenarioPath}; give --gold.");
+        return 2;
+    }
+    var kindsKey = IdentityKindsGold.Load(kindsKeyPath);
+    kindsKey.CheckAgainst(kindsScenario);
+    using var kindsRecorded = JsonDocument.Parse(await File.ReadAllBytesAsync(kindsReport));
+    var rescored = kindsRecorded.RootElement.GetProperty("stores").EnumerateObject()
+        .Where(p => p.Value.ValueKind == JsonValueKind.Object && p.Value.TryGetProperty("entities", out _))
+        .ToDictionary(p => p.Name, p => IdentityKindsScorer.Score(kindsKey, kindsScenario, p.Value,
+            p.Value.GetProperty("identity").ValueKind == JsonValueKind.Null ? IdentityGoldScorer.EntitiesView : IdentityGoldScorer.DecisionsView));
+    Console.WriteLine(JsonSerializer.Serialize(rescored, IdentityGold.Json));
+    return 0;
+}
 var goldName = Argument("--identity-gold");
 if (goldName is not null && (!identityValidation || !identityWriter || identityFullScenario || Argument("--scenario") is not null || !PublicGoldSet.Names.Contains(goldName)))
 {
@@ -79,6 +109,7 @@ if (goldName is not null && (!identityValidation || !identityWriter || identityF
     return 2;
 }
 Scenario scenario;
+string? kindsGoldPath = null;
 IdentityGold? gold = null;
 string? goldSlice = null;
 int? goldSessions = Argument("--identity-gold-sessions") is { } limitText ? int.Parse(limitText, CultureInfo.InvariantCulture) : null;
@@ -103,9 +134,39 @@ else
     var scenarioPath = Argument("--scenario") ?? (identityValidation ? Path.Combine(AppContext.BaseDirectory, "scenarios", "identity-validation", "dates.json") : Path.Combine(AppContext.BaseDirectory, "scenarios", "bruna-go-live.json"));
     scenario = Scenario.Load(scenarioPath);
     if(identityFullScenario) scenario=BarilocheValidation.Apply(scenario);
+    kindsGoldPath = identityValidation ? Argument("--identity-kinds-gold") ?? IdentityKindsGold.BesideScenario(scenarioPath) : null;
 }
-var goldPolicy = goldName is null ? null : $"identity-gold-{goldName}-v1";
-var identityPlan=goldName is not null?IdentityValidationClients.PlanFor(true,goldPolicy):identityFullScenario?IdentityValidationClients.FullScenarioPlan:IdentityValidationClients.Plan;
+// IKB-2: the Identity Kinds answer key, checked against the scenario before any model is called.
+var kindsGold = kindsGoldPath is null ? null : IdentityKindsGold.Load(kindsGoldPath);
+kindsGold?.CheckAgainst(scenario);
+int? kindsSessions = Argument("--identity-kinds-sessions") is { } kindsLimit ? int.Parse(kindsLimit, CultureInfo.InvariantCulture) : null;
+if (kindsSessions is { } keep)
+{
+    if (kindsGold is null || keep < 1 || keep >= scenario.Sessions.Count)
+    {
+        Console.Error.WriteLine($"--identity-kinds-sessions needs an Identity Kinds scenario and a number from 1 to {scenario.Sessions.Count - 1}.");
+        return 2;
+    }
+    // A trial of the plumbing (IKB-3's one-session run): the history cut, and the key cut to what that history mentions.
+    scenario = scenario with { Sessions = scenario.Sessions.Take(keep).ToArray() };
+    var said = scenario.Turns().Count();
+    var mentioned = kindsGold.Mentions.Where(m => m.Statement <= said).ToArray();
+    var kept = mentioned.Select(m => m.Thing).ToHashSet(StringComparer.Ordinal);
+    kindsGold = kindsGold with
+    {
+        Mentions = mentioned,
+        Things = kindsGold.Things.Where(t => kept.Contains(t.Id)).ToArray(),
+        Namesakes = kindsGold.Namesakes.Where(n => kept.Contains(n.A) && kept.Contains(n.B)).ToArray(),
+    };
+    kindsGold.CheckAgainst(scenario);
+}
+if (kindsGold is not null && !identityWriter)
+{
+    Console.Error.WriteLine("An Identity Kinds scenario runs with the store-aware writer: add --identity-writer (and --legacy-comparison for the old resolver).");
+    return 2;
+}
+var goldPolicy = goldName is not null ? $"identity-gold-{goldName}-v1" : kindsGold is not null ? $"identity-kinds-{kindsGold.Name}-v{kindsGold.Version}" : null;
+var identityPlan=goldName is not null || kindsGold is not null?IdentityValidationClients.PlanFor(true,goldPolicy):identityFullScenario?IdentityValidationClients.FullScenarioPlan:IdentityValidationClients.Plan;
 // The old model under the same metered campaign, models and answer key as the identity arm (head-to-head).
 var legacyComparison = args.Contains("--legacy-comparison");
 var validationArm = legacyComparison ? "graph-legacy-writer" : identityWriter ? "graph-identity-writer" : "graph-identity-unified";
@@ -124,7 +185,7 @@ if (identityValidation && (armNames.Length != 1 || armNames[0] != validationArm)
     return 2;
 }
 
-var maxCalls = int.Parse(Argument("--max-calls") ?? (gold is not null ? (scenario.Turns().Count() * 5 / 2 + 20).ToString(CultureInfo.InvariantCulture) : identityFullScenario ? (scenario.Turns().Count() > 49 ? "320" : "120") : identityValidation ? "60" : "400"), CultureInfo.InvariantCulture);
+var maxCalls = int.Parse(Argument("--max-calls") ?? (gold is not null || kindsGold is not null ? (scenario.Turns().Count() * 5 / 2 + 20).ToString(CultureInfo.InvariantCulture) : identityFullScenario ? (scenario.Turns().Count() > 49 ? "320" : "120") : identityValidation ? "60" : "400"), CultureInfo.InvariantCulture);
 var answers = !args.Contains("--no-answers");
 // ILC-21 ablation: one identity component off, same arm otherwise; recorded in the report fingerprint.
 var ablation = Argument("--identity-ablation");
@@ -148,6 +209,7 @@ if (identityValidation) Console.WriteLine($"  budget    persistent campaign: at 
 else Console.WriteLine($"  calls     at most {maxCalls}; about {writers.Count * turns.Count * 2} to write, {graphArms.Count * scenario.Questions.Count} judge calls, {(answers ? armNames.Length * scenario.Questions.Count : 0)} answers");
 Console.WriteLine($"  output    {output}");
 if (identityValidation) Console.WriteLine(JsonSerializer.Serialize(new { inference=identityPlan,assertionPolicy=goldPolicy??(identityFullScenario?BarilocheValidation.Version:"identity-four-cases"),effectiveIngestion=identityWriter?"Store-aware writer + DatesFromText + chat update fallback; no external retrieval judge":"Explicit unified extractor control",eventDetailsRequested=true,writerEventIdentitiesRequested=identityWriter },new JsonSerializerOptions { WriteIndented=true }));
+if (kindsGold is not null) Console.WriteLine($"  key       {kindsGold.Name} v{kindsGold.Version}{(kindsSessions is { } cut ? $", first {cut} session(s) only (a trial, not comparable)" : "")}: {kindsGold.Things.Count} real things ({string.Join(", ", kindsGold.Things.GroupBy(t => t.Kind).OrderBy(g => g.Key, StringComparer.Ordinal).Select(g => $"{g.Key} {g.Count()}"))}), {kindsGold.Namesakes.Count} namesake pairs, {kindsGold.Mentions.Count} mentions; at most {maxCalls} model calls");
 if (gold is not null) Console.WriteLine($"  gold      {gold.Version}: {gold.Groups.Count} groups ({string.Join(", ", gold.Groups.Values.GroupBy(g => g.Kind).OrderBy(g => g.Key, StringComparer.Ordinal).Select(g => $"{g.Key} {g.Count()}"))}), slice {goldSlice}{(goldSessions is { } n ? $", first {n} sessions only (not comparable)" : "")}");
 if (args.Contains("--dry-run")) return 0;
 
@@ -179,7 +241,7 @@ if (graphArms.Any(arm => arm.Judge) && string.IsNullOrWhiteSpace(Environment.Get
 
 using var bounded = identityValidation ? new IdentityValidationClients(settings,
     Argument("--campaign-budget") ?? Path.Combine(root,"artifacts/evaluation/identity-validation/campaign.jsonl"),
-    Path.Combine(output,"inference-http.jsonl"),writerMode:identityWriter,fullScenario:identityFullScenario || gold is not null) : null;
+    Path.Combine(output,"inference-http.jsonl"),writerMode:identityWriter,fullScenario:identityFullScenario || gold is not null || kindsGold is not null) : null;
 if (bounded is not null) { chat=bounded.Writer; embeddings=bounded.Embeddings; }
 Console.WriteLine($"  models    {settings.Summary}");
 using var ledger = new CallLedger(Path.Combine(output, "calls.jsonl"), maxCalls);
@@ -229,6 +291,7 @@ var eventDetailProbes = new Dictionary<string, object>();
 var asked = new List<object>();
 var scoreboard = new Dictionary<string, List<string>>();
 var goldScores = new Dictionary<string, IdentityGoldScore>();
+var kindsScores = new Dictionary<string, IdentityKindsScore>();
 try
 {
     // ── The memories ───────────────────────────────────────────────────────
@@ -306,6 +369,18 @@ try
                                   $"({score.EventExtraIdentities} event, {score.PersonOrgExtraIdentities} person/org; {score.ExtraIdentitiesIfPendingAccepted} if pending accepted), " +
                                   $"{score.CrossPartitionEventIdentities.Count} event identities across similar events, {score.LabelledMentions} labelled / {score.UnlabelledMentions} unlabelled mentions");
             }
+            if (kindsGold is not null)
+            {
+                // IKB-2: each stored thing mapped to real things through the statements its mentions came from.
+                var view = graph.Arm.Identity is null ? IdentityGoldScorer.EntitiesView : IdentityGoldScorer.DecisionsView;
+                var kinds = IdentityKindsScorer.Score(kindsGold, scenario,
+                    JsonSerializer.SerializeToElement(new { identity = identitySnapshot, entities = entitySnapshot }), view);
+                kindsScores[graph.Arm.Writes] = kinds;
+                if (kinds.WrongMerges > 0) acceptanceFailures.Add($"identity-kinds: {kinds.WrongMerges} wrong merge(s)");
+                Console.WriteLine($"  identity kinds ({view}): {kinds.Right}/{kinds.Things} real things right, {kinds.WrongMerges} wrong merges, " +
+                                  $"{kinds.Splits} splits ({string.Join(", ", kinds.ByKind.Where(k => k.Value.Splits > 0).Select(k => $"{k.Key} {k.Value.Splits}"))}), " +
+                                  $"{kinds.Missed} never stored, {kinds.PendingDecisions} open proposals; {kinds.LabelledMentions} labelled / {kinds.UnlabelledMentions} unlabelled mentions");
+            }
         }
         Console.WriteLine($"  {graph.Arm.Writes} store: {snapshot.Facts.Count} live facts, {snapshot.Closed.Count} closed, {snapshot.Entities.Count} entities; " +
                           $"holds {held.Count(h => h.Held)}/{held.Count} checked facts; {firstPerson} facts with 'user' as subject");
@@ -382,7 +457,9 @@ try
         {
             var prompt = prompts[memory.Name];
             var needs = Checks.Needs(question, prompt);
+            var forbidden = Checks.Forbidden(question, prompt);
             if (identityValidation) acceptanceFailures.AddRange(Checks.ValidationFailures([],needs));
+            if (identityValidation) acceptanceFailures.AddRange(forbidden.Where(f => f.Found).Select(f => $"prompt carries a namesake's fact for {question.Id}: {f.Mentions}"));
             string? answer = null;
             if (answers)
             {
@@ -398,15 +475,17 @@ try
             }
 
             var smallest = memory is LineMemory lines ? await lines.SmallestBudgetThatWorksAsync(question) : null;
-            var verdict = needs.All(n => n.Found) ? "✓" : "✗";
+            var verdict = needs.All(n => n.Found) && !forbidden.Any(f => f.Found) ? "✓" : "✗";
             (scoreboard.TryGetValue(memory.Name, out var row) ? row : scoreboard[memory.Name] = []).Add(verdict);
-            Console.WriteLine($"    {verdict} {memory.Name,-22} {(needs.All(n => n.Found) ? "every needed fact reached the prompt" : "missing: " + string.Join("; ", needs.Where(n => !n.Found).Select(n => n.Fact)))}");
+            Console.WriteLine($"    {verdict} {memory.Name,-22} {(needs.All(n => n.Found) ? "every needed fact reached the prompt" : "missing: " + string.Join("; ", needs.Where(n => !n.Found).Select(n => n.Fact)))}" +
+                              (forbidden.Any(f => f.Found) ? $"; a namesake's fact reached it too: {string.Join("; ", forbidden.Where(f => f.Found).Select(f => f.Mentions))}" : ""));
             if (answer is not null) Console.WriteLine($"        → {Flatten(answer, 150)}");
             attempts.Add(new
             {
                 memory = memory.Name,
                 tokens = Checks.Tokens(prompt),
                 needs,
+                forbidden = forbidden.Count > 0 ? forbidden : null,
                 smallestBudgetThatWorks = smallest,
                 prompt,
                 explained = explained.GetValueOrDefault(memory.Name),
@@ -500,6 +579,13 @@ async Task WriteReportAsync()
             scores = goldScores,
         }, IdentityGold.Json));
     }
+    if (kindsGold is not null) await File.WriteAllTextAsync(Path.Combine(output, "identity-kinds.json"), JsonSerializer.Serialize(new
+    {
+        format = "identity-kinds/1", key = kindsGold.Name, keyVersion = kindsGold.Version, keyFrozen = kindsGold.Frozen,
+        scenario = scenario.Name, scenarioSha256 = scenario.Sha256, arms = armNames, sessions = kindsSessions, comparable = kindsSessions is null,
+        rule = "Wrong merges must stay 0; splits are reported per kind and must not rise; right is a real thing held by exactly one identity that holds nothing else; no model judges.",
+        scores = kindsScores,
+    }, IdentityGold.Json));
     if (bounded is not null) await File.WriteAllTextAsync(Path.Combine(output,"identity-budget.json"),
         JsonSerializer.Serialize(new { plan=identityPlan,summary=bounded.Summary },new JsonSerializerOptions { WriteIndented=true }));
     await File.WriteAllTextAsync(Path.Combine(output, "report.json"),

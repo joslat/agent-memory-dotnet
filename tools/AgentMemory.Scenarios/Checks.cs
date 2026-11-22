@@ -38,6 +38,14 @@ internal static class Checks
         return question.Needs.Select(need => new NeedResult(need.Fact, ItemWith(items, need.Mentions))).ToList();
     }
 
+    /// <summary>Each fact the question forbids, with the prompt item that carries it (null when none does: as it should be).</summary>
+    public static IReadOnlyList<ForbiddenResult> Forbidden(Question question, string prompt)
+    {
+        var items = Items(prompt);
+        return (question.MustNot ?? []).Select(forbidden => new ForbiddenResult(
+            string.Join(" + ", forbidden.Mentions.Select(spellings => string.Join("/", spellings))), ItemWith(items, forbidden.Mentions))).ToList();
+    }
+
     /// <summary>Both independently frozen store and prompt assertions must hold for bounded acceptance.</summary>
     public static IReadOnlyList<string> ValidationFailures(IEnumerable<StoreResult> store,IEnumerable<NeedResult> prompt) =>
         store.Where(result=>!result.Held).Select(result=>"store: "+result.Fact)
@@ -73,6 +81,12 @@ internal static class Checks
 }
 
 internal sealed record NeedResult(string Fact, string? FoundIn)
+{
+    public bool Found => FoundIn is not null;
+}
+
+/// <summary>A forbidden fact (its spellings) and the prompt item that carried it, if one did.</summary>
+internal sealed record ForbiddenResult(string Mentions, string? FoundIn)
 {
     public bool Found => FoundIn is not null;
 }
