@@ -2048,7 +2048,7 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
 
     // ── P231-A part 2 (17-P231A-KEPT-NAMES-RIPPLES.md): other paths and identity data ──
 
-    /// <summary>Valentina, confirmed, two facts bound, one of them under the nickname "Vale" (kept on her, as Bind keeps it).</summary>
+    /// <summary>Valentina, confirmed, two facts bound, one of them said of "Vale", her nickname (kept on her, as Bind keeps it).</summary>
     private async Task<(IServiceProvider Services, string Valentina)> ValentinaKnownAsVale(IServiceScope scope)
     {
         var services = scope.ServiceProvider;
@@ -2063,7 +2063,9 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
             .Where(p => p.Confirmed).Should().ContainSingle().Subject.EntityId;
         await fixture.TransactionRunner.WriteAsync(async runner => { await runner.RunAsync(
             "MATCH (f:Fact {object: 'a video tutorial for the clerks'})-[:HAS_IDENTITY_BINDING]->(b:IdentityFactBinding)-[:RESOLVES_TO]->(p:Entity {id: $id}) " +
-            "SET b.identity_observed_surface = 'Vale', p.identity_surfaces = coalesce(p.identity_surfaces, []) + ['Vale']", new { id = valentina }); });
+            // As binding makes it: the fact said "Vale", and the binding saw that name (import checks they agree).
+            "SET b.identity_observed_surface = 'Vale', f.subject = 'Vale', f.subject_key = 'vale', " +
+            "p.identity_surfaces = coalesce(p.identity_surfaces, []) + ['Vale']", new { id = valentina }); });
         return (services, valentina);
     }
 
@@ -2144,6 +2146,60 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
 
         (await relationships.GetLiveAroundAsync([], ["Valentina"], 16, DateTimeOffset.UtcNow, Scope)).Should().BeEmpty("Valentina was forgotten");
         (await relationships.GetLiveAroundAsync([], ["Córdoba"], 16, DateTimeOffset.UtcNow, Scope)).Should().BeEmpty("its other end was forgotten");
+    }
+
+    [Fact]
+    public async Task P231A_part1_an_identity_store_and_its_copy_answer_every_people_read_the_same()
+    {
+        // P231-A part 1: each 2.x read on the original and on its copy (export, a JSON file, import under a new owner) gives the
+        // same answer, ids mapped; the copy's values keep their types; and the copy can be pruned and merged as the original.
+        using var host = Host(); using var scope = host.CreateScope();
+        var (services, valentina) = await ValentinaKnownAsVale(scope);
+        await Ingest(services, new UnifiedExtractionResult
+        {
+            Entities = [new() { Name = "Valentina", Type = "PERSON", Confidence = 1 }, new() { Name = "Córdoba", Type = "LOCATION", Confidence = 1 }],
+            Relationships = [new() { SourceEntity = "Valentina", RelationshipType = "LIVES_IN", TargetEntity = "Córdoba", Confidence = 1 }]
+        }, messageId: "source");
+        var owners = services.GetRequiredService<IMemoryOwnerDataService>();
+        var file = JsonSerializer.Deserialize<OwnerMemoryExport>(JsonSerializer.Serialize(await owners.ExportAsync("pablito")))!;
+        var imported = await owners.ImportAsync(file, "copy-owner");
+        var copyScope = MemoryScope.For("copy-owner", false);
+        string Mapped(string id) => imported.Ids.GetValueOrDefault(id, id);
+        var facts = services.GetRequiredService<IFactRepository>();
+        var relationships = services.GetRequiredService<IRelationshipRepository>();
+
+        (await facts.GetPersonNamesAsync(10_000, copyScope)).Should().BeEquivalentTo(await facts.GetPersonNamesAsync(10_000, Scope));
+        var original = await facts.GetPersonIdentitiesAsync(1000, Scope);
+        var copy = await facts.GetPersonIdentitiesAsync(1000, copyScope);
+        copy.Select(p => (p.EntityId, string.Join("|", p.Surfaces), p.Confirmed, p.Complete)).Should().BeEquivalentTo(
+            original.Select(p => (Mapped(p.EntityId), string.Join("|", p.Surfaces), p.Confirmed, p.Complete)));
+        (await facts.GetPersonDetailsAsync([Mapped(valentina)], [], 8, copyScope)).Select(f => f.Object).Should().BeEquivalentTo(
+            (await facts.GetPersonDetailsAsync([valentina], [], 8, Scope)).Select(f => f.Object));
+        (await relationships.GetLiveAroundAsync([Mapped(valentina)], ["valentina"], 16, DateTimeOffset.UtcNow, copyScope))
+            .Select(r => (r.SourceName, r.Relationship.RelationshipType, r.TargetName)).Should().BeEquivalentTo(
+                (await relationships.GetLiveAroundAsync([valentina], ["valentina"], 16, DateTimeOffset.UtcNow, Scope))
+                    .Select(r => (r.SourceName, r.Relationship.RelationshipType, r.TargetName)));
+        // The values keep their types (F3): a copy whose times were text could not be pruned or read as of a moment.
+        var types = await fixture.TransactionRunner.ReadAsync(async runner => (await (await runner.RunAsync(
+            "MATCH (n) WHERE (n:Entity OR n:Fact) AND n.owner_id IN ['pablito', 'copy-owner'] " +
+            "RETURN n.owner_id AS owner, labels(n)[0] + ' ' + valueType(n.created_at) AS kind")).ToListAsync())
+            .Select(r => (Owner: ValueExtensions.As<string>(r["owner"]), Kind: ValueExtensions.As<string>(r["kind"]))).ToList());
+        types.Where(t => t.Owner == "copy-owner").Select(t => t.Kind).Distinct().Should().BeEquivalentTo(
+            types.Where(t => t.Owner == "pablito").Select(t => t.Kind).Distinct());
+        types.Should().NotContain(t => t.Kind.Contains("STRING"));
+
+        // The same operation on each gives the same result: a merge (F1) keeps the nickname on the survivor.
+        var entities = services.GetRequiredService<IEntityRepository>();
+        foreach (var (owner, ownerScope, id) in new[] { ("pablito", Scope, valentina), ("copy-owner", copyScope, Mapped(valentina)) })
+        {
+            var survivor = await entities.UpsertAsync(new() { EntityId = owner + "-ruiz", Name = "Valentina Ruiz", Type = "PERSON", OwnerId = owner, Confidence = 1, CreatedAtUtc = DateTimeOffset.UnixEpoch });
+            (await entities.MergeEntitiesAsync(id, survivor.EntityId, ownerScope)).Should().BeTrue(owner);
+            (await facts.GetPersonIdentitiesAsync(1000, ownerScope)).Should().ContainSingle(p => p.EntityId == survivor.EntityId)
+                .Which.Surfaces.Should().Contain("Vale", owner);
+        }
+        var decay = new Neo4jMemoryDecayService(fixture.TransactionRunner, TimeProvider.System, Options.Create(new MemoryDecayOptions { MinRetentionScore = 2 }),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<Neo4jMemoryDecayService>.Instance);
+        (await decay.PruneExpiredMemoriesAsync(copyScope)).Should().BeGreaterThan(0, "the copy can be pruned");
     }
 
     [Fact]
