@@ -130,6 +130,43 @@ jobs:
           node --test "dist/test/*.test.js" | tee ../../out/typescript-required-a.log
           { echo "### ${{ matrix.rid }}: TypeScript, tier A"; echo; echo '```'; tail -1 ../../out/typescript-tier-a.log; grep -E '^. (tests|pass|fail|skipped)' ../../out/typescript-required-a.log || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Setup Node 22
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - name: TypeScript binding, tier A on Node 22
+        working-directory: native/typescript
+        env:
+          GATE_TIER: A
+          AGENTMEMORY_NATIVE_LIBRARY: ${{ github.workspace }}/out/bin/${{ matrix.library }}
+        run: |
+          node --version
+          node dist/gate/runner.js --tier A | tee ../../out/typescript-tier-a-node22.log
+          node --test "dist/test/*.test.js" | tee ../../out/typescript-required-a-node22.log
+          { echo "### ${{ matrix.rid }}: TypeScript, tier A, Node 22"; echo; echo '```'; tail -1 ../../out/typescript-tier-a-node22.log; grep -E '^. (pass|fail)' ../../out/typescript-required-a-node22.log || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Setup Node 26
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+
+      - name: TypeScript binding, tier A on Node 26
+        working-directory: native/typescript
+        env:
+          GATE_TIER: A
+          AGENTMEMORY_NATIVE_LIBRARY: ${{ github.workspace }}/out/bin/${{ matrix.library }}
+        run: |
+          node --version
+          node dist/gate/runner.js --tier A | tee ../../out/typescript-tier-a-node26.log
+          node --test "dist/test/*.test.js" | tee ../../out/typescript-required-a-node26.log
+          { echo "### ${{ matrix.rid }}: TypeScript, tier A, Node 26"; echo; echo '```'; tail -1 ../../out/typescript-tier-a-node26.log; grep -E '^. (pass|fail)' ../../out/typescript-required-a-node26.log || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Setup Node 24 again
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
       - name: Timings
         env:
           PYTHONPATH: native/python
