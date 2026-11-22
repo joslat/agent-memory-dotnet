@@ -22,7 +22,7 @@ on:
         description: Runner image
         default: ubuntu-24.04-arm
       file:
-        description: Test file under native/typescript
+        description: What node runs, from native/typescript - a test file, or the runner as CI calls it (--test dist/test/*.test.js)
         default: dist/test/adapters.test.js
 
 permissions:
@@ -82,7 +82,8 @@ jobs:
           ulimit -c unlimited
           ok=0; bad=0
           for i in $(seq 1 "$RUNS"); do
-            rc=0; node "$FILE" > "/tmp/run.log" 2>&1 || rc=$?   # the step runs with -e: a failing run must not end the loop
+            # $FILE unquoted on purpose: "--test dist/test/*.test.js" is two arguments and a pattern, as CI passes them.
+            rc=0; node $FILE > "/tmp/run.log" 2>&1 || rc=$?   # the step runs with -e: a failing run must not end the loop
             if [ $rc -eq 0 ]; then ok=$((ok+1)); continue; fi
             bad=$((bad+1)); echo "::warning::run $i: exit $rc"; tail -5 /tmp/run.log; cp /tmp/run.log "$GITHUB_WORKSPACE/cores/run-$i.log"
           done
