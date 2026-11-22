@@ -480,6 +480,7 @@ public sealed class PerfCommand
                 batchEntityResolutionSnapshots = batchResolutionSnapshots,
                 coalescedPersistenceTransactions = coalescedPersistence,
                 learnedEmbeddingBatching = true,
+                singleStatementReads = HermeticProfile.SingleStatementReads,
                 neo4jMaxConnectionPoolSize = maxConnectionPoolSize,
                 neo4jImage = "neo4j:5.26",
                 os = Environment.OSVersion.ToString(),

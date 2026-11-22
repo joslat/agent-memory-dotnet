@@ -107,6 +107,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stops the others from being sent; the first failure in the sub-questions' order is still the one thrown. The
   AppContext switch `AgentMemory.Recall.FanOutSearchesInTurn` restores one search at a time.
 
+- A read of one statement is sent without a transaction of its own: two round trips to the store instead of four
+  (begin, the statement, commit and reset). It covers the reads of recall (the similarity searches and the reads that
+  widen them, recent messages, the profile block, due facts and the look-ahead, person and event details,
+  relationships), recall as of a moment, the profile block's rebuild, and the duplicate check before a fact or a
+  preference is saved: 41 reads, each sending one statement, which a test counts on a real store. Retries are a
+  managed read's: a retriable failure is tried again with waits from 1 s, doubling, within
+  `Neo4jOptions.MaxTransactionRetryTime` (30 s by default), counted in `db.attempts`; the driver's own one-shot retry
+  of such a query is turned off on these sessions so the two do not add up. Inside a write unit the read still runs
+  on the unit's transaction. `Neo4jOptions.SingleStatementReads = false` sends them as managed transactions, as
+  before. A runner decorator can forward the path by implementing the new `INeo4jSingleStatementReader`; one that
+  does not keeps its own `ReadAsync`.
+
 ### Fixed
 
 - A `neo4j+s://` or `bolt+s://` store address (the form Neo4j Aura gives, and the one `docs/getting-started.md`

@@ -12,11 +12,13 @@ namespace AgentMemory.Extensibility.Neo4j.Storage;
 // Trusted canonical erasure only. Ordinary supersession and restore remain non-destructive.
 [Experimental("AMEXT001")]
 internal sealed class PackLocalErasureRunner(INeo4jTransactionRunner inner, ModuleManifest pack,
-    IReadOnlyList<ModuleErasure> erasures) : INeo4jTransactionRunner
+    IReadOnlyList<ModuleErasure> erasures) : INeo4jTransactionRunner, INeo4jSingleStatementReader
 {
     public Task<T> ReadAsync<T>(Func<IAsyncQueryRunner, Task<T>> work, CancellationToken cancellationToken = default) => inner.ReadAsync(work, cancellationToken);
     public Task ReadAsync(Func<IAsyncQueryRunner, Task> work, CancellationToken cancellationToken = default) => inner.ReadAsync(work, cancellationToken);
     public bool? InWriteUnit => inner.InWriteUnit;
+    public Task<T> ReadSingleAsync<T>(Func<IAsyncQueryRunner, Task<T>> work, CancellationToken cancellationToken = default) =>
+        inner is INeo4jSingleStatementReader single ? single.ReadSingleAsync(work, cancellationToken) : inner.ReadAsync(work, cancellationToken);
     public Task WriteAsync(Func<IAsyncQueryRunner, Task> work, CancellationToken cancellationToken = default) =>
         WriteAsync(async tx => { await work(tx).ConfigureAwait(false); return true; }, cancellationToken);
     public Task<T> WriteAsync<T>(Func<IAsyncQueryRunner, Task<T>> work, CancellationToken cancellationToken = default) => inner.WriteAsync(async tx =>

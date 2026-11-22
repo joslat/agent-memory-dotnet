@@ -49,7 +49,7 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
         MemoryScope scope,
         bool includeShared,
         CancellationToken cancellationToken) =>
-        await _tx.ReadAsync(async runner =>
+        await _tx.ReadSingleAsync(async runner =>
         {
             var cursor = await runner.RunAsync(
                 EntityQueries.SearchByVectorOwnerScopedFallback(includeShared),
@@ -266,7 +266,7 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
             if (filteredKey is not null) parameters["ownerKey"] = filteredKey;
             if (recencyRerank) RerankParameters.Add(parameters, ranking, _decay, _clock.GetUtcNow());
 
-            return await _tx.ReadAsync(async runner =>
+            return await _tx.ReadSingleAsync(async runner =>
             {
                 var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
                 var records = await cursor.ToListAsync().ConfigureAwait(false);
@@ -1101,7 +1101,7 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
         };
         if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
 
-        var results = await _tx.ReadAsync(async runner =>
+        var results = await _tx.ReadSingleAsync(async runner =>
         {
             var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
@@ -1165,7 +1165,7 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
     {
         if (!_skipEscalationWhenOwnerHasNoRows || scope?.OwnerId is null) return true;
 
-        var present = await _tx.ReadAsync(async runner =>
+        var present = await _tx.ReadSingleAsync(async runner =>
         {
             var cursor = await runner.RunAsync(
                 OwnerRowExistence.Any("Entity", includeShared),

@@ -161,7 +161,7 @@ internal sealed class Neo4jWorkingMemoryService : IWorkingMemoryService
     private bool ReadTogether => _options.ReadTogether && _tx.InWriteUnit == false;
 
     private async Task<string?> StoredHashAsync(string ownerId, CancellationToken cancellationToken) =>
-        await _tx.ReadAsync(async runner =>
+        await _tx.ReadSingleAsync(async runner =>
         {
             var cursor = await runner.RunAsync(
                 WorkingMemoryQueries.GetBlockHash, new { ownerId }).ConfigureAwait(false);
@@ -170,7 +170,7 @@ internal sealed class Neo4jWorkingMemoryService : IWorkingMemoryService
         }, cancellationToken).ConfigureAwait(false);
 
     private async Task<string?> NextValidityBoundaryAsync(string ownerId, DateTimeOffset now, CancellationToken cancellationToken) =>
-        await _tx.ReadAsync(async runner =>
+        await _tx.ReadSingleAsync(async runner =>
         {
             // Only facts that can be in the block: a boundary of one that cannot would rebuild for nothing.
             var cursor = await runner.RunAsync(WorkingMemoryQueries.NextValidityBoundary, new
@@ -187,7 +187,7 @@ internal sealed class Neo4jWorkingMemoryService : IWorkingMemoryService
 
     private async Task<(WorkingMemoryBlock? Block, DateTimeOffset? ValidUntil)> ReadBlockAsync(
         string ownerId, CancellationToken cancellationToken) =>
-        await _tx.ReadAsync(async runner =>
+        await _tx.ReadSingleAsync(async runner =>
         {
             var cursor = await runner.RunAsync(
                 WorkingMemoryQueries.GetBlock, new { ownerId }).ConfigureAwait(false);
@@ -258,7 +258,7 @@ internal sealed class Neo4jWorkingMemoryService : IWorkingMemoryService
     {
         var stamp = now.ToString("O", CultureInfo.InvariantCulture);
 
-        async Task<List<string>> FactsAsync() => await _tx.ReadAsync(async runner =>
+        async Task<List<string>> FactsAsync() => await _tx.ReadSingleAsync(async runner =>
         {
             var cursor = await runner.RunAsync(WorkingMemoryQueries.SelectStableFacts, new
             {
@@ -297,7 +297,7 @@ internal sealed class Neo4jWorkingMemoryService : IWorkingMemoryService
                 .ToList();
         }, cancellationToken).ConfigureAwait(false) ?? [];
 
-        async Task<List<string>> PreferencesAsync() => await _tx.ReadAsync(async runner =>
+        async Task<List<string>> PreferencesAsync() => await _tx.ReadSingleAsync(async runner =>
         {
             var cursor = await runner.RunAsync(WorkingMemoryQueries.SelectActivePreferences, new
             {
@@ -311,7 +311,7 @@ internal sealed class Neo4jWorkingMemoryService : IWorkingMemoryService
                 .ToList();
         }, cancellationToken).ConfigureAwait(false) ?? [];
 
-        async Task<List<string>> EntitiesAsync() => await _tx.ReadAsync(async runner =>
+        async Task<List<string>> EntitiesAsync() => await _tx.ReadSingleAsync(async runner =>
         {
             var cursor = await runner.RunAsync(WorkingMemoryQueries.SelectTopEntities, new
             {
@@ -331,7 +331,7 @@ internal sealed class Neo4jWorkingMemoryService : IWorkingMemoryService
         }, cancellationToken).ConfigureAwait(false) ?? [];
 
         // 37.5. Only when asked: no query, and the block as it was, otherwise.
-        async Task<List<string>> LatelyAsync() => _options.RecentTopicsDays <= 0 ? [] : await _tx.ReadAsync(async runner =>
+        async Task<List<string>> LatelyAsync() => _options.RecentTopicsDays <= 0 ? [] : await _tx.ReadSingleAsync(async runner =>
         {
             var cursor = await runner.RunAsync(WorkingMemoryQueries.SelectRecentTopics, new
             {

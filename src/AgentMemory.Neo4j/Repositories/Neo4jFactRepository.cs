@@ -476,7 +476,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         bool includeShared,
         bool currentValidTime,
         CancellationToken cancellationToken) =>
-        await _tx.ReadAsync(async runner =>
+        await _tx.ReadSingleAsync(async runner =>
         {
             var cursor = await runner.RunAsync(
                 FactQueries.SearchByVectorOwnerScopedFallback(includeShared, currentValidTime),
@@ -570,7 +570,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
                 ownerScan: scan,
                 filteredOwner: filteredKey is not null);
             if (filteredKey is not null) parameters["ownerKey"] = filteredKey;
-            return await _tx.ReadAsync(async runner =>
+            return await _tx.ReadSingleAsync(async runner =>
             {
                 var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
                 var records = await cursor.ToListAsync().ConfigureAwait(false);
@@ -722,7 +722,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
             ["ownerId"] = ownerId,
         };
 
-        return await _tx.ReadAsync(async runner =>
+        return await _tx.ReadSingleAsync(async runner =>
         {
             var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
@@ -936,7 +936,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         // silently does not render -- the correct failure direction for a line whose entire job is
         // honesty about absence, and the wrong place to spend a second and third query.
         var cypher = FactQueries.SearchDecayedByVector(hasOwner, includeShared, limit);
-        return await _tx.ReadAsync(async runner =>
+        return await _tx.ReadSingleAsync(async runner =>
         {
             var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
@@ -972,7 +972,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         };
         if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
 
-        return await _tx.ReadAsync(async runner =>
+        return await _tx.ReadSingleAsync(async runner =>
         {
             async Task<List<Fact>> SectionAsync(string cypher)
             {
@@ -1051,7 +1051,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
     private async Task<IReadOnlyList<Fact>> RunAliasHopAsync(
         string cypher, Dictionary<string, object?> parameters, CancellationToken cancellationToken)
     {
-        return await _tx.ReadAsync(async runner =>
+        return await _tx.ReadSingleAsync(async runner =>
         {
             var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
@@ -1083,7 +1083,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         };
         if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
 
-        return await _tx.ReadAsync(async runner =>
+        return await _tx.ReadSingleAsync(async runner =>
         {
             async Task<List<Fact>> SectionAsync(string cypher)
             {
@@ -1235,7 +1235,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         string cypher, Dictionary<string, object?> parameters, MemoryScope? scope, CancellationToken cancellationToken)
     {
         if (scope?.OwnerId is not null) parameters["ownerId"] = scope.OwnerId;
-        return await _tx.ReadAsync(async runner =>
+        return await _tx.ReadSingleAsync(async runner =>
         {
             var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
@@ -1620,7 +1620,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         };
         if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
 
-        async Task<List<(Fact, double)>> AsOfAsync(bool scan, bool shared) => await _tx.ReadAsync(async runner =>
+        async Task<List<(Fact, double)>> AsOfAsync(bool scan, bool shared) => await _tx.ReadSingleAsync(async runner =>
         {
             var cursor = await runner.RunAsync(TemporalQueries.SearchFactsAsOf(hasOwner, shared, topK, ownerScan: scan), parameters).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
@@ -1706,7 +1706,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         if (priorityKeys.Length > 0) parameters["priorityKeys"] = priorityKeys;
         if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
 
-        return await _tx.ReadAsync(async runner =>
+        return await _tx.ReadSingleAsync(async runner =>
         {
             var cursor = await runner.RunAsync(
                 FactQueries.SearchByCanonicalPredicates(
@@ -1762,7 +1762,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
         if (priorityKeys.Length > 0) parameters["priorityKeys"] = priorityKeys;
         if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
 
-        return await _tx.ReadAsync(async runner =>
+        return await _tx.ReadSingleAsync(async runner =>
         {
             var cursor = await runner.RunAsync(
                 TemporalQueries.SearchFactsByCanonicalPredicatesAsOf(
@@ -1793,7 +1793,7 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
     {
         if (!_skipEscalationWhenOwnerHasNoRows || scope?.OwnerId is null) return true;
 
-        var present = await _tx.ReadAsync(async runner =>
+        var present = await _tx.ReadSingleAsync(async runner =>
         {
             var cursor = await runner.RunAsync(
                 OwnerRowExistence.Any("Fact", includeShared),

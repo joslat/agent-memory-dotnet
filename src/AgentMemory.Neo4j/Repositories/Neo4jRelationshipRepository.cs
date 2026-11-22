@@ -162,7 +162,7 @@ internal sealed class Neo4jRelationshipRepository : IRelationshipRepository, IBa
         };
         if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
 
-        return await _tx.ReadAsync(async runner =>
+        return await _tx.ReadSingleAsync(async runner =>
         {
             var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);

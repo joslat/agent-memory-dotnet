@@ -135,6 +135,15 @@ public class Neo4jOptions
     public bool BootstrapOnlyMissingSchema { get; set; } = true;
 
     /// <summary>
+    /// DRT-6 (C-01). A read the library knows sends one statement runs as an auto-commit query (2 round trips) instead of
+    /// a managed transaction (4: begin, the statement, commit, reset), with the same retries: a retriable failure is
+    /// tried again with growing waits for up to <see cref="MaxTransactionRetryTime"/> (the driver's 30 seconds when not
+    /// set), as a managed read is. Inside a write unit it runs on the unit's transaction, as every read does.
+    /// <see langword="false"/> runs those reads as managed transactions, as before.
+    /// </summary>
+    public bool SingleStatementReads { get; set; } = true;
+
+    /// <summary>
     /// Ids of the optional schema extensions this deployment activates. Empty (the default) is today's
     /// base schema, byte-identical.
     /// </summary>

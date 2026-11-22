@@ -64,6 +64,10 @@ public sealed class HermeticProfile : IAsyncDisposable
     /// <summary>Fixed product-driver pool size fingerprinted by concurrency artifacts.</summary>
     public int MaxConnectionPoolSize { get; }
 
+    /// <summary>DRT-6: whether the product sends single-statement reads without a transaction of their own (the default).</summary>
+    public static bool SingleStatementReads { get; } =
+        !string.Equals(Environment.GetEnvironmentVariable("AGENTMEMORY_PERF_SINGLE_STATEMENT_READS"), "false", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>
     /// True only when an operator explicitly selected the pool size (the D1 pool-curve arms).
     /// Lab self-assertions treat any non-16 pool without this deliberate, fingerprinted selection
@@ -236,6 +240,9 @@ public sealed class HermeticProfile : IAsyncDisposable
                 neo4j.Database = "neo4j";
                 neo4j.EmbeddingDimensions = Dimensions;
                 neo4j.MaxConnectionPoolSize = MaxConnectionPoolSize;
+                // DRT-6: AGENTMEMORY_PERF_SINGLE_STATEMENT_READS=false measures the same build with every read a managed
+                // transaction, as before. Recorded in the run's environment.
+                neo4j.SingleStatementReads = SingleStatementReads;
                 neo4jOverride?.Invoke(neo4j);
             },
             // A non-null delegate is what opts the LLM extractors in; without it the Core no-op stubs
@@ -385,7 +392,7 @@ public sealed class HermeticProfile : IAsyncDisposable
     /// Inserts deterministic waiting inside the real transaction span. The original work delegate still
     /// receives the product's instrumented query runner, so query counting and behavior are unchanged.
     /// </summary>
-    private sealed class LatencyInjectingTransactionRunner : INeo4jTransactionRunner, INeo4jAtomicTransactionRunner
+    private sealed class LatencyInjectingTransactionRunner : INeo4jTransactionRunner, INeo4jAtomicTransactionRunner, INeo4jSingleStatementReader
     {
         private readonly INeo4jTransactionRunner _inner;
         private readonly PerfDependencyLatency _dependencyLatency;
@@ -413,6 +420,21 @@ public sealed class HermeticProfile : IAsyncDisposable
                     return await work(runner).ConfigureAwait(false);
                 },
                 cancellationToken);
+
+        // DRT-6: forwarded to the product's single-statement path, so it is measured as shipped.
+        public Task<T> ReadSingleAsync<T>(
+            Func<IAsyncQueryRunner, Task<T>> work,
+            CancellationToken cancellationToken = default)
+        {
+            Func<IAsyncQueryRunner, Task<T>> delayed = async runner =>
+            {
+                await DelayAsync(cancellationToken).ConfigureAwait(false);
+                return await work(runner).ConfigureAwait(false);
+            };
+            return _inner is INeo4jSingleStatementReader single
+                ? single.ReadSingleAsync(delayed, cancellationToken)
+                : _inner.ReadAsync(delayed, cancellationToken);
+        }
 
         public Task ReadAsync(
             Func<IAsyncQueryRunner, Task> work,

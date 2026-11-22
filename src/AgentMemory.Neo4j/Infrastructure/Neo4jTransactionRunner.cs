@@ -28,7 +28,7 @@ namespace AgentMemory.Neo4j.Infrastructure;
 /// the cost is one <see cref="ActivitySource.HasListeners"/> check per transaction.
 /// </para>
 /// </remarks>
-internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner, INeo4jAtomicTransactionRunner
+internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner, INeo4jAtomicTransactionRunner, INeo4jSingleStatementReader
 {
     private readonly INeo4jSessionFactory _sessionFactory;
     private readonly ILogger<Neo4jTransactionRunner> _logger;
@@ -60,7 +60,13 @@ internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner, INeo4jAt
         _transactionConfig = timeout is { } value && value > TimeSpan.Zero
             ? builder => builder.WithTimeout(value)
             : null;
+        _singleStatementReads = options?.Value.SingleStatementReads ?? true;
+        // The driver's own default for a managed transaction's retries, when none is configured.
+        _maxRetryTime = options?.Value.MaxTransactionRetryTime ?? TimeSpan.FromSeconds(30);
     }
+
+    private readonly bool _singleStatementReads;
+    private readonly TimeSpan _maxRetryTime;
 
     public Task<T> ReadAsync<T>(Func<IAsyncQueryRunner, Task<T>> work, CancellationToken cancellationToken = default) =>
         ReadAsync(work, _transactionConfig, cancellationToken);
@@ -107,6 +113,116 @@ internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner, INeo4jAt
         {
             TagPayload(activity, payload);
         }
+    }
+
+    /// <inheritdoc/>
+    public Task<T> ReadSingleAsync<T>(Func<IAsyncQueryRunner, Task<T>> work, CancellationToken cancellationToken = default) =>
+        !_singleStatementReads || _ambientWriteTransaction.Value is not null
+            ? ReadAsync(work, cancellationToken)
+            : ReadSingleCoreAsync(work, cancellationToken);
+
+    /// <summary>
+    /// DRT-6: the work on an auto-commit query, a fresh session per attempt (the driver's own one-shot retry off), and a
+    /// retriable failure tried again as the driver's managed read does it: waits of 1 s, doubling, with a fifth either
+    /// way, while the next try would start within the retry time. The session is closed before the wait. Tagged as a
+    /// managed read is (db.attempts, db.retries, a db.attempt event per retry), plus db.single_statement.
+    /// </summary>
+    private async Task<T> ReadSingleCoreAsync<T>(Func<IAsyncQueryRunner, Task<T>> work, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        using var activity = AgentMemoryDiagnostics.Source.StartActivity("memory.db.tx", ActivityKind.Client);
+        activity?.SetTag("db.system", "neo4j");
+        activity?.SetTag("db.mode", "read");
+        activity?.SetTag("db.single_statement", true);
+        var payload = activity is null ? null : new PayloadAccumulator();
+        var started = Stopwatch.GetTimestamp();
+        var delay = FirstRetryDelay;
+        try
+        {
+            for (var attempt = 1; ; attempt++)
+            {
+                if (activity is not null)
+                {
+                    activity.SetTag("db.attempts", attempt);
+                    activity.SetTag("db.retries", attempt - 1);
+                    if (attempt > 1)
+                    {
+                        // The failed attempt's unread results died with it: their spans end here, not after the retry.
+                        payload!.CloseOpenQueries();
+                        activity.AddEvent(new ActivityEvent("db.attempt", tags: new ActivityTagsCollection { ["db.attempt"] = attempt }));
+                    }
+                }
+
+                Neo4jException failure;
+                var session = _sessionFactory.OpenSingleStatementSession(AccessMode.Read);
+                await using (session.ConfigureAwait(false))
+                {
+                    try
+                    {
+                        IAsyncQueryRunner runner = new AutoCommitQueryRunner(session, _transactionConfig);
+                        if (activity is not null)
+                        {
+                            // No begin to wait for: measured to the moment the work starts sending.
+                            if (attempt == 1)
+                                activity.SetTag("db.transaction_entry_ms_est", Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+                            runner = new CountingQueryRunner(runner, "read", activity, payload!);
+                        }
+                        return await work(runner).ConfigureAwait(false);
+                    }
+                    catch (Neo4jException ex) when (ex.IsRetriable && !cancellationToken.IsCancellationRequested)
+                    {
+                        failure = ex;
+                    }
+                }
+
+                var wait = Jittered(delay);
+                if (Stopwatch.GetElapsedTime(started) + wait >= _maxRetryTime)
+                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(failure);
+                _logger.LogDebug(failure, "Single-statement read failed (attempt {Attempt}); trying again in {Wait}.", attempt, wait);
+                await Task.Delay(wait, cancellationToken).ConfigureAwait(false);
+                delay *= 2;
+            }
+        }
+        catch (Exception ex)
+        {
+            MemoryTelemetry.RecordException(activity, ex);
+            _logger.LogError(ex, "Error executing single-statement read.");
+            throw;
+        }
+        finally
+        {
+            TagPayload(activity, payload);
+        }
+    }
+
+    /// <summary>The first wait before a single-statement read is tried again: the driver's managed retry starts at 1 s. Tests shorten it.</summary>
+    internal TimeSpan FirstRetryDelay { get; init; } = TimeSpan.FromSeconds(1);
+
+    /// <summary>A wait with a fifth either way, as the driver's managed retry jitters its own.</summary>
+    private static TimeSpan Jittered(TimeSpan delay) =>
+        TimeSpan.FromMilliseconds(delay.TotalMilliseconds * (0.8 + Random.Shared.NextDouble() * 0.4));
+
+    /// <summary>
+    /// DRT-6: a session's auto-commit query as the work's query runner, with the configured server-side deadline. The
+    /// session belongs to <see cref="ReadSingleCoreAsync{T}"/>, which disposes it: disposing this runner does nothing.
+    /// </summary>
+    private sealed class AutoCommitQueryRunner(IAsyncSession session, Action<TransactionConfigBuilder>? config) : IAsyncQueryRunner
+    {
+        public Task<IResultCursor> RunAsync(string query) =>
+            config is null ? session.RunAsync(query) : session.RunAsync(query, config);
+
+        public Task<IResultCursor> RunAsync(string query, object parameters) =>
+            config is null ? session.RunAsync(query, parameters) : session.RunAsync(query, parameters, config);
+
+        public Task<IResultCursor> RunAsync(string query, IDictionary<string, object> parameters) =>
+            config is null ? session.RunAsync(query, parameters) : session.RunAsync(query, parameters, config);
+
+        public Task<IResultCursor> RunAsync(Query query) =>
+            config is null ? session.RunAsync(query) : session.RunAsync(query, config);
+
+        public void Dispose() { }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
     public async Task ReadAsync(Func<IAsyncQueryRunner, Task> work, CancellationToken cancellationToken = default)
