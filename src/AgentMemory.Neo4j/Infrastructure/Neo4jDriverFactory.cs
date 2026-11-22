@@ -30,6 +30,9 @@ internal sealed class Neo4jDriverFactory : INeo4jDriverFactory
                 // Both unset by default: the driver keeps its own defaults, configured exactly as before.
                 if (cfg.ConnectionTimeout is { } connectionTimeout) c.WithConnectionTimeout(connectionTimeout);
                 if (cfg.MaxTransactionRetryTime is { } retryTime) c.WithMaxTransactionRetryTime(retryTime);
+                // DRT-4: a connection quiet for long is tested before use; an idle one is closed only when asked.
+                if (cfg.ConnectionLivenessCheckTimeout is { } liveness) c.WithConnectionLivenessCheckTimeout(liveness);
+                if (cfg.ConnectionIdleTimeout is { } idle) c.WithConnectionIdleTimeout(idle);
             });
 
         _logger.LogInformation("Neo4j driver created. URI={Uri}, Database={Database}", cfg.Uri, cfg.Database);

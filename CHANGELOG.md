@@ -67,6 +67,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   store 20 ms away: recall at the defaults waits for 7.6 round trips instead of 11.5 (267 ms to 183 ms), locally
   31 ms to 25 ms. The AppContext switch `AgentMemory.Recall.ProfileBlockAfterSearches` restores the previous order.
 
+- A pooled Neo4j connection unused for two minutes is now tested before it is used
+  (`Neo4jOptions.ConnectionLivenessCheckTimeout`, new default 2 minutes; null for the driver's own default), so the
+  first call after a quiet spell opens a new connection instead of failing after 30 seconds on one a firewall or the
+  server dropped. `Neo4jOptions.ConnectionIdleTimeout` (not set by default) closes connections idle for longer.
+
 ### Fixed
 
 - A `neo4j+s://` or `bolt+s://` store address (the form Neo4j Aura gives, and the one `docs/getting-started.md`
