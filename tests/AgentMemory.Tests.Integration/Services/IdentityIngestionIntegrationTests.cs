@@ -2203,6 +2203,42 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
     }
 
     [Fact]
+    public async Task P231A_part1_the_same_new_turn_written_to_the_original_and_to_its_copy_gives_the_same_people()
+    {
+        // P231-A part 1, a writer operation: after a copy, the next turn naming a known person is resolved the same way in both
+        // stores (the same people, the same names kept, the same facts reached through them).
+        using var host = Host(); using var scope = host.CreateScope();
+        var (services, valentina) = await ValentinaKnownAsVale(scope);
+        var owners = services.GetRequiredService<IMemoryOwnerDataService>();
+        var file = JsonSerializer.Deserialize<OwnerMemoryExport>(JsonSerializer.Serialize(await owners.ExportAsync("pablito")))!;
+        var imported = await owners.ImportAsync(file, "copy-owner");
+        var copyScope = MemoryScope.For("copy-owner", false);
+        await fixture.TransactionRunner.WriteAsync(async runner => { await runner.RunAsync(
+            "MATCH (c:Conversation {id:'conversation'}) " +
+            "CREATE (m:Message {id:'turn-2', conversation_id:'conversation', content:'Valentina will review the release notes', session_id:'scenario'}), (c)-[:HAS_MESSAGE]->(m) " +
+            "CREATE (c2:Conversation {id:'copy-conversation', user_id:'copy-owner'}), " +
+            "(m2:Message {id:'copy-turn-2', conversation_id:'copy-conversation', content:'Valentina will review the release notes', session_id:'scenario'}), (c2)-[:HAS_MESSAGE]->(m2)"); });
+        var turn = new UnifiedExtractionResult
+        {
+            Entities = [new() { Name = "Valentina", Type = "PERSON", Confidence = 1 }],
+            Facts = [new() { Subject = "Valentina", Predicate = "will review", Object = "the release notes", Confidence = 1 }]
+        };
+
+        await Ingest(services, turn, Scope, "turn-2");
+        await Ingest(services, turn, copyScope, "copy-turn-2");
+
+        var facts = services.GetRequiredService<IFactRepository>();
+        static IEnumerable<string> People(IReadOnlyList<PersonIdentity> people) =>
+            people.Select(p => string.Join("|", p.Surfaces) + (p.Confirmed ? " confirmed" : " open")).Order();
+        People(await facts.GetPersonIdentitiesAsync(1000, copyScope)).Should().Equal(People(await facts.GetPersonIdentitiesAsync(1000, Scope)));
+        var originalDetails = (await facts.GetPersonDetailsAsync([valentina], [], 8, Scope)).Select(f => f.Object).ToList();
+        originalDetails.Should().HaveCountGreaterThanOrEqualTo(2);
+        (await facts.GetPersonDetailsAsync([imported.Ids.GetValueOrDefault(valentina, valentina)], [], 8, copyScope)).Select(f => f.Object)
+            .Should().BeEquivalentTo(originalDetails);
+        (await Count("(:IdentityFactBinding {owner_id: 'copy-owner'})")).Should().Be(await Count("(:IdentityFactBinding {owner_id: 'pablito'})"));
+    }
+
+    [Fact]
     public async Task P231A_F1_after_a_merge_a_shared_nickname_still_names_two_people()
     {
         using var host = Host(); using var scope = host.CreateScope();
