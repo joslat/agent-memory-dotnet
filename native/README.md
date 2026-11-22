@@ -165,4 +165,4 @@ minimum macOS), checks the macOS signature, runs the gate's tiers and builds the
 `gate/store/store_gate.py` runs tiers B and C with a local Neo4j 5.26 from its community distribution on Java 21, so one
 script serves every platform (macOS runners have no Docker); `run-gate.sh` and `run-write-gate.sh` remain the gate on the
 target image, plain Ubuntu 24.04 with no .NET. A binary built against a newer glibc does not load on an older one, so the
-Linux libraries are held to glibc 2.34. Nothing is published from the workflow.
+Linux libraries are held to glibc 2.34. Nothing is published from the workflow itself: `.github/workflows/publish-agentmemory-native-pypi.yml` calls it, checks that there are exactly four wheels of the source's version, one per platform, and uploads them to PyPI after the `pypi` environment's reviewer approves.

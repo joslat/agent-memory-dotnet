@@ -6,8 +6,10 @@
 # seeded local Neo4j 5.26 with the graph fingerprinted before and after, the TLS recall with the certificate validated,
 # and the write tests on a store of their own. Wheels and releases are later rows (NATIVE-PLAT-WHEELS, NATIVE-RELEASE).
 #
-# Nothing is published: no secret, no environment, nothing leaves the run but its artifacts, kept 7 days. The store job
-# trusts a throw-away certificate authority on its own runner, which is discarded with the runner.
+# Nothing is published from here: no secret, no environment, nothing leaves the run but its artifacts, kept 7 days. The
+# PyPI publish workflow (publish-agentmemory-native-pypi.yml) calls this one and uploads its four wheels only after every
+# job here has passed and its reviewer has approved. The store job trusts a throw-away certificate authority on its own
+# runner, which is discarded with the runner.
 name: Native platforms
 
 on:
@@ -17,12 +19,14 @@ on:
       - 'tools/AgentMemory.Native/**'
       - '.github/workflows/native-platforms.yml'
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: native-platforms-${{ github.ref }}
+  # github.workflow is the caller's name when called, so a publish run and a pull request's run never cancel each other.
+  group: native-platforms-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

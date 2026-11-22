@@ -204,6 +204,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   replacement could be written as the event ("Anna | moved to | Madrid last month"), which closed the old value but no
   longer answered the question the old value answered ("where does my sister live?"). Applies to every host using the
   writer, the Recommended preset included.
+- The `agentmemory-native` PyPI release publishes a wheel for each of the four platforms (Linux x86-64 and ARM64 with
+  glibc 2.34, macOS on Apple silicon, Windows x64) instead of Linux x86-64 alone. The publish workflow calls the
+  four-platform workflow, so the wheels uploaded are the ones that passed every platform's gate, installed; it then checks
+  that there are exactly four, one per platform, all of the source's version, before the reviewer's approval.
 
 ### Added
 
