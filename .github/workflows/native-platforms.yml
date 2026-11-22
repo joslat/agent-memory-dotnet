@@ -386,6 +386,15 @@ jobs:
         with:
           node-version: 24
 
+      # NATIVE-TS-EXIT-ARM: the exit-time failure came back here (run 45064389998, linux-arm64, Node 24: every test of
+      # adapters.test.js passed, then the file failed). The same capture as the build job, so a repeat leaves backtraces.
+      - name: Crash capture (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y -qq gdb > /dev/null
+          mkdir -p "$GITHUB_WORKSPACE/out/cores"
+          sudo sysctl -w kernel.core_pattern="$GITHUB_WORKSPACE/out/cores/core.%E.%p"
+
       - name: Build the TypeScript binding
         working-directory: native/typescript
         run: |
@@ -396,6 +405,7 @@ jobs:
         env:
           GATE_TYPESCRIPT: ${{ github.workspace }}/native/typescript
         run: |
+          ulimit -c unlimited 2>/dev/null || true
           set +e
           python native/gate/store/store_gate.py run --library "out/bin/${{ matrix.library }}" --work "$RUNNER_TEMP/am-store" \
             --report out/store --tls out/tls
@@ -431,6 +441,30 @@ jobs:
             cat out/store/store-gate-wheel.md 2>/dev/null || echo "no summary (see the log)"
           } >> "$GITHUB_STEP_SUMMARY"
           exit $status
+
+      - name: Backtraces of any crash (Linux)
+        if: always() && runner.os == 'Linux'
+        run: |
+          shopt -s nullglob
+          cores=()
+          for core in out/cores/core.*; do case "$core" in *.bt.txt) ;; *) cores+=("$core") ;; esac; done
+          if [ ${#cores[@]} -eq 0 ]; then echo "No crash dump."; exit 0; fi
+          for core in "${cores[@]}"; do
+            exe="$(basename "$core")"; exe="${exe#core.}"; exe="${exe%.*}"; exe="${exe//!//}"
+            echo "===== $core ($exe)"
+            gdb -batch -ex "set pagination off" -ex "info sharedlibrary" -ex "thread apply all bt 25" "$exe" "$core" 2>&1 \
+              | grep -v "^warning: " | head -400 | tee "$core.bt.txt"
+          done
+          echo "::warning::${#cores[@]} crash dump(s) on ${{ matrix.rid }}; backtraces in agentmemory-native-store-crash-${{ matrix.rid }}"
+
+      - name: Upload crash backtraces
+        if: always() && runner.os == 'Linux'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agentmemory-native-store-crash-${{ matrix.rid }}
+          path: out/cores/*.bt.txt
+          retention-days: 14
+          if-no-files-found: ignore
 
       - name: Upload the store gate's report
         if: always()
