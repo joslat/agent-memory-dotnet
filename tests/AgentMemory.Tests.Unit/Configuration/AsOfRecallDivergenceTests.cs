@@ -111,6 +111,11 @@ public sealed class AsOfRecallDivergenceTests
         // instant" is not answerable from the edge: rendering today's edges into a reconstruction of March would
         // be the anachronism the two clocks exist to prevent. Recorded here until edges carry invalidated_at.
         "MaxRelationships",
+
+        // SPEECH-RELATION-RECALL, live path only. The hop reads a person's facts by subject, and that read has no
+        // point-in-time form: following a connection inside a reconstruction of March would add today's facts about
+        // the person. Recorded here until the subject read takes the two clocks.
+        "MaxConnectionFacts",
     ];
 
     [Fact]

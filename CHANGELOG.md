@@ -63,6 +63,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   false` is the previous path; `INeo4jTransactionRunner.InWriteUnit` (default `null`, read as "in order") tells the
   service whether reads may start together.
 
+- Recall is faster: the profile block's point-read starts beside the searches instead of after them. Measured with the
+  store 20 ms away: recall at the defaults waits for 7.6 round trips instead of 11.5 (267 ms to 183 ms), locally
+  31 ms to 25 ms. The AppContext switch `AgentMemory.Recall.ProfileBlockAfterSearches` restores the previous order.
+
 ### Fixed
 
 - A `neo4j+s://` or `bolt+s://` store address (the form Neo4j Aura gives, and the one `docs/getting-started.md`
