@@ -189,6 +189,34 @@ public sealed class HermeticProfile : IAsyncDisposable
             log.WriteLine($"perf: the product reaches Neo4j through the link proxy on 127.0.0.1:{Link.Port}");
         }
 
+        _register = neo4jOverride => Register(productUri, embeddingLatency, modelLatency, scriptedRules, useUnifiedExtraction,
+            useBatchEntityResolutionSnapshots, useCoalescedPersistenceTransactions, neo4jOverride);
+        _provider = _register(null).BuildServiceProvider();
+        _scope = _provider.CreateAsyncScope();
+        _scopeCreated = true;
+
+        log.WriteLine("perf: bootstrapping schema…");
+        await Services.GetRequiredService<ISchemaBootstrapper>()
+            .BootstrapAsync(cancellationToken).ConfigureAwait(false);
+        await RestOfInitializeAsync(log, cancellationToken).ConfigureAwait(false);
+    }
+
+    private Func<Action<Neo4jOptions>?, ServiceCollection>? _register;
+
+    /// <summary>
+    /// DRT-WARM: a second product on the same store, with services, a driver and a connection pool of its own, exactly as
+    /// the profile's own (the same link, latencies and scripted model), for a scenario that measures what a new process
+    /// pays. The caller disposes it.
+    /// </summary>
+    internal ServiceProvider BuildFreshProduct(Action<Neo4jOptions>? neo4j = null) =>
+        (_register ?? throw new InvalidOperationException("the profile is not started")).Invoke(neo4j).BuildServiceProvider();
+
+    private ServiceCollection Register(
+        string productUri, TimeSpan embeddingLatency, TimeSpan modelLatency,
+        IReadOnlyList<ScriptedChatClient.Rule>? scriptedRules, bool useUnifiedExtraction,
+        bool useBatchEntityResolutionSnapshots, bool useCoalescedPersistenceTransactions,
+        Action<Neo4jOptions>? neo4jOverride)
+    {
         var services = new ServiceCollection();
         services.AddLogging(b => b.SetMinimumLevel(LogLevel.Warning));
 
@@ -208,6 +236,7 @@ public sealed class HermeticProfile : IAsyncDisposable
                 neo4j.Database = "neo4j";
                 neo4j.EmbeddingDimensions = Dimensions;
                 neo4j.MaxConnectionPoolSize = MaxConnectionPoolSize;
+                neo4jOverride?.Invoke(neo4j);
             },
             // A non-null delegate is what opts the LLM extractors in; without it the Core no-op stubs
             // stay registered and a post-turn scenario would measure extraction that never happens.
@@ -241,15 +270,11 @@ public sealed class HermeticProfile : IAsyncDisposable
         services.RemoveAll<IChatClient>();
         services.AddSingleton<IChatClient>(
             new CountingChatClient(new ScriptedChatClient(modelLatency, payload: null, rules: scriptedRules)));
+        return services;
+    }
 
-        _provider = services.BuildServiceProvider();
-        _scope = _provider.CreateAsyncScope();
-        _scopeCreated = true;
-
-        log.WriteLine("perf: bootstrapping schema…");
-        await Services.GetRequiredService<ISchemaBootstrapper>()
-            .BootstrapAsync(cancellationToken).ConfigureAwait(false);
-
+    private async Task RestOfInitializeAsync(TextWriter log, CancellationToken cancellationToken)
+    {
         await using var session = Driver.AsyncSession();
         await session.RunAsync("CALL db.awaitIndexes(120)").ConfigureAwait(false);
         if (_scaleRunVolume is not null)

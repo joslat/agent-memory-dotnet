@@ -447,9 +447,12 @@ internal sealed partial class Neo4jFactRepository : IFactRepository, IUpsertPers
                 var record = await cursor.SingleAsync().ConfigureAwait(false);
                 return record["n"].As<int>();
             }, cancellationToken).ConfigureAwait(false);
+        // DRT-PAUSE: refreshed in the background only where the runner says no write unit is open; a background read
+        // must not inherit a unit's transaction (unknown counts as open).
         return _ownerRowCounts is null
             ? await CountAsync().ConfigureAwait(false)
-            : await _ownerRowCounts.GetAsync(key, CountAsync).ConfigureAwait(false);
+            : await _ownerRowCounts.GetAsync(key, CountAsync,
+                refreshInBackground: _tx.InWriteUnit == false && !OwnerRowCounts.CountInLine).ConfigureAwait(false);
     }
 
     /// <summary>Two result lists as one: each fact once, at its best score, best first, at most <paramref name="limit"/>.</summary>

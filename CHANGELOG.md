@@ -86,6 +86,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   they read. The AppContext switch `AgentMemory.AccessTracking.OneWritePerRecall` restores one write per recall. The
   library default is unchanged.
 
+- A recall after a pause of more than 30 seconds no longer waits for the owner's fact count before its fact search.
+  The count, which decides whether the owner's facts are scanned or searched through the index, is answered from the
+  cache for up to 10 minutes and counted again in the background. With the store 20 ms away a recall after a pause
+  waits 7.3 round trips instead of 11.5 (186 ms instead of 270 ms), as much as recalls back to back. Inside a write
+  unit, or after 10 minutes, it is counted first as before; the AppContext switch
+  `AgentMemory.Recall.OwnerCountsInLine` restores the previous order.
+
 ### Fixed
 
 - A `neo4j+s://` or `bolt+s://` store address (the form Neo4j Aura gives, and the one `docs/getting-started.md`

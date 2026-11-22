@@ -34,7 +34,124 @@ public static partial class PerfScenarios
             ctx => ctx.Profile.Services.GetRequiredService<ISchemaBootstrapper>().BootstrapAsync(ctx.CancellationToken),
             SupportsInterleavedAb: false,
             IncludeInDefaultRun: false),
+        new(
+            "PERF-D-04",
+            $"The read-note queue: {QueuedRecalls} recalls' read notes (10 facts, 10 entities, 5 preferences each) tracked at once, then flushed",
+            ctx => DrainReadNotesAsync(ctx, oneWritePerRecall: false),
+            SupportsInterleavedAb: false,
+            SetupAsync: PickRecalledItemsAsync,
+            IncludeInDefaultRun: false),
+        new(
+            "PERF-D-05",
+            $"PERF-D-04 with one write per recall, as before DRT-5 (the AppContext switch AgentMemory.AccessTracking.OneWritePerRecall)",
+            ctx => DrainReadNotesAsync(ctx, oneWritePerRecall: true),
+            SupportsInterleavedAb: false,
+            SetupAsync: PickRecalledItemsAsync,
+            IncludeInDefaultRun: false),
+        new(
+            "PERF-D-06",
+            "The first recall of a new process: a fresh product (its own connection pool), the schema bootstrap, a second's pause, then recall at the defaults",
+            ctx => FirstRecallOfANewProcessAsync(ctx, "PERF-D-06"),
+            SupportsInterleavedAb: false,
+            SetupAsync: StartFreshProductAsync,
+            IncludeInDefaultRun: false),
+        new(
+            "PERF-D-07",
+            "Recall at the defaults after a pause of 31 seconds (the cached owner counts are past their 30 seconds)",
+            ctx => RecallAfterAPauseAsync(ctx, "PERF-D-07", countInLine: false),
+            SupportsInterleavedAb: false,
+            SetupAsync: PauseAsync,
+            IncludeInDefaultRun: false),
+        new(
+            "PERF-D-08",
+            "PERF-D-07 with the count made before the search, as before DRT-PAUSE (the AppContext switch AgentMemory.Recall.OwnerCountsInLine)",
+            ctx => RecallAfterAPauseAsync(ctx, "PERF-D-08", countInLine: true),
+            SupportsInterleavedAb: false,
+            SetupAsync: PauseAsync,
+            IncludeInDefaultRun: false),
     ];
+
+    /// <summary>DRT-PAUSE: the person reads the answer and types the next message. Not measured.</summary>
+    private static Task PauseAsync(ScenarioSetupContext ctx) => Task.Delay(TimeSpan.FromSeconds(31), ctx.CancellationToken);
+
+    private static async Task RecallAfterAPauseAsync(ScenarioContext ctx, string scenarioId, bool countInLine)
+    {
+        AppContext.SetSwitch("AgentMemory.Recall.OwnerCountsInLine", countInLine);
+        try
+        {
+            await RunDefaultRecallAsync(ctx, scenarioId).ConfigureAwait(false);
+        }
+        finally
+        {
+            AppContext.SetSwitch("AgentMemory.Recall.OwnerCountsInLine", false);
+        }
+    }
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, ServiceProvider> FreshProducts = new();
+
+    /// <summary>
+    /// DRT-WARM: a new process, as a host starts one: its own services and connection pool, the schema bootstrap, then
+    /// the pause before the person's first message (a second). Not measured: only the recall is.
+    /// </summary>
+    private static async Task StartFreshProductAsync(ScenarioSetupContext ctx)
+    {
+        var product = ctx.Profile.BuildFreshProduct();
+        await product.GetRequiredService<ISchemaBootstrapper>().BootstrapAsync(ctx.CancellationToken).ConfigureAwait(false);
+        await Task.Delay(TimeSpan.FromSeconds(1), ctx.CancellationToken).ConfigureAwait(false);
+        FreshProducts[$"{ctx.Phase}/{ctx.Iteration}"] = product;
+    }
+
+    private static async Task FirstRecallOfANewProcessAsync(ScenarioContext ctx, string scenarioId)
+    {
+        if (!FreshProducts.TryRemove($"{ctx.Phase}/{ctx.Iteration}", out var product))
+            throw new InvalidOperationException($"{scenarioId}: no fresh product was started for this iteration");
+        try
+        {
+            await using var scope = product.CreateAsyncScope();
+            await RunDefaultRecallAsync(ctx, scenarioId, CreateProvider(scope.ServiceProvider, ctx.RecallOptions)).ConfigureAwait(false);
+        }
+        finally
+        {
+            await product.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>DRT-5: how many recalls one PERF-D-04 iteration hands to the queue.</summary>
+    private const int QueuedRecalls = 100;
+
+    private static IReadOnlyList<(string NodeId, MemoryNodeKind Kind)>? _recalledItems;
+
+    /// <summary>Picks, once, 25 of the owner's stored items, the shape of one default recall.</summary>
+    private static async Task PickRecalledItemsAsync(ScenarioSetupContext ctx)
+    {
+        if (_recalledItems is not null) return;
+        var driver = ctx.Profile.Services.GetRequiredService<IDriver>();
+        var items = new List<(string, MemoryNodeKind)>();
+        foreach (var (label, kind, count) in new[] { ("Fact", MemoryNodeKind.Fact, 10), ("Entity", MemoryNodeKind.Entity, 10), ("Preference", MemoryNodeKind.Preference, 5) })
+        {
+            var result = await driver.ExecutableQuery($"MATCH (n:{label}) RETURN n.id AS id ORDER BY n.id LIMIT {count}")
+                .WithConfig(new QueryConfig(database: ctx.Profile.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<Neo4jOptions>>().Value.Database))
+                .ExecuteAsync(ctx.CancellationToken).ConfigureAwait(false);
+            items.AddRange(result.Result.Select(r => (r["id"].As<string>(), kind)));
+        }
+        if (items.Count == 0) throw new InvalidOperationException("PERF-D-04: the store holds no facts, entities or preferences to track");
+        _recalledItems = items;
+    }
+
+    private static async Task DrainReadNotesAsync(ScenarioContext ctx, bool oneWritePerRecall)
+    {
+        var tracker = ctx.Profile.Services.GetRequiredService<IMemoryAccessTracker>();
+        AppContext.SetSwitch("AgentMemory.AccessTracking.OneWritePerRecall", oneWritePerRecall);
+        try
+        {
+            for (var i = 0; i < QueuedRecalls; i++) tracker.Track(_recalledItems!);
+            await tracker.FlushAsync(ctx.CancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            AppContext.SetSwitch("AgentMemory.AccessTracking.OneWritePerRecall", false);
+        }
+    }
 
     private static async Task SaveFactThroughApiAsync(ScenarioContext ctx)
     {

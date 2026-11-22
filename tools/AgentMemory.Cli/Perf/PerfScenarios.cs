@@ -1082,9 +1082,14 @@ public static partial class PerfScenarios
     public static Neo4jMemoryContextProvider CreateProvider(
         HermeticProfile profile,
         RecallOptions? recallOptions = null,
+        bool enableGraphRag = false) => CreateProvider(profile.Services, recallOptions, enableGraphRag);
+
+    /// <summary>The same provider, from another product's services (DRT-WARM: a fresh product per iteration).</summary>
+    public static Neo4jMemoryContextProvider CreateProvider(
+        IServiceProvider services,
+        RecallOptions? recallOptions = null,
         bool enableGraphRag = false)
     {
-        var services = profile.Services;
         var configuredMemory = services.GetRequiredService<IOptions<MemoryOptions>>().Value;
         var selectedRecall = recallOptions ?? configuredMemory.Recall;
         var selectedMemory = configuredMemory with
