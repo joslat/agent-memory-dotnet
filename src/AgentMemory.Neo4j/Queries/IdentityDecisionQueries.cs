@@ -80,7 +80,9 @@ internal static class IdentityDecisionQueries
 
     internal const string CreateObservation = """
         MERGE (e:Entity {id: $entityId})
-        ON CREATE SET e += $properties
+        // P231-A F3: created_at as a datetime, as every other entity write stores it. The map carried it as text, which the
+        // prune's score could not read and every created_at comparison (as of a moment, change windows) skipped.
+        ON CREATE SET e += $properties, e.created_at = datetime($properties.created_at)
         WITH e, coalesce(((e.owner_id IS NULL AND $ownerId IS NULL) OR e.owner_id = $ownerId)
             AND e.identity_observation_key = $observationKey
             AND e.name = $name AND e.type = $type, false) AS valid

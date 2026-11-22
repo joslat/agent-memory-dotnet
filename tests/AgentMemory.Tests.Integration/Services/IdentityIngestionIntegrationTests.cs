@@ -2046,4 +2046,101 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
             DateTimeOffset.UtcNow, Scope)).Should().BeEmpty();
     }
 
+    // ── P231-A part 2 (17-P231A-KEPT-NAMES-RIPPLES.md): other paths and identity data ──
+
+    /// <summary>Valentina, confirmed, two facts bound, one of them under the nickname "Vale" (kept on her, as Bind keeps it).</summary>
+    private async Task<(IServiceProvider Services, string Valentina)> ValentinaKnownAsVale(IServiceScope scope)
+    {
+        var services = scope.ServiceProvider;
+        await Ingest(services, new UnifiedExtractionResult
+        {
+            Entities = [new() { Name = "Valentina", Type = "PERSON", Confidence = 1 }],
+            Facts = [
+                new() { Subject = "Valentina", Predicate = "will monitor", Object = "the invoice queue remotely", Confidence = 1 },
+                new() { Subject = "Valentina", Predicate = "will prepare", Object = "a video tutorial for the clerks", Confidence = 1 }]
+        });
+        var valentina = (await services.GetRequiredService<IFactRepository>().GetPersonIdentitiesAsync(1000, Scope))
+            .Where(p => p.Confirmed).Should().ContainSingle().Subject.EntityId;
+        await fixture.TransactionRunner.WriteAsync(async runner => { await runner.RunAsync(
+            "MATCH (f:Fact {object: 'a video tutorial for the clerks'})-[:HAS_IDENTITY_BINDING]->(b:IdentityFactBinding)-[:RESOLVES_TO]->(p:Entity {id: $id}) " +
+            "SET b.identity_observed_surface = 'Vale', p.identity_surfaces = coalesce(p.identity_surfaces, []) + ['Vale']", new { id = valentina }); });
+        return (services, valentina);
+    }
+
+    [Fact]
+    public async Task P231A_F1_a_merged_person_s_names_and_bound_facts_reach_the_survivor()
+    {
+        // J-11 (a corrected name) merges the old entity into the new one with this merge. The survivor must be known by every
+        // name the merged person was, or a namesake hides; and its bound facts must stay readable as the survivor's.
+        using var host = Host(); using var scope = host.CreateScope();
+        var (services, valentina) = await ValentinaKnownAsVale(scope);
+        var entities = services.GetRequiredService<IEntityRepository>();
+        var survivor = await entities.UpsertAsync(new() { EntityId = "valentina-ruiz", Name = "Valentina Ruiz", Type = "PERSON", OwnerId = "pablito", Confidence = 1, CreatedAtUtc = DateTimeOffset.UnixEpoch });
+
+        (await entities.MergeEntitiesAsync(valentina, survivor.EntityId, Scope)).Should().BeTrue();
+
+        var facts = services.GetRequiredService<IFactRepository>();
+        var person = (await facts.GetPersonIdentitiesAsync(1000, Scope)).Should().ContainSingle(p => p.EntityId == survivor.EntityId).Subject;
+        person.Surfaces.Should().Contain(["Valentina Ruiz", "Valentina", "Vale"]);
+        (await facts.GetPersonNamesAsync(10_000, Scope)).Should().Contain("Vale");
+        (await facts.GetPersonDetailsAsync([survivor.EntityId], [], 8, Scope)).Select(f => f.Object)
+            .Should().BeEquivalentTo("the invoice queue remotely", "a video tutorial for the clerks");
+    }
+
+    [Fact]
+    public async Task P231A_F1_after_a_merge_a_shared_nickname_still_names_two_people()
+    {
+        using var host = Host(); using var scope = host.CreateScope();
+        var (services, valentina) = await ValentinaKnownAsVale(scope);
+        var entities = services.GetRequiredService<IEntityRepository>();
+        await entities.UpsertAsync(new() { EntityId = "valeria", Name = "Valeria", Aliases = ["Vale"], Type = "PERSON", OwnerId = "pablito", Confidence = 1, CreatedAtUtc = DateTimeOffset.UnixEpoch });
+        var survivor = await entities.UpsertAsync(new() { EntityId = "valentina-ruiz", Name = "Valentina Ruiz", Type = "PERSON", OwnerId = "pablito", Confidence = 1, CreatedAtUtc = DateTimeOffset.UnixEpoch });
+
+        (await entities.MergeEntitiesAsync(valentina, survivor.EntityId, Scope)).Should().BeTrue();
+
+        (await services.GetRequiredService<IFactRepository>().GetPersonIdentitiesAsync(1000, Scope))
+            .Where(p => p.Surfaces.Contains("Vale")).Select(p => p.EntityId).Should().BeEquivalentTo(["valeria", survivor.EntityId]);
+    }
+
+    [Fact]
+    public async Task P231A_F3_a_person_identity_created_has_a_datetime_and_can_be_pruned_and_read_as_of()
+    {
+        // Identity's observation write stored created_at as text: the prune's score then failed for the whole store, and every
+        // created_at comparison (recall as of a moment, change windows) skipped the person.
+        using var host = Host(); using var scope = host.CreateScope();
+        var (services, valentina) = await ValentinaKnownAsVale(scope);
+        (await Count("(e:Entity) WHERE e.created_at IS :: STRING")).Should().Be(0, "every entity's created_at is a datetime");
+        (await services.GetRequiredService<IEntityRepository>().SearchByVectorAsOfAsync([1, 0, 0, 0], DateTimeOffset.UtcNow.AddMinutes(1), 10, 0, Scope))
+            .Select(r => r.Entity.EntityId).Should().Contain(valentina);
+
+        // A store written before the fix: the prune still scores it.
+        await fixture.TransactionRunner.WriteAsync(async runner => { await runner.RunAsync(
+            "MATCH (e:Entity {id: $id}) SET e.created_at = toString(e.created_at)", new { id = valentina }); });
+        var decay = new Neo4jMemoryDecayService(fixture.TransactionRunner, TimeProvider.System,
+            Options.Create(new MemoryDecayOptions { MinRetentionScore = 2 }),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<Neo4jMemoryDecayService>.Instance);
+        (await decay.PruneExpiredMemoriesAsync(Scope)).Should().BeGreaterThan(0);
+        (await Count("(e:Entity {id: '" + valentina + "'}) WHERE e.invalidated_at IS NOT NULL")).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task P231A_F2_a_hard_delete_or_prune_leaves_no_binding_without_its_fact()
+    {
+        using var host = Host(); using var scope = host.CreateScope();
+        var (services, _) = await ValentinaKnownAsVale(scope);
+        var facts = services.GetRequiredService<IFactRepository>();
+        const string orphans = "(b:IdentityFactBinding) WHERE NOT EXISTS { MATCH (:Fact)-[:HAS_IDENTITY_BINDING]->(b) }";
+        (await Count(orphans)).Should().Be(0, "precondition");
+
+        var deleted = (await facts.GetBySubjectAsync("Valentina", Scope)).First(f => f.Object == "the invoice queue remotely");
+        (await facts.DeleteAsync(deleted.FactId, Scope)).Should().BeTrue();
+        (await Count(orphans)).Should().Be(0, "a deleted fact's binding goes with it");
+
+        var decay = new Neo4jMemoryDecayService(fixture.TransactionRunner, TimeProvider.System,
+            Options.Create(new MemoryDecayOptions { NonDestructive = false, MinRetentionScore = 2 }),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<Neo4jMemoryDecayService>.Instance);
+        (await decay.PruneExpiredMemoriesAsync(Scope)).Should().BeGreaterThan(0);
+        (await Count(orphans)).Should().Be(0, "a pruned fact's binding goes with it");
+        (await Count("(b:IdentityFactBinding) WHERE NOT EXISTS { MATCH (b)-[:RESOLVES_TO]->(:Entity) }")).Should().Be(0, "a pruned person's bindings go with them");
+    }
 }

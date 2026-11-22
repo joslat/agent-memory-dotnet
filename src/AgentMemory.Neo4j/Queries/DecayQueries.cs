@@ -73,6 +73,12 @@ internal static class DecayQueries
     /// <summary>Prunes Preference nodes whose retention score falls below the threshold (owner-scoped when set; soft-invalidate when <paramref name="nonDestructive"/>).</summary>
     public static string PrunePreferences(bool hasOwnerFilter, bool nonDestructive = false) => BuildPrune("p", "Preference", hasOwnerFilter, nonDestructive);
 
+    /// <summary>
+    /// P231-A F3: a stored time as a datetime. Identity's observation write stored created_at as text before this fix, so a
+    /// store written then holds both; text is parsed, a datetime used as it is.
+    /// </summary>
+    private static string Instant(string value) => "(CASE WHEN " + value + " IS :: STRING THEN datetime(" + value + ") ELSE " + value + " END)";
+
     private static string BuildPrune(string a, string label, bool hasOwnerFilter, bool nonDestructive)
     {
         var owner = hasOwnerFilter ? " AND " + a + ".owner_id = $ownerId" : string.Empty;
@@ -88,10 +94,17 @@ internal static class DecayQueries
         // simply let go of -- the only kind that can honestly be reported as "I used to know this".
         // coalesce preserves a reason already stamped; the destructive branch is untouched, because a
         // deleted node has no reason to carry.
+        // P231-A F2: a hard prune also deletes the identity bindings that would be left without their fact or their person.
+        var bindings = label switch
+        {
+            "Fact" => FactQueries.DeleteOwnBindings(a) + "\n            ",
+            "Entity" => "CALL (" + a + ") { MATCH (binding:IdentityFactBinding)-[:RESOLVES_TO]->(" + a + ") DETACH DELETE binding }\n            ",
+            _ => string.Empty,
+        };
         var action = nonDestructive
             ? "SET " + a + ".invalidated_at = datetime($now), "
                 + a + ".invalidated_reason = coalesce(" + a + ".invalidated_reason, 'decay')"
-            : "DETACH DELETE " + a;
+            : bindings + "DETACH DELETE " + a;
         // daysSince is total elapsed days as a float, computed from the epoch-millis delta. We deliberately
         // avoid duration.between(...).days, which returns only the *days component* of a normalized
         // years/months/days duration (e.g. a 400-day span normalizes to ~1y1m and .days is small),
@@ -102,7 +115,7 @@ internal static class DecayQueries
             "            WITH " + a + ",\n" +
             "                 " + a + ".confidence AS conf,\n" +
             "                 COALESCE(" + a + ".access_count, 0) AS ac,\n" +
-            "                 (datetime($now).epochMillis - COALESCE(" + a + ".last_accessed_at, " + a + ".created_at).epochMillis) / 86400000.0 AS rawDays\n" +
+            "                 (datetime($now).epochMillis - " + Instant("COALESCE(" + a + ".last_accessed_at, " + a + ".created_at)") + ".epochMillis) / 86400000.0 AS rawDays\n" +
             // Clamp daysSince to >= 0 so the prune score matches the C# read-path score exactly for nodes
             // with a future last_accessed_at (a negative exponent would otherwise inflate the score).
             "            WITH " + a + ", conf, ac, CASE WHEN rawDays < 0 THEN 0.0 ELSE rawDays END AS daysSince\n" +

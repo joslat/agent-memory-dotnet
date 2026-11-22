@@ -374,6 +374,27 @@ internal static class EntityQueries
                 DELETE r
                 RETURN count(r) AS aboutMoved
             }
+            // P231-A F1. The merged person's identity bindings follow it, as its facts do: left on the merged entity, which every
+            // people read skips, their facts dropped out of person details. Only in-scope bindings move, by the facts' rule.
+            CALL (source, target) {
+                MATCH (b:IdentityFactBinding)-[r:RESOLVES_TO]->(source)
+                " + factGuard.Replace("f.owner_id", "b.owner_id") + @"MERGE (b)-[:RESOLVES_TO]->(target)
+                DELETE r
+                RETURN count(r) AS bindingsMoved
+            }
+            // P231-A F1. Every name the merged person was known by stays a name of the survivor (kept names only grow), or a
+            // namesake could hide behind a name nobody live has. As Bind keeps them: only on a survivor owned by the merged
+            // person's owner, starting, when it kept none, from its own bindings (the moved ones now among them).
+            FOREACH (_ IN CASE WHEN target.owner_id IS NOT NULL AND source.owner_id = target.owner_id
+                    AND (source.identity_surfaces IS NOT NULL OR target.identity_surfaces IS NOT NULL) THEN [1] ELSE [] END |
+                SET target.identity_surfaces = reduce(names = [], s IN
+                    coalesce(target.identity_surfaces,
+                        [(target)<-[:RESOLVES_TO]-(o:IdentityFactBinding) WHERE o.owner_id = target.owner_id AND o.identity_observed_surface IS NOT NULL
+                         | o.identity_observed_surface])
+                    + coalesce(source.identity_surfaces, [])
+                    + [(target)<-[:RESOLVES_TO]-(o:IdentityFactBinding) WHERE o.owner_id = target.owner_id AND o.identity_observed_surface IS NOT NULL
+                       | o.identity_observed_surface] |
+                    CASE WHEN s IN names THEN names ELSE names + s END))
             SET source.merged_into = target.id, source.merged_at = datetime()
             WITH source, target,
                  coalesce(target.aliases, []) +
