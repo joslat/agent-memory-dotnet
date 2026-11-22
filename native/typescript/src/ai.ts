@@ -50,8 +50,8 @@ export function memoryLines(result: ContextResult): string[] {
   ];
 }
 
-export function agentMemoryTools(client: MemoryClient, options: AgentMemoryToolsOptions) {
-  const recall = tool({
+function recallTool(client: MemoryClient, options: AgentMemoryToolsOptions) {
+  return tool({
     description: "Look up what is remembered about the person: facts and preferences relevant to a question, one per line.",
     inputSchema: z.object({ question: z.string().min(1).describe("What to look up, in plain words") }),
     execute: async ({ question }: { question: string }, { abortSignal }: { abortSignal?: AbortSignal }) => {
@@ -68,7 +68,10 @@ export function agentMemoryTools(client: MemoryClient, options: AgentMemoryTools
       return { found: lines.length, memories: lines };
     },
   });
-  const remember = tool({
+}
+
+function rememberTool(client: MemoryClient, options: AgentMemoryToolsOptions) {
+  return tool({
     description: "Remember something the person said about themselves, in their own words.",
     inputSchema: z.object({ text: z.string().min(1).describe("The person's own words to remember") }),
     execute: async ({ text }: { text: string }, { toolCallId, abortSignal }: { toolCallId: string; abortSignal?: AbortSignal }) => {
@@ -82,5 +85,15 @@ export function agentMemoryTools(client: MemoryClient, options: AgentMemoryTools
       return { state: result.receipt.state, remembered: result.receipt.state === "applied" && result.receipt.searchable === true };
     },
   });
-  return options.remember === false ? { recall } : { recall, remember };
+}
+
+export type RecallTool = ReturnType<typeof recallTool>;
+export type RememberTool = ReturnType<typeof rememberTool>;
+
+/** `recall`, and `remember` unless `remember: false` (a read-only context): each set exact, so it is an AI SDK ToolSet. */
+export function agentMemoryTools(client: MemoryClient, options: AgentMemoryToolsOptions & { remember: false }): { recall: RecallTool };
+export function agentMemoryTools(client: MemoryClient, options: AgentMemoryToolsOptions): { recall: RecallTool; remember: RememberTool };
+export function agentMemoryTools(client: MemoryClient, options: AgentMemoryToolsOptions): { recall: RecallTool; remember?: RememberTool } {
+  if (options.remember === false) return { recall: recallTool(client, options) };
+  return { recall: recallTool(client, options), remember: rememberTool(client, options) };
 }

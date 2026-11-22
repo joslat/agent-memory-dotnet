@@ -324,12 +324,18 @@ def typescript_run(tier: str, env: dict, report: Path, runtime: Runtime) -> tupl
     commands = [[node, "dist/gate/runner.js", "--tier", tier]]
     if tier == "B":
         commands.append([node, "--test", "dist/test/*.test.js"])
+    if tier == "B":
+        commands.append([node, "dist/samples/ai-recall.js"])  # NATIVE-TS-ADAPTERS: the AI SDK sample, read only
     if tier == "C":
         commands.append([node, "--test", "dist/test/adapters.test.js"])  # NATIVE-TS-ADAPTERS: they write
+        commands.append([node, "dist/samples/langgraph-store.js"])
+    # The samples take the stubs' address from STUB_URL: one stub server for the whole run, as every runner starts it.
+    stubs = subprocess.Popen([sys.executable, str(GATE / "stubs.py")], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+    stub_url = f"http://127.0.0.1:{json.loads(stubs.stdout.readline())['port']}"
     code, lines = 0, []
     with open(report / f"tier-{tier.lower()}-typescript.log", "wb") as out:
         for command in commands:
-            done = subprocess.run(command, env=env | {"GATE_TIER": tier, "PYTHON": sys.executable}, cwd=package,
+            done = subprocess.run(command, env=env | {"GATE_TIER": tier, "PYTHON": sys.executable, "STUB_URL": stub_url}, cwd=package,
                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             out.write(done.stdout)
             # As bytes: node --test prints "▶", which a Windows console's code page cannot encode.
@@ -338,8 +344,13 @@ def typescript_run(tier: str, env: dict, report: Path, runtime: Runtime) -> tupl
             sys.stdout.buffer.flush()
             code = code or done.returncode
             text = done.stdout.decode("utf-8", errors="replace")
-            lines += [line for line in text.splitlines() if line.startswith(("tier ", "ℹ pass", "ℹ fail", "ℹ skipped", "METRIC"))]
-    return code, "TypeScript: " + " ".join(lines)
+            lines += [line for line in text.splitlines() if line.startswith(("tier ", "ℹ pass", "ℹ fail", "ℹ skipped", "METRIC", "steps:"))]
+            if command[-1].startswith("dist/samples/"):
+                lines.append(f"{Path(command[-1]).stem}: {'ok' if done.returncode == 0 else f'FAILED ({done.returncode})'}")
+    stubs.stdin.close()
+    stubs.wait(10)
+    # node --test marks its counts with "ℹ", which a Windows console's code page cannot print.
+    return code, "TypeScript: " + " ".join(line.replace("ℹ ", "") for line in lines)
 
 
 def gate_env(runtime: Runtime, store: Neo4j) -> dict:
@@ -435,6 +446,8 @@ def run(args: argparse.Namespace) -> int:
 
 
 def main() -> None:
+    # A Windows console's code page cannot print every character a test prints; a report must never fail on one.
+    sys.stdout.reconfigure(errors="replace")
     parser = argparse.ArgumentParser(description="The gate's store tiers on any platform (NATIVE-PLAT-STORE).")
     sub = parser.add_subparsers(dest="command", required=True)
     tls = sub.add_parser("tls", help="make a throw-away certificate authority and a server certificate for localhost")
