@@ -309,6 +309,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   automatic-learning permission and history-preserving restore.
 - Explicit context applicability policy and separate System One applicability judge. Recall remains
   exhaustive by default; pruning has no production coverage or latency claim.
+- Link states in traversal (CO-2c), derived from the versions the store keeps, never stored. A link stays on the
+  source version that made it and points at the target version it was made against. When the target changed since,
+  the hop's `ModuleTraversalEdge.State` is `Suspect`; otherwise it is `Current`. Links whose target's key has no live
+  version are still left out of the hop, and are now counted in `ModuleTraversalStep.DanglingLinks`. Both are data:
+  they come from the statement the Neo4j reader already runs (no extra round trip), and no reason, score or order
+  changes. Packs and the in-memory store hold one version per key, so they always report `Current` and no dangling
+  links.
 
 ## [2.3.1] - 2026-11-15
 

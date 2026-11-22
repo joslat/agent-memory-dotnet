@@ -128,8 +128,8 @@
    "file": "src/AgentMemory.Extensibility.Neo4j/Queries/ModuleTraversalQueries.cs",
    "edits": [
     {
-     "old": "\"RETURN r.node.id AS id, r.node.key AS rkey, r.degree AS degree, r.hits AS hits\";",
-     "new": "\"RETURN r.node.id AS id, r.node.key AS rkey, r.node AS node, r.degree AS degree, r.hits AS hits\";"
+     "old": "\"RETURN r.node.id AS id, r.node.key AS rkey, r.degree AS degree, r.hits AS hits, r.changed AS changed, 0 AS dangling\";",
+     "new": "\"RETURN r.node.id AS id, r.node.key AS rkey, r.node AS node, r.degree AS degree, r.hits AS hits, r.changed AS changed, 0 AS dangling\";"
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
@@ -624,8 +624,8 @@
    "file": "src/AgentMemory.Extensibility.Neo4j/Queries/ModuleTraversalQueries.cs",
    "edits": [
     {
-     "old": "\"RETURN r.node.id AS id, r.node.key AS rkey, r.degree AS degree, r.hits AS hits\";",
-     "new": "\"RETURN r.node.id AS id, r.node.key AS rkey, properties(r.node) AS whole, r.degree AS degree, r.hits AS hits\";"
+     "old": "\"RETURN r.node.id AS id, r.node.key AS rkey, r.degree AS degree, r.hits AS hits, r.changed AS changed, 0 AS dangling\";",
+     "new": "\"RETURN r.node.id AS id, r.node.key AS rkey, properties(r.node) AS whole, r.degree AS degree, r.hits AS hits, r.changed AS changed, 0 AS dangling\";"
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",

@@ -21,6 +21,12 @@ internal sealed record TraversalItem(ModuleRecord Record, long Score, string Via
     internal string? Part { get; init; }
     /// <summary>The module that declares that relation; null for an anchor's own record.</summary>
     internal string? PartModule { get; init; }
+    /// <summary>
+    /// Whether the hop that reached it followed a suspect link (CO-2c, <see cref="ModuleLinkState.Suspect"/>): one that points at an
+    /// older version of its target, which changed after the link was made. Data for a later reader; it changes no score, rank,
+    /// order or reason. False for an anchor's own record, and always false from a store that holds one version per key.
+    /// </summary>
+    internal bool ChangedSinceLinked { get; init; }
 
     /// <summary>A declared relation as a part of a pack (feature 11, R3): its name and direction.</summary>
     internal static string PartOf(ModuleTraversalRelation declared) => declared.Name + (declared.Direction == ModuleTraversalDirection.Out ? ":out" : ":in");
@@ -280,6 +286,7 @@ internal static class TraversalWalk
                         reached.Add((new TraversalItem(edge.To, score, via, hop, Matches(edge.To), Math.Max(1, edge.Degree))
                         {
                             Part = hop == 1 ? TraversalItem.PartOf(declared) : parent.Part, PartModule = hop == 1 ? module.Id : parent.PartModule,
+                            ChangedSinceLinked = edge.State == ModuleLinkState.Suspect,
                         }, parent.Record));
                     }
                     // The walk makes the fan-out cut, by the format's order: most matches, then most specific, then the format's order

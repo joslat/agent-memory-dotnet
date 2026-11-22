@@ -87,6 +87,47 @@ public sealed class PackMemoryTests
     }
 
     [Fact]
+    public async Task Memory_holds_one_version_per_key_so_every_link_it_walks_is_current_and_none_dangles()
+    {
+        // CO-2c: a suspect link points at an older version of its target, a dangling one at a key with no live version. Memory
+        // holds one version of each key, the snapshot's, and links each to the record its target key names; a link into a record
+        // it does not hold is left out at mount, as the store leaves it out at import (LinksLeftOut). So neither state arises.
+        const string store = "scip-dotnet nuget Acme.State . Acme/State/StateStore#";
+        var builder = new CodeMapBuilder();
+        builder.AddProject("src/State/State.csproj", "Acme.State");
+        builder.AddFile("src/State/StateStore.cs", "src/State/State.csproj");
+        builder.AddFile("tests/StateStoreTests.cs", null);
+        builder.AddSymbol(store, "StateStore", "Acme.State.StateStore", CodeMapSymbolKind.Class, "Acme.State", "src/State/StateStore.cs", 3, ["Close", "Remove"]);
+        builder.AddTest("scip-dotnet nuget Acme.State.Tests . Acme/State/Tests/StateStoreTests#Remove().", "StateStoreTests.Remove", "tests/StateStoreTests.cs", 7, "xunit", [store]);
+        var map = builder.Build("git:state-two");
+        var work = AgentMemory.Packs.Work.WorkLedgerReader.Read("""{"tasks":[{"id":"S-1","task":"Touch both","status":"Done","notes":"n"}]}""", "tasks.json",
+            [new AgentMemory.Packs.Work.WorkCommit("s1", "S-1: both", ["src/State/StateStore.cs", "src/State/Gone.cs"])], "git:state-two");
+        // Read the work item's links outgoing, where a dangling link would show.
+        var outward = work.Module with
+        {
+            Traversal = work.Module.Traversal! with { Relations = [.. work.Module.Traversal.Relations.Select(r => r with { Direction = ModuleTraversalDirection.Out })] },
+        };
+        var memory = PackMemory.From([], [map, work with { Module = outward }]);
+        var file = memory.Records.Single(r => r.Type == CodeMapPack.FileType && r.Key.EndsWith("StateStore.cs", StringComparison.Ordinal));
+        var item = memory.Records.Single(r => r.Type == "WorkItem");
+
+        var defines = await memory.ExpandAsync(new() { ModuleId = CodeMapPack.Id, Relation = "CODEMAP_DEFINES", Direction = ModuleTraversalDirection.Out,
+            FromIds = [file.Id] }, Lea);
+        var tests = await memory.ExpandAsync(new() { ModuleId = CodeMapPack.Id, Relation = "CODEMAP_TESTS", Direction = ModuleTraversalDirection.In,
+            FromIds = [defines.Edges.Single().To.Id] }, Lea);
+        var changed = await memory.ExpandAsync(new() { ModuleId = work.Module.Id, Relation = "WORK_CHANGED", Direction = ModuleTraversalDirection.Out,
+            FromIds = [item.Id] }, Lea);
+
+        foreach (var step in new[] { defines, tests, changed })
+        {
+            step.Status.Should().Be(ModuleReadStatus.Succeeded, string.Join("; ", step.Errors));
+            step.Edges.Should().ContainSingle().Which.State.Should().Be(ModuleLinkState.Current);
+            step.DanglingLinks.Should().Be(0);
+        }
+        changed.Edges.Single().To.Key.Should().Be(file.Key, "the link to the file the map does not hold was left out at mount");
+    }
+
+    [Fact]
     public async Task A_partly_admitted_pack_s_walk_follows_only_its_admitted_relations_and_offers_only_admitted_anchors()
     {
         // Feature 11 (R3): the filter is where the walk chooses its relations, so the budgets go to admitted parts.

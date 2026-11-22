@@ -488,9 +488,15 @@ public sealed partial class PackMemory : IModuleTraversalReader
             var ranked = reached
                 .Select(p => (p.Record, p.Degree, Hits: Hits(p.Record, text, words)))
                 .OrderByDescending(p => p.Hits).ThenBy(p => p.Degree).ThenBy(p => p.Record, Context.Traversal.TraversalOrder.Records).Take(fanOut);
-            edges.AddRange(ranked.Select(p => new ModuleTraversalEdge { FromId = from, To = p.Record with { Links = [] }, Degree = Math.Max(1, p.Degree) }));
+            // Link states (CO-2c): memory holds one version of each key and links each to the record its target key names, so
+            // every link is current; a link into a record not held was left out at mount, as the store leaves it out at import,
+            // so none dangles. Only a store that keeps versions has a suspect or dangling link.
+            edges.AddRange(ranked.Select(p => new ModuleTraversalEdge
+            {
+                FromId = from, To = p.Record with { Links = [] }, Degree = Math.Max(1, p.Degree), State = ModuleLinkState.Current,
+            }));
         }
-        return Task.FromResult(new ModuleTraversalStep { Status = ModuleReadStatus.Succeeded, Edges = edges.AsReadOnly(), Errors = skipped });
+        return Task.FromResult(new ModuleTraversalStep { Status = ModuleReadStatus.Succeeded, Edges = edges.AsReadOnly(), Errors = skipped, DanglingLinks = 0 });
     }
 
     private static Task<ModuleTraversalStep> Refused(string error) =>
