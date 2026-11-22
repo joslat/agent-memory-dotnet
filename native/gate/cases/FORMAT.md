@@ -89,7 +89,7 @@ Statuses are the C ABI's names: `OK`, `INVALID_ARGUMENT`, `UNSUPPORTED_ABI`, `IN
 | `poll` | `job`, `waitMs` (default 0) | `{"status", "result"}`; `result` is null until terminal |
 | `cancel` | `job`, or `ctx` and a raw `handle` | `{"status"}` |
 | `release` | `job` | `{"status"}` |
-| `state` | `ctx` | `{"status", "runningJobs", "pendingJobs", "readAllowed", "admissionAllowed", "writeQuiescent", "closing", "erasePending"}` |
+| `state` | `ctx` | `{"status", "stateRevision", "policyEpoch", "deletionEpoch", "memoryRevision", "readAllowed", "admissionAllowed", "writeQuiescent", "closing", "erasePending"}` |
 | `submitMany` | `count`, as `submit`; `as` (default `jobs`) | `{"admitted": n, "refused": {"STATUS": n}}` |
 | `awaitAll` | `jobs`: each to its result, then released | `{"results": [...]}` in submit order |
 | `drain` | `count`, `waitMs` (default 1000), `budgetS`, `jobs`, `takeResults`: `am_v1_wait` until `count` were reported | `{"reported": n, "sameAsSubmitted": bool, "results": [...]}` (each reported job's result when `takeResults`) |

@@ -1,0 +1,35 @@
+{
+  "name": "agentmemory-native",
+  "version": "0.2.0",
+  "private": true,
+  "description": "AgentMemory's native library for Node.js and Bun: owner-scoped recall and journaled writes over a C ABI, no .NET needed.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "files": [
+    "dist/src",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test \"dist/test/*.test.js\"",
+    "gate": "node dist/gate/runner.js"
+  },
+  "dependencies": {
+    "koffi": "3.3.7"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "typescript": "6.0.3"
+  }
+}

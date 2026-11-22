@@ -313,6 +313,30 @@ def unittest_run(runtime: Runtime, pattern_dir: Path, pattern: str, env: dict, l
     return code, f"{' '.join(tail)} ({time.monotonic() - started:.1f} s)"
 
 
+def typescript_run(tier: str, env: dict, report: Path, runtime: Runtime) -> tuple[int, str]:
+    """NATIVE-TS: the TypeScript binding's runner on the same store (and, in tier B, its own REQUIRED.md tests), when
+    GATE_TYPESCRIPT names its built package (native/typescript after npm run build). Library mode only: the wheel run is
+    the Python package's. (0, "") when not asked."""
+    package = os.environ.get("GATE_TYPESCRIPT")
+    if not package or runtime.mode != "library":
+        return 0, ""
+    node = shutil.which("node") or "node"
+    commands = [[node, "dist/gate/runner.js", "--tier", tier]]
+    if tier == "B":
+        commands.append([node, "--test", "dist/test/*.test.js"])
+    code, lines = 0, []
+    with open(report / f"tier-{tier.lower()}-typescript.log", "wb") as out:
+        for command in commands:
+            done = subprocess.run(command, env=env | {"GATE_TIER": tier, "PYTHON": sys.executable}, cwd=package,
+                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            out.write(done.stdout)
+            sys.stdout.write(done.stdout.decode("utf-8", errors="replace"))
+            code = code or done.returncode
+            text = done.stdout.decode("utf-8", errors="replace")
+            lines += [line for line in text.splitlines() if line.startswith(("tier ", "ℹ pass", "ℹ fail", "ℹ skipped", "METRIC"))]
+    return code, "TypeScript: " + " ".join(lines)
+
+
 def gate_env(runtime: Runtime, store: Neo4j) -> dict:
     return dict(runtime.env, AMP_URI=store.uri, AMP_USER="neo4j", AMP_PASSWORD=store.password, PYTHONDONTWRITEBYTECODE="1")
 
@@ -327,6 +351,8 @@ def tier_b(archive: Path, runtime: Runtime, work: Path, report: Path, tls: Path 
         if tls is not None:
             env |= {"AMP_TLS_URI": f"bolt+s://localhost:{store.port}", "AMP_TLS_OTHER_NAME_URI": f"bolt+s://127.0.0.1:{store.port}"}
         code, summary = unittest_run(runtime, GATE / "tests", "test_gate.py", env, report / f"tier-b-{runtime.mode}.log")
+        ts_code, ts_summary = typescript_run("B", env, report, runtime)
+        code, summary = code or ts_code, f"{summary} {ts_summary}".strip()
         after, _ = store.fingerprint(work)
     finally:
         store.stop()
@@ -341,6 +367,8 @@ def tier_c(archive: Path, runtime: Runtime, work: Path, report: Path) -> dict:
         store.seed(report)
         code, summary = unittest_run(runtime, GATE / "writetests", "test_writes.py", gate_env(runtime, store),
                                      report / f"tier-c-{runtime.mode}.log")
+        ts_code, ts_summary = typescript_run("C", gate_env(runtime, store), report, runtime)
+        code, summary = code or ts_code, f"{summary} {ts_summary}".strip()
     finally:
         store.stop()
     return {"tier": "C", "mode": runtime.mode, "exit": code, "summary": summary}

@@ -111,6 +111,25 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           exit $status
 
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      # NATIVE-TS: the TypeScript binding over the same library, the shared cases of tier A, and its own REQUIRED.md
+      # tests that need no store.
+      - name: TypeScript binding, tier A
+        working-directory: native/typescript
+        env:
+          GATE_TIER: A
+          AGENTMEMORY_NATIVE_LIBRARY: ${{ github.workspace }}/out/bin/${{ matrix.library }}
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+          node dist/gate/runner.js --tier A | tee ../../out/typescript-tier-a.log
+          node --test "dist/test/*.test.js" | tee ../../out/typescript-required-a.log
+          { echo "### ${{ matrix.rid }}: TypeScript, tier A"; echo; echo '```'; tail -1 ../../out/typescript-tier-a.log; grep -E '^. (tests|pass|fail|skipped)' ../../out/typescript-required-a.log || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Timings
         env:
           PYTHONPATH: native/python
@@ -210,7 +229,20 @@ jobs:
         shell: pwsh
         run: Import-Certificate -FilePath out/tls/ca.crt -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
 
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      - name: Build the TypeScript binding
+        working-directory: native/typescript
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+
       - name: Gate, tiers B, C and S
+        env:
+          GATE_TYPESCRIPT: ${{ github.workspace }}/native/typescript
         run: |
           set +e
           python native/gate/store/store_gate.py run --library "out/bin/${{ matrix.library }}" --work "$RUNNER_TEMP/am-store" \
@@ -224,7 +256,8 @@ jobs:
             echo
             echo '```'
             grep -hE ' \.\.\. (ok|skipped|FAIL|ERROR)|^METRIC|^[0-9.]+s ' out/store/tier-b-library.log out/store/tier-c-library.log out/store/tier-s-*-library.log 2>/dev/null \
-              | sed -E 's/ \(test_(gate|writes)\.[^)]*\)//' || true
+              | sed -E 's/ \((test_(gate|writes)|shared_(write_)?cases)\.[^)]*\)//' || true
+            grep -hE '^tier |^FAIL|^. (tests|pass|fail)' out/store/tier-b-typescript.log out/store/tier-c-typescript.log 2>/dev/null || true
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           exit $status

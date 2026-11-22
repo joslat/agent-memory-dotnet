@@ -487,7 +487,8 @@ class Run:
         flags = ctypes.c_uint32(0)
         status = self.lib.am_v1_state(self.context(args), *(ctypes.byref(v) for v in values), ctypes.byref(flags))
         f = flags.value
-        return {"status": STATUS.get(status, status), "runningJobs": values[0].value, "pendingJobs": values[1].value,
+        return {"status": STATUS.get(status, status), "stateRevision": values[0].value, "policyEpoch": values[1].value,
+                "deletionEpoch": values[2].value, "memoryRevision": values[3].value,
                 "readAllowed": bool(f & abi.READ_ALLOWED), "admissionAllowed": bool(f & abi.ADMISSION_ALLOWED),
                 "writeQuiescent": bool(f & abi.WRITE_QUIESCENT), "closing": bool(f & abi.CLOSING_FLAG),
                 "erasePending": bool(f & abi.ERASE_PENDING)}
