@@ -32,6 +32,8 @@ try {
 - **An `AbortSignal` cancels the job in the library first**, then the promise rejects with an `AbortError`.
 - **The low level** (`submit`, `Job.poll`, `cancel`, `release`, `state`, `waitAny`) maps one to one onto the ABI and is
   synchronous; the gate runner drives it.
+- **Do not install with `--omit=optional`.** The library comes in an optional platform package, and so do koffi's
+  prebuilt binaries: without them npm tries to build koffi from source, which needs CMake and a C toolchain.
 - **The library comes from a known place only**: an explicit path (`new MemoryClient(config, { library })`), else
   `AGENTMEMORY_NATIVE_LIBRARY`, else the platform package `agentmemory-native-<os>-<cpu>[-gnu]`, checked against its
   `MANIFEST.json` before it is loaded.

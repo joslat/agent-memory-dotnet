@@ -76,8 +76,10 @@ export function resolveLibrary(explicit?: string): Resolved {
     folder = dirname(createRequire(import.meta.url).resolve(`${name}/package.json`));
   } catch {
     throw new NativeLibraryError(
-      `the platform package ${name} is not installed. It is an optional dependency of agentmemory-native: reinstall without ` +
-        `--omit=optional (or --no-optional), or set AGENTMEMORY_NATIVE_LIBRARY to a library built for ${platform()} ${arch()}.`,
+      `the platform package ${name} is not installed. npm installs it as an optional dependency of agentmemory-native, ` +
+        `and skips it on a platform there is no package for (linux x64 and arm64 with glibc, macOS arm64, Windows x64) or ` +
+        `with --omit=optional: reinstall without --omit=optional on one of those, or set AGENTMEMORY_NATIVE_LIBRARY to a ` +
+        `library built for ${platform()} ${arch()}.`,
     );
   }
   const path = join(folder, "_native", libraryFileName());

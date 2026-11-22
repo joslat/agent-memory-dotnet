@@ -149,6 +149,20 @@ jobs:
           python native/python/build_wheel.py "out/bin/${{ matrix.library }}" out/wheel --platform-tag "$tag" \
             --provenance out/provenance --commit "${{ github.sha }}"
 
+      # NATIVE-TS: the npm platform package from this wheel (the same library, manifest and notices) and the main
+      # package, packed, then installed into an empty project as a user would: the library loads from the platform
+      # package, a damaged one is refused, a missing one names the fix. Not published (the owner's call).
+      - name: npm packages
+        run: |
+          python native/packaging/npm_packages.py platform --wheel out/wheel/*.whl --rid "${{ matrix.rid }}" --out out/npm
+          python native/packaging/npm_packages.py main --out out/npm
+          for folder in out/npm/*/; do (cd "$folder" && npm pack --pack-destination .. > /dev/null); done
+          ls -l out/npm/*.tgz
+          main="$(ls out/npm/agentmemory-native-0*.tgz)"
+          platform="$(ls out/npm/agentmemory-native-*-*.tgz | grep -v "$main")"
+          python native/packaging/npm_install_test.py --main "$main" --platform "$platform" | tee out/npm-install.log
+          { echo "### ${{ matrix.rid }}: npm packages"; echo; echo '```'; ls out/npm/*.tgz; tail -1 out/npm-install.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload the library, its manifest and its wheel
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -157,6 +171,7 @@ jobs:
           path: |
             out/bin
             out/wheel
+            out/npm/*.tgz
             out/publish.log
             out/gate.log
             out/timings.md
