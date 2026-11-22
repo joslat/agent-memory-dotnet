@@ -72,7 +72,9 @@ public sealed record MemoryOptions
 
     /// <summary>
     /// How many distinct texts the embedding orchestrator remembers the vector of (least recently used
-    /// evicted). <c>0</c>, the default, disables the cache.
+    /// evicted). <c>0</c> disables the cache. Left unset, it is <see cref="DefaultEmbeddingCacheCapacity"/>, or <c>0</c> when
+    /// <see cref="Isolation"/> is <see cref="MemoryIsolationMode.StrictMultiTenant"/> (see "Multi-tenant hosts" below). A value
+    /// the host sets, as the Conversational preset sets 512, is used as given.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -90,10 +92,21 @@ public sealed record MemoryOptions
     /// <b>Multi-tenant hosts:</b> the cache is keyed by text alone and shared by every owner in the
     /// container. No vector or content crosses owners (a vector is a function of its text), but a hit is
     /// measurably faster than a miss, so one owner could in principle infer that some owner recently
-    /// embedded an exact text. Leave it off where that timing difference matters.
+    /// embedded an exact text. Leave it off where that timing difference matters. Since 2.4 (owner decision, 22 Nov 2026)
+    /// the cache is on by default, except under strict multi-tenant isolation, where it stays off unless set.
     /// </para>
     /// </remarks>
-    public int EmbeddingCacheCapacity { get; set; }
+    public int EmbeddingCacheCapacity
+    {
+        get => _embeddingCacheCapacity
+            ?? (Isolation.Mode == MemoryIsolationMode.StrictMultiTenant ? 0 : DefaultEmbeddingCacheCapacity);
+        set => _embeddingCacheCapacity = value;
+    }
+
+    private int? _embeddingCacheCapacity;
+
+    /// <summary>The embedding cache's size when <see cref="EmbeddingCacheCapacity"/> is left unset (2.4): 512 texts, about 2 MB of 1,024-wide vectors.</summary>
+    public const int DefaultEmbeddingCacheCapacity = 512;
 
     /// <summary>Context budget configuration.</summary>
     public ContextBudget ContextBudget { get; init; } = ContextBudget.Default;

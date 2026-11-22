@@ -35,8 +35,9 @@ public sealed class PresetDefaultDifferenceTests
         ["MemoryOptions.Isolation.Mode"] = "StrictMultiTenant fails an unscoped recall closed; the default keeps SingleTenant for compatibility.",
         // Speed only, the same results. DEF-check found these three with no recorded reason (17 Nov 2026).
         ["MemoryOptions.UseAccessTrackingQueue"] = "Decision D (DRT-D): with the queue the read notes land after recall returns and a killed process loses what was queued, a changed promise that waits for the owner's plain yes.",
-        ["MemoryOptions.EmbeddingCacheCapacity"] = "No reason was recorded. Speed only (an embedding model is a pure function of its text); a candidate for the default, the owner's call.",
-        ["MemoryOptions.SkipEscalationWhenOwnerHasNoRows"] = "No reason was recorded. Speed only (it skips searches that cannot find anything for an owner who holds none of the label); a candidate for the default, the owner's call.",
+        // EmbeddingCacheCapacity: no longer a difference. Since 2.4 the default is 512 unless the host chose strict
+        // multi-tenant isolation, which the preset pairs with an explicit 512 (owner decision, 22 Nov 2026).
+        ["MemoryOptions.SkipEscalationWhenOwnerHasNoRows"] = "Measured worse as a default: on an owner who holds rows it adds a probe per kind (PERF-R-01 13 to 16 queries, 14 Aug 2026). It pays off only where most owners hold nothing, as in a one-person assistant's early sessions; the owner kept it opt-in on 22 Nov 2026.",
     };
 
     [Fact]

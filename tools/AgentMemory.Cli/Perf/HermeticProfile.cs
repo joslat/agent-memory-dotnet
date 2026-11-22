@@ -84,6 +84,14 @@ public sealed class HermeticProfile : IAsyncDisposable
     /// <summary>Scoped service provider for resolving memory services.</summary>
     public IServiceProvider Services => _scope.ServiceProvider;
 
+    /// <summary>
+    /// Empties the product's embedding cache (on by default since 2.4, 512 texts). A scenario repeats its text every
+    /// iteration, so without this the warm-up's vector would answer every measured turn's question and a fresh question would
+    /// look free. Hits within one turn (a message embedded for recall and again when stored) still count: that is the real
+    /// saving.
+    /// </summary>
+    internal void ForgetEmbeddings() => Services.GetService<AgentMemory.Core.Services.EmbeddingVectorCache>()?.Clear();
+
     /// <summary>Dataset tier mounted into this profile.</summary>
     public PerfScale Scale { get; }
 

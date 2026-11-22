@@ -130,6 +130,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Upgrading
 
+- **The embedding cache is on unless you set it.** A host that serves several people from one container without
+  strict multi-tenant isolation now caches embeddings by text across them. To keep the 2.3 behaviour, set
+  `EmbeddingCacheCapacity = 0`.
+
 - **Stores that ran with identity on before this release** may hold people whose creation time was stored as text
   (fixed below). New people get a datetime, and the decay prune reads both kinds, but recall as of a moment and the
   change windows still skip the old ones until they are converted. Nothing is rewritten on start-up. To see how many
@@ -227,6 +231,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unchanged: it is the same day.
 
 ### Changed
+
+- The embedding cache is on by default: `MemoryOptions.EmbeddingCacheCapacity`, left unset, is 512 texts (about 2 MB).
+  An embedding model is a pure function of its text, so a hit changes nothing but the round trip; a live turn embedded
+  the user's message twice. Under strict multi-tenant isolation (`MemoryIsolationMode.StrictMultiTenant`) it stays off
+  unless set, because a cached text answers faster and one tenant could tell that another asked the same text. A value
+  the host sets is used as given (the Conversational preset sets 512). `SkipEscalationWhenOwnerHasNoRows` stays
+  opt-in: measured as a default it added a query per kind for owners who hold rows.
 
 - The store-aware writer's rules add one sentence to "a new event ends what it changes": the replacing memory says what
   is true now, in the words of the memory it replaces with the new value ("Anna | lives in | Madrid" replaces

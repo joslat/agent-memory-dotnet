@@ -337,6 +337,7 @@ public sealed class PerfCommand
     {
         await scenario.PrepareAsync(new ScenarioSetupContext(
             profile, iteration, phase, null, cancellationToken)).ConfigureAwait(false);
+        profile.ForgetEmbeddings();
 
         TurnRecord record;
         using (var turn = collector.BeginTurn(scenario.Id, iteration, phase))
