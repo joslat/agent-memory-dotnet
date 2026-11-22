@@ -183,13 +183,17 @@ public static class CliHelp
                    [--scale <S|M>] [--latency <zero|remote>] [--embedding-dimensions <n>]
                    [--output <dir>] [--quality-gate <true|false>]
                    [--batch-resolution-snapshots <true|false>]
-                   [--coalesced-persistence <true|false>]
-                                     Measure a complete agent TURN: database round trips, embedding
-                                     requests, model calls, and per-stage timing. Provisions its own
+                   [--coalesced-persistence <true|false>] [--db-latency <ms>]
+                                     Measure a complete agent TURN: database transactions and queries,
+                                     embedding requests, model calls, and per-stage timing. Provisions its own
                                      Neo4j via Testcontainers (Docker required) with deterministic
                                      embeddings and a scripted model, so counters are reproducible.
                                      Quality gate defaults on. Writes a dated run directory under
-                                     artifacts/perf by default.
+                                     artifacts/perf by default. --db-latency puts a link proxy between
+                                     the product and Neo4j: it counts round trips on the wire
+                                     (neo4j.round_trips) and, for a delay above 0, measures every
+                                     scenario again with each round trip costing that many ms, to
+                                     report the round trips a caller waits for (summary databaseWaiting).
               perf cold [--label <name>] [--scenarios <one-id>] [--samples <n>] [--warmup <n>]
                         [--scale <S|M>] [--latency <zero|remote>]
                                      Run each cold observation in a fresh process, then a separate

@@ -71,15 +71,16 @@ The 30,720-byte difference is exactly 10 returned entities × 384 vector values 
 Retrieved items, access tracking, queries, transactions, deterministic-plumbing Recall@K, and MRR were unchanged. The
 projection was then reverted; it is the future rank-6 optimization, not part of this measurement change.
 
-### Round trips by query
+### Queries by fingerprint
 
-Two independent fresh-container runs produced the same distribution. The row totals are exactly the
+(Called round trips when this was written; a query is not a round trip on the wire, which `--db-latency` counts
+since DRT-0.) Two independent fresh-container runs produced the same distribution. The row totals are exactly the
 9 recall queries and 43 ingestion queries above. Values are stable source identifiers, never Cypher
 text.
 
 **Phase 1 — recall**
 
-| Query fingerprint | Round trips |
+| Query fingerprint | Queries |
 |---|---:|
 | `DecayQueries.UpdateAccessTimestampBatch` | **3** |
 | `EntityQueries.SearchByVector` | 1 |
@@ -94,7 +95,7 @@ all run inside the single write transaction delivered by feat-01.
 
 **Phase 2 — ingestion**
 
-| Query fingerprint | Round trips |
+| Query fingerprint | Queries |
 |---|---:|
 | `EntityQueries.CreateExtractedFrom` | 4 |
 | `EntityQueries.UpdateEmbedding` | 4 |

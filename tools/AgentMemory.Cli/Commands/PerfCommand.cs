@@ -48,9 +48,15 @@ public sealed class PerfCommand
         string? batchResolutionSnapshotsValue,
         string? coalescedPersistenceValue,
         string? poolSizeValue = null,
+        string? dbLatencyValue = null,
         CancellationToken cancellationToken = default)
     {
         var runLabel = Sanitize(label) ?? "baseline";
+        // DRT-0: with --db-latency the product reaches the store through the link proxy, which counts round trips
+        // and, in a second set of measured iterations, makes each one cost this long. Without it nothing changes.
+        TimeSpan? dbRoundTrip = dbLatencyValue is null
+            ? null
+            : TimeSpan.FromMilliseconds(ParseNonNegative(dbLatencyValue, 0, "db-latency"));
         var iterations = ParsePositive(iterationsValue, 10, "iterations");
         var warmup = ParseNonNegative(warmupValue, 3, "warmup");
         var dimensions = ParsePositive(dimensionsValue, 384, "embedding-dimensions");
@@ -101,6 +107,12 @@ public sealed class PerfCommand
         }
         var poolSizeExplicitlyConfigured = poolSizeValue is not null;
 
+        if (singleShot && dbRoundTrip is not null)
+        {
+            _output.WriteLine("error: --db-latency measures warm iterations; it cannot be combined with --single-shot.");
+            return 1;
+        }
+
         if (singleShot &&
             (scenarios.Count != 1 || iterations != 1 || warmup != 0 || qualityGateEnabled))
         {
@@ -112,7 +124,8 @@ public sealed class PerfCommand
 
         var startedAt = DateTimeOffset.UtcNow;
         var scaleName = scale.Name();
-        var runId = $"{startedAt:yyyyMMdd'T'HHmmss'Z'}__{runLabel}__hermetic-{scaleName}-{LatencyName(latency)}";
+        var runId = $"{startedAt:yyyyMMdd'T'HHmmss'Z'}__{runLabel}__hermetic-{scaleName}-{LatencyName(latency)}" +
+                    (dbRoundTrip is { } link ? $"-db{link.TotalMilliseconds:0}" : "");
         // artifacts/ is the repository's existing home for generated reports (the `evaluate` verb writes
         // to artifacts/evaluation), and it is already gitignored. Run output is regenerable and must not
         // live beside the hand-written analysis documents.
@@ -124,7 +137,7 @@ public sealed class PerfCommand
         using var trace = new TraceLogWriter(Path.Combine(runDir, "trace.ndjson"));
         var manifest = BuildManifest(runId, runLabel, startedAt, iterations, warmup, dimensions, scaleName,
             embeddingLatency, modelLatency, scenarios, singleShot, useUnifiedExtraction,
-            maxConnectionPoolSize, batchResolutionSnapshots, coalescedPersistence);
+            maxConnectionPoolSize, batchResolutionSnapshots, coalescedPersistence, dbRoundTrip?.TotalMilliseconds);
         trace.RunStart(runId, manifest);
         await File.WriteAllTextAsync(
             Path.Combine(runDir, "run.json"), JsonSerializer.Serialize(manifest, Json), cancellationToken)
@@ -142,10 +155,25 @@ public sealed class PerfCommand
             .StartAsync(dimensions, embeddingLatency, modelLatency, _output, scale,
                 scriptedRules, cancellationToken, maxConnectionPoolSize,
                 useUnifiedExtraction, batchResolutionSnapshots, coalescedPersistence,
-                poolSizeExplicitlyConfigured)
+                poolSizeExplicitlyConfigured, throughLinkProxy: dbRoundTrip is not null)
             .ConfigureAwait(false);
 
         await PerfFixture.SeedAsync(profile, _output, cancellationToken).ConfigureAwait(false);
+
+        var realRoundTrip = TimeSpan.Zero;
+        if (profile.Link is not null)
+        {
+            try
+            {
+                realRoundTrip = await PerfScenarios.RoundTripSelfCheckAsync(
+                    profile, _output, dbRoundTrip ?? TimeSpan.Zero, cancellationToken).ConfigureAwait(false);
+            }
+            catch (InvalidOperationException ex)
+            {
+                _output.WriteLine($"error: round-trip self-check failed: {ex.Message}");
+                return 1;
+            }
+        }
 
         var provider = PerfScenarios.CreateProvider(profile);
         if (singleShot)
@@ -184,7 +212,7 @@ public sealed class PerfCommand
             _output.WriteLine($"perf: {scenario.Id} — {scenario.Description}");
             try
             {
-                await RunScenarioAsync(scenario, profile, provider, collector, warmup, iterations, cancellationToken)
+                await RunScenarioAsync(scenario, profile, provider, collector, warmup, iterations, cancellationToken, dbRoundTrip)
                     .ConfigureAwait(false);
             }
             catch (Exception ex)
@@ -212,14 +240,19 @@ public sealed class PerfCommand
 
         var measured = collector.Records.Where(r => r.Phase == "measure").ToList();
         await WriteSamplesAsync(runDir, measured, cancellationToken).ConfigureAwait(false);
+        var waiting = dbRoundTrip is { } roundTrip
+            ? DatabaseWaiting.From(roundTrip, realRoundTrip, measured,
+                collector.Records.Where(r => r.Phase == DatabaseLatencyPhase).ToList())
+            : null;
         var summary = BuildSummary(
-            manifest, profile.ScaleDataset, measured, qualityGate, qualityResult, extractionQuality);
+            manifest, profile.ScaleDataset, measured, qualityGate, qualityResult, extractionQuality, waiting);
         await File.WriteAllTextAsync(
             Path.Combine(runDir, "summary.json"), JsonSerializer.Serialize(summary, Json), cancellationToken)
             .ConfigureAwait(false);
 
         var report = RenderReport(
-            runId, profile.ScaleDataset, measured, qualityGate, qualityResult, extractionQuality);
+            runId, profile.ScaleDataset, measured, qualityGate, qualityResult, extractionQuality) +
+            (waiting is null ? "" : waiting.Render());
         await File.WriteAllTextAsync(Path.Combine(runDir, "report.md"), report, cancellationToken)
             .ConfigureAwait(false);
 
@@ -242,7 +275,8 @@ public sealed class PerfCommand
         PerfCollector collector,
         int warmup,
         int iterations,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        TimeSpan? dbRoundTrip = null)
     {
         // Warm-up samples are recorded (so they can be inspected in the trace) but carry Phase="warmup"
         // and are excluded from every aggregate by construction rather than by convention. JIT, the
@@ -259,7 +293,21 @@ public sealed class PerfCommand
             await RunIterationAsync(
                 scenario, profile, provider, collector, i, "measure", cancellationToken).ConfigureAwait(false);
         }
+
+        // DRT-0: the same iterations again with each round trip costing dbRoundTrip. They carry their own phase, so
+        // every ordinary aggregate stays the zero-latency one; the difference of the medians is the waiting.
+        if (dbRoundTrip is { } far && far > TimeSpan.Zero)
+        {
+            for (var i = 0; i < iterations; i++)
+            {
+                await RunIterationAsync(
+                    scenario, profile, provider, collector, i, DatabaseLatencyPhase, cancellationToken, far).ConfigureAwait(false);
+            }
+        }
     }
+
+    /// <summary>The phase of the iterations measured with a delay on every database round trip (DRT-0).</summary>
+    internal const string DatabaseLatencyPhase = "measure-db-latency";
 
     private static async Task RunIterationAsync(
         PerfScenario scenario,
@@ -268,7 +316,8 @@ public sealed class PerfCommand
         PerfCollector collector,
         int iteration,
         string phase,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        TimeSpan roundTrip = default)
     {
         await scenario.PrepareAsync(new ScenarioSetupContext(
             profile, iteration, phase, null, cancellationToken)).ConfigureAwait(false);
@@ -277,9 +326,30 @@ public sealed class PerfCommand
         using (var turn = collector.BeginTurn(scenario.Id, iteration, phase))
         {
             record = turn.Record;
-            await scenario.ExecuteAsync(new ScenarioContext(
-                profile, provider, record, iteration, phase, null,
-                AgentMemory.Abstractions.Options.RecallOptions.Default, cancellationToken)).ConfigureAwait(false);
+            // Round trips are counted, and delayed, only inside the measured turn: warm-up, setup and read-back
+            // reach the store at full speed and uncounted.
+            var link = phase == "warmup" ? null : profile.Link;
+            var before = link?.Counter.Count ?? 0;
+            if (link is not null)
+            {
+                link.RoundTrip = roundTrip;
+                link.Measuring = true;
+            }
+            try
+            {
+                await scenario.ExecuteAsync(new ScenarioContext(
+                    profile, provider, record, iteration, phase, null,
+                    AgentMemory.Abstractions.Options.RecallOptions.Default, cancellationToken)).ConfigureAwait(false);
+            }
+            finally
+            {
+                if (link is not null)
+                {
+                    link.Measuring = false;
+                    link.RoundTrip = TimeSpan.Zero;
+                    record.Add("neo4j.round_trips", link.Counter.Count - before);
+                }
+            }
         }
 
         // Verification is deliberately outside the measured turn. Scenarios may read their writes back
@@ -351,7 +421,7 @@ public sealed class PerfCommand
         string runId, string label, DateTimeOffset startedAt, int iterations, int warmup, int dimensions, string scale,
         TimeSpan embeddingLatency, TimeSpan modelLatency, IReadOnlyList<PerfScenario> scenarios,
         bool singleShot, bool useUnifiedExtraction, int maxConnectionPoolSize,
-        bool batchResolutionSnapshots, bool coalescedPersistence) => new
+        bool batchResolutionSnapshots, bool coalescedPersistence, double? databaseRoundTripMs = null) => new
         {
             runId,
             label,
@@ -381,6 +451,8 @@ public sealed class PerfCommand
                 embeddingDimensions = dimensions,
                 embeddingLatencyMs = embeddingLatency.TotalMilliseconds,
                 modelLatencyMs = modelLatency.TotalMilliseconds,
+                // Present only with --db-latency: the product's driver then goes through the link proxy.
+                databaseRoundTripMs,
                 unifiedExtraction = useUnifiedExtraction,
                 batchEntityResolutionSnapshots = batchResolutionSnapshots,
                 coalescedPersistenceTransactions = coalescedPersistence,
@@ -431,7 +503,7 @@ public sealed class PerfCommand
 
     private static object BuildSummary(
         object manifest, ScaleDatasetInfo? scaleDataset, IReadOnlyList<TurnRecord> measured, QualityGateResult qualityGate,
-        QualityResult quality, ExtractionQualityResult extraction)
+        QualityResult quality, ExtractionQualityResult extraction, DatabaseWaiting? databaseWaiting = null)
     {
         ValidateQueryFingerprintTotals(measured);
 
@@ -439,6 +511,8 @@ public sealed class PerfCommand
         {
             manifest,
             scaleDataset,
+            // Present only with --db-latency (DRT-0).
+            databaseWaiting,
             qualityGate = new
             {
                 enabled = qualityGate.Enabled,

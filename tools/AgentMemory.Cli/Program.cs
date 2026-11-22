@@ -231,7 +231,8 @@ if (string.Equals(cli.Command, "perf", StringComparison.OrdinalIgnoreCase))
                 : null,
             cli.Get("batch-resolution-snapshots"),
             cli.Get("coalesced-persistence"),
-            cli.Get("pool-size"));
+            cli.Get("pool-size"),
+            cli.Get("db-latency"));
     }
     catch (Exception ex)
     {

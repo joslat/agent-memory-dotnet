@@ -89,6 +89,15 @@ public sealed class HermeticProfile : IAsyncDisposable
     /// <summary>Raw driver, for bulk fixture seeding that would be pointlessly slow through the services.</summary>
     public IDriver Driver { get; private set; } = null!;
 
+    /// <summary>
+    /// DRT-0: the proxy the product's driver reaches the store through, when the run measures waiting
+    /// (<c>--db-latency</c>); null otherwise, and the product connects directly as before. The raw <see cref="Driver"/>
+    /// always connects directly: the harness's own resets and read-backs are never counted or delayed.
+    /// </summary>
+    public LinkProxy? Link { get; private set; }
+
+    private bool _throughLinkProxy;
+
     /// <summary>Container identifier exposed only to explicit resource-capacity laboratory scenarios.</summary>
     internal string ContainerId => _container?.Id ?? throw new InvalidOperationException("Neo4j is not running.");
 
@@ -123,7 +132,8 @@ public sealed class HermeticProfile : IAsyncDisposable
         bool useUnifiedExtraction = false,
         bool useBatchEntityResolutionSnapshots = true,
         bool useCoalescedPersistenceTransactions = true,
-        bool poolSizeExplicitlyConfigured = false)
+        bool poolSizeExplicitlyConfigured = false,
+        bool throughLinkProxy = false)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxConnectionPoolSize);
         var scaleRunVolume = scale == PerfScale.Medium
@@ -132,7 +142,10 @@ public sealed class HermeticProfile : IAsyncDisposable
         var profile = new HermeticProfile(
             dimensions, scale, scaleRunVolume, maxConnectionPoolSize,
             useBatchEntityResolutionSnapshots, useCoalescedPersistenceTransactions,
-            poolSizeExplicitlyConfigured);
+            poolSizeExplicitlyConfigured)
+        {
+            _throughLinkProxy = throughLinkProxy,
+        };
         try
         {
             await profile.InitializeAsync(
@@ -167,6 +180,14 @@ public sealed class HermeticProfile : IAsyncDisposable
 
         var uri = _container.GetConnectionString();
         Driver = GraphDatabase.Driver(uri, AuthTokens.Basic(ContainerUser, ContainerPassword));
+        var productUri = uri;
+        if (_throughLinkProxy)
+        {
+            var store = new Uri(uri);
+            Link = LinkProxy.Start(store.Host, store.Port);
+            productUri = $"{store.Scheme}://127.0.0.1:{Link.Port}";
+            log.WriteLine($"perf: the product reaches Neo4j through the link proxy on 127.0.0.1:{Link.Port}");
+        }
 
         var services = new ServiceCollection();
         services.AddLogging(b => b.SetMinimumLevel(LogLevel.Warning));
@@ -181,7 +202,7 @@ public sealed class HermeticProfile : IAsyncDisposable
             },
             neo4j =>
             {
-                neo4j.Uri = uri;
+                neo4j.Uri = productUri;
                 neo4j.Username = ContainerUser;
                 neo4j.Password = ContainerPassword;
                 neo4j.Database = "neo4j";
@@ -247,6 +268,7 @@ public sealed class HermeticProfile : IAsyncDisposable
         if (_scopeCreated) await _scope.DisposeAsync().ConfigureAwait(false);
         if (_provider is not null) await _provider.DisposeAsync().ConfigureAwait(false);
         if (Driver is not null) await Driver.DisposeAsync().ConfigureAwait(false);
+        Link?.Dispose();
         if (_container is not null) await _container.DisposeAsync().ConfigureAwait(false);
         if (_scaleRunVolume is not null)
             await _scaleRunVolume.Volume.DisposeAsync().ConfigureAwait(false);

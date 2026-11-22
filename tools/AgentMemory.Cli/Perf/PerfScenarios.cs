@@ -277,6 +277,7 @@ public static partial class PerfScenarios
             VerifyAsync: ctx => VerifyNeo4jCapacityAsync(ctx, "depth", 8),
             IncludeInDefaultRun: false,
             RequiresUnifiedExtraction: true),
+        .. RoundTripScenarios,
     ];
 
     internal const string StoreProbeUserMessage =
