@@ -1,0 +1,2 @@
+# The repository writes 120-column lines (C#, TypeScript, Python); so does this workspace.
+max_width = 120

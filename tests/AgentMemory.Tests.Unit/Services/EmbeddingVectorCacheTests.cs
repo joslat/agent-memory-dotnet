@@ -36,9 +36,37 @@ public sealed class EmbeddingVectorCacheTests
         new(generator, NullLogger<EmbeddingOrchestrator>.Instance, new EmbeddingVectorCache(capacity));
 
     [Fact]
-    public async Task Off_by_default_every_request_goes_out()
+    public void On_by_default_since_2_4_except_under_strict_multi_tenant_isolation_where_only_a_set_value_turns_it_on()
     {
-        new MemoryOptions().EmbeddingCacheCapacity.Should().Be(0);
+        // Owner decision, 22 Nov 2026 (docket def-speed-2): a cached text answers faster, so in a shared deployment one
+        // tenant could tell that another asked the same text. Strict multi-tenant hosts keep it off unless they set it.
+        new MemoryOptions().EmbeddingCacheCapacity.Should().Be(MemoryOptions.DefaultEmbeddingCacheCapacity).And.Be(512);
+
+        var strict = new MemoryOptions();
+        strict.Isolation.Mode = MemoryIsolationMode.StrictMultiTenant;
+        strict.EmbeddingCacheCapacity.Should().Be(0);
+        strict.EmbeddingCacheCapacity = 64;
+        strict.EmbeddingCacheCapacity.Should().Be(64, "a value the host sets is used as given");
+        (strict with { }).EmbeddingCacheCapacity.Should().Be(64, "a copy keeps the host's value");
+
+        MemoryOptions.CreateConversational().EmbeddingCacheCapacity.Should().Be(512, "the preset sets it with strict isolation");
+        new MemoryOptions { EmbeddingCacheCapacity = 0 }.EmbeddingCacheCapacity.Should().Be(0, "0 still turns it off");
+    }
+
+    [Fact]
+    public void The_container_sizes_the_cache_from_the_options_as_resolved()
+    {
+        using var defaults = new ServiceCollection().AddLogging().AddAgentMemoryCore(_ => { }).BuildServiceProvider();
+        defaults.GetRequiredService<EmbeddingVectorCache>().Capacity.Should().Be(512);
+
+        using var strict = new ServiceCollection().AddLogging()
+            .AddAgentMemoryCore(o => o.Isolation.Mode = MemoryIsolationMode.StrictMultiTenant).BuildServiceProvider();
+        strict.GetRequiredService<EmbeddingVectorCache>().Capacity.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task At_capacity_zero_every_request_goes_out()
+    {
         var generator = new CountingGenerator();
         var sut = Orchestrator(generator, capacity: 0);
 

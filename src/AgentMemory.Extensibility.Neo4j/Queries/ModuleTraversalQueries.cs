@@ -93,18 +93,33 @@ internal static class ModuleTraversalQueries
     /// in the same statement (<see cref="OutLinks"/>, review 4: a statement of its own before), so the cost stays bounded, and the
     /// targets ranked are all of them. Every row carries the starting record's key and link count; one past the limit returns
     /// that row alone, with no record.
+    /// <b>Link states (CO-2c), in the same statement:</b> a target reached through a link to an older version of it is
+    /// <c>changed</c> (suspect); the links whose target's key has no live version are counted in <c>dangling</c>, on a row of
+    /// their own with no record, only when there are some (<see cref="Dangling"/>).
     /// </remarks>
     internal static string Out(string source, string relation, string target) =>
         // The starting record in scope too (review 6, L6: another owner's id gave its key in the hub problem).
         "UNWIND $ids AS fid MATCH (s:`" + source + "` {id:fid}) WHERE s.invalidated_at IS NULL AND " + In("s") + " " + OutLinks(relation, target) + " "
         + "CALL { WITH fid, s, links WITH fid, s, links WHERE links <= $maxLinks "
         + "CALL { WITH s MATCH (s)-[:`" + relation + "`]->(old:`" + target + "`) " + Live("old", "t", target) + " "
-        + "WITH t WHERE " + In("t") + " AND " + LiveAt("t") + " RETURN DISTINCT t } "
+        // Suspect only when every link to the target's key points at a closed version (a version links each key once).
+        + "WITH old, t WHERE " + In("t") + " AND " + LiveAt("t") + " RETURN t, min(" + Closed("old") + ") AS changed } "
         + "CALL { WITH t MATCH (:`" + target + "` {key_id:t.key_id})<-[:`" + relation + "`]-(o:`" + source + "`) "
         + "WHERE o.invalidated_at IS NULL AND " + In("o") + " WITH DISTINCT o LIMIT $scan RETURN count(o) AS degree } "
         + Ranked("t") + " "
-        + "UNION ALL WITH fid, s, links WITH links WHERE links > $maxLinks RETURN null AS id, null AS rkey, null AS degree, null AS hits } "
-        + "RETURN fid, s.key AS key, links, id, rkey, degree, hits";
+        + "UNION ALL WITH fid, s, links WITH links WHERE links > $maxLinks RETURN null AS id, null AS rkey, null AS degree, null AS hits, null AS changed, 0 AS dangling "
+        + "UNION ALL WITH fid, s, links WITH s, links WHERE links <= $maxLinks " + Dangling(relation, target) + " } "
+        + "RETURN fid, s.key AS key, links, id, rkey, degree, hits, changed, dangling";
+
+    // 1 for a closed version, 0 for a live one: a link to a closed version of a live record is suspect (CO-2c).
+    private static string Closed(string linked) => "CASE WHEN " + linked + ".invalidated_at IS NULL THEN 0 ELSE 1 END";
+
+    // The starting record's links whose target's key has no live version (CO-2c): what Live leaves without a row, counted. A
+    // target the scope cannot see is not counted. A row only when there are some, so most records add none.
+    private static string Dangling(string relation, string target) =>
+        "WITH COUNT { (s)-[:`" + relation + "`]->(old:`" + target + "`) WHERE old.invalidated_at IS NOT NULL AND " + In("old") + " "
+        + "AND NOT EXISTS { MATCH (k:`" + target + "` {key_id:old.key_id}) WHERE k.invalidated_at IS NULL } } AS dangling WHERE dangling > 0 "
+        + "RETURN null AS id, null AS rkey, null AS degree, null AS hits, null AS changed, dangling";
 
     // The live version of a linked record (review 3, performance): the record itself when the link points at it, else the live
     // version of its key, by the indexed key identity. A key has at most one live version, so the two agree; the first needs
@@ -127,19 +142,21 @@ internal static class ModuleTraversalQueries
     /// version needs no key lookup; only a link to a closed version asks whether its key still has a current version. (Review 3
     /// first made this exact with a subquery per neighbour resolving every target's live version and de-duplicating: the walk's
     /// p95 rose from 34 to 54 ms on this repository's code map.)
+    /// A source whose links reach only closed versions of the target's key is <c>changed</c> (suspect, CO-2c): the target changed
+    /// after the source linked to it. An incoming hop starts from a live record, so it has no dangling links.
     /// </remarks>
     internal static string In(string source, string relation, string target) =>
         "UNWIND $ids AS fid MATCH (x:`" + target + "` {id:fid}) WHERE x.invalidated_at IS NULL AND " + In("x") + " " + InLinks(source, relation, target) + " "
         + "CALL { WITH fid, x, links WITH fid, x, links WHERE links <= $maxLinks "
         + "CALL { WITH x MATCH (v:`" + target + "` {key_id:x.key_id}) "
         + "MATCH (s:`" + source + "`)-[:`" + relation + "`]->(v) WHERE s.invalidated_at IS NULL AND " + LiveAt("s") + " AND " + In("s") + " "
-        + "RETURN DISTINCT s } "
-        + "WITH fid, s, COUNT { (s)-[:`" + relation + "`]->(v) WHERE " + In("v") + " AND (v.invalidated_at IS NULL "
+        + "RETURN s, min(" + Closed("v") + ") AS changed } "
+        + "WITH fid, s, changed, COUNT { (s)-[:`" + relation + "`]->(v) WHERE " + In("v") + " AND (v.invalidated_at IS NULL "
         + "OR EXISTS { MATCH (k:ModuleKey {id:v.key_id}) WHERE k.current_id IS NOT NULL }) } AS own "
-        + "WITH fid, s, CASE WHEN own > $scan THEN $scan ELSE own END AS degree "
+        + "WITH fid, s, changed, CASE WHEN own > $scan THEN $scan ELSE own END AS degree "
         + Ranked("s") + " "
-        + "UNION ALL WITH fid, x, links WITH links WHERE links > $maxLinks RETURN null AS id, null AS rkey, null AS degree, null AS hits } "
-        + "RETURN fid, x.key AS key, links, id, rkey, degree, hits";
+        + "UNION ALL WITH fid, x, links WITH links WHERE links > $maxLinks RETURN null AS id, null AS rkey, null AS degree, null AS hits, null AS changed, 0 AS dangling } "
+        + "RETURN fid, x.key AS key, links, id, rkey, degree, hits, changed, dangling";
 
     /// <summary>
     /// Per starting record, the reached records ranked by how many of the question's <c>$words</c> their text (the <c>$text</c>
@@ -154,20 +171,20 @@ internal static class ModuleTraversalQueries
     /// keys is at or above U+D800 (<c>$wide</c>: kept from when the format ordered by UTF-16 unit; a superset, so harmless). Records
     /// are ranked by reference, and each comes back narrow, its id, key, degree and hits (review 8, W2: every tied record came back
     /// whole when one tied key was wide); the caller cuts, then reads whole only the records it keeps (<see cref="ByIds"/>).
-    /// Without question words nothing is folded.
+    /// Without question words nothing is folded. Each row carries its link's state (<c>changed</c>, CO-2c), which ranks nothing.
     /// </remarks>
     private static string Ranked(string node) =>
-        "WITH fid, " + node + ", degree, CASE WHEN size($words) = 0 THEN '' ELSE "
+        "WITH fid, " + node + ", degree, changed, CASE WHEN size($words) = 0 THEN '' ELSE "
         + "reduce(text = '', k IN $text | text + ' ' + coalesce(toString(" + node + "[k]), '')) END AS raw "
-        + "WITH fid, " + node + ", degree, CASE WHEN raw = '' THEN '' ELSE reduce(text = raw, f IN $fold | replace(text, f[0], f[1])) END AS text "
-        + "WITH fid, " + node + ", degree, size([w IN $words WHERE text CONTAINS w]) AS hits "
+        + "WITH fid, " + node + ", degree, changed, CASE WHEN raw = '' THEN '' ELSE reduce(text = raw, f IN $fold | replace(text, f[0], f[1])) END AS text "
+        + "WITH fid, " + node + ", degree, changed, size([w IN $words WHERE text CONTAINS w]) AS hits "
         + "ORDER BY hits DESC, degree ASC, " + node + ".key, " + node + ".id "
-        + "WITH fid, collect({node: " + node + ", degree: degree, hits: hits}) AS ranked "
+        + "WITH fid, collect({node: " + node + ", degree: degree, hits: hits, changed: changed}) AS ranked "
         + "WITH fid, ranked, ranked[$fanOut - 1] AS edge "
         + "WITH fid, ranked, edge, edge IS NOT NULL AND any(r IN ranked WHERE r.hits = edge.hits AND r.degree = edge.degree AND r.node.key =~ $wide) AS wide "
         + "UNWIND range(0, size(ranked) - 1) AS i WITH fid, ranked[i] AS r, i, edge, wide "
         + "WHERE i < $fanOut OR (wide AND r.hits = edge.hits AND r.degree = edge.degree) "
-        + "RETURN r.node.id AS id, r.node.key AS rkey, r.degree AS degree, r.hits AS hits";
+        + "RETURN r.node.id AS id, r.node.key AS rkey, r.degree AS degree, r.hits AS hits, r.changed AS changed, 0 AS dangling";
 
     /// <summary>The pattern of a key that holds a character at or above U+D800, where code-point and UTF-16 orders can differ.</summary>
     internal const string WideKey = @"(?s).*[\x{D800}-\x{10FFFF}].*";

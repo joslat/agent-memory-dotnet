@@ -298,6 +298,7 @@ public sealed class PerfAbCommand
             phase,
             datasetVariant,
             cancellationToken)).ConfigureAwait(false);
+        profile.ForgetEmbeddings();
 
         TurnRecord record;
         using (var turn = collector.BeginTurn($"{scenario.Id}/{variant}", iteration, phase))

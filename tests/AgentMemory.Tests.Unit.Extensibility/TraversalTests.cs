@@ -58,6 +58,8 @@ public sealed class TraversalTests
         public readonly List<ModuleRecord> Records = [];
         public readonly List<(string From, string Relation, string To)> Links = [];
         public readonly Dictionary<string, int> Degrees = new(StringComparer.Ordinal);
+        /// <summary>Links (from, relation, to) that point at an older version of their target (CO-2c).</summary>
+        public readonly HashSet<(string From, string Relation, string To)> Suspect = [];
         public readonly List<IReadOnlyList<string>> Words = [];
         public readonly List<string> Calls = [];
         public ModuleReadStatus Status = ModuleReadStatus.Succeeded;
@@ -89,6 +91,8 @@ public sealed class TraversalTests
                     .Take(query.FanOut).Select(id => new ModuleTraversalEdge
                     {
                         FromId = from, To = Records.Single(r => r.Id == id), Degree = Degrees.GetValueOrDefault(id, 1),
+                        State = Suspect.Contains(query.Direction == ModuleTraversalDirection.Out ? (from, query.Relation, id) : (id, query.Relation, from))
+                            ? ModuleLinkState.Suspect : ModuleLinkState.Current,
                     }));
             }
             return Task.FromResult(new ModuleTraversalStep { Status = ModuleReadStatus.Succeeded, Edges = edges });
@@ -380,6 +384,26 @@ public sealed class TraversalTests
         new ModuleType { Name = "CodemapTest", Render = "Test {name} ({file}) line {line}", Properties = properties }.TextProperties()
             .Should().Equal("name", "file");
         new ModuleType { Name = "CodemapTest", Properties = properties }.TextProperties().Should().Equal("file", "framework", "name");
+    }
+
+    [Fact]
+    public async Task A_hop_through_a_suspect_link_marks_the_item_it_reached_and_moves_no_score_order_or_reason()
+    {
+        // CO-2c: the file's link and one test's link point at an older version of the symbol, which changed after they were made.
+        var plain = await TraversalWalk.RunAsync(Resolution(), Store(), Request(ContextAnchor.Path(StoreFile)), CancellationToken.None);
+        var reader = Store();
+        reader.Suspect.UnionWith([("file", "CODE_DEFINES", "symbol"), ("test-removal", "CODE_TESTS", "symbol")]);
+
+        var marked = await TraversalWalk.RunAsync(Resolution(), reader, Request(ContextAnchor.Path(StoreFile)), CancellationToken.None);
+
+        // The state is on the item the hop reached, the hop's own link only: the third test's link is current.
+        marked.Items.Where(i => i.ChangedSinceLinked).Select(i => i.Record.Id).Should().BeEquivalentTo(["symbol", "test-removal"]);
+        plain.Items.Should().OnlyContain(i => !i.ChangedSinceLinked);
+        marked.Items.Single(i => i.Record.Id == "test-removal").Via
+            .Should().Be("ModuleStore.cs → defines ModuleStore → Removal keeps history tests it", "the reason path stays as R-WALK-066 has it");
+        // Data only: the same records, scores, ranks, hops, specificity, matches, reasons and order.
+        marked.Items.Select(i => (i.Record.Id, i.Score, i.Rank, i.Hops, i.SharedBy, i.Matches, i.Via))
+            .Should().Equal(plain.Items.Select(i => (i.Record.Id, i.Score, i.Rank, i.Hops, i.SharedBy, i.Matches, i.Via)));
     }
 
     [Fact]

@@ -82,7 +82,21 @@ internal static class IdentityEvidenceQueries
             RETURN collect({subject: left(coalesce(f.subject, ''), 256), predicate: left(coalesce(f.predicate, ''), 256),
                 object: left(coalesce(f.object, ''), 256)}) AS known
         }
-        RETURN known, e {.id, .name, .type, .owner_id, .canonical_name,
+        // IKB-TIER2-RERUN: the writer may store no fact saying what the candidate is, while the sentence it was stored from
+        // does ("Valentina Ríos is the designer on Atlas"). Up to four of its own source messages, visible as CandidateSources
+        // has them, in the same statement.
+        CALL {
+            WITH e
+            UNWIND coalesce(e.source_message_ids, [])[..4] AS sourceId
+            MATCH (m:Message {id: sourceId})
+            MATCH (c:Conversation {id: m.conversation_id})
+            WHERE m.invalidated_at IS NULL AND m.content IS NOT NULL AND (
+                ($ownerId IS NULL AND c.user_id IS NULL) OR
+                ($ownerId IS NOT NULL AND (c.user_id = $ownerId OR ($includeShared AND c.user_id IS NULL))))
+            WITH m ORDER BY m.id
+            RETURN collect(left(m.content, 1024)) AS texts
+        }
+        RETURN known, texts, e {.id, .name, .type, .owner_id, .canonical_name,
             confidence: coalesce(e.confidence, 1.0), .created_at,
             description: left(coalesce(e.description, ''), 4096),
             aliases: coalesce(e.aliases, [])[..32],

@@ -1,0 +1,30 @@
+# Rust bindings of the AgentMemory native library (native/include/agentmemory_native.h, native/CONTRACT.md).
+#
+# agentmemory-native-sys: the C ABI's raw declarations, loaded at run time. agentmemory-native: the safe API.
+# gate: the runner of the shared conformance gate (native/gate/cases), never published.
+[workspace]
+resolver = "2"
+members = ["agentmemory-native-sys", "agentmemory-native", "gate"]
+
+[workspace.package]
+version = "0.2.0"
+edition = "2021"
+rust-version = "1.81"
+license = "MIT"
+repository = "https://github.com/joslat/agent-memory-dotnet"
+homepage = "https://github.com/joslat/agent-memory-dotnet/tree/main/native/rust"
+# Publishing to crates.io is the owner's decision; until then nothing here can be published by accident.
+publish = false
+
+[workspace.dependencies]
+agentmemory-native-sys = { path = "agentmemory-native-sys", version = "0.2.0" }
+agentmemory-native = { path = "agentmemory-native", version = "0.2.0" }
+libloading = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "deny"

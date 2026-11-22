@@ -2288,6 +2288,37 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
             .Should().BeEquivalentTo(["the designer on Atlas"], "the niece's school is not the designer's");
     }
 
+    [Fact]
+    public async Task IKB_tier2_rerun_the_designer_s_own_sentence_says_what_she_is_when_no_fact_does()
+    {
+        // whos-who-v1 re-run 1 (22 Nov 2026, decision e32ed2a6): as above, except the writer stored no fact from "Valentina Ríos
+        // is the designer on Atlas", so her facts knew her as nothing and the reference of "my niece Valentina" was confirmed.
+        // The sentence she was stored from says what she is.
+        using var host = Host(conversationalPolicies: true); using var scope = host.CreateScope(); var services = scope.ServiceProvider;
+        const string designerTurn = "Valentina Ríos is the designer on Atlas.";
+        const string nieceTurn = "My niece Valentina started school this year, she is six.";
+        await fixture.TransactionRunner.WriteAsync(async runner => { await runner.RunAsync(
+            "MATCH (c:Conversation {id:'conversation'}) " +
+            "CREATE (a:Message {id:'turn-8', conversation_id:'conversation', content:$a, session_id:'scenario'}), (c)-[:HAS_MESSAGE]->(a) " +
+            "CREATE (b:Message {id:'turn-13', conversation_id:'conversation', content:$b, session_id:'scenario'}), (c)-[:HAS_MESSAGE]->(b)",
+            new { a = designerTurn, b = nieceTurn }); });
+        await Ingest(services, new UnifiedExtractionResult
+        {
+            Entities = [new() { Name = "Valentina Ríos", Type = "PERSON", Confidence = 1 }, new() { Name = "Atlas", Type = "OBJECT", Confidence = 1 }],
+        }, messageId: "turn-8", content: designerTurn);
+        var facts = services.GetRequiredService<IFactRepository>();
+        var designer = (await facts.GetPersonIdentitiesAsync(1000, Scope)).Should().ContainSingle().Subject.EntityId;
+
+        await Ingest(services, new UnifiedExtractionResult
+        {
+            Entities = [new() { Name = "Valentina Ríos", Type = "PERSON", Confidence = 1, Reference = new() { EntityId = designer, Quote = "Valentina" } }],
+            Facts = [new() { Subject = "Valentina Ríos", Predicate = "started", Object = "school this year", Confidence = 1 }]
+        }, messageId: "turn-13", content: nieceTurn);
+
+        (await facts.GetPersonIdentitiesAsync(1000, Scope)).Should().HaveCount(2, "the niece is not merged into the designer");
+        (await facts.GetPersonDetailsAsync([designer], [], 8, Scope)).Should().BeEmpty("the niece's school is not the designer's");
+    }
+
     /// <summary>
     /// RECALL-NAMESAKE-LEAK (IKB-3): the dog and the sister's cat both called Luna, the designer Valentina Ríos ("Vale") and
     /// the niece Valentina, each stored through ingestion from its own turn. Every item has the same vector, so similarity

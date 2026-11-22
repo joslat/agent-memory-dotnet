@@ -110,6 +110,37 @@ public sealed class RoutePlanTests
     }
 
     [Fact]
+    public async Task A_question_routed_as_of_leaves_out_the_live_only_details_instead_of_losing_the_whole_recall()
+    {
+        // IKB-TIER2-CONFIRM: every who's-who run asked "which Córdoba am I flying to in May?" with event and person details
+        // on (the identity arm); the route made it as-of, the as-of assembler refuses both, and the whole context was lost.
+        RecallRequest? routed = null;
+        _assembler.AssembleContextAsOfAsync(Arg.Do<RecallRequest>(r => routed = r), Arg.Any<DateTimeOffset>(), Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>())
+            .Returns(Context());
+        var options = new MemoryOptions { ResolveTemporalQueries = true, Recall = RecallOptions.Default with { EventDetails = true, PersonDetails = true, MaxFacts = 7 } };
+
+        var result = await Sut(options).RecallAsync(new RecallRequest { SessionId = "s", Query = "what did we decide in March 2024" });
+
+        result.Context.Route!.Time.Should().Be(MemoryRoutePlan.TimeFromQuestion);
+        routed!.Options.EventDetails.Should().BeFalse();
+        routed.Options.PersonDetails.Should().BeFalse();
+        routed.Options.MaxFacts.Should().Be(7, "the rest of the host's recall options stay as they were");
+    }
+
+    [Fact]
+    public async Task A_question_routed_as_of_without_those_details_keeps_its_options_as_they_are()
+    {
+        RecallRequest? routed = null;
+        _assembler.AssembleContextAsOfAsync(Arg.Do<RecallRequest>(r => routed = r), Arg.Any<DateTimeOffset>(), Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>())
+            .Returns(Context());
+        var request = new RecallRequest { SessionId = "s", Query = "what did we decide in March 2024" };
+
+        await Sut(new MemoryOptions { ResolveTemporalQueries = true }).RecallAsync(request);
+
+        routed!.Options.Should().BeSameAs(request.Options, "nothing to leave out, so the request is passed on unchanged");
+    }
+
+    [Fact]
     public async Task An_as_of_request_records_both_clocks()
     {
         _assembler.AssembleContextAsOfAsync(Arg.Any<RecallRequest>(), Arg.Any<DateTimeOffset>(), Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>())

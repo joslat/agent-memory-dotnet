@@ -128,7 +128,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   before. A runner decorator can forward the path by implementing the new `INeo4jSingleStatementReader`; one that
   does not keeps its own `ReadAsync`.
 
+### Upgrading
+
+- **The embedding cache is on unless you set it.** A host that serves several people from one container without
+  strict multi-tenant isolation now caches embeddings by text across them. To keep the 2.3 behaviour, set
+  `EmbeddingCacheCapacity = 0`.
+
+- **Stores that ran with identity on before this release** may hold people whose creation time was stored as text
+  (fixed below). New people get a datetime, and the decay prune reads both kinds, but recall as of a moment and the
+  change windows still skip the old ones until they are converted. Nothing is rewritten on start-up. To see how many
+  there are, and to convert them once:
+
+  ```cypher
+  MATCH (e:Entity) WHERE e.created_at IS :: STRING RETURN count(e) AS textDates;
+
+  MATCH (e:Entity) WHERE e.created_at IS :: STRING SET e.created_at = datetime(e.created_at);
+  ```
+
+  On a large store, run the conversion in batches as an auto-commit query:
+  `MATCH (e:Entity) WHERE e.created_at IS :: STRING CALL (e) { SET e.created_at = datetime(e.created_at) } IN TRANSACTIONS OF 10000 ROWS`.
+  The coming doctor command (`TOOL-doctor`) reports stores that still hold such text dates.
+
 ### Fixed
+
+- Native library, TypeScript binding: a Node process could crash (SIGSEGV) as it exited, after all its work had
+  succeeded. It was rare, and seen on Linux ARM. As Node shut down, koffi unloaded the library while threads of its
+  .NET runtime were still running, and one of them woke in code that was no longer there. The binding now pins the
+  library when it loads it, so it stays loaded until the process ends, as in the Python and Rust bindings.
+
+- A question that names a past time no longer loses its whole recall when event or person details are on (the
+  identity presets' recall for people and events). `ResolveTemporalQueries` turns such a question into an as-of
+  recall, which refuses those two options because they expand identity as it is now; the host had asked for live
+  recall, so the context came back empty ("Which Córdoba am I flying to in May?" in every who's-who run). The routed
+  recall now leaves the two out and records it on the span (`memory.recall.as_of_without`). An explicit as-of call
+  that asks for them is still refused.
+
+- Code map (Roslyn reader): a test project that compiles another project's files itself (`<Compile Include="../../tools/…">`)
+  now links its tests to those files' types, recorded under the project the files live in. Before, each file went to
+  its folder's project only, so such tests linked to nothing (here, 46 tests of the scenario tool's scorers).
+
+- A relationship to the owner is no longer lost when the owner has not said their name. "Theo is my brother" became
+  an edge to the owner's named person, and with no name there was none, so it was skipped. Until a name is known it
+  is kept as the fact "Theo | brother of | user" ("user | works at | Acme" the other way), which recall's connections
+  follow; a triple the turn also states as a fact is stored once. Once the owner is named, relationships anchor on
+  the named person as before. Applies without identity resolution.
 
 - With identity on and the Conversational preset's identity policies, a store-aware writer's reference to a stored
   person no longer merges a namesake the turn itself describes differently. "My niece Valentina started school" was
@@ -137,8 +180,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the stored person is known by a different one, the reference is refused like any other unsupported reference, and the
   mention stays for review. The stored person's role comes from their description, aliases and subtype, and from their
   own live facts saying what they are ("is the designer on Atlas", "the user has niece …"), which the identity
-  candidate read now loads (at most 16 a candidate; the new `IdentityCandidate.KnownAs`). When neither side names a
-  relation, nothing changes.
+  candidate read now loads (at most 16 a candidate; the new `IdentityCandidate.KnownAs`). It also comes from up to
+  four of the person's own source messages, in the same read: in a real run the writer stored no fact from
+  "Valentina Ríos is the designer on Atlas", so she was known as nothing and the merge happened anyway. Only the word
+  next to a name is read as its relation ("my brother and Valentina" says nothing about Valentina). When neither side
+  names a relation, nothing changes.
 - Without identity, recall's connections around a question's names still showed a forgotten entity's connections
   (one invalidated, as the maintenance tool does) and a merged one's. Both ends must now be live, as the identity read
   already required.
@@ -198,6 +244,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The embedding cache is on by default: `MemoryOptions.EmbeddingCacheCapacity`, left unset, is 512 texts (about 2 MB).
+  An embedding model is a pure function of its text, so a hit changes nothing but the round trip; a live turn embedded
+  the user's message twice. Under strict multi-tenant isolation (`MemoryIsolationMode.StrictMultiTenant`) it stays off
+  unless set, because a cached text answers faster and one tenant could tell that another asked the same text. A value
+  the host sets is used as given (the Conversational preset sets 512). `SkipEscalationWhenOwnerHasNoRows` stays
+  opt-in: measured as a default it added a query per kind for owners who hold rows.
+
 - The store-aware writer's rules add one sentence to "a new event ends what it changes": the replacing memory says what
   is true now, in the words of the memory it replaces with the new value ("Anna | lives in | Madrid" replaces
   "Anna | lives in | Lisbon" when she moves); the move itself, with its date, can be a separate memory. Before, a
@@ -210,6 +263,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that there are exactly four, one per platform, all of the source's version, before the reviewer's approval.
 
 ### Added
+
+- `RecallOptions.FillFoldedEntityPlaces` (IBP-1b), off by default. The prompt shows each entity line once, so one thing
+  stored as two alike entities takes one line and its second place stayed empty. On, the entity search asks for up to
+  twice `MaxEntities` (at most 16 more), folds the alike ones keeping the most relevant, and keeps `MaxEntities`
+  distinct entities, on the live and the as-of path alike. It changes what recall returns, so it is a switch until it
+  is measured on the recall suite.
 
 - Applied-once writes: `ExtractionRequest.OperationId`. With it, a `ConversationTurn` write whose user message is
   stored is applied completely or not at all: if the message already carries this operation's receipt, nothing runs
@@ -255,6 +314,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   automatic-learning permission and history-preserving restore.
 - Explicit context applicability policy and separate System One applicability judge. Recall remains
   exhaustive by default; pruning has no production coverage or latency claim.
+- Link states in traversal (CO-2c), derived from the versions the store keeps, never stored. A link stays on the
+  source version that made it and points at the target version it was made against. When the target changed since,
+  the hop's `ModuleTraversalEdge.State` is `Suspect`; otherwise it is `Current`. Links whose target's key has no live
+  version are still left out of the hop, and are now counted in `ModuleTraversalStep.DanglingLinks`. Both are data:
+  they come from the statement the Neo4j reader already runs (no extra round trip), and no reason, score or order
+  changes. Packs and the in-memory store hold one version per key, so they always report `Current` and no dangling
+  links.
 
 ## [2.3.1] - 2026-11-15
 

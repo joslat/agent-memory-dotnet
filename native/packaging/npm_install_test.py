@@ -92,8 +92,13 @@ def main() -> int:
         if not (damaged["error"] and "reinstall agentmemory-native" in damaged["error"]["message"]):
             failures.append(f"a damaged packaged library was not refused: {damaged}")
 
-    # The platform packages are not on the registry (not published), so npm skips them as optional dependencies.
-    omitted = check(project([args.main]), "omit")
+    # As when npm could not install the platform package. Since 0.2.0 is on npm (22 Nov 2026), npm fetches the real platform
+    # package from the registry for the main package alone, so the case is made by removing what it installed: whatever
+    # version the registry holds must not stand in for the package this build made.
+    alone = project([args.main])
+    for installed in (alone / "node_modules").glob("agentmemory-native-*"):
+        shutil.rmtree(installed)
+    omitted = check(alone, "omit")
     print("without the platform package:", omitted, flush=True)
     if omitted.get("loaded") or not omitted.get("library") or "--omit=optional" not in omitted.get("message", ""):
         failures.append(f"a missing platform package did not give the error that names the fix: {omitted}")

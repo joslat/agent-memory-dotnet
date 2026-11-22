@@ -171,6 +171,52 @@ public sealed class CodeMapTests : IDisposable
     }
 
     /// <summary>
+    /// CMP-2f: a test project that compiles another project's files itself (<c>&lt;Compile Include="../../tools/..."&gt;</c>, as
+    /// AgentMemory.Tests.Unit does with the scenario tool's scorer) links to those files' types, under the project they live in.
+    /// The reader gave each file to its folder's project only, so the test's calls bound to nothing.
+    /// </summary>
+    [Fact]
+    public void A_test_links_the_types_of_files_its_project_compiles_from_another_project()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "codemap-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            foreach (var (path, text) in new[]
+            {
+                ("tools/Tool/Tool.csproj", """<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType></PropertyGroup></Project>"""),
+                ("tools/Tool/Program.cs", "System.Console.WriteLine(Tool.Scorer.Score());"),
+                ("tools/Tool/Scorer.cs", "namespace Tool; internal static class Scorer { internal static int Score() => 1; }"),
+                ("tools/Tool/Gold/Key.cs", "namespace Tool; internal sealed class Key { }"),
+                ("tests/Tool.Tests/Tool.Tests.csproj", """
+                    <Project Sdk="Microsoft.NET.Sdk"><ItemGroup>
+                      <Compile Include="../../tools/Tool/Scorer.cs" Link="Tool/Scorer.cs" />
+                      <Compile Include="../../tools/Tool/Gold/*.cs" LinkBase="Tool/Gold" />
+                    </ItemGroup></Project>
+                    """),
+                ("tests/Tool.Tests/ScorerTests.cs", """
+                    namespace Tool.Tests;
+                    public sealed class ScorerTests { [Fact] public void Scores() { Tool.Scorer.Score(); _ = new Tool.Key(); } }
+                    """),
+            })
+            {
+                var full = Path.Combine(root, path);
+                Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+                File.WriteAllText(full, text);
+            }
+
+            var records = RoslynCodeMapReader.Read(root, RoslynCodeMapReader.TrackedFiles(root)).Build("git:one").Records;
+
+            records.Single(r => r.Type == CodeMapPack.TestType).Links.Where(l => l.Relation == "CODEMAP_TESTS").Select(l => l.Target)
+                .Should().BeEquivalentTo(["scip-dotnet nuget Tool . Tool/Scorer#", "scip-dotnet nuget Tool . Tool/Key#"]);
+            records.Count(r => r.Type == CodeMapPack.TestType).Should().Be(1, "a linked file adds no tests");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
     /// CMP-2d: a test whose call goes through a NuGet package's type (an extension on a builder) links to the code it calls once
     /// the reader has the package's compile assembly, read from the obj/project.assets.json a restore leaves.
     /// </summary>

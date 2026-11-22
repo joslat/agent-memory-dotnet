@@ -1,6 +1,6 @@
 {
  "format": "agentmemory.guards.mutants-results/2",
- "commit": "f4378037",
+ "commit": "03b3e73e",
  "results": [
   {
    "id": "archive-ratio",
@@ -104,11 +104,11 @@
    "door": "neo4j expand",
    "mutant_sha256": "f8153e5f9ad844e3acc69cfae700ec7ff6af35574b155c89a423cf929e189b6a",
    "killed": true,
-   "file_sha256": "cf567f1d0eac734b948ebb0a5093c4cb0a8912d37a71a5663927888760adacb8",
+   "file_sha256": "0a924c2070243744078cebf4962eca1eb488e89b339c5f0e9e6d9102b553394d",
    "failed": [
     "Review8GuardTests.W2_neo4j_expansion_returns_narrow_rows_and_reads_whole_only_the_records_it_keeps"
    ],
-   "seconds": 7
+   "seconds": 9
   },
   {
    "id": "golden-drift",
@@ -492,11 +492,11 @@
    "door": "neo4j expand",
    "mutant_sha256": "06bc9feb7edb87af68275e85d1dd8020c77336669897bb0e36dfaaaafe871363",
    "killed": true,
-   "file_sha256": "cf567f1d0eac734b948ebb0a5093c4cb0a8912d37a71a5663927888760adacb8",
+   "file_sha256": "0a924c2070243744078cebf4962eca1eb488e89b339c5f0e9e6d9102b553394d",
    "failed": [
     "Review8GuardTests.W2_neo4j_expansion_returns_narrow_rows_and_reads_whole_only_the_records_it_keeps"
    ],
-   "seconds": 7
+   "seconds": 9
   },
   {
    "id": "walk-isolates-a-read",
@@ -504,11 +504,11 @@
    "door": "walk",
    "mutant_sha256": "92932e25f6fdb7b35a18ff635723806be4061ae24b2681a8e7afddd032b65146",
    "killed": true,
-   "file_sha256": "f54aee34a200d69e348eb552474010763293b8304be33a23f201738be5306ddb",
+   "file_sha256": "928f13aba027cf31cd11ccf9f3df1f993d1a68e8213981028f8d47f120fe8a56",
    "failed": [
     "TraversalBudgetTests.Review7_W2_one_module_s_failing_read_leaves_that_module_out_and_the_walk_goes_on"
    ],
-   "seconds": 7
+   "seconds": 21
   },
   {
    "id": "walk-server-deadline",
@@ -516,11 +516,11 @@
    "door": "neo4j read",
    "mutant_sha256": "7a2628d4943931e63b77627466fd258382040a3ff2587aa217850715d863ca53",
    "killed": true,
-   "file_sha256": "2377a0590056e94bafc3bed3775aa33d79847bd6b3d3ea4d399f795464d15b2c",
+   "file_sha256": "1be3f729d56265e932b0f69b8944987ec78fa56375d9e511ed49a37ec8413fe7",
    "failed": [
     "TraversalDeadlineTests.A_read_with_a_budget_runs_under_that_server_deadline_and_one_without_runs_as_before"
    ],
-   "seconds": 7
+   "seconds": 9
   },
   {
    "id": "path-one-pass",
@@ -552,11 +552,11 @@
    "door": "walk",
    "mutant_sha256": "308d4f4971295a7909df861bd04f291f365e10749cc8108d284971eaf5d976fa",
    "killed": true,
-   "file_sha256": "f54aee34a200d69e348eb552474010763293b8304be33a23f201738be5306ddb",
+   "file_sha256": "928f13aba027cf31cd11ccf9f3df1f993d1a68e8213981028f8d47f120fe8a56",
    "failed": [
     "WalkWorkBoundsTests.Review7_W7_the_walk_makes_the_fan_out_cut_whatever_a_store_returns_and_in_whatever_order"
    ],
-   "seconds": 7
+   "seconds": 19
   },
   {
    "id": "mount-plan-at-mount",
@@ -673,7 +673,7 @@
    "door": "serve",
    "mutant_sha256": "5c0b3d1f26ad0dd394db3d8309197cb2ae3ae5b41a80b20742a279eb2385785c",
    "killed": true,
-   "file_sha256": "50469eb17695fdea90c8043b560ae0a1be6d26639000dbc7e78915da7135418a",
+   "file_sha256": "f483a1ab62e01fde1cc7fc6f5d173cea33114123b338d6e0f7e83681be27b4de",
    "failed": [
     "AmpackLoaderTests.Review11_serve_holds_what_the_host_composes_whatever_the_packaging",
     "PackFamilyTests.Review11_serve_refuses_a_family_the_host_refuses"
@@ -723,11 +723,11 @@
    "door": "install",
    "mutant_sha256": "f1a700f453eba57cab9448c0a86c2c56c731475c8e38817eef80ec4651c15f76",
    "killed": true,
-   "file_sha256": "50469eb17695fdea90c8043b560ae0a1be6d26639000dbc7e78915da7135418a",
+   "file_sha256": "f483a1ab62e01fde1cc7fc6f5d173cea33114123b338d6e0f7e83681be27b4de",
    "failed": [
     "PackConsentTests.Review14_install_runs_the_snapshot_imports_serve_runs"
    ],
-   "seconds": 11
+   "seconds": 10
   },
   {
    "id": "profiles-file-match",
@@ -1208,7 +1208,7 @@
    "door": "serve",
    "mutant_sha256": "2215a3eaeb41881d315f77cc029e3b816c4499b590b15dd41bcb333424e5a73d",
    "killed": true,
-   "file_sha256": "50469eb17695fdea90c8043b560ae0a1be6d26639000dbc7e78915da7135418a",
+   "file_sha256": "f483a1ab62e01fde1cc7fc6f5d173cea33114123b338d6e0f7e83681be27b4de",
    "failed": [
     "RecordLifeTests.A_record_past_its_life_never_takes_a_live_neighbour_s_place_in_the_fan_out"
    ],
@@ -1270,11 +1270,11 @@
    "door": "serve",
    "mutant_sha256": "e21c5d5056e1e5a54b7933bb9a5cada34e6fe3dde0517ebce21fd96e0a4830a8",
    "killed": true,
-   "file_sha256": "50469eb17695fdea90c8043b560ae0a1be6d26639000dbc7e78915da7135418a",
+   "file_sha256": "f483a1ab62e01fde1cc7fc6f5d173cea33114123b338d6e0f7e83681be27b4de",
    "failed": [
     "ErasureTests.Memory_never_holds_an_erased_record_and_links_into_it_are_left_out"
    ],
-   "seconds": 13
+   "seconds": 10
   },
   {
    "id": "erasure-by-anyone",
@@ -1414,11 +1414,11 @@
    "door": "serve",
    "mutant_sha256": "ac969c611cde2f9e1986d8cc5be731c27e60cdcedc418f4f649062797f80f44b",
    "killed": true,
-   "file_sha256": "f54aee34a200d69e348eb552474010763293b8304be33a23f201738be5306ddb",
+   "file_sha256": "928f13aba027cf31cd11ccf9f3df1f993d1a68e8213981028f8d47f120fe8a56",
    "failed": [
     "PackMemoryTests.A_partly_admitted_pack_s_walk_follows_only_its_admitted_relations_and_offers_only_admitted_anchors"
    ],
-   "seconds": 11
+   "seconds": 16
   },
   {
    "id": "walk-offers-every-anchor",
@@ -1426,11 +1426,11 @@
    "door": "serve",
    "mutant_sha256": "282706dd8481d58497da3ea922df0205d21e0b96242ad0da525f616c99e40409",
    "killed": true,
-   "file_sha256": "f54aee34a200d69e348eb552474010763293b8304be33a23f201738be5306ddb",
+   "file_sha256": "928f13aba027cf31cd11ccf9f3df1f993d1a68e8213981028f8d47f120fe8a56",
    "failed": [
     "PackMemoryTests.A_partly_admitted_pack_s_walk_follows_only_its_admitted_relations_and_offers_only_admitted_anchors"
    ],
-   "seconds": 10
+   "seconds": 15
   },
   {
    "id": "shadow-contributes",
@@ -1836,7 +1836,7 @@
    "door": "serve",
    "mutant_sha256": "f2b3a83f70e77f336d6c8e219c4500693a91500b1fbd4212948cdf04bded3fcd",
    "killed": true,
-   "file_sha256": "50469eb17695fdea90c8043b560ae0a1be6d26639000dbc7e78915da7135418a",
+   "file_sha256": "f483a1ab62e01fde1cc7fc6f5d173cea33114123b338d6e0f7e83681be27b4de",
    "failed": [
     "PackResourcesTests.A_served_pack_answers_its_live_records_as_files_and_resources"
    ],
@@ -2168,11 +2168,11 @@
    "door": "serve",
    "mutant_sha256": "f7e3350fc491d8ab6786ac891280a09f9729c6c56b01c6e65da1f38248aa72f2",
    "killed": true,
-   "file_sha256": "50469eb17695fdea90c8043b560ae0a1be6d26639000dbc7e78915da7135418a",
+   "file_sha256": "f483a1ab62e01fde1cc7fc6f5d173cea33114123b338d6e0f7e83681be27b4de",
    "failed": [
     "ConfidenceTests.A_store_keeps_the_floor_before_its_limit_and_the_host_s_floor_reaches_it"
    ],
-   "seconds": 11
+   "seconds": 10
   },
   {
    "id": "memory-walk-seeds-below-the-floor",
@@ -2180,11 +2180,11 @@
    "door": "serve",
    "mutant_sha256": "09f2e73a4ee30875636406b729a413fa343e2e2d56c7fc29e6f4b91455369257",
    "killed": true,
-   "file_sha256": "50469eb17695fdea90c8043b560ae0a1be6d26639000dbc7e78915da7135418a",
+   "file_sha256": "f483a1ab62e01fde1cc7fc6f5d173cea33114123b338d6e0f7e83681be27b4de",
    "failed": [
     "ConfidenceTests.A_walk_neither_seeds_from_nor_offers_a_record_below_the_floor"
    ],
-   "seconds": 11
+   "seconds": 10
   },
   {
    "id": "walk-without-the-floor",
@@ -2192,11 +2192,11 @@
    "door": "serve",
    "mutant_sha256": "2ed8358d41bc666e9e1ed0bcf1e0bb90ae99904e39389539565e0612896b3897",
    "killed": true,
-   "file_sha256": "f54aee34a200d69e348eb552474010763293b8304be33a23f201738be5306ddb",
+   "file_sha256": "928f13aba027cf31cd11ccf9f3df1f993d1a68e8213981028f8d47f120fe8a56",
    "failed": [
     "ConfidenceTests.A_walk_neither_seeds_from_nor_offers_a_record_below_the_floor"
    ],
-   "seconds": 15
+   "seconds": 11
   },
   {
    "id": "snapshot-takes-trust",
@@ -2324,7 +2324,7 @@
    "door": "memory",
    "mutant_sha256": "837745dcc83c15215cdb4251c74ad6c53a9795049caa2896ecbe5a2c98fbded3",
    "killed": true,
-   "file_sha256": "50469eb17695fdea90c8043b560ae0a1be6d26639000dbc7e78915da7135418a",
+   "file_sha256": "f483a1ab62e01fde1cc7fc6f5d173cea33114123b338d6e0f7e83681be27b4de",
    "failed": [
     "PackConsentTests.Review7_W9_a_snapshot_whose_links_reach_a_dependency_that_holds_nothing_is_refused_as_the_store_refuses_it"
    ],
@@ -2336,11 +2336,11 @@
    "door": "definition",
    "mutant_sha256": "13014790f90d49e8a2247fb4e42e6b585d09a6468b4fbb8608449a88cb6517ec",
    "killed": true,
-   "file_sha256": "f54aee34a200d69e348eb552474010763293b8304be33a23f201738be5306ddb",
+   "file_sha256": "928f13aba027cf31cd11ccf9f3df1f993d1a68e8213981028f8d47f120fe8a56",
    "failed": [
     "WalkWorkBoundsTests.Review7_W8_a_record_that_may_not_take_part_neither_seeds_nor_steers"
    ],
-   "seconds": 16
+   "seconds": 15
   },
   {
    "id": "live-in-pack-memory",
@@ -2348,11 +2348,11 @@
    "door": "pack memory",
    "mutant_sha256": "3dfa47b6c585c0033755167ec87cd566da2e37d6b99afb0c8ab2b5630e606675",
    "killed": true,
-   "file_sha256": "50469eb17695fdea90c8043b560ae0a1be6d26639000dbc7e78915da7135418a",
+   "file_sha256": "f483a1ab62e01fde1cc7fc6f5d173cea33114123b338d6e0f7e83681be27b4de",
    "failed": [
     "Review8GuardTests.A4_a_pack_memory_walk_leaves_out_the_records_an_expired_carrier_brought"
    ],
-   "seconds": 11
+   "seconds": 10
   },
   {
    "id": "signed-before-countersign",

@@ -160,8 +160,8 @@ internal static class MessageQueries
             UNWIND messages AS msg
             WITH DISTINCT msg.id AS id
             MATCH (m:Message {id: id})
-            RETURN m
-            ORDER BY m.timestamp";
+            WITH m ORDER BY m.timestamp
+            RETURN m {.id, .conversation_id, .session_id, .role, .content, .timestamp, .invalidated_at, .tool_call_ids, .metadata} AS m";
 
     /// <summary>Create NEXT_MESSAGE link between two specific messages. MERGE (not CREATE) for the same
     /// idempotency guarantee as <see cref="LinkNextMessage"/>.</summary>

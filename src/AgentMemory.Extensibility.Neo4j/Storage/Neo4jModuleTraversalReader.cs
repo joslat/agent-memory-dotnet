@@ -148,15 +148,17 @@ public sealed class Neo4jModuleTraversalReader : IModuleTraversalReader
                 // Narrow rows streamed into the best fanOut per starting record, in the format's order (review 8, W2: every row came
                 // back whole and was held before the cut); only the records kept are then read whole, as the match read does.
                 var past = new Dictionary<string, string>(StringComparer.Ordinal);
-                var best = new Dictionary<string, List<(long Hits, int Degree, string Key, string Id)>>(StringComparer.Ordinal);
-                static int Order((long Hits, int Degree, string Key, string Id) a, (long Hits, int Degree, string Key, string Id) b) =>
+                var best = new Dictionary<string, List<(long Hits, int Degree, string Key, string Id, bool Changed)>>(StringComparer.Ordinal);
+                // The link state (CO-2c) rides along and orders nothing.
+                static int Order((long Hits, int Degree, string Key, string Id, bool) a, (long Hits, int Degree, string Key, string Id, bool) b) =>
                     b.Hits.CompareTo(a.Hits) is var h and not 0 ? h : a.Degree.CompareTo(b.Degree) is var d and not 0 ? d
                     : ModuleAnchorQuery.Order(a.Key, b.Key) is var k and not 0 ? k : ModuleAnchorQuery.Order(a.Id, b.Id);
-                void Trim(List<(long, int, string, string)> list)
+                void Trim(List<(long, int, string, string, bool)> list)
                 {
                     list.Sort(Order);
                     if (list.Count > fanOut) list.RemoveRange(fanOut, list.Count - fanOut);
                 }
+                var dangling = 0L;
                 await EachAsync(transaction, statement, new Dictionary<string, object?>(ValidAt(context))
                 {
                     ["owner"] = scope.HasOwnerFilter ? scope.OwnerId : null, ["shared"] = scope.IncludeShared, ["ids"] = ids,
@@ -168,9 +170,11 @@ public sealed class Neo4jModuleTraversalReader : IModuleTraversalReader
                 {
                     var from = row["fid"].As<string>();
                     if (row["links"].As<long>() > ModuleExpandQuery.MaximumLinks) { past.TryAdd(from, row["key"].As<string>()); return; }
-                    if (row["id"].As<object?>() is not string id) return;
+                    // A starting record's dangling links come on a row of their own, with no record (CO-2c).
+                    if (row["id"].As<object?>() is not string id) { dangling += row["dangling"].As<long?>() ?? 0; return; }
                     if (!best.TryGetValue(from, out var list)) best[from] = list = [];
-                    list.Add((row["hits"].As<long>(), (int)Math.Clamp(row["degree"].As<long>(), 1, int.MaxValue), row["rkey"].As<string>(), id));
+                    list.Add((row["hits"].As<long>(), (int)Math.Clamp(row["degree"].As<long>(), 1, int.MaxValue), row["rkey"].As<string>(), id,
+                        row["changed"].As<long?>() is > 0));
                     if (list.Count >= 2 * fanOut + 64) Trim(list);
                 }, cancellationToken).ConfigureAwait(false);
                 foreach (var list in best.Values) Trim(list);
@@ -182,12 +186,16 @@ public sealed class Neo4jModuleTraversalReader : IModuleTraversalReader
                     .ToDictionary(r => r.Id, StringComparer.Ordinal);
                 // In the order the starting records were given, each one's neighbours in the format's order.
                 var edges = ids.Where(best.ContainsKey).SelectMany(from => best[from].Where(e => byId.ContainsKey(e.Id))
-                    .Select(e => new ModuleTraversalEdge { FromId = from, To = byId[e.Id], Degree = e.Degree })).ToList();
+                    .Select(e => new ModuleTraversalEdge
+                    {
+                        FromId = from, To = byId[e.Id], Degree = e.Degree, State = e.Changed ? ModuleLinkState.Suspect : ModuleLinkState.Current,
+                    })).ToList();
                 return new ModuleTraversalStep
                 {
                     Status = ModuleReadStatus.Succeeded,
                     Edges = edges.AsReadOnly(),
                     Errors = [.. past.Values.Select(key => $"{key} has more than {ModuleExpandQuery.MaximumLinks} {relation.Name} links: not expanded.")],
+                    DanglingLinks = (int)Math.Min(dangling, int.MaxValue),
                 };
             }, query.Budget, cancellationToken).ConfigureAwait(false);
         }

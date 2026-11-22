@@ -37,12 +37,14 @@ native/speech/recipe/build-images.sh <speech-to-speech checkout with the memory 
   artifacts/native/cli agentmemory-speech-server:local agentmemory-speech-schema:local
 ```
 
-The speech server with the memory hooks is the branch `agentmemory/native-memory` of
-[github.com/joslat/speech-to-speech](https://github.com/joslat/speech-to-speech/tree/agentmemory/native-memory)
-(commit `eacc4cfc` is the one tested here), on top of the upstream commit `7dbbdaf`:
+The speech server with the memory hooks and the voice menu is the branch `agentmemory/native-memory-full` of
+[github.com/joslat/speech-to-speech](https://github.com/joslat/speech-to-speech/tree/agentmemory/native-memory-full)
+(commit `eacc4cfc` is the one tested here), on top of the upstream commit `7dbbdaf`. The branch
+`agentmemory/native-memory` is now the memory change alone, as offered upstream in
+[huggingface/speech-to-speech#860](https://github.com/huggingface/speech-to-speech/pull/860) (22 Nov 2026).
 
 ```bash
-git clone --branch agentmemory/native-memory https://github.com/joslat/speech-to-speech
+git clone --branch agentmemory/native-memory-full https://github.com/joslat/speech-to-speech
 ```
 
 The server image takes only committed code from the checkout (`git archive`) and records its commit as the image's

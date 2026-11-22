@@ -5,8 +5,8 @@ namespace AgentMemory.Core.Services;
 
 /// <summary>
 /// A bounded, thread-safe, least-recently-used map from embedding input text to its vector, shared by
-/// every orchestrator in a container. Sized by <see cref="MemoryOptions.EmbeddingCacheCapacity"/>;
-/// capacity 0 (the default) makes every call a miss and stores nothing.
+/// every orchestrator in a container. Sized by <see cref="MemoryOptions.EmbeddingCacheCapacity"/> (512 unless set, or
+/// none under strict multi-tenant isolation); capacity 0 makes every call a miss and stores nothing.
 /// </summary>
 internal sealed class EmbeddingVectorCache
 {
@@ -34,6 +34,16 @@ internal sealed class EmbeddingVectorCache
     public int Count
     {
         get { lock (_gate) return _index.Count; }
+    }
+
+    /// <summary>Forgets every remembered vector (the hit and miss counts stay). For a harness that measures each turn cold.</summary>
+    internal void Clear()
+    {
+        lock (_gate)
+        {
+            _index.Clear();
+            _recency.Clear();
+        }
     }
 
     public bool TryGet(string text, out float[] vector)

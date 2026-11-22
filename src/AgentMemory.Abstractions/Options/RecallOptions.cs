@@ -339,6 +339,15 @@ public sealed record RecallOptions
     public bool NamesakeFilter { get; init; }
 
     /// <summary>
+    /// Gives the places IBP-1 frees back to the next entities (IBP-1b). The prompt shows each entity line once: entities
+    /// that render alike (one thing stored as several, same name, type and description) fold into one line, and without
+    /// this the folded places stay empty. On: the entity search asks for up to twice <see cref="MaxEntities"/> (at most 16
+    /// more), folds the alike ones keeping the most relevant, and keeps <see cref="MaxEntities"/> distinct entities, so
+    /// recall returns more different things for the same limit. Off (default): recall returns what it returns today.
+    /// </summary>
+    public bool FillFoldedEntityPlaces { get; init; }
+
+    /// <summary>
     /// Reports aged-out memory as a stated absence when a fact section comes back thin. Default off,
     /// and off is byte-identical.
     /// </summary>

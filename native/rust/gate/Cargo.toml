@@ -1,0 +1,24 @@
+[package]
+name = "agentmemory-native-gate"
+description = "The Rust runner of the AgentMemory native library's shared conformance gate (native/gate/cases)."
+version.workspace = true
+edition.workspace = true
+# Not the workspace's 1.81: preserve_order brings indexmap 2.14 and hashbrown 0.17, which need 1.85.
+rust-version = "1.85"
+license.workspace = true
+repository.workspace = true
+publish = false
+build = "build.rs"
+
+# The binary lives in src/main.rs, not src/bin/: the repository's .gitignore ignores every bin/ folder.
+[[bin]]
+name = "gate"
+path = "src/main.rs"
+
+[dependencies]
+agentmemory-native.workspace = true
+# Keys keep their order, as the Python and TypeScript runners keep them.
+serde_json = { workspace = true, features = ["preserve_order"] }
+
+[lints]
+workspace = true

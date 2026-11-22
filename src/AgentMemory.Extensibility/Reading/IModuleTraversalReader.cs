@@ -143,6 +143,28 @@ public sealed record ModuleTraversalStep
     public IReadOnlyList<ModuleTraversalEdge> Edges { get; init; } = [];
     /// <summary>Refusal details.</summary>
     public IReadOnlyList<string> Errors { get; init; } = [];
+    /// <summary>
+    /// How many links of the starting records lead to a record whose key has no live version any more (closed after the link
+    /// was made, CO-2c): such a hop reaches nothing, so it is not among <see cref="Edges"/>, and it is counted here. Only an
+    /// outgoing hop can have one; an incoming hop starts from live records. 0 from a store that holds one version per key.
+    /// </summary>
+    public int DanglingLinks { get; init; }
+}
+
+/// <summary>
+/// The state of the link a hop followed (CO-2c), derived from the record versions a store keeps, never stored. A link stays on
+/// the source version that asserted it and points at the target version it was made against.
+/// </summary>
+[Experimental("AMEXT001")]
+public enum ModuleLinkState
+{
+    /// <summary>The link points at the target's live version.</summary>
+    Current = 0,
+    /// <summary>
+    /// The link points at an older version of the target: the target changed after the link was made, and its source has not
+    /// been written again since (a suspect link). The hop reaches the target's live version.
+    /// </summary>
+    Suspect = 1,
 }
 
 /// <summary>A reached live record and the record it was reached from.</summary>
@@ -159,4 +181,10 @@ public sealed record ModuleTraversalEdge
     /// twelve. At least 1.
     /// </summary>
     public int Degree { get; init; } = 1;
+    /// <summary>
+    /// The state of the link this hop followed (CO-2c): <see cref="ModuleLinkState.Suspect"/> when it points at an older version
+    /// of its target (for an outgoing hop, of the reached record; for an incoming hop, of the starting record). Read in the
+    /// same statement as the hop; it changes no ranking.
+    /// </summary>
+    public ModuleLinkState State { get; init; } = ModuleLinkState.Current;
 }

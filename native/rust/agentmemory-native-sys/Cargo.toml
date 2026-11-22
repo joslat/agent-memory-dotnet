@@ -1,0 +1,20 @@
+[package]
+name = "agentmemory-native-sys"
+description = "Raw declarations of the AgentMemory native library's C ABI 1.1, loaded at run time."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+publish.workspace = true
+readme = "../README.md"
+keywords = ["agentmemory", "ffi", "memory", "neo4j"]
+categories = ["external-ffi-bindings"]
+build = "build.rs"
+
+[dependencies]
+libloading.workspace = true
+
+[lints]
+workspace = true

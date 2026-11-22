@@ -3,8 +3,8 @@
 A platform package (agentmemory-native-<os>-<cpu>[-gnu]) carries the library, its MANIFEST.json and the licence and
 notice files, taken byte for byte from the wheel, so PyPI and npm ship the same library with the same manifest. The
 main package (agentmemory-native) is the TypeScript binding's build with exact optional dependencies on every platform
-package. Both stay "private": true until the owner decides the names and the npm account (NATIVE-TS-PUBLISH);
-`npm pack` works on them, `npm publish` does not.
+package. Publishable since the owner's go of 22 Nov 2026 (NATIVE-TS-PUBLISH: four platforms, with crash capture on
+Linux); the first upload is the owner's, from main's four-platform build.
 
     python npm_packages.py platform --wheel out/wheel/agentmemory_native-0.2.0-py3-none-win_amd64.whl --rid win-x64 --out out/npm
     python npm_packages.py main --out out/npm        # after npm run build in native/typescript
@@ -58,7 +58,6 @@ def platform_package(wheel: Path, rid: str, out: Path) -> Path:
     package = {
         "name": name,
         "version": ver,
-        "private": True,
         "description": f"The AgentMemory native library for {os_name} {cpu}, used by agentmemory-native. Install agentmemory-native instead.",
         "license": "MIT AND Apache-2.0",
         "os": [os_name],

@@ -237,10 +237,15 @@ internal sealed class EntityPersistence
     /// I-5: the name the user gave. This extraction's naming fact wins (the latest one in it); otherwise
     /// the owner's latest live stored one; otherwise none, and nothing is rewritten.
     /// </summary>
+    public Task<string?> FindUserNameAsync(
+        IReadOnlyList<PreparedFact> facts, string ownerId, CancellationToken cancellationToken = default) =>
+        FindUserNameAsync(facts.Select(f => f.Item), ownerId, cancellationToken);
+
+    /// <summary>The user's name: the one this turn states, else the latest stored, else null (best-effort).</summary>
     public async Task<string?> FindUserNameAsync(
-        IReadOnlyList<PreparedFact> facts, string ownerId, CancellationToken cancellationToken = default)
+        IEnumerable<ExtractedFact> facts, string ownerId, CancellationToken cancellationToken = default)
     {
-        var stated = facts.Select(f => f.Item).LastOrDefault(MemoryUserNames.IsNamingFact)?.Object;
+        var stated = facts.LastOrDefault(MemoryUserNames.IsNamingFact)?.Object;
         if (!string.IsNullOrWhiteSpace(stated)) return stated.Trim();
 
         // Best-effort: a failed lookup leaves the facts under the words used, it never fails the persist.
