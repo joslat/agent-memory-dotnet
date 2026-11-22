@@ -1,0 +1,156 @@
+{
+  "description": "Named values the cases refer to. Vectors match the seed (native/gate/seed/seed.cs) and the stubs (native/gate/stubs.py). Configurations are templates: {\"$config\": name, \"$with\": {pointer: value}, \"$without\": [pointer]}.",
+  "vectors": {
+    "near_axis_0": [
+      1.0,
+      0.1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "axis_2": [
+      0,
+      0,
+      1.0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "three_dimensions": [
+      1,
+      2,
+      3
+    ],
+    "two_dimensions": [
+      1,
+      2
+    ]
+  },
+  "configs": {
+    "read": {
+      "schemaVersion": 1,
+      "profile": "read_only",
+      "owner": {
+        "mode": "fixed",
+        "id": "gate-owner-a"
+      },
+      "store": {
+        "uri": {
+          "$var": "storeUri"
+        },
+        "username": {
+          "$var": "storeUser"
+        },
+        "password": {
+          "$var": "storePassword"
+        },
+        "verifyConnectivity": {
+          "$var": "verify"
+        }
+      },
+      "embedding": {
+        "dimensions": 8,
+        "model": "gate-unit-axes"
+      }
+    },
+    "readEmbedding": {
+      "schemaVersion": 1,
+      "profile": "read_only",
+      "owner": {
+        "mode": "fixed",
+        "id": "gate-owner-a"
+      },
+      "store": {
+        "uri": {
+          "$var": "storeUri"
+        },
+        "username": {
+          "$var": "storeUser"
+        },
+        "password": {
+          "$var": "storePassword"
+        },
+        "verifyConnectivity": {
+          "$var": "verify"
+        }
+      },
+      "embedding": {
+        "dimensions": 8,
+        "model": "gate-unit-axes",
+        "endpoint": {
+          "url": {
+            "$concat": [
+              {
+                "$var": "stubUrl"
+              },
+              "/axes/v1/embeddings"
+            ]
+          },
+          "apiKey": "gate-key",
+          "timeoutMs": 2000
+        }
+      }
+    },
+    "write": {
+      "schemaVersion": 1,
+      "profile": "explicit_write",
+      "owner": {
+        "mode": "fixed",
+        "id": "gate-writer-owner"
+      },
+      "store": {
+        "uri": {
+          "$var": "storeUri"
+        },
+        "username": {
+          "$var": "storeUser"
+        },
+        "password": {
+          "$var": "storePassword"
+        }
+      },
+      "embedding": {
+        "dimensions": 8,
+        "model": "stub-embedder",
+        "endpoint": {
+          "url": {
+            "$concat": [
+              {
+                "$var": "stubUrl"
+              },
+              "/letters/v1/embeddings"
+            ]
+          },
+          "timeoutMs": 5000
+        }
+      },
+      "writer": {
+        "model": "stub-writer",
+        "endpoint": {
+          "url": {
+            "$concat": [
+              {
+                "$var": "stubUrl"
+              },
+              "/v1/chat/completions"
+            ]
+          },
+          "timeoutMs": 30000
+        }
+      },
+      "state": {
+        "directory": {
+          "$var": "stateDir"
+        }
+      },
+      "limits": {
+        "defaultTimeoutMs": 20000
+      }
+    }
+  }
+}

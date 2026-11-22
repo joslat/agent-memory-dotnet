@@ -75,6 +75,15 @@ native/gate/run-gate.sh artifacts/native/neo4j.env artifacts/native/current/bin 
 distribution's Python and no .NET, and fingerprints the whole graph before and after: a read-only run must leave it
 unchanged.
 
+Most of the gate is data that every binding runs (NATIVE-GATE-SHARED): `gate/cases/*.json` describes each case as steps
+on the C ABI (open, submit, await, cancel, release, state, wait, close) with the results expected, tiers A (no store),
+B (the seeded read store) and C (writes). `gate/cases/FORMAT.md` is the format and the contract a runner keeps;
+`gate/runner/gate_runner.py` is the Python runner (`python native/gate/runner/gate_runner.py --tier B`), and the gate's
+unittest files run the cases after their own tests. The stub embedding and chat servers are one script,
+`gate/stubs.py`, which every language's runner starts. `gate/REQUIRED.md` lists what each binding tests in its own
+language (its loader, handles, async cancellation, memory bound) and what the Python harness tests once (the journal,
+crashes, LangGraph, the schema tier); `gate/check_mapping.py` proves every original test is one or the other.
+
 The explicit-write tests (`gate/writetests`) run on their own throw-away store, because they write:
 
 ```bash

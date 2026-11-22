@@ -87,6 +87,9 @@ jobs:
         if: runner.os == 'macOS'
         run: codesign -v --verbose=2 "out/bin/${{ matrix.library }}"
 
+      - name: Gate cases map every original test
+        run: python native/gate/check_mapping.py
+
       - name: Gate, tier A
         env:
           GATE_TIER: A
@@ -102,7 +105,7 @@ jobs:
             echo "### ${{ matrix.rid }}: gate tier A"
             echo
             echo '```'
-            grep -E ' \.\.\. (ok|skipped|FAIL|ERROR)' out/gate.log | sed -E 's/ \(test_gate\.[^)]*\)//' || true
+            grep -E ' \.\.\. (ok|skipped|FAIL|ERROR)' out/gate.log | sed -E 's/ \(test_[a-z_]*\.[^)]*\)//' || true
             tail -3 out/gate.log
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
