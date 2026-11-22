@@ -4,12 +4,14 @@
  * ones that recall from the seeded store.
  */
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { arch, platform, tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { Worker } from "node:worker_threads";
+import koffi from "koffi";
 import { JobAbortedError, MemoryClient, NativeCallError, NativeLibraryError, OpenError, Status, load, resolveLibrary, verifyAgainstManifest } from "../src/index.js";
+import { pinLibrary } from "../src/library.js";
 
 const TIER = (process.env.GATE_TIER ?? "A").toUpperCase();
 const STORE = TIER !== "A";
@@ -68,6 +70,55 @@ describe("REQUIRED.md: the binding's loader", () => {
 
   test("R-FREE-NULL: freeing a null buffer is a no-op", () => {
     load().am_v1_buffer_free(null);
+  });
+});
+
+/**
+ * A copy of a small system library to load and unload, and how to see whether a file is loaded in this process. Not the
+ * AgentMemory library: a second copy of it would start a second .NET runtime, whose threads outliving an unload is the
+ * crash this guards against. Undefined where there is no cheap way to look.
+ */
+function unloadProbe(): { source: string; extension: string; isLoaded: (path: string) => boolean } | undefined {
+  if (platform() === "linux") {
+    const triplet = `${arch() === "arm64" ? "aarch64" : "x86_64"}-linux-gnu`;
+    const source = [`/lib/${triplet}`, `/usr/lib/${triplet}`, "/lib64", "/usr/lib64", "/lib", "/usr/lib"]
+      .map((folder) => join(folder, "libz.so.1")).find(existsSync);
+    return source ? { source, extension: ".so", isLoaded: (path) => readFileSync("/proc/self/maps", "utf8").includes(path) } : undefined;
+  }
+  if (platform() === "win32") {
+    const source = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "version.dll");
+    if (!existsSync(source)) return undefined;
+    const getModuleHandle = koffi.load("kernel32.dll").func("void *__stdcall GetModuleHandleW(const char16_t *)");
+    return { source, extension: ".dll", isLoaded: (path) => getModuleHandle(path) !== null };
+  }
+  return undefined;
+}
+
+const PROBE = unloadProbe();
+
+describe("REQUIRED.md: the library is never unloaded", () => {
+  test("R-NEVER-UNLOAD: a pinned library stays loaded when koffi unloads it; an unpinned one does not",
+    { skip: !PROBE && `no small system library to copy and no cheap look at what is loaded on ${platform()} ${arch()}` }, () => {
+      const probe = PROBE!;
+      const folder = mkdtempSync(join(realpathSync(tmpdir()), "am-ts-pin-"));
+      const control = join(folder, `control${probe.extension}`);
+      const pinned = join(folder, `pinned${probe.extension}`);
+      copyFileSync(probe.source, control);
+      copyFileSync(probe.source, pinned);
+
+      const unpinnedLibrary = koffi.load(control);
+      assert.ok(probe.isLoaded(control), "the control copy is loaded");
+      unpinnedLibrary.unload();
+      assert.ok(!probe.isLoaded(control), "koffi unloads a library it loaded (else the check below would prove nothing)");
+
+      const pinnedLibrary = koffi.load(pinned);
+      assert.equal(pinLibrary(pinned), true, "the pin is taken");
+      pinnedLibrary.unload();
+      assert.ok(probe.isLoaded(pinned), "the pinned copy is still loaded after koffi unloaded it");
+    });
+
+  test("R-NEVER-UNLOAD: the binding pins the library it loads", () => {
+    assert.equal(load().pinned, true);
   });
 });
 

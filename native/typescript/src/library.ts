@@ -3,7 +3,7 @@
  *
  * The library is loaded from a known place only: an explicit path, else AGENTMEMORY_NATIVE_LIBRARY, else the platform
  * package of this binding (its `_native` folder, checked against its MANIFEST.json first). Nothing searches loader paths
- * or the working directory. A loaded library is never unloaded.
+ * or the working directory. A loaded library is never unloaded: it is pinned (pinLibrary), since koffi would unload it.
  */
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
@@ -17,6 +17,8 @@ import { NativeLibraryError } from "./errors.js";
 /** The library's functions, with BigInt handles. Output parameters are one-element arrays. */
 export interface NativeFunctions {
   readonly path: string;
+  /** Whether the library is pinned in memory until the process ends (pinLibrary); false when the pin failed. */
+  readonly pinned: boolean;
   am_v1_abi_version(): number;
   am_v1_open(abi: number, config: Uint8Array, length: number, outContext: unknown[], outError: unknown[], outErrorLength: unknown[]): number;
   am_v1_submit(context: bigint, request: Uint8Array, length: number, timeoutMs: number, outJob: unknown[]): number;
@@ -100,6 +102,61 @@ export function verifyAgainstManifest(path: string, manifest: Manifest): void {
   }
 }
 
+type Pin = (path: string) => boolean;
+let pin: Pin | null | undefined; // undefined until first needed; null when this platform offers none
+
+/** dlopen's flags: the library must already be loaded (never a second load), and no dlclose may unload it. */
+const DLOPEN: Record<string, { libraries: string[]; flags: number }> = {
+  // RTLD_NOW 0x2 | RTLD_NOLOAD 0x4 | RTLD_NODELETE 0x1000 (glibc). dlopen is in libc since glibc 2.34, libdl before.
+  linux: { libraries: ["libc.so.6", "libdl.so.2"], flags: 0x2 | 0x4 | 0x1000 },
+  // RTLD_NOW 0x2 | RTLD_NOLOAD 0x10 | RTLD_NODELETE 0x80.
+  darwin: { libraries: ["/usr/lib/libSystem.B.dylib"], flags: 0x2 | 0x10 | 0x80 },
+};
+
+function makePin(): Pin | null {
+  if (platform() === "win32") {
+    // GET_MODULE_HANDLE_EX_FLAG_PIN: the module stays loaded until the process ends, however often FreeLibrary runs.
+    const getModuleHandleEx = koffi.load("kernel32.dll").func(
+      "int __stdcall GetModuleHandleExW(uint32_t, const char16_t *, _Out_ void **)",
+    ) as KoffiCall;
+    // It compares the path with the names of loaded modules, which use backslashes.
+    return (path) => getModuleHandleEx(0x1, path.replace(/\//g, "\\"), [null]) !== 0;
+  }
+  const dl = DLOPEN[platform()];
+  for (const library of dl?.libraries ?? []) {
+    try {
+      const dlopen = koffi.load(library).func("void *dlopen(const char *, int)") as KoffiCall;
+      // The handle is never passed to dlclose: it is the reference that keeps the library loaded.
+      return (path) => dlopen(path, dl!.flags) !== null;
+    } catch {
+      // the next library, or none
+    }
+  }
+  return null;
+}
+
+/**
+ * Keeps a library this process has loaded in memory until the process ends, whatever closes it: koffi unloads a library
+ * when the last reference to it goes, which Node's teardown of the environment brings about as the process exits. The
+ * AgentMemory library's .NET runtime keeps threads of its own that outlive that, and one that woke in unmapped code
+ * crashed the process (SIGSEGV after all its work, NATIVE-TS-EXIT-ARM). Python's ctypes and the Rust crate never close
+ * it. Best effort: false when the pin could not be taken. Never loads a library that is not loaded already.
+ */
+export function pinLibrary(path: string): boolean {
+  if (pin === undefined) {
+    try {
+      pin = makePin();
+    } catch {
+      pin = null;
+    }
+  }
+  try {
+    return pin !== null && pin(path);
+  } catch {
+    return false;
+  }
+}
+
 const loaded = new Map<string, NativeFunctions>();
 let openSslPreloaded = false;
 
@@ -118,6 +175,10 @@ function preloadSystemOpenSsl(): void {
     try {
       koffi.load(crypto, { deep: true });
       koffi.load(ssl, { deep: true });
+      // Their koffi handles are dropped here, and koffi closes a library once nothing refers to it: pinned, or a
+      // collection could unload them before .NET first uses TLS and .NET would load copies without DEEPBIND.
+      pinLibrary(crypto);
+      pinLibrary(ssl);
       return;
     } catch {
       // the next pair, or none
@@ -143,6 +204,8 @@ export function load(explicit?: string): NativeFunctions {
         `AGENTMEMORY_NATIVE_LIBRARY to a library built for it.`,
     );
   }
+  // Before any of its functions is called: once its .NET runtime has started, its threads must never lose their code.
+  const pinned = pinLibrary(resolved.path);
   const optional = (definition: string): KoffiCall | undefined => {
     try {
       return lib.func(definition) as KoffiCall;
@@ -160,6 +223,7 @@ export function load(explicit?: string): NativeFunctions {
   const wait = optional("int32_t am_v1_wait(uint64_t, uint32_t, _Out_ uint64_t *)") as NativeFunctions["am_v1_wait"];
   const functions: NativeFunctions = {
     path: resolved.path,
+    pinned,
     am_v1_abi_version: version as () => number,
     am_v1_open: lib.func("int32_t am_v1_open(uint32_t, const uint8_t *, size_t, _Out_ uint64_t *, _Out_ void **, _Out_ size_t *)") as any,
     am_v1_submit: lib.func("int32_t am_v1_submit(uint64_t, const uint8_t *, size_t, uint32_t, _Out_ uint64_t *)") as any,

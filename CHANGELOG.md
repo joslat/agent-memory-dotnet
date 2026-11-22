@@ -151,6 +151,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Native library, TypeScript binding: a Node process could crash (SIGSEGV) as it exited, after all its work had
+  succeeded. It was rare, and seen on Linux ARM. As Node shut down, koffi unloaded the library while threads of its
+  .NET runtime were still running, and one of them woke in code that was no longer there. The binding now pins the
+  library when it loads it, so it stays loaded until the process ends, as in the Python and Rust bindings.
+
 - A question that names a past time no longer loses its whole recall when event or person details are on (the
   identity presets' recall for people and events). `ResolveTemporalQueries` turns such a question into an as-of
   recall, which refuses those two options because they expand identity as it is now; the host had asked for live
