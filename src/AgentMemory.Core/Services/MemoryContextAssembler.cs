@@ -1031,6 +1031,13 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
             fanOutLegs = fanOut.Legs;
         }
 
+        // RECALL-NAMESAKE-LEAK: once the fact and message sections are final (fan-out included) and before the budget, the
+        // items about a namesake of the one the question means leave. Off by default, and then nothing is read.
+        if (includeMemory && recallOpts.NamesakeFilter)
+            (facts, factScores, relevantMessages, relevantMessageScores) = await DropNamesakesAsync(request.Question ?? request.Query,
+                facts, factScores, relevantMessages, relevantMessageScores, scope, cancellationToken,
+                Remaining(recallOpts.LatencyBudget, budgetClock)).ConfigureAwait(false);
+
         // Apply context budget if configured
         var budget = _options.ContextBudget;
         bool truncated = false;

@@ -2276,6 +2276,71 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
             .Should().BeEquivalentTo(["the designer on Atlas"], "the niece's school is not the designer's");
     }
 
+    /// <summary>
+    /// RECALL-NAMESAKE-LEAK (IKB-3): the dog and the sister's cat both called Luna, the designer Valentina Ríos ("Vale") and
+    /// the niece Valentina, each stored through ingestion from its own turn. Every item has the same vector, so similarity
+    /// cannot tell them apart, as in the run.
+    /// </summary>
+    private async Task<IServiceProvider> NamesakesStored(IServiceScope scope)
+    {
+        var services = scope.ServiceProvider;
+        var turns = new (string Id, string Text, UnifiedExtractionResult Input)[]
+        {
+            ("turn-dog", "My dog Luna is a border collie.", new() { Entities = [new() { Name = "Luna", Type = "ANIMAL", Confidence = 1 }],
+                Facts = [new() { Subject = "Luna", Predicate = "is", Object = "a border collie", Confidence = 1 },
+                         new() { Subject = "Luna", Predicate = "had", Object = "knee surgery in May", Confidence = 1 }] }),
+            ("turn-cat", "My sister's cat is also called Luna, a grey Persian.", new() { Entities = [new() { Name = "Luna", Type = "ANIMAL", Confidence = 1 }],
+                Facts = [new() { Subject = "Luna", Predicate = "is", Object = "a grey Persian", Confidence = 1 },
+                         new() { Subject = "Luna", Predicate = "sleeps on", Object = "the sofa", Confidence = 1 }] }),
+            ("turn-designer", "Valentina Ríos is the designer on Atlas.", new() { Entities = [new() { Name = "Valentina Ríos", Type = "PERSON", Confidence = 1 }],
+                Facts = [new() { Subject = "Valentina Ríos", Predicate = "is", Object = "the designer on Atlas", Confidence = 1 },
+                         new() { Subject = "Valentina Ríos", Predicate = "moved to", Object = "the Madrid office", Confidence = 1 }] }),
+            ("turn-niece", "My niece Valentina started school this year, she is six.", new() { Entities = [new() { Name = "Valentina", Type = "PERSON", Confidence = 1 }],
+                Facts = [new() { Subject = "Valentina", Predicate = "started", Object = "school this year", Confidence = 1 },
+                         new() { Subject = "Valentina", Predicate = "lost", Object = "her first tooth", Confidence = 1 }] }),
+        };
+        foreach (var (id, text, _) in turns)
+            await fixture.TransactionRunner.WriteAsync(async runner => { await runner.RunAsync(
+                "MATCH (c:Conversation {id:'conversation'}) CREATE (m:Message {id:$id, conversation_id:'conversation', content:$text, session_id:'scenario', " +
+                "role:'user', timestamp:datetime('2026-11-09T12:00:00Z')}), (c)-[:HAS_MESSAGE]->(m)",
+                new { id, text }); });
+        foreach (var (id, text, input) in turns)
+            await Ingest(services, input, messageId: id, content: text);
+        // Vale is the designer's nickname, kept on her.
+        await fixture.TransactionRunner.WriteAsync(async runner => { await runner.RunAsync(
+            "MATCH (e:Entity {name:'Valentina Ríos', owner_id:'pablito'}) SET e.aliases = coalesce(e.aliases, []) + ['Vale']"); });
+        (await Count("(e:Entity {name:'Luna'})")).Should().Be(2, "precondition: identity keeps the two animals apart");
+        (await Count("(e:Entity) WHERE e.name STARTS WITH 'Valentina'")).Should().Be(2, "precondition: the niece and the designer are two");
+        return services;
+    }
+
+    private static async Task<IReadOnlyList<string>> RecalledFacts(IServiceProvider services, string question, bool filter)
+    {
+        var context = await services.GetRequiredService<IMemoryContextAssembler>().AssembleContextAsync(new RecallRequest
+        {
+            // Its own session: the class's other messages are made without what a recent-messages read needs.
+            SessionId = "recall", UserId = "pablito", Query = question,
+            Options = RecallOptions.Default with { MaxFacts = 20, NamesakeFilter = filter },
+        });
+        return context.RelevantFacts.Items.Select(f => f.Object).ToList();
+    }
+
+    [Theory]
+    [InlineData("How old is my dog, and what happened to her knee?", "knee surgery in May", "a grey Persian", "the sofa")]
+    [InlineData("What is new with my niece?", "school this year", "the Madrid office", "the designer on Atlas")]
+    [InlineData("What has Vale been working on, and where is she now?", "the Madrid office", "her first tooth", "school this year")]
+    public async Task RECALL_NAMESAKE_LEAK_a_namesake_s_facts_stay_out_of_recall(string question, string kept, string leak1, string leak2)
+    {
+        using var host = Host(conversationalPolicies: true); using var scope = host.CreateScope();
+        var services = await NamesakesStored(scope);
+
+        var without = await RecalledFacts(services, question, filter: false);
+        without.Should().Contain([kept, leak1, leak2], "off, recall takes both namesakes' facts, as IKB-3 found");
+
+        var with = await RecalledFacts(services, question, filter: true);
+        with.Should().Contain(kept).And.NotContain(leak1).And.NotContain(leak2);
+    }
+
     [Fact]
     public async Task P231A_F1_after_a_merge_a_shared_nickname_still_names_two_people()
     {

@@ -53,7 +53,33 @@ internal static class IdentityRelationCue
     /// The relations the turn gives the mention: "my|our [one word] REL NAME", "NAME, my|our REL", "NAME is my|our REL"
     /// and "NAME (my|our REL)", for each word of the mention's names that the text contains.
     /// </summary>
-    public static IReadOnlySet<string> InTurn(string text, IEnumerable<string> names)
+    public static IReadOnlySet<string> InTurn(string text, IEnumerable<string> names) => Collect(text, names, describes: false);
+
+    /// <summary>
+    /// RECALL-NAMESAKE-LEAK: what a text says a name is, whoever it belongs to: the speaker's relations of <see cref="InTurn"/>
+    /// and also "X's REL NAME" ("my sister's cat Luna"), "REL [is] [also] called|named NAME" ("cat is also called Luna") and
+    /// "NAME is|was the|a REL" ("Valentina Ríos is the designer on Atlas"). Read from an entity's own source messages.
+    /// </summary>
+    public static IReadOnlySet<string> InText(string text, IEnumerable<string> names) => Collect(text, names, describes: true);
+
+    /// <summary>RECALL-NAMESAKE-LEAK: the relations a question names for the speaker, with or without a name ("my dog", "our niece").</summary>
+    public static IReadOnlySet<string> InQuestion(string question)
+    {
+        var found = new HashSet<string>(StringComparer.Ordinal);
+        if (string.IsNullOrWhiteSpace(question)) return found;
+        foreach (Match m in Regex.Matches(question, @"\b(?:my|our)\s+(?<a>[\p{L}-]+)(?:\s+(?<b>[\p{L}-]+))?",
+                     RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(50)))
+            Add(found, m);
+        return found;
+    }
+
+    private static void Add(HashSet<string> found, Match m)
+    {
+        foreach (var group in new[] { "a", "b" })
+            if (m.Groups[group].Success && Words.TryGetValue(m.Groups[group].Value, out var rel)) found.Add(rel);
+    }
+
+    private static IReadOnlySet<string> Collect(string text, IEnumerable<string> names, bool describes)
     {
         var found = new HashSet<string>(StringComparer.Ordinal);
         if (string.IsNullOrWhiteSpace(text)) return found;
@@ -66,18 +92,23 @@ internal static class IdentityRelationCue
             var n = Regex.Escape(name);
             // Up to two words after "my": the relation may follow one other word ("my little niece"), so both are looked up.
             const string two = @"(?<a>[\p{L}-]+)(?:\s+(?<b>[\p{L}-]+))?";
-            foreach (var pattern in new[]
+            var patterns = new List<string>
             {
                 $@"\b(?:my|our)\s+(?<a>[\p{{L}}-]+)\s+(?:(?<b>[\p{{L}}-]+)\s+)?{n}\b",
                 $@"\b{n}\s*,\s*(?:my|our)\s+{two}",
                 $@"\b{n}\s+(?:is|was)\s+(?:my|our)\s+{two}",
                 $@"\b{n}\s*\(\s*(?:my|our)\s+{two}",
-            })
-            {
+            };
+            if (describes)
+                patterns.AddRange(
+                [
+                    $@"\b[\p{{L}}]+['’]s\s+(?<a>[\p{{L}}-]+)\s+(?:(?<b>[\p{{L}}-]+)\s+)?{n}\b",
+                    $@"\b(?<a>[\p{{L}}-]+)\s+(?:is\s+)?(?:also\s+)?(?:called|named)\s+{n}\b",
+                    $@"\b{n}\s+(?:is|was)\s+(?:the|a|an)\s+{two}",
+                ]);
+            foreach (var pattern in patterns)
                 foreach (Match m in Regex.Matches(text, pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(50)))
-                    foreach (var group in new[] { "a", "b" })
-                        if (m.Groups[group].Success && Words.TryGetValue(m.Groups[group].Value, out var rel)) found.Add(rel);
-            }
+                    Add(found, m);
         }
         return found;
     }
@@ -86,11 +117,13 @@ internal static class IdentityRelationCue
     /// What a stored candidate is already known to be: the listed words in its description, aliases and subtype, and in what
     /// its own facts say it is (<see cref="IdentityCandidate.KnownAs"/>).
     /// </summary>
-    public static IReadOnlySet<string> Known(IdentityCandidate candidate)
+    public static IReadOnlySet<string> Known(IdentityCandidate candidate) => Known(candidate.Entity, candidate.KnownAs);
+
+    /// <summary>The listed words in an entity's description, aliases and subtype, and in the phrases its facts give.</summary>
+    public static IReadOnlySet<string> Known(Entity entity, IEnumerable<string> knownAs)
     {
-        var entity = candidate.Entity;
         var found = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var text in new[] { entity.Description, entity.Subtype }.Concat(entity.Aliases).Concat(candidate.KnownAs))
+        foreach (var text in new[] { entity.Description, entity.Subtype }.Concat(entity.Aliases).Concat(knownAs))
         {
             if (string.IsNullOrWhiteSpace(text)) continue;
             foreach (Match m in Token.Matches(text))

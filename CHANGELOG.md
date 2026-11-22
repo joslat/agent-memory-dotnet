@@ -107,6 +107,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stops the others from being sent; the first failure in the sub-questions' order is still the one thrown. The
   AppContext switch `AgentMemory.Recall.FanOutSearchesInTurn` restores one search at a time.
 
+- `RecallOptions.NamesakeFilter` keeps a namesake's facts and messages out of recall. "How old is my dog?" no longer
+  brings the facts of the sister's cat, also called Luna; "What is new with my niece?" no longer brings the designer
+  Valentina's move to Madrid. When the recalled items are about two entities that share a name, and the question picks
+  out one of them by a relation it names ("my dog") or a spelling only that one has ("Vale"), the items about a
+  namesake known as something else are dropped. What an entity is known as comes from its description, its own facts
+  and its source messages ("my sister's cat is also called Luna"). A namesake with no known role is kept, and so is an
+  item also about the one meant. One bounded read, and only when on: off by default, since the presets are frozen for
+  the major version.
+
 - A read of one statement is sent without a transaction of its own: two round trips to the store instead of four
   (begin, the statement, commit and reset). It covers the reads of recall (the similarity searches and the reads that
   widen them, recent messages, the profile block, due facts and the look-ahead, person and event details,

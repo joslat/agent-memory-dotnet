@@ -116,6 +116,10 @@ public sealed class AsOfRecallDivergenceTests
         // point-in-time form: following a connection inside a reconstruction of March would add today's facts about
         // the person. Recorded here until the subject read takes the two clocks.
         "MaxConnectionFacts",
+        // RECALL-NAMESAKE-LEAK, live path only. What an entity is known as is read from its facts and messages as they are now,
+        // so inside a reconstruction of March it could drop an item by a role learned later. Recorded here until those reads
+        // take the two clocks.
+        "NamesakeFilter",
     ];
 
     [Fact]
