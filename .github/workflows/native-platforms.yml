@@ -167,6 +167,44 @@ jobs:
         with:
           node-version: 24
 
+      # NATIVE-TS: the same build under Bun (Linux and macOS) and Deno (Linux), as the plan asks. Reported, not yet
+      # required: the first runs say whether koffi and the library work there.
+      - name: Setup Bun
+        if: runner.os != 'Windows'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.5
+
+      - name: TypeScript binding, tier A on Bun
+        if: runner.os != 'Windows'
+        continue-on-error: true
+        working-directory: native/typescript
+        env:
+          GATE_TIER: A
+          AGENTMEMORY_NATIVE_LIBRARY: ${{ github.workspace }}/out/bin/${{ matrix.library }}
+        run: |
+          bun --version
+          bun dist/gate/runner.js --tier A | tee ../../out/typescript-tier-a-bun.log
+          { echo "### ${{ matrix.rid }}: TypeScript, tier A, Bun"; echo; echo '```'; tail -3 ../../out/typescript-tier-a-bun.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Setup Deno
+        if: runner.os == 'Linux'
+        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: v2.9.8
+
+      - name: TypeScript binding, tier A on Deno
+        if: runner.os == 'Linux'
+        continue-on-error: true
+        working-directory: native/typescript
+        env:
+          GATE_TIER: A
+          AGENTMEMORY_NATIVE_LIBRARY: ${{ github.workspace }}/out/bin/${{ matrix.library }}
+        run: |
+          deno --version
+          deno run --allow-all dist/gate/runner.js --tier A | tee ../../out/typescript-tier-a-deno.log
+          { echo "### ${{ matrix.rid }}: TypeScript, tier A, Deno"; echo; echo '```'; tail -3 ../../out/typescript-tier-a-deno.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Timings
         env:
           PYTHONPATH: native/python
