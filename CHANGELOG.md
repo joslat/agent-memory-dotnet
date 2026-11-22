@@ -151,6 +151,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A question that names a past time no longer loses its whole recall when event or person details are on (the
+  identity presets' recall for people and events). `ResolveTemporalQueries` turns such a question into an as-of
+  recall, which refuses those two options because they expand identity as it is now; the host had asked for live
+  recall, so the context came back empty ("Which Córdoba am I flying to in May?" in every who's-who run). The routed
+  recall now leaves the two out and records it on the span (`memory.recall.as_of_without`). An explicit as-of call
+  that asks for them is still refused.
+
 - Code map (Roslyn reader): a test project that compiles another project's files itself (`<Compile Include="../../tools/…">`)
   now links its tests to those files' types, recorded under the project the files live in. Before, each file went to
   its folder's project only, so such tests linked to nothing (here, 46 tests of the scenario tool's scorers).

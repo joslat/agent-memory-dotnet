@@ -147,6 +147,7 @@ internal sealed class MemoryService : IMemoryService
             // an empty context, silently, for every past question. Belief reconstruction is opt-in.
             var bindsTransactionClock = _options.TemporalQueryClocks == TemporalQueryClocks.ValidAndTransactionTime;
             var systemAsOf = bindsTransactionClock ? asOf : temporalReference;
+            request = WithoutLiveOnlyDetails(request, activity);
             return await RecallAsOfCoreAsync(
                     request, asOf, systemAsOf, activity, cancellationToken, resolvedFromQuery: asOf,
                     transactionClockIsNow: !bindsTransactionClock, routed: routed)
@@ -382,6 +383,24 @@ internal sealed class MemoryService : IMemoryService
         }
         // Single-clock recall == bitemporal recall with both clocks equal (D6): default systemAsOf to asOf.
         return await RecallAsOfCoreAsync(request, asOf, systemAsOf ?? asOf, activity, cancellationToken, routed: routed).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// IKB-TIER2-CONFIRM (22 Nov 2026): the temporal route turns a live request into an as-of one, and the as-of assembler
+    /// refuses <see cref="RecallOptions.EventDetails"/> and <see cref="RecallOptions.PersonDetails"/> (they expand identity
+    /// as it is now and have no as-of form). Every tier 2 run lost its whole context to that on "which Córdoba am I flying
+    /// to in May?". A request the route made as-of drops the two and says so on the span; a caller who asks for as-of with
+    /// them still gets the refusal.
+    /// </summary>
+    private RecallRequest WithoutLiveOnlyDetails(RecallRequest request, System.Diagnostics.Activity? activity)
+    {
+        var effective = MemoryContextAssembler.EffectiveRecall(request.Options, _options.Recall);
+        if (effective.EventDetails != true && effective.PersonDetails != true) return request;
+        activity?.SetTag("memory.recall.as_of_without",
+            string.Join(',', new[] { effective.EventDetails == true ? "event_details" : null, effective.PersonDetails == true ? "person_details" : null }
+                .Where(name => name is not null)));
+        _logger.LogDebug("The question names a past time; event and person details apply to live recall only and are left out.");
+        return request with { Options = effective with { EventDetails = false, PersonDetails = false } };
     }
 
     private async Task<RecallResult> RecallAsOfCoreAsync(
