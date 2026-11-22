@@ -202,6 +202,13 @@ internal sealed class PersistenceStage : IPersistenceStage
                     _clock.GetUtcNow()),
             };
 
+        // USER-RELATION-DROP (22 Nov 2026). A relationship to the owner anchors on the owner's named person; until a name is
+        // known there is none, and "Theo -[BROTHER_OF]-> user" was skipped and lost. Kept instead as the fact "Theo |
+        // brother of | user", which recall's connections follow; before preparation, so it is embedded like any fact.
+        if (_identity?.Enabled != true && !string.IsNullOrWhiteSpace(ownerId) &&
+            extraction.FilteredRelationships.Any(UserRelationFacts.ToUser))
+            extraction = await KeepUnanchoredUserRelationsAsync(extraction, ownerId!, cancellationToken).ConfigureAwait(false);
+
         if (_identity?.Enabled == true) _identity.AssertOwnsTransactionBoundary();
         if (_identity?.Enabled == true && extraction.FilteredRelationships.Count > 0 && extraction.IdentityRelationships.Count == 0)
             throw new InvalidOperationException("Identity relationship observations must be frozen by the extraction stage before persistence.");
@@ -304,6 +311,37 @@ internal sealed class PersistenceStage : IPersistenceStage
     }
 
     private sealed class ReplayBestEffortPersistenceException : Exception;
+
+    /// <summary>
+    /// USER-RELATION-DROP: with no name for the owner (stated in this turn or stored), each relationship to the owner
+    /// becomes a fact ("Theo | brother of | user") instead of an edge that has nothing to anchor on. A triple the turn
+    /// already states as a fact is not added twice. With a name, nothing changes: the edge anchors on the named person.
+    /// </summary>
+    private async Task<ExtractionStageResult> KeepUnanchoredUserRelationsAsync(
+        ExtractionStageResult extraction, string ownerId, CancellationToken cancellationToken)
+    {
+        if (_options.ResolveUserToName &&
+            await _entityPersistence.FindUserNameAsync(extraction.FilteredFacts, ownerId, cancellationToken).ConfigureAwait(false) is not null)
+            return extraction;
+
+        var facts = extraction.FilteredFacts.ToList();
+        var stated = facts.Select(fact => FactNames.CanonicalTripleKey(fact.Subject, fact.Predicate, fact.Object))
+            .ToHashSet(StringComparer.Ordinal);
+        var relationships = new List<ExtractedRelationship>(extraction.FilteredRelationships.Count);
+        foreach (var relationship in extraction.FilteredRelationships)
+        {
+            if (!UserRelationFacts.ToUser(relationship))
+            {
+                relationships.Add(relationship);
+                continue;
+            }
+            var fact = UserRelationFacts.AsFact(relationship);
+            if (stated.Add(FactNames.CanonicalTripleKey(fact.Subject, fact.Predicate, fact.Object))) facts.Add(fact);
+            _logger.LogDebug("Relationship '{Source}-{Type}->{Target}' kept as a fact: the owner has no name to anchor it on yet.",
+                relationship.SourceEntity, relationship.RelationshipType, relationship.TargetEntity);
+        }
+        return extraction with { FilteredFacts = facts, FilteredRelationships = relationships };
+    }
 
     /// <summary>
     /// R2. One applied-once write: the judge before the transaction, then every effect, the writer's confirmations and the

@@ -306,14 +306,18 @@ public sealed class UserNameResolutionTests
     }
 
     [Fact]
-    public async Task Without_a_known_person_a_relationship_from_user_is_skipped_as_before()
+    public async Task Without_a_known_name_a_relationship_from_user_is_kept_as_a_fact()
     {
+        // USER-RELATION-DROP (22 Nov 2026): it was skipped, and lost; the owner decided it is kept (UserRelationKeptAsFactTests).
         var (sut, relationships, _) = WithRelationships(resolve: true);
+        var stored = new List<Fact>();
+        _facts.UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>()).Returns(call => { stored.Add(call.Arg<Fact>()); return call.Arg<Fact>(); });
 
         var result = await sut.PersistAsync(WorksAt(), ownerId: "owner-1", cancellationToken: CancellationToken.None);
 
         await relationships.DidNotReceiveWithAnyArgs().UpsertAsync(default!, default);
-        result.Outcomes.Should().Contain(o => o.Kind == MemoryItemKind.Relationship && o.Status == IngestionItemStatus.Skipped);
+        stored.Should().ContainSingle(f => f.Subject == "user" && f.Predicate == "works at" && f.Object == "Northwind");
+        result.Outcomes.Should().NotContain(o => o.Kind == MemoryItemKind.Relationship && o.Status == IngestionItemStatus.Skipped);
     }
 
     // ---- the prompt side: every extractor rung asks for the name, or none changes ----

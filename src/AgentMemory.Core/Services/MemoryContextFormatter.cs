@@ -243,7 +243,10 @@ internal static class MemoryContextFormatter
     /// once, the first, most relevant, kept; namesakes that differ in type or description keep their own lines.
     /// </summary>
     internal static IReadOnlyList<Entity> OncePerLine(IReadOnlyList<Entity> entities) =>
-        entities.Count < 2 ? entities : entities.DistinctBy(DescribeEntity, StringComparer.OrdinalIgnoreCase).ToList();
+        entities.Count < 2 ? entities : entities.DistinctBy(EntityLine, StringComparer.OrdinalIgnoreCase).ToList();
+
+    /// <summary>The line an entity renders as; two entities with the same line read as one (IBP-1, IBP-1b).</summary>
+    internal static string EntityLine(Entity e) => DescribeEntity(e);
 
     private static string DescribeEntity(Entity e) =>
         string.IsNullOrWhiteSpace(e.Description) ? $"- {e.Name} ({e.Type})" : $"- {e.Name} ({e.Type}) — {e.Description}";

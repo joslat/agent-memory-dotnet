@@ -697,11 +697,11 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
 
             var entitiesTask = searchEntities && scoredLongTerm is null
                 ? TimedAsync("memory.recall.entities",
-                    () => _longTerm.SearchEntitiesAsync(queryEmbedding, recallOpts.MaxEntities, minScore, scope, cancellationToken))
+                    () => _longTerm.SearchEntitiesAsync(queryEmbedding, EntitySearchLimit(recallOpts), minScore, scope, cancellationToken))
                 : Empty<Entity>();
             var entitiesScoredTask = searchEntities && scoredLongTerm is not null
                 ? TimedAsync("memory.recall.entities",
-                    () => scoredLongTerm!.SearchEntitiesWithScoresAsync(queryEmbedding, recallOpts.MaxEntities, minScore, scope, cancellationToken))
+                    () => scoredLongTerm!.SearchEntitiesWithScoresAsync(queryEmbedding, EntitySearchLimit(recallOpts), minScore, scope, cancellationToken))
                 : null;
 
             var preferencesTask = searchPreferences && scoredLongTerm is null
@@ -873,6 +873,7 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
                 entityScores = await entitiesScoredTask.ConfigureAwait(false);
                 entities = entityScores.Select(static scored => scored.Entity).ToArray();
             }
+            (entities, entityScores) = FillFoldedEntityPlaces(recallOpts, entities, entityScores);
 
             if (preferencesScoredTask is null)
             {
@@ -1394,10 +1395,10 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         if (overrideRanking) _rankingContext!.Current = _options.Ranking.ForIntent(recallOpts.Intent);
 
         var entitiesTask = searchEntities && scoredLongTerm is null
-            ? _longTerm.SearchEntitiesAsOfAsync(queryEmbedding, systemAsOf, recallOpts.MaxEntities, minScore, scope, cancellationToken)
+            ? _longTerm.SearchEntitiesAsOfAsync(queryEmbedding, systemAsOf, EntitySearchLimit(recallOpts), minScore, scope, cancellationToken)
             : Empty<Entity>();
         var entitiesScoredTask = searchEntities && scoredLongTerm is not null
-            ? scoredLongTerm!.SearchEntitiesAsOfWithScoresAsync(queryEmbedding, systemAsOf, recallOpts.MaxEntities, minScore, scope, cancellationToken)
+            ? scoredLongTerm!.SearchEntitiesAsOfWithScoresAsync(queryEmbedding, systemAsOf, EntitySearchLimit(recallOpts), minScore, scope, cancellationToken)
             : null;
 
         var preferencesTask = searchPreferences && scoredLongTerm is null
@@ -1493,6 +1494,7 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
             entityScores = await entitiesScoredTask.ConfigureAwait(false);
             entities = entityScores.Select(static scored => scored.Entity).ToArray();
         }
+        (entities, entityScores) = FillFoldedEntityPlaces(recallOpts, entities, entityScores);
 
         IReadOnlyList<Preference> preferences;
         if (preferencesScoredTask is null)
@@ -2314,6 +2316,29 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         _ = task.ContinueWith(static t => _ = t.Exception, CancellationToken.None,
             TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
         return task;
+    }
+
+    /// <summary>
+    /// IBP-1b (<see cref="RecallOptions.FillFoldedEntityPlaces"/>): with the switch on, the entity search asks for more than the
+    /// limit (twice it, at most 16 more) so that the entities folded into one line still leave the limit's worth of lines.
+    /// </summary>
+    internal static int EntitySearchLimit(RecallOptions options) =>
+        options.FillFoldedEntityPlaces && options.MaxEntities > 0
+            ? Math.Min(options.MaxEntities * 2, options.MaxEntities + 16)
+            : options.MaxEntities;
+
+    /// <summary>
+    /// IBP-1b: the entities that would render as the same line folded into the first, most relevant one, then the limit's
+    /// worth kept, so a freed place goes to the next entity. Off: the search result as it is (the formatter still folds).
+    /// </summary>
+    internal static (IReadOnlyList<Entity> Entities, IReadOnlyList<(Entity Entity, double Score)> Scores) FillFoldedEntityPlaces(
+        RecallOptions options, IReadOnlyList<Entity> entities, IReadOnlyList<(Entity Entity, double Score)> scores)
+    {
+        if (!options.FillFoldedEntityPlaces || entities.Count == 0) return (entities, scores);
+        var kept = entities.DistinctBy(MemoryContextFormatter.EntityLine, StringComparer.OrdinalIgnoreCase)
+            .Take(options.MaxEntities).ToArray();
+        var ids = kept.Select(static entity => entity.EntityId).ToHashSet(StringComparer.Ordinal);
+        return (kept, scores.Where(scored => ids.Contains(scored.Entity.EntityId)).ToArray());
     }
 
     private static TimeSpan? Remaining(TimeSpan? budget, Stopwatch? clock) =>

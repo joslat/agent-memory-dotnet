@@ -128,7 +128,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   before. A runner decorator can forward the path by implementing the new `INeo4jSingleStatementReader`; one that
   does not keeps its own `ReadAsync`.
 
+### Upgrading
+
+- **Stores that ran with identity on before this release** may hold people whose creation time was stored as text
+  (fixed below). New people get a datetime, and the decay prune reads both kinds, but recall as of a moment and the
+  change windows still skip the old ones until they are converted. Nothing is rewritten on start-up. To see how many
+  there are, and to convert them once:
+
+  ```cypher
+  MATCH (e:Entity) WHERE e.created_at IS :: STRING RETURN count(e) AS textDates;
+
+  MATCH (e:Entity) WHERE e.created_at IS :: STRING SET e.created_at = datetime(e.created_at);
+  ```
+
+  On a large store, run the conversion in batches as an auto-commit query:
+  `MATCH (e:Entity) WHERE e.created_at IS :: STRING CALL (e) { SET e.created_at = datetime(e.created_at) } IN TRANSACTIONS OF 10000 ROWS`.
+  The coming doctor command (`TOOL-doctor`) reports stores that still hold such text dates.
+
 ### Fixed
+
+- A relationship to the owner is no longer lost when the owner has not said their name. "Theo is my brother" became
+  an edge to the owner's named person, and with no name there was none, so it was skipped. Until a name is known it
+  is kept as the fact "Theo | brother of | user" ("user | works at | Acme" the other way), which recall's connections
+  follow; a triple the turn also states as a fact is stored once. Once the owner is named, relationships anchor on
+  the named person as before. Applies without identity resolution.
 
 - With identity on and the Conversational preset's identity policies, a store-aware writer's reference to a stored
   person no longer merges a namesake the turn itself describes differently. "My niece Valentina started school" was
@@ -210,6 +233,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that there are exactly four, one per platform, all of the source's version, before the reviewer's approval.
 
 ### Added
+
+- `RecallOptions.FillFoldedEntityPlaces` (IBP-1b), off by default. The prompt shows each entity line once, so one thing
+  stored as two alike entities takes one line and its second place stayed empty. On, the entity search asks for up to
+  twice `MaxEntities` (at most 16 more), folds the alike ones keeping the most relevant, and keeps `MaxEntities`
+  distinct entities, on the live and the as-of path alike. It changes what recall returns, so it is a switch until it
+  is measured on the recall suite.
 
 - Applied-once writes: `ExtractionRequest.OperationId`. With it, a `ConversationTurn` write whose user message is
   stored is applied completely or not at all: if the message already carries this operation's receipt, nothing runs
