@@ -26,8 +26,32 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # PyPI never accepts a version twice. Asked first, so a run whose version is already up stops here in seconds with the
+  # fix named, instead of after the four platforms' builds (22 Nov: a run on main rebuilt 0.1.0 and the upload was refused).
+  version:
+    name: The version is new on PyPI
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Stop now if this version is already on PyPI
+        run: |
+          version="$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' native/python/agentmemory_native/__init__.py)"
+          if [ -z "$version" ]; then echo "::error::No __version__ in native/python/agentmemory_native/__init__.py"; exit 1; fi
+          code="$(curl -s -o /dev/null -w '%{http_code}' "https://pypi.org/pypi/agentmemory-native/${version}/json")"
+          echo "agentmemory-native ${version}: PyPI answers ${code}"
+          if [ "$code" = "200" ]; then
+            echo "::error::agentmemory-native ${version} is already on PyPI, which never accepts a version twice. Raise the version in native/python/agentmemory_native/__init__.py (and native/typescript/package.json), merge it to main, then run this again."
+            exit 1
+          fi
+          if [ "$code" != "404" ]; then echo "::error::PyPI answered ${code} for agentmemory-native ${version}; try again later."; exit 1; fi
+
   platforms:
     name: Build and gate
+    needs: version
     uses: ./.github/workflows/native-platforms.yml
 
   wheels:
