@@ -33,7 +33,8 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
     }
     public Task DisposeAsync() => Task.CompletedTask;
 
-    private ServiceProvider Host(bool enabled = true, bool extension = true, IIdentityContextProvider? hostContext = null, EntityIdentityPolicy? identityPolicy = null, IIdentityAdjudicator? adjudicator = null)
+    private ServiceProvider Host(bool enabled = true, bool extension = true, IIdentityContextProvider? hostContext = null, EntityIdentityPolicy? identityPolicy = null, IIdentityAdjudicator? adjudicator = null,
+        bool conversationalPolicies = false)
     {
         var services = new ServiceCollection(); services.AddLogging();
         services.AddSingleton<INeo4jTransactionRunner>(fixture.TransactionRunner);
@@ -44,7 +45,8 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
         services.Configure<MemoryOptions>(options => options.WorkingMemory.Enabled = false);
         services.Configure<ExtractionOptions>(options => { options.CanonicalFactSubjects = true; options.LinkFactsToEntities = true; options.DeduplicateWithinExtraction = true; });
         services.Configure<IdentityResolutionOptions>(options =>
-        { options.Enabled = enabled; options.MaxAdjudicationsPerIngestion = adjudicator is null ? 0 : 2; if (identityPolicy is not null) options.Policies["EVENT"] = identityPolicy; });
+        { options.Enabled = enabled; options.MaxAdjudicationsPerIngestion = adjudicator is null ? 0 : 2; if (identityPolicy is not null) options.Policies["EVENT"] = identityPolicy;
+          if (conversationalPolicies) options.ApplyConversationalPolicies(); });
         if (hostContext is not null) services.AddSingleton(hostContext);
         if (adjudicator is not null) services.AddSingleton(adjudicator);
         services.AddNeo4jAgentMemory(options =>
@@ -57,10 +59,10 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
         Facts = [new ExtractedFact { Subject = name, Predicate = "is on", Object = "December 12, 2026", Confidence = 1 }]
     };
     private static async Task<PersistenceResult> Ingest(IServiceProvider services, UnifiedExtractionResult input, MemoryScope? requestedScope = null,
-        string messageId = "source")
+        string messageId = "source", string content = "The Acme go live is on December 12, 2026")
     {
         var effectiveScope = requestedScope ?? Scope;
-        var message = new Message { MessageId = messageId, ConversationId = "conversation", SessionId = "scenario", Role = "user", Content = "The Acme go live is on December 12, 2026", TimestampUtc = DateTimeOffset.Parse("2026-11-09T12:00:00Z") };
+        var message = new Message { MessageId = messageId, ConversationId = "conversation", SessionId = "scenario", Role = "user", Content = content, TimestampUtc = DateTimeOffset.Parse("2026-11-09T12:00:00Z") };
         var staged = await services.GetRequiredService<IExtractionStage>().ProcessUnifiedAsync([message], input, ExtractionTypes.All, effectiveScope);
         return await services.GetRequiredService<IPersistenceStage>().PersistAsync(staged, effectiveScope.OwnerId);
     }
@@ -2236,6 +2238,42 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
         (await facts.GetPersonDetailsAsync([imported.Ids.GetValueOrDefault(valentina, valentina)], [], 8, copyScope)).Select(f => f.Object)
             .Should().BeEquivalentTo(originalDetails);
         (await Count("(:IdentityFactBinding {owner_id: 'copy-owner'})")).Should().Be(await Count("(:IdentityFactBinding {owner_id: 'pablito'})"));
+    }
+
+    [Fact]
+    public async Task IKB3_the_writer_s_reference_of_my_niece_to_the_stored_designer_does_not_merge_them()
+    {
+        // whos-who-v1, statements 8 and 13, with the extraction the store-aware writer gave in both identity runs of IKB-3: the
+        // designer is stored with a fact saying what she is (the writer gives entities no description), then "my niece
+        // Valentina" is extracted as "Valentina Ríos" with a reference to the designer and a quote the turn contains. The run used
+        // the Conversational preset's identity policies, under which a person's checked reference confirms.
+        using var host = Host(conversationalPolicies: true); using var scope = host.CreateScope(); var services = scope.ServiceProvider;
+        const string designerTurn = "Valentina Ríos is the designer on Atlas.";
+        const string nieceTurn = "My niece Valentina started school this year, she is six.";
+        await fixture.TransactionRunner.WriteAsync(async runner => { await runner.RunAsync(
+            "MATCH (c:Conversation {id:'conversation'}) " +
+            "CREATE (a:Message {id:'turn-8', conversation_id:'conversation', content:$a, session_id:'scenario'}), (c)-[:HAS_MESSAGE]->(a) " +
+            "CREATE (b:Message {id:'turn-13', conversation_id:'conversation', content:$b, session_id:'scenario'}), (c)-[:HAS_MESSAGE]->(b)",
+            new { a = designerTurn, b = nieceTurn }); });
+        await Ingest(services, new UnifiedExtractionResult
+        {
+            Entities = [new() { Name = "Valentina Ríos", Type = "PERSON", Confidence = 1 }, new() { Name = "Atlas", Type = "OBJECT", Confidence = 1 }],
+            Facts = [new() { Subject = "Valentina Ríos", Predicate = "is", Object = "the designer on Atlas", Confidence = 1 }]
+        }, messageId: "turn-8", content: designerTurn);
+        var facts = services.GetRequiredService<IFactRepository>();
+        var designer = (await facts.GetPersonIdentitiesAsync(1000, Scope)).Should().ContainSingle().Subject.EntityId;
+
+        await Ingest(services, new UnifiedExtractionResult
+        {
+            Entities = [new() { Name = "Valentina Ríos", Type = "PERSON", Confidence = 1, Reference = new() { EntityId = designer, Quote = "Valentina" } }],
+            Facts = [new() { Subject = "Valentina Ríos", Predicate = "started", Object = "school this year", Confidence = 1 }]
+        }, messageId: "turn-13", content: nieceTurn);
+
+        // Two people, the niece's fact never the designer's.
+        var people = await facts.GetPersonIdentitiesAsync(1000, Scope);
+        people.Should().HaveCount(2, "the niece is not merged into the designer");
+        (await facts.GetPersonDetailsAsync([designer], [], 8, Scope)).Select(f => f.Object)
+            .Should().BeEquivalentTo(["the designer on Atlas"], "the niece's school is not the designer's");
     }
 
     [Fact]

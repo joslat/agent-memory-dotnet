@@ -27,7 +27,8 @@ internal static class IdentityWriterReference
             return Note("writer_reference_not_candidate");
         // Incomplete exact lookups, several confirmations or incomplete evidence: a model judgment cannot settle them.
         if (!result.CanAdjudicate) return Note("writer_reference_not_eligible");
-        var target = plan.Candidates.FirstOrDefault(candidate => candidate.Entity.EntityId == reference.EntityId)?.Entity;
+        var targetCandidate = plan.Candidates.FirstOrDefault(candidate => candidate.Entity.EntityId == reference.EntityId);
+        var target = targetCandidate?.Entity;
         if (target is null) return Note("writer_reference_not_candidate");
         var name = MemoryTripleCanonicalizer.CanonicalValue(target.Name);
         if (plan.Candidates.Any(candidate => candidate.Entity.EntityId != target.EntityId && allowed.Contains(candidate.Entity.EntityId) &&
@@ -38,6 +39,13 @@ internal static class IdentityWriterReference
             plan.Context.Sources.FirstOrDefault(fragment => roots.Contains(fragment.SourceId) &&
                 fragment.Text.Contains(reference.Quote, StringComparison.Ordinal));
         if (source is null) return Note("writer_reference_unsupported_quote");
+        // IDENTITY-NAMESAKE-WRITER-MERGE (IKB-3): the writer referred "my niece Valentina" to the stored designer Valentina
+        // Ríos. The quote was there and she was the only Valentina, yet the turn's own words describe someone else. A relation
+        // the turn gives that the stored person is not known by, when they are known by another, is no agreement: refused
+        // here like any other unsupported reference, so it stays for review or the adjudicator.
+        var turnText = string.Join("\n", plan.Context.Sources.Where(fragment => roots.Contains(fragment.SourceId)).Select(fragment => fragment.Text));
+        if (IdentityRelationCue.Disagree(IdentityRelationCue.InTurn(turnText, [mention.Name, target.Name]), IdentityRelationCue.Known(targetCandidate!)))
+            return Note("writer_reference_relation_conflict");
 
         var evidence = new IdentityContextualResult(IdentityContextualVerdict.Same, target.EntityId,
             [new IdentityEvidenceQuote(source.SourceId, reference.Quote)]);

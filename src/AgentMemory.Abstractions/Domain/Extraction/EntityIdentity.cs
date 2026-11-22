@@ -97,6 +97,12 @@ public sealed record IdentityCandidate
     public IReadOnlyList<VerifiedIdentityAlias> VerifiedAliases { get; init; } = Array.Empty<VerifiedIdentityAlias>();
     /// <summary>Verified namespace for a policy that declares names unique within it.</summary>
     public string? NameNamespace { get; init; }
+    /// <summary>
+    /// What the candidate's own live facts say it is, as short phrases ("is the designer on Atlas", "has niece"), read by the
+    /// backend. Data only, never identity proof: a writer's reference is refused when the turn calls the mention something
+    /// these and the entity's description do not (IDENTITY-NAMESAKE-WRITER-MERGE). Empty when the backend reads none.
+    /// </summary>
+    public IReadOnlyList<string> KnownAs { get; init; } = Array.Empty<string>();
 }
 
 /// <summary>A source fragment and its root origins, allowing correlated evidence to stay identifiable.</summary>

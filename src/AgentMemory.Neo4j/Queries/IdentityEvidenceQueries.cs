@@ -62,7 +62,27 @@ internal static class IdentityEvidenceQueries
             WITH a ORDER BY a.id LIMIT $evidenceLimit
             RETURN collect(a {.*}) AS evidence
         }
-        RETURN e {.id, .name, .type, .owner_id, .canonical_name,
+        // IDENTITY-NAMESAKE-WRITER-MERGE: the candidate's own live facts, bound to it or linked to it, newest first and
+        // bounded, so what it is known as ("is the designer on Atlas") can be held against what a turn calls a mention.
+        CALL {
+            WITH e
+            CALL {
+                WITH e
+                MATCH (f:Fact)-[:HAS_IDENTITY_BINDING]->(b:IdentityFactBinding)-[:RESOLVES_TO]->(e)
+                WHERE f.invalidated_at IS NULL AND b.owner_scope IN $evidenceScopes
+                RETURN f
+                UNION
+                WITH e
+                MATCH (f:Fact)-[:ABOUT]->(e)
+                WHERE f.invalidated_at IS NULL AND
+                    (($ownerId IS NULL AND f.owner_id IS NULL) OR ($ownerId IS NOT NULL AND (f.owner_id = $ownerId OR ($includeShared AND f.owner_id IS NULL))))
+                RETURN f
+            }
+            WITH f ORDER BY f.created_at DESC, f.id LIMIT 16
+            RETURN collect({subject: left(coalesce(f.subject, ''), 256), predicate: left(coalesce(f.predicate, ''), 256),
+                object: left(coalesce(f.object, ''), 256)}) AS known
+        }
+        RETURN known, e {.id, .name, .type, .owner_id, .canonical_name,
             confidence: coalesce(e.confidence, 1.0), .created_at,
             description: left(coalesce(e.description, ''), 4096),
             aliases: coalesce(e.aliases, [])[..32],

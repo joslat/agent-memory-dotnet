@@ -121,6 +121,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- With identity on and the Conversational preset's identity policies, a store-aware writer's reference to a stored
+  person no longer merges a namesake the turn itself describes differently. "My niece Valentina started school" was
+  confirmed into the stored designer Valentina Ríos: the quote was in the turn and she was the only Valentina. Now,
+  when the turn ties the mention to a relation or role ("my niece", "Valentina, my niece", "Valentina is my niece") and
+  the stored person is known by a different one, the reference is refused like any other unsupported reference, and the
+  mention stays for review. The stored person's role comes from their description, aliases and subtype, and from their
+  own live facts saying what they are ("is the designer on Atlas", "the user has niece …"), which the identity
+  candidate read now loads (at most 16 a candidate; the new `IdentityCandidate.KnownAs`). When neither side names a
+  relation, nothing changes.
 - Without identity, recall's connections around a question's names still showed a forgotten entity's connections
   (one invalidated, as the maintenance tool does) and a merged one's. Both ends must now be live, as the identity read
   already required.

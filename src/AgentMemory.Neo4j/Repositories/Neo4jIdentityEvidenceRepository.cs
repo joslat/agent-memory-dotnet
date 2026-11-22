@@ -261,9 +261,11 @@ internal sealed class Neo4jIdentityEvidenceRepository : IIdentityEvidenceReposit
             var kinds = bounded.Where(item => item["assertion_kind"].As<string>() == "kind").ToArray();
             var namespaces = bounded.Where(item => item["assertion_kind"].As<string>() == "namespace" &&
                 item["surface"].As<string>() == entity.Name).Select(item => item["namespace"].As<string>()).Distinct(StringComparer.Ordinal).ToArray();
+            var known = row["known"].As<List<Dictionary<string, object>>>()
+                .Select(fact => ((string?)fact["subject"].As<string>(), (string?)fact["predicate"].As<string>(), (string?)fact["object"].As<string>()));
             return new IdentityCandidate
             {
-                Entity = entity, EvidenceComplete = evidence.Count <= MaxEvidence && kinds.Select(item => item["subject_kind"].As<string>()).Distinct().Count() <= 1,
+                Entity = entity, KnownAs = AgentMemory.Core.Resolution.IdentityRelationCue.FromFacts(entity, known), EvidenceComplete = evidence.Count <= MaxEvidence && kinds.Select(item => item["subject_kind"].As<string>()).Distinct().Count() <= 1,
                 EvidenceVersion = row["version"].As<long>(),
                 NameNamespace = namespaces.Contains(query.NameNamespace, StringComparer.Ordinal) ? query.NameNamespace : null,
                 VerifiedKind = kinds.Length == 0 ? null : new VerifiedIdentityKind
