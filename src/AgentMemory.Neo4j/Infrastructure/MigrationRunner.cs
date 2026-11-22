@@ -47,13 +47,15 @@ internal sealed class MigrationRunner : IMigrationRunner
     private readonly ILogger<MigrationRunner> _logger;
     private readonly MigrationScripts _scripts;
     private readonly IReadOnlyList<ISchemaExtension> _activeExtensions;
+    private readonly bool _onlyMissing;
 
     public MigrationRunner(
         INeo4jTransactionRunner txRunner,
         ILogger<MigrationRunner> logger,
         SchemaExtensionRegistry registry,
         IOptions<Neo4jOptions> options)
-        : this(txRunner, logger, EmbeddedMigrationScripts.Shipped, ResolveActive(registry, options))
+        : this(txRunner, logger, EmbeddedMigrationScripts.Shipped, ResolveActive(registry, options),
+            onlyMissing: options?.Value.BootstrapOnlyMissingSchema ?? true)
     {
     }
 
@@ -72,12 +74,14 @@ internal sealed class MigrationRunner : IMigrationRunner
         INeo4jTransactionRunner txRunner,
         ILogger<MigrationRunner> logger,
         MigrationScripts scripts,
-        IReadOnlyList<ISchemaExtension>? activeExtensions = null)
+        IReadOnlyList<ISchemaExtension>? activeExtensions = null,
+        bool onlyMissing = false)
     {
         _txRunner = txRunner;
         _logger = logger;
         _scripts = scripts;
         _activeExtensions = activeExtensions ?? [];
+        _onlyMissing = onlyMissing;
     }
 
     private static IReadOnlyList<ISchemaExtension> ResolveActive(
@@ -108,11 +112,13 @@ internal sealed class MigrationRunner : IMigrationRunner
         // the other statements of its script, and every later script, still run. A script is recorded only when all of
         // its statements applied, so the next start tries it again. The first failure is rethrown at the end.
         Neo4jException? first = null;
+        // DRT-2: which scripts are applied, in one read; null when off or when it fails (each is then asked, as before).
+        var applied = _onlyMissing ? await AppliedVersionsAsync(cancellationToken).ConfigureAwait(false) : null;
         foreach (var (version, name, extensionId) in migrationFiles)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            if (await IsMigrationAppliedAsync(version, cancellationToken).ConfigureAwait(false))
+            if (applied?.Contains(version) ?? await IsMigrationAppliedAsync(version, cancellationToken).ConfigureAwait(false))
             {
                 _logger.LogDebug("Migration {Version} already applied, skipping.", version);
                 continue;
@@ -170,6 +176,31 @@ internal sealed class MigrationRunner : IMigrationRunner
     private async Task EnsureMigrationConstraintAsync(CancellationToken cancellationToken)
     {
         await _txRunner.WriteAsync(async tx => { await tx.RunAsync(SchemaQueries.MigrationVersionConstraint).ConfigureAwait(false); }, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>DRT-2: every applied migration's version, in one read; null when the read fails.</summary>
+    private async Task<HashSet<string>?> AppliedVersionsAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _txRunner.ReadAsync(async tx =>
+            {
+                var cursor = await tx.RunAsync(SchemaQueries.AppliedMigrationVersions).ConfigureAwait(false);
+                var versions = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var record in await cursor.ToListAsync().ConfigureAwait(false))
+                    if (record["version"].As<string>() is { Length: > 0 } version) versions.Add(version);
+                return versions;
+            }, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Could not read the applied migrations at once; each script is checked on its own.");
+            return null;
+        }
     }
 
     private async Task<bool> IsMigrationAppliedAsync(string version, CancellationToken cancellationToken)

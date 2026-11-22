@@ -50,6 +50,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   never reported and closing wakes the waiter. `capabilities_get` names the context's `features`. The Python binding
   gains `MemoryClient.wait_any()`.
 
+- Start-up on an existing store is faster: the schema bootstrap lists the constraints and indexes the store has (one
+  read) and sends only the statements whose object is missing, and the migration runner reads which scripts are applied
+  once instead of once per script. Every statement is `IF NOT EXISTS`, so the result is the same. Measured (PERF-D-03,
+  the store 20 ms away): 280 round trips to 33, 6.1 s to 0.7 s; locally 252 ms to 41 ms. A listing that fails runs
+  every statement as before; `Neo4jOptions.BootstrapOnlyMissingSchema = false` is the previous path exactly.
+
 ### Fixed
 
 - A `neo4j+s://` or `bolt+s://` store address (the form Neo4j Aura gives, and the one `docs/getting-started.md`

@@ -111,6 +111,16 @@ public class Neo4jOptions
     public bool ApplyMigrationsOnBootstrap { get; set; } = true;
 
     /// <summary>
+    /// DRT-2. Bootstrap first lists the constraints and indexes the store has (one read) and sends only the statements
+    /// whose object is missing, and the migration runner reads which scripts are applied once instead of once per
+    /// script. Every statement is <c>IF NOT EXISTS</c>, so the ones skipped would have changed nothing: the result is the
+    /// same, by fewer round trips (start-up on an existing store: 280 waited at 20 ms away, measured by PERF-D-03). A
+    /// listing that fails runs every statement, as before. <see langword="false"/> is the previous path exactly, for
+    /// measuring both on one build.
+    /// </summary>
+    public bool BootstrapOnlyMissingSchema { get; set; } = true;
+
+    /// <summary>
     /// Ids of the optional schema extensions this deployment activates. Empty (the default) is today's
     /// base schema, byte-identical.
     /// </summary>
