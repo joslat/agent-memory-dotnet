@@ -29,6 +29,8 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="AgentMemory.Tests.Unit" />
+    <!-- DRT-5: the combined read-note write is tested against Neo4j through its internal interface. -->
+    <InternalsVisibleTo Include="AgentMemory.Tests.Integration" />
     <InternalsVisibleTo Include="DynamicProxyGenAssembly2" />
     <!-- Shared internal helpers (ConversationTextBuilder, SchemaLoader, MemoryContextFormatter,
          MemoryQueryFacade) are consumed by these first-party provider/integration packages. Targeted

@@ -23,4 +23,12 @@ public interface IMemoryAccessTracker
 {
     /// <summary>Queues one recall's worth of accessed nodes. Never blocks, never throws.</summary>
     void Track(IReadOnlyList<(string NodeId, MemoryNodeKind Kind)> nodes);
+
+    /// <summary>
+    /// Waits until everything tracked before the call has been written, or given up on (a failed write is logged, a
+    /// batch dropped by a full queue is counted). DRT-5: for a host that must see the read records right after a
+    /// recall, or that ends or freezes between requests (a function, a command-line tool, a test). Never on the recall
+    /// path. The default does nothing, for a tracker that writes as it tracks.
+    /// </summary>
+    Task FlushAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 }

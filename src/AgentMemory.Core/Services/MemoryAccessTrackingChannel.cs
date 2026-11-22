@@ -50,8 +50,20 @@ internal sealed class MemoryAccessTrackingChannel : IMemoryAccessTracker, IAsync
     /// application store it was recalled from (so the write lands there, not in whichever store was
     /// active when this singleton was built).
     /// </summary>
+    /// <remarks>DRT-5: it also carries its place in the queue and the time of the read, taken when it was tracked.</remarks>
     private sealed record TrackedBatch(
-        IReadOnlyList<(string NodeId, MemoryNodeKind Kind)> Nodes, ActivityContext Origin, string? ApplicationId);
+        IReadOnlyList<(string NodeId, MemoryNodeKind Kind)> Nodes, ActivityContext Origin, string? ApplicationId,
+        long Sequence, DateTimeOffset ReadAtUtc);
+
+    /// <summary>DRT-5: at most this many recalls are written in one transaction, so one write stays bounded.</summary>
+    internal const int MaxBatchesPerWrite = 64;
+
+    private readonly TimeProvider _clock;
+    private readonly object _flushGate = new();
+    private readonly List<(long Through, TaskCompletionSource Done)> _flushes = [];
+    private long _sequence;
+    private long _finishedThrough;
+    private bool _writing;
     private readonly IServiceProvider _rootProvider;
     private readonly ILogger<MemoryAccessTrackingChannel> _logger;
     private readonly Task _consumer;
@@ -60,6 +72,7 @@ internal sealed class MemoryAccessTrackingChannel : IMemoryAccessTracker, IAsync
     private long _enqueued;
     private long _dropped;
     private long _written;
+    private long _failed;
 
     public MemoryAccessTrackingChannel(
         IServiceProvider rootProvider,
@@ -68,6 +81,7 @@ internal sealed class MemoryAccessTrackingChannel : IMemoryAccessTracker, IAsync
     {
         _rootProvider = rootProvider ?? throw new ArgumentNullException(nameof(rootProvider));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _clock = rootProvider.GetService<TimeProvider>() ?? TimeProvider.System;
 
         var capacity = Math.Max(1, options?.Value.AccessTrackingQueueCapacity ?? 1024);
         _channel = Channel.CreateBounded(
@@ -90,9 +104,12 @@ internal sealed class MemoryAccessTrackingChannel : IMemoryAccessTracker, IAsync
         _consumer = Task.Run(DrainAsync);
     }
 
-    /// <summary>How many batches were accepted, dropped, and written. For tests and diagnostics.</summary>
-    public (long Enqueued, long Dropped, long Written) Counters =>
-        (Interlocked.Read(ref _enqueued), Interlocked.Read(ref _dropped), Interlocked.Read(ref _written));
+    /// <summary>How many batches were accepted, dropped, written and given up on after a failed write. For tests and diagnostics.</summary>
+    public (long Enqueued, long Dropped, long Written, long Failed) Counters =>
+        (Interlocked.Read(ref _enqueued), Interlocked.Read(ref _dropped), Interlocked.Read(ref _written), Interlocked.Read(ref _failed));
+
+    /// <summary>DRT-5: a background write's span links to at most this many of the recalls it carries.</summary>
+    private const int MaxSpanLinks = 32;
 
     /// <inheritdoc/>
     public void Track(IReadOnlyList<(string NodeId, MemoryNodeKind Kind)> nodes)
@@ -102,8 +119,43 @@ internal sealed class MemoryAccessTrackingChannel : IMemoryAccessTracker, IAsync
         Interlocked.Increment(ref _enqueued);
         // Returns true even when the item is dropped, under DropWrite. The drop is counted by the
         // itemDropped callback above, not here -- see the comment on the channel construction.
-        var batch = new TrackedBatch(nodes, Activity.Current?.Context ?? default, StoreContext?.ApplicationId);
+        // DRT-5: the time of the read travels with the record, so a record that waited is not stamped late.
+        var batch = new TrackedBatch(nodes, Activity.Current?.Context ?? default, StoreContext?.ApplicationId,
+            Interlocked.Increment(ref _sequence), _clock.GetUtcNow());
         if (!_channel.Writer.TryWrite(batch)) OnDropped();
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Done when the consumer has finished every batch tracked before the call, or when nothing is queued and nothing
+    /// is being written (a batch the full queue dropped is never written, so it cannot be waited for). After the queue
+    /// is disposed it returns at once.
+    /// </remarks>
+    public Task FlushAsync(CancellationToken cancellationToken = default)
+    {
+        lock (_flushGate)
+        {
+            var through = Interlocked.Read(ref _sequence);
+            if (_finishedThrough >= through || (!_writing && _channel.Reader.Count == 0) || _channel.Reader.Completion.IsCompleted)
+                return Task.CompletedTask;
+            var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _flushes.Add((through, done));
+            return done.Task.WaitAsync(cancellationToken);
+        }
+    }
+
+    /// <summary>Releases the flushes the consumer has caught up with; all of them when it is idle or stopping.</summary>
+    private void ReleaseFlushes(bool all)
+    {
+        lock (_flushGate)
+        {
+            for (var i = _flushes.Count - 1; i >= 0; i--)
+            {
+                if (!all && _flushes[i].Through > _finishedThrough) continue;
+                _flushes[i].Done.TrySetResult();
+                _flushes.RemoveAt(i);
+            }
+        }
     }
 
     // Resolved on first use from the root provider (a singleton; its value is per async flow). Null in a
@@ -131,12 +183,35 @@ internal sealed class MemoryAccessTrackingChannel : IMemoryAccessTracker, IAsync
         // cleared, so each background write is its own trace (linked to its origin), not a child of that
         // first request. Only the trace -- the rest of the execution context is left as it always was.
         Activity.Current = null;
+        var reader = _channel.Reader;
         try
         {
-            await foreach (var batch in _channel.Reader.ReadAllAsync(_shutdown.Token)
-                .ConfigureAwait(false))
+            // DRT-5: everything waiting is taken at once (up to MaxBatchesPerWrite) and written per store in one
+            // transaction, so the faster recalls arrive, the more each write carries.
+            while (await reader.WaitToReadAsync(_shutdown.Token).ConfigureAwait(false))
             {
-                await WriteAsync(batch).ConfigureAwait(false);
+                var taken = new List<TrackedBatch>();
+                lock (_flushGate)
+                {
+                    _writing = true;
+                    while (taken.Count < MaxBatchesPerWrite && reader.TryRead(out var batch)) taken.Add(batch);
+                }
+                try
+                {
+                    foreach (var store in taken.GroupBy(b => b.ApplicationId, StringComparer.Ordinal))
+                        await WriteAsync(store.ToList()).ConfigureAwait(false);
+                }
+                finally
+                {
+                    bool idle;
+                    lock (_flushGate)
+                    {
+                        if (taken.Count > 0) _finishedThrough = Math.Max(_finishedThrough, taken[^1].Sequence);
+                        _writing = false;
+                        idle = reader.Count == 0;
+                    }
+                    ReleaseFlushes(all: idle);
+                }
             }
         }
         catch (OperationCanceledException)
@@ -150,16 +225,25 @@ internal sealed class MemoryAccessTrackingChannel : IMemoryAccessTracker, IAsync
             // drop, and the queue would then fill and stay full for the process's lifetime.
             _logger.LogError(ex, "Access-tracking consumer stopped unexpectedly.");
         }
+        finally
+        {
+            // Nothing more will be written: no flush may wait for it.
+            ReleaseFlushes(all: true);
+        }
     }
 
-    private async Task WriteAsync(TrackedBatch tracked)
+    /// <summary>Writes the batches of one store: in one transaction when the decay service can, else one by one.</summary>
+    private async Task WriteAsync(IReadOnlyList<TrackedBatch> batches)
     {
-        var batch = tracked.Nodes;
-        // Its own trace (it runs after the recall returned), LINKED to the recall that caused it (G10).
+        // Its own trace (it runs after the recall returned), LINKED to the recalls that caused it (G10), up to 32.
+        var links = batches.Where(b => b.Origin != default).Take(MaxSpanLinks).Select(b => new ActivityLink(b.Origin)).ToList();
         using var span = AgentMemoryDiagnostics.Source.StartActivity(
             "memory.background.access_tracking", ActivityKind.Internal, parentContext: default,
-            links: tracked.Origin == default ? null : [new ActivityLink(tracked.Origin)]);
-        span?.SetTag("memory.background.items", batch.Count);
+            links: links.Count == 0 ? null : links);
+        var items = batches.Sum(b => b.Nodes.Count);
+        span?.SetTag("memory.background.items", items);
+        span?.SetTag("memory.background.recalls", batches.Count);
+        span?.SetTag("memory.background.oldest_age_ms", (_clock.GetUtcNow() - batches[0].ReadAtUtc).TotalMilliseconds);
         try
         {
             // A FRESH scope per batch, created and disposed here. The decay service is scoped in most
@@ -170,22 +254,57 @@ internal sealed class MemoryAccessTrackingChannel : IMemoryAccessTracker, IAsync
             // The store this batch was recalled from, set explicitly (null included): the consumer started
             // in its constructor's execution context and would otherwise route every write to the store
             // that was active when the singleton was first built.
-            using var store = (StoreContext as IWritableMemoryStoreContext)?.BeginStoreScope(tracked.ApplicationId);
+            using var store = (StoreContext as IWritableMemoryStoreContext)?.BeginStoreScope(batches[0].ApplicationId);
             using var scope = _rootProvider.CreateScope();
             var decay = scope.ServiceProvider.GetService<IMemoryDecayService>();
             if (decay is null) return;
 
-            await decay.UpdateAccessTimestampsAsync(batch, CancellationToken.None).ConfigureAwait(false);
-            Interlocked.Increment(ref _written);
+            if (decay is IMemoryReadRecorder recorder && !OneWritePerRecall)
+            {
+                var stored = await recorder.RecordReadsAsync(batches.Select(b => new MemoryRead(b.Nodes, b.ReadAtUtc)).ToList(),
+                    CancellationToken.None).ConfigureAwait(false);
+                Interlocked.Add(ref _written, stored);
+                if (stored < batches.Count) Interlocked.Add(ref _failed, batches.Count - stored);
+                return;
+            }
+
+            // A decay service without the combined write: each recall as before, each failure its own.
+            foreach (var batch in batches)
+            {
+                try
+                {
+                    await decay.UpdateAccessTimestampsAsync(batch.Nodes, CancellationToken.None).ConfigureAwait(false);
+                    Interlocked.Increment(ref _written);
+                }
+                catch (Exception ex)
+                {
+                    Interlocked.Increment(ref _failed);
+                    LogFailed(ex, batch.Nodes.Count);
+                }
+            }
         }
         catch (Exception ex)
         {
-            // Bookkeeping, on a path no caller is waiting for. Logged and swallowed: failing here would
-            // kill the consumer and convert one bad batch into permanent silence.
-            _logger.LogWarning(ex, "Access-tracking batch failed; retention scores are unaffected "
-                + "except for these {Count} node(s).", batch.Count);
+            // The whole group, given up on: an unreachable store, or no scope or decay service to write with.
+            Interlocked.Add(ref _failed, batches.Count);
+            LogFailed(ex, items);
         }
     }
+
+    /// <summary>
+    /// DRT-5: the AppContext switch <c>AgentMemory.AccessTracking.OneWritePerRecall</c> writes each recall in its own
+    /// transaction, with the time of the write, as before. Read per write.
+    /// </summary>
+    internal static bool OneWritePerRecall =>
+        AppContext.TryGetSwitch("AgentMemory.AccessTracking.OneWritePerRecall", out var one) && one;
+
+    /// <summary>
+    /// Bookkeeping, on a path no caller is waiting for. Logged and swallowed: failing here would kill the consumer and
+    /// convert one bad batch into permanent silence.
+    /// </summary>
+    private void LogFailed(Exception ex, int count) =>
+        _logger.LogWarning(ex, "Access-tracking batch failed; retention scores are unaffected "
+            + "except for these {Count} node(s).", count);
 
     /// <summary>
     /// Synchronous disposal, for a container disposed synchronously.

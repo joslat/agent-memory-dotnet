@@ -916,6 +916,9 @@ both are set.
 | **Drops, and says so** | Bounded with `DropWrite`. Unbounded turns a slow database into unbounded memory; blocking puts the latency straight back. A lost stamp ages one memory marginally against a 30-day half-life — and drops are counted through the channel's `itemDropped` callback, because `TryWrite` returns **true** when it discards |
 | **Never dies** | A failing batch is logged and swallowed: a dead consumer converts one bad batch into permanent silence |
 | **Drains on dispose** | Both `IDisposable` and `IAsyncDisposable` — an async-only singleton makes `ServiceProvider.Dispose()` throw. This is what makes "audit rows equal at end of run" checkable |
+| **Stamps the read, not the write** (DRT-5) | The time is taken in `Track`, so a record that waited in the queue is not stamped late; `last_accessed_at` never moves back |
+| **Keeps up** (DRT-5) | The consumer takes everything waiting (up to 64 recalls) and writes it per store in one transaction: the same statements, recall after recall, each with its read's time, so the stored state is that of one write per recall. 100 recalls with the store 20 ms away: 14 round trips and 0.39 s, against 400 and 9.0 s one recall at a time. A failed group is written recall by recall, once, unless the store is unreachable. The AppContext switch `AgentMemory.AccessTracking.OneWritePerRecall` restores one write per recall |
+| **Can be waited for** (DRT-5) | `IMemoryAccessTracker.FlushAsync` waits until everything tracked before it is written or given up on: for a host that reads an item's history right after a recall, or that ends or freezes between requests |
 
 The other half of the speed pair, recall projections (`MemoryOptions.OmitEmbeddingsFromRecall`), was
 already shipped across all three vector repositories.

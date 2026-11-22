@@ -56,6 +56,49 @@ public sealed class BackgroundStoreRoutingTests
         lock (seen) seen.Should().Equal("app-b", null);
     }
 
+    /// <summary>DRT-5 (T-7): a combined write whose recalls came from two stores writes each store's part to that store.</summary>
+    private sealed class StoreRecorder(FlowStoreContext store) : IMemoryDecayService, IMemoryReadRecorder
+    {
+        public readonly List<(string? Store, int Reads)> Writes = [];
+        public readonly TaskCompletionSource Hold = new();
+        public readonly TaskCompletionSource Started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async Task<int> RecordReadsAsync(IReadOnlyList<MemoryRead> reads, CancellationToken cancellationToken = default)
+        {
+            lock (Writes) Writes.Add((store.ApplicationId, reads.Count));
+            Started.TrySetResult();
+            await Hold.Task;
+            return reads.Count;
+        }
+
+        public Task<int> PruneExpiredMemoriesAsync(MemoryScope? scope = null, CancellationToken cancellationToken = default) => Task.FromResult(0);
+        public Task UpdateAccessTimestampAsync(string nodeId, MemoryNodeKind nodeKind, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task<double> CalculateRetentionScoreAsync(string nodeId, MemoryNodeKind nodeKind, CancellationToken cancellationToken = default) => Task.FromResult(0d);
+    }
+
+    [Fact]
+    public async Task A_combined_write_of_two_stores_writes_each_to_its_own()
+    {
+        var store = new FlowStoreContext();
+        var recorder = new StoreRecorder(store);
+        var services = new ServiceCollection();
+        services.AddSingleton<IMemoryDecayService>(recorder);
+        services.AddSingleton<IMemoryStoreContext>(store);
+        await using var provider = services.BuildServiceProvider();
+        var channel = new MemoryAccessTrackingChannel(provider, Options.Create(new MemoryOptions()), NullLogger<MemoryAccessTrackingChannel>.Instance);
+        await using var _ = channel;
+
+        using (store.BeginStoreScope("app-a")) channel.Track([("n0", MemoryNodeKind.Fact)]);
+        await recorder.Started.Task;
+        using (store.BeginStoreScope("app-a")) channel.Track([("n1", MemoryNodeKind.Fact)]);
+        using (store.BeginStoreScope("app-b")) channel.Track([("n2", MemoryNodeKind.Fact)]);
+        using (store.BeginStoreScope("app-a")) channel.Track([("n3", MemoryNodeKind.Fact)]);
+        recorder.Hold.SetResult();
+        await channel.FlushAsync();
+
+        lock (recorder.Writes) recorder.Writes.Should().Equal(("app-a", 1), ("app-a", 2), ("app-b", 1));
+    }
+
     [Fact]
     public async Task Enrichment_reads_and_writes_the_entitys_own_store()
     {

@@ -78,6 +78,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   namesake of another type, or with another description, keeps its own line. The profile block gives the freed places
   to the next entities. What recall returns is unchanged, and so is a block with no repeated line.
 
+- The read-note queue (`MemoryOptions.UseAccessTrackingQueue`, on in the Conversational preset) keeps up with a busy
+  service: it writes everything waiting, up to 64 recalls, in one transaction per store, so with the store 20 ms away
+  100 recalls' notes take 0.39 s instead of 9.0 s (about 255 recalls a second instead of 11). Each note carries the
+  time of its read, not of its write. `IMemoryAccessTracker.FlushAsync` waits until everything tracked so far is
+  written, for a host that ends or freezes between requests; the history service and the decay job call it before
+  they read. The AppContext switch `AgentMemory.AccessTracking.OneWritePerRecall` restores one write per recall. The
+  library default is unchanged.
+
 ### Fixed
 
 - A `neo4j+s://` or `bolt+s://` store address (the form Neo4j Aura gives, and the one `docs/getting-started.md`
