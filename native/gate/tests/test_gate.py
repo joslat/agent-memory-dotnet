@@ -51,6 +51,7 @@ needs_tls = unittest.skipUnless(TLS_URI and TLS_OTHER_NAME_URI, "no TLS store: s
 DIMENSIONS = 8
 OWNER_A = "gate-owner-a"
 OWNER_B = "gate-owner-b"
+OWNER_C = "gate-owner-c"  # "Anna | sister of | user" and "Anna | lives in | Madrid", on axes 2 and 5
 NEAR_AXIS_0 = [1.0, 0.1, 0, 0, 0, 0, 0, 0]
 A_IDS = {"gate-fact-a-work", "gate-fact-a-colour", "gate-pref-a-concise"}
 B_IDS = {"gate-fact-b-work", "gate-pref-b-detail"}
@@ -524,6 +525,19 @@ class Test6Embeddings(unittest.TestCase):
         self.assertEqual(FakeEmbeddings.seen[0]["body"]["input"], ["where do I work?"])
         self.assertEqual(FakeEmbeddings.seen[0]["authorization"], "Bearer gate-key")
         self.assertNotIn("gate-key", json.dumps(work.raw if isinstance(work.raw, dict) else dict(work.raw), default=str))
+
+    @needs_store
+    def test_a_relation_the_question_names_reaches_that_persons_own_facts(self):
+        # SPEECH-RELATION-RECALL: the question finds "Anna | sister of | user" by similarity; with maxConnectionFacts,
+        # Anna's own fact comes too, though it shares neither a word nor a direction with the question.
+        document = self.endpoint_config()
+        document["owner"] = {"mode": "per_request"}
+        with MemoryClient(document) as memory:
+            plain = memory.get_context(session_id="c", owner=OWNER_C, query="Where does my sister live?", min_score=0.7)
+            hop = memory.get_context(session_id="c", owner=OWNER_C, query="Where does my sister live?", min_score=0.7,
+                                     max_connection_facts=4)
+        self.assertEqual(ids(plain), {"gate-fact-c-sister"}, plain.raw)
+        self.assertEqual(ids(hop), {"gate-fact-c-sister", "gate-fact-c-city"}, hop.raw)
 
     def test_vectors_of_the_wrong_size_are_refused(self):
         with MemoryClient(self.endpoint_config()) as memory:

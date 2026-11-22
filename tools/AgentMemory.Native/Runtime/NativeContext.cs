@@ -180,6 +180,7 @@ internal sealed class NativeContext
                     MaxRelevantMessages = recall.MaxMessages,
                     MaxEntities = recall.MaxEntities,
                     MaxRelationships = recall.MaxRelationships,
+                    MaxConnectionFacts = recall.MaxConnectionFacts,
                     TimeWindows = recall.TimeWindows,
                 },
                 token)

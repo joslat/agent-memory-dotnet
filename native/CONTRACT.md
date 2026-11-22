@@ -56,7 +56,8 @@ An open that fails returns an error document: `{"schemaVersion":1,"error":{"code
   "maxMessages": 5,
   "maxEntities": 10,
   "maxRelationships": 10,
-  "timeWindows": true
+  "timeWindows": true,
+  "maxConnectionFacts": 8
 }
 ```
 
@@ -70,6 +71,7 @@ Recall reads the owner's own memory only (shared memory excluded), at the curren
 | `maxEntities` (0-50) | 0 | `entities`: the people, places and things most like the question. |
 | `maxRelationships` (0-50) | 0 | `relationships`: how those relate ("Sam is the user's sister"). |
 | `timeWindows` | false | `windowFacts`: the facts of a time the question names ("yesterday", "last week"), by their date fields (a date only inside a fact's text is not one). |
+| `maxConnectionFacts` (0-32) | 0 | More `facts`: when a recalled fact connects the owner to someone by a relation the question names ("Anna \| sister of \| user" for "where does my sister live?"), up to this many of that one's own live facts ("Anna \| lives in \| Madrid"), one hop, at most three connections. |
 
 Person and event details are not offered: they need identity-evidence storage, which the native profiles have not.
 

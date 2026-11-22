@@ -413,6 +413,8 @@ internal sealed record GetContextRequest : NativeRequest
     public int MaxRelationships { get; init; }
     /// <summary>The facts of a time the question names ("yesterday", "last week"), by their dates.</summary>
     public bool TimeWindows { get; init; }
+    /// <summary>One hop from a recalled connection to the owner, by a relation the question names, to that one's facts.</summary>
+    public int MaxConnectionFacts { get; init; }
 
     public static GetContextRequest Read(StrictObject root, OpenConfig config, string? requestId)
     {
@@ -446,6 +448,7 @@ internal sealed record GetContextRequest : NativeRequest
             MaxEntities = root.OptionalInt("maxEntities", 0, 0, 50),
             MaxRelationships = root.OptionalInt("maxRelationships", 0, 0, 50),
             TimeWindows = root.OptionalBool("timeWindows", false),
+            MaxConnectionFacts = root.OptionalInt("maxConnectionFacts", 0, 0, 32),
         };
     }
 }

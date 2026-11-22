@@ -80,7 +80,7 @@ foreach (var p in GateFixture.Preferences)
 
 return 0;
 
-/// <summary>The fixture: two owners, unit vectors on named axes, empty and nested metadata.</summary>
+/// <summary>The fixture: three owners, unit vectors on named axes, empty and nested metadata.</summary>
 static class GateFixture
 {
     public const int Dimensions = 8;
@@ -114,6 +114,9 @@ static class GateFixture
         {
             ["trust_level"] = "verified",
         }),
+        // A connection to the owner and that person's own fact, on another axis (SPEECH-RELATION-RECALL).
+        new("gate-fact-c-sister", "gate-owner-c", "Anna", "sister of", "user", 2, new Dictionary<string, object>()),
+        new("gate-fact-c-city", "gate-owner-c", "Anna", "lives in", "Madrid", 5, new Dictionary<string, object>()),
     ];
 
     public static readonly PreferenceRow[] Preferences =
