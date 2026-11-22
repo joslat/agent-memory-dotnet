@@ -252,6 +252,30 @@ jobs:
           python native/packaging/npm_install_test.py --main "$main" --platform "$platform" | tee out/npm-install.log
           { echo "### ${{ matrix.rid }}: npm packages"; echo; echo '```'; ls out/npm/*.tgz; tail -1 out/npm-install.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
+      # NATIVE-RUST: the Rust binding over the same library: its tests (unit tests and the REQUIRED.md tests that need no
+      # store, with the async feature) and the shared cases of tier A. The runner's own rustup pins the toolchain.
+      - name: Rust binding, tier A
+        working-directory: native/rust
+        env:
+          GATE_TIER: A
+          AGENTMEMORY_NATIVE_LIBRARY: ${{ github.workspace }}/out/bin/${{ matrix.library }}
+          RUSTUP_TOOLCHAIN: '1.99.1'
+          CARGO_TERM_COLOR: never
+        run: |
+          ulimit -c unlimited 2>/dev/null || true
+          # GitHub's runner images carry rustup; no installer script is fetched here (every action in this repo is pinned).
+          command -v rustup > /dev/null || { echo "::error::rustup is not on this runner image"; exit 1; }
+          rustup toolchain install 1.99.1 --profile minimal --no-self-update
+          rustc --version
+          set +e
+          cargo test --locked --all-features 2>&1 | tee ../../out/rust-required-a.log
+          tests=${PIPESTATUS[0]}
+          cargo run --locked --release --bin gate -- --tier A 2>&1 | tee ../../out/rust-tier-a.log
+          gate=${PIPESTATUS[0]}
+          set -e
+          { echo "### ${{ matrix.rid }}: Rust, tier A"; echo; echo '```'; tail -1 ../../out/rust-tier-a.log; grep -E '^test result' ../../out/rust-required-a.log || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          [ "$tests" -eq 0 ] && [ "$gate" -eq 0 ]
+
       - name: Backtraces of any crash (Linux)
         if: always() && runner.os == 'Linux'
         run: |
