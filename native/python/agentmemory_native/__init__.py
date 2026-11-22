@@ -1,4 +1,4 @@
-"""AgentMemory for Python through the AgentMemory native library (C ABI 1.0, no .NET installation needed).
+"""AgentMemory for Python through the AgentMemory native library (C ABI 1.1, no .NET installation needed).
 
     from agentmemory_native import MemoryClient
 

@@ -1,4 +1,4 @@
-"""Loads the native library and declares every export's exact C signature (agentmemory_native.h, ABI 1.0)."""
+"""Loads the native library and declares every export's exact C signature (agentmemory_native.h, ABI 1.1)."""
 from __future__ import annotations
 
 import ctypes

@@ -216,7 +216,7 @@ class Test2Open(unittest.TestCase):
             caps = memory.capabilities()
             self.assertEqual(caps["status"], "ok")
             self.assertEqual(caps["profile"], "read_only")
-            self.assertEqual(caps["abi"], {"major": 1, "minor": 0})
+            self.assertEqual(caps["abi"], {"major": abi.ABI_MAJOR, "minor": abi.ABI_MINOR})
             self.assertEqual(caps["embedding"]["dimensions"], DIMENSIONS)
             self.assertIn("memory_get_context", caps["operations"])
             state = memory.state()
