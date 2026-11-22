@@ -147,6 +147,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Code map (Roslyn reader): a test project that compiles another project's files itself (`<Compile Include="../../tools/…">`)
+  now links its tests to those files' types, recorded under the project the files live in. Before, each file went to
+  its folder's project only, so such tests linked to nothing (here, 46 tests of the scenario tool's scorers).
+
 - A relationship to the owner is no longer lost when the owner has not said their name. "Theo is my brother" became
   an edge to the owner's named person, and with no name there was none, so it was skipped. Until a name is known it
   is kept as the fact "Theo | brother of | user" ("user | works at | Acme" the other way), which recall's connections

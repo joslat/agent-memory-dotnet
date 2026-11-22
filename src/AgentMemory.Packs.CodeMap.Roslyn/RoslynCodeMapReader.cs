@@ -55,13 +55,25 @@ public static class RoslynCodeMapReader
         foreach (var project in projects.Values) builder.AddProject(project.Path, project.Name, project.References);
         // Each file belongs to the deepest project folder that contains it.
         var byProject = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        var home = new Dictionary<string, Project>(StringComparer.Ordinal);
         foreach (var file in sources)
         {
             var owner = projects.Values.Where(p => p.Folder.Length == 0 || file.StartsWith(p.Folder + "/", StringComparison.Ordinal))
                 .MaxBy(p => p.Folder.Length);
             builder.AddFile(file, owner?.Path);
-            if (owner is not null) (byProject.TryGetValue(owner.Path, out var list) ? list : byProject[owner.Path] = []).Add(file);
+            if (owner is not null) { (byProject.TryGetValue(owner.Path, out var list) ? list : byProject[owner.Path] = []).Add(file); home[file] = owner; }
         }
+        // CMP-2f: files a project compiles from another project's folder (<Compile Include="../../tools/...">). They compile with
+        // it, so its code binds to them, and their types stay the types of the project they live in.
+        var linked = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        foreach (var project in projects.Values)
+            foreach (var pattern in project.Linked)
+            {
+                var glob = Glob(pattern);
+                foreach (var file in sources.Where(f => glob.IsMatch(f) && home.TryGetValue(f, out var owner) && owner.Path != project.Path))
+                    (linked.TryGetValue(project.Path, out var set) ? set : linked[project.Path] = new(StringComparer.Ordinal)).Add(file);
+            }
+        bool Linked(string project, SyntaxTree tree) => linked.TryGetValue(project, out var files) && files.Contains(tree.FilePath);
 
         // Pass 1: compile in reference order and declare every type.
         var compilations = new Dictionary<string, CSharpCompilation>(StringComparer.Ordinal);
@@ -71,6 +83,7 @@ public static class RoslynCodeMapReader
         {
             cancellationToken.ThrowIfCancellationRequested();
             var trees = (byProject.TryGetValue(project.Path, out var mine) ? mine : [])
+                .Concat(linked.TryGetValue(project.Path, out var borrowed) ? borrowed.Order(StringComparer.Ordinal) : [])
                 .Select(f => CSharpSyntaxTree.ParseText(SourceText.From(File.ReadAllText(Path.Combine(root, f))),
                     CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.Preview), f, cancellationToken)).ToList();
             // What MSBuild would generate into obj/: the global usings (without them, every IEnumerable<T> or Task in a project with
@@ -93,6 +106,13 @@ public static class RoslynCodeMapReader
                 foreach (var node in tree.GetRoot(cancellationToken).DescendantNodes().Where(n => n is BaseTypeDeclarationSyntax or DelegateDeclarationSyntax))
                 {
                     if (model.GetDeclaredSymbol(node, cancellationToken) is not INamedTypeSymbol type) continue;
+                    if (Linked(project.Path, tree))
+                    {
+                        // Declared, and recorded, by the project it lives in; here it only resolves to that project's type.
+                        var owner = home[tree.FilePath];
+                        declared[Identity(type)] = (Scip(owner.Name, type), owner.Path);
+                        continue;
+                    }
                     var scip = Scip(project.Name, type);
                     declared[Identity(type)] = (scip, project.Path);
                     builder.AddSymbol(scip, type.Name, type.ToDisplayString(), Kind(type), project.Name, tree.FilePath,
@@ -106,7 +126,7 @@ public static class RoslynCodeMapReader
         // Pass 2: tests, with the in-repo types they touch outside their own project, the method's own first.
         var testProjects = new HashSet<string>(StringComparer.Ordinal);
         foreach (var (path, compilation) in compilations)
-            foreach (var tree in compilation.SyntaxTrees)
+            foreach (var tree in compilation.SyntaxTrees.Where(t => !Linked(path, t)))
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var model = compilation.GetSemanticModel(tree);
@@ -133,7 +153,7 @@ public static class RoslynCodeMapReader
         foreach (var (path, compilation) in compilations.Where(c => !testProjects.Contains(c.Key)))
         {
             var used = new Dictionary<string, Dictionary<string, int>>(StringComparer.Ordinal);
-            foreach (var tree in compilation.SyntaxTrees)
+            foreach (var tree in compilation.SyntaxTrees.Where(t => !Linked(path, t)))
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var model = compilation.GetSemanticModel(tree);
@@ -257,6 +277,12 @@ public static class RoslynCodeMapReader
         _ => "xunit",
     };
 
+    // A Compile item's pattern as a match on repository-relative paths: ** any folders, * and ? within one.
+    private static System.Text.RegularExpressions.Regex Glob(string pattern) => new("^" + System.Text.RegularExpressions.Regex.Escape(pattern)
+        .Replace(@"\*\*/", "(?:.*/)?", StringComparison.Ordinal).Replace(@"\*\*", ".*", StringComparison.Ordinal)
+        .Replace(@"\*", "[^/]*", StringComparison.Ordinal).Replace(@"\?", "[^/]", StringComparison.Ordinal) + "$",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
     private static string Normalize(string path)
     {
         var value = path.Trim().Replace('\\', '/');
@@ -333,7 +359,7 @@ public static class RoslynCodeMapReader
     private static readonly string[] WebUsings = ["System.Net.Http.Json", "Microsoft.AspNetCore.Builder", "Microsoft.AspNetCore.Hosting", "Microsoft.AspNetCore.Http", "Microsoft.AspNetCore.Routing"];
 
     private sealed record Project(string Path, string Folder, string Name, IReadOnlyList<string> References, IReadOnlyList<string> GlobalUsings,
-        IReadOnlyList<string> VisibleTo, IReadOnlyList<string> Packages)
+        IReadOnlyList<string> VisibleTo, IReadOnlyList<string> Packages, IReadOnlyList<string> Linked)
     {
         public static Project Load(string root, string path)
         {
@@ -348,7 +374,15 @@ public static class RoslynCodeMapReader
             var visibleTo = document.Descendants().Where(e => e.Name.LocalName == "InternalsVisibleTo")
                 .Select(e => e.Attribute("Include")?.Value).OfType<string>().Where(a => a.Length > 0 && !a.Contains('$') && !a.Contains('"'))
                 .Select(a => a.Replace("$(AssemblyName)", name, StringComparison.Ordinal)).Distinct(StringComparer.Ordinal).ToList();
-            return new Project(path, folder, name, references, Usings(root, folder, document), visibleTo, PackageAssemblies(root, folder));
+            // CMP-2f: Compile items outside the project's own folder, as repository-relative patterns.
+            var linked = document.Descendants().Where(e => e.Name.LocalName == "Compile")
+                .Select(e => e.Attribute("Include")?.Value).OfType<string>()
+                .SelectMany(v => v.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                .Where(v => !v.Contains("$(", StringComparison.Ordinal))
+                .Select(v => Normalize(System.IO.Path.GetRelativePath(root, System.IO.Path.GetFullPath(System.IO.Path.Combine(root, folder, v.Replace('\\', '/'))))))
+                .Where(v => !v.StartsWith("..", StringComparison.Ordinal) && !(folder.Length == 0 || v.StartsWith(folder + "/", StringComparison.Ordinal)))
+                .Distinct(StringComparer.Ordinal).ToList();
+            return new Project(path, folder, name, references, Usings(root, folder, document), visibleTo, PackageAssemblies(root, folder), linked);
         }
 
         // The compile assemblies of the project's NuGet packages, from the assets file a restore leaves in obj/ (no MSBuild, no
