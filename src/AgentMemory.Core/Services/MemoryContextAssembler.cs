@@ -961,6 +961,12 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
             (facts, personSubjects) = await ExpandPersonDetailsAsync(facts, lookAhead, prospective, request.Question ?? request.Query,
                 recallOpts, scope, cancellationToken, Remaining(recallOpts.LatencyBudget, budgetClock)).ConfigureAwait(false);
 
+        // SPEECH-RELATION-RECALL: one hop from a recalled connection to the owner, by a relation the question names, to
+        // that one's live facts. Off (0) by default, and then nothing is read.
+        if (includeMemory && recallOpts.MaxConnectionFacts != 0)
+            facts = await ExpandConnectionsAsync(facts, lookAhead, prospective, request.Question ?? request.Query,
+                recallOpts, scope, cancellationToken, Remaining(recallOpts.LatencyBudget, budgetClock)).ConfigureAwait(false);
+
         // PR260-N3, REV1-L10: the details above arrive after the hand-over to current values, so a value a begun plan
         // replaced could come back with them. Hand over again over everything recall now holds, the dated sections'
         // facts included as competitors (a plan found by date still replaces the old value), dropping only from the

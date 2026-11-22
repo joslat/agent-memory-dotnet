@@ -33,6 +33,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   by the journal (the counterpart of mode 0700 and 0600 on Unix). A store certificate the system refuses fails open
   as `unavailable` with the new code `store_tls`.
 
+- Recall can follow a relation the question names, one hop: `RecallOptions.MaxConnectionFacts` (off at 0, the
+  default; up to 32). "Where does my sister live?" recalls "Anna | sister of | user" by similarity; with the option on,
+  Anna's own live facts come too ("Anna | lives in | Madrid", which shares no word with the question). A connection has
+  the owner on one side and a short name on the other, and a word of its predicate in the question; at most three are
+  followed, one read each; no model call. Found by the speech gate (B26).
+
 ### Fixed
 
 - A `neo4j+s://` or `bolt+s://` store address (the form Neo4j Aura gives, and the one `docs/getting-started.md`

@@ -317,6 +317,18 @@ public sealed record RecallOptions
     public int MaxPersonDetailFacts { get; init; } = 8;
 
     /// <summary>
+    /// Follows a recalled fact that connects the owner to someone or something, by a relation the question names, one hop
+    /// to that one's own live facts: "Where does my sister live?" recalls "Anna | sister of | user" by similarity, and
+    /// with this on also "Anna | lives in | Madrid", which shares no word with the question (SPEECH-RELATION-RECALL, found
+    /// by the speech gate as B26). A connection has the owner on one side ("user", or "I" as the subject) and a short name
+    /// on the other, and a word of its predicate in the question ("sister" of "sister of"). At most three connections are
+    /// followed, one read each of that subject's facts; no model call. The facts added have no invented similarity score
+    /// and share the existing context budget. 0 (default) is off and issues nothing; supported range 0..32. Point-in-time
+    /// recall does not follow connections.
+    /// </summary>
+    public int MaxConnectionFacts { get; init; }
+
+    /// <summary>
     /// Reports aged-out memory as a stated absence when a fact section comes back thin. Default off,
     /// and off is byte-identical.
     /// </summary>
