@@ -115,13 +115,26 @@ jobs:
           python native/gate/timings.py "${{ github.workspace }}/out/bin/${{ matrix.library }}" --rid "${{ matrix.rid }}" | tee out/timings.md
           { echo; echo "### ${{ matrix.rid }}: load and open times"; echo; cat out/timings.md; echo; echo '```json'; cat out/bin/MANIFEST.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload the library and its manifest
+      - name: Packaging helpers
+        run: python -m unittest discover -s native/packaging/tests
+
+      # The wheel this platform's users install (NATIVE-PLAT-WHEELS): the library, its manifest and the licence of
+      # everything compiled into it, from this runner's own restore and .NET installation. The store job installs it.
+      - name: Wheel
+        run: |
+          python native/packaging/collect_provenance.py --assets tools/AgentMemory.Native/obj/project.assets.json --out out/provenance
+          tag="$(python native/packaging/wheel_tag.py out/bin/MANIFEST.json)"
+          python native/python/build_wheel.py "out/bin/${{ matrix.library }}" out/wheel --platform-tag "$tag" \
+            --provenance out/provenance --commit "${{ github.sha }}"
+
+      - name: Upload the library, its manifest and its wheel
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: agentmemory-native-${{ matrix.rid }}
           path: |
             out/bin
+            out/wheel
             out/publish.log
             out/gate.log
             out/timings.md
@@ -204,12 +217,30 @@ jobs:
           {
             echo "### ${{ matrix.rid }}: gate tiers B and C"
             echo
-            cat out/store/store-gate.md 2>/dev/null || echo "no summary (see the log)"
+            cat out/store/store-gate-library.md 2>/dev/null || echo "no summary (see the log)"
             echo
             echo '```'
-            grep -hE ' \.\.\. (ok|skipped|FAIL|ERROR)|^METRIC|^[0-9.]+s ' out/store/tier-b.log out/store/tier-c.log 2>/dev/null \
+            grep -hE ' \.\.\. (ok|skipped|FAIL|ERROR)|^METRIC|^[0-9.]+s ' out/store/tier-b-library.log out/store/tier-c-library.log 2>/dev/null \
               | sed -E 's/ \(test_(gate|writes)\.[^)]*\)//' || true
             echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
+      # What a user installs: the wheel in a fresh virtual environment, the read gate against the installed package
+      # with no path overrides (its manifest, licences and library checked), and the package index's own check.
+      - name: Gate, tier B from the installed wheel
+        run: |
+          python -m pip install --disable-pip-version-check "twine==7.0.0"
+          python -m twine check --strict out/wheel/*.whl
+          set +e
+          python native/gate/store/store_gate.py run --wheel out/wheel/*.whl --work "$RUNNER_TEMP/am-store-wheel" \
+            --report out/store --tls out/tls --tiers B
+          status=$?
+          set -e
+          {
+            echo "### ${{ matrix.rid }}: gate tier B from the installed wheel ($(cd out/wheel && ls *.whl))"
+            echo
+            cat out/store/store-gate-wheel.md 2>/dev/null || echo "no summary (see the log)"
           } >> "$GITHUB_STEP_SUMMARY"
           exit $status
 

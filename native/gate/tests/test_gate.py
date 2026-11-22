@@ -166,7 +166,8 @@ class Test1Library(unittest.TestCase):
         if packaged is None:
             self.skipTest("an explicit library path is set")
         self.assertEqual(info["abi"], {"major": abi.ABI_MAJOR, "minor": abi.ABI_MINOR})
-        self.assertTrue(info["platformTag"].startswith("manylinux_"))
+        family = {"linux": "manylinux_", "darwin": "macosx_", "win32": "win_"}[sys.platform]
+        self.assertTrue(info["platformTag"].startswith(family), info["platformTag"])
         self.assertEqual(info["library"]["sha256"], hashlib.sha256(packaged.read_bytes()).hexdigest())
         licences = {d["id"]: d["license"] for d in info["dependencies"]}
         self.assertEqual(licences.get("Neo4j.Driver"), "Apache-2.0")
@@ -550,8 +551,12 @@ class Test7Tls(unittest.TestCase):
 
     @needs_tls
     def test_recall_over_tls_with_the_certificate_validated(self):
+        # "localhost" is tried as ::1 first, and the store listens on 127.0.0.1 only: Windows retries the refused
+        # connection for about 2 s before it falls back, longer than a job's default time.
         with MemoryClient(config(uri=TLS_URI)) as memory:
-            result = memory.get_context(session_id="tls", query_vector=NEAR_AXIS_0, min_score=0.0)
+            started = time.perf_counter()
+            result = memory.get_context(session_id="tls", query_vector=NEAR_AXIS_0, min_score=0.0, timeout_ms=15000)
+            print(f"\nMETRIC tls_first_recall_ms={(time.perf_counter() - started) * 1000:.0f}", flush=True)
         self.assertTrue(result.ok, result.raw)
         self.assertEqual(ids(result), A_IDS)
 

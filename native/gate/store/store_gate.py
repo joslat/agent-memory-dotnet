@@ -10,9 +10,11 @@ Usage:
   python store_gate.py tls <dir>
       A throw-away certificate authority (ca.crt) and a server certificate for the name "localhost" only, signed by it
       (bolt/public.crt, bolt/private.key). Trusting ca.crt is left to the caller: it changes the machine's trust store.
-  python store_gate.py run --library <file> --work <dir> --report <dir> [--tls <dir>] [--tiers B,C]
-      With --tls, the read store also accepts TLS, and the read gate checks a recall over bolt+s:// with the certificate
-      validated, and that a certificate for another name is refused.
+  python store_gate.py run (--library <file> | --wheel <file>) --work <dir> --report <dir> [--tls <dir>] [--tiers B,C]
+      With --library, this Python runs the tests against the library by path. With --wheel, the wheel is installed into
+      a fresh virtual environment and the tests run there against the installed package, with no path overrides: the
+      way a user gets it. With --tls, the read store also accepts TLS, and the read gate checks a recall over bolt+s://
+      with the certificate validated, and that a certificate for another name is refused.
 
 Needs Java 21 (JAVA_HOME or java on PATH), the .NET SDK (the seed runs the managed library), openssl (tls only) and
 Python 3.12. Standard library only. Passwords are random, never printed, and reach the tools through environment
@@ -273,8 +275,33 @@ class Neo4j:
 
 # --- the tiers ------------------------------------------------------------------------------------------------------
 
-def unittest_run(pattern_dir: Path, pattern: str, env: dict, log_path: Path) -> tuple[int, str]:
-    command = [sys.executable, "-m", "unittest", "discover", "-v", "--durations", "8",
+class Runtime:
+    """Where the tests run: this Python with the library by path, or a fresh virtual environment with the wheel installed."""
+
+    def __init__(self, python: str, env: dict, mode: str, artifact: Path):
+        self.python, self.env, self.mode, self.artifact = python, env, mode, artifact
+
+    @staticmethod
+    def library(library: Path) -> "Runtime":
+        env = dict(os.environ, PYTHONPATH=str(REPO / "native" / "python"), AGENTMEMORY_NATIVE_LIBRARY=str(library))
+        return Runtime(sys.executable, env, "library", library)
+
+    @staticmethod
+    def wheel(wheel: Path, work: Path) -> "Runtime":
+        venv = work / "venv"
+        if venv.exists():
+            shutil.rmtree(venv)
+        subprocess.run([sys.executable, "-m", "venv", str(venv)], check=True)
+        python = str(venv / ("Scripts/python.exe" if WINDOWS else "bin/python"))
+        subprocess.run([python, "-m", "pip", "install", "--quiet", "--no-index", "--disable-pip-version-check", str(wheel)],
+                       check=True)
+        env = {k: v for k, v in os.environ.items() if k not in ("PYTHONPATH", "AGENTMEMORY_NATIVE_LIBRARY")}
+        log(f"installed {wheel.name} into {venv}")
+        return Runtime(python, env, "wheel", wheel)
+
+
+def unittest_run(runtime: Runtime, pattern_dir: Path, pattern: str, env: dict, log_path: Path) -> tuple[int, str]:
+    command = [runtime.python, "-m", "unittest", "discover", "-v", "--durations", "8",
                "-s", str(pattern_dir), "-t", str(pattern_dir), "-p", pattern]
     started = time.monotonic()
     with open(log_path, "wb") as out:
@@ -285,68 +312,70 @@ def unittest_run(pattern_dir: Path, pattern: str, env: dict, log_path: Path) -> 
     return code, f"{' '.join(tail)} ({time.monotonic() - started:.1f} s)"
 
 
-def gate_env(library: Path, store: Neo4j) -> dict:
-    return dict(os.environ, PYTHONPATH=str(REPO / "native" / "python"), AGENTMEMORY_NATIVE_LIBRARY=str(library),
-                AMP_URI=store.uri, AMP_USER="neo4j", AMP_PASSWORD=store.password, PYTHONDONTWRITEBYTECODE="1")
+def gate_env(runtime: Runtime, store: Neo4j) -> dict:
+    return dict(runtime.env, AMP_URI=store.uri, AMP_USER="neo4j", AMP_PASSWORD=store.password, PYTHONDONTWRITEBYTECODE="1")
 
 
-def tier_b(archive: Path, library: Path, work: Path, report: Path, tls: Path | None) -> dict:
+def tier_b(archive: Path, runtime: Runtime, work: Path, report: Path, tls: Path | None) -> dict:
     store = Neo4j(archive, work / "neo4j-read", READ_PORT, tls, report, "read")
     store.start()
     try:
         store.seed(report)
         before, rows = store.fingerprint(work)
-        env = gate_env(library, store) | {"GATE_TIER": "B"}
+        env = gate_env(runtime, store) | {"GATE_TIER": "B"}
         if tls is not None:
             env |= {"AMP_TLS_URI": f"bolt+s://localhost:{store.port}", "AMP_TLS_OTHER_NAME_URI": f"bolt+s://127.0.0.1:{store.port}"}
-        code, summary = unittest_run(GATE / "tests", "test_gate.py", env, report / "tier-b.log")
+        code, summary = unittest_run(runtime, GATE / "tests", "test_gate.py", env, report / f"tier-b-{runtime.mode}.log")
         after, _ = store.fingerprint(work)
     finally:
         store.stop()
-    return {"tier": "B", "exit": code, "summary": summary, "graphRows": rows,
+    return {"tier": "B", "mode": runtime.mode, "exit": code, "summary": summary, "graphRows": rows,
             "graph": "unchanged" if before == after else "CHANGED", "before": before, "after": after, "tls": tls is not None}
 
 
-def tier_c(archive: Path, library: Path, work: Path, report: Path) -> dict:
+def tier_c(archive: Path, runtime: Runtime, work: Path, report: Path) -> dict:
     store = Neo4j(archive, work / "neo4j-write", WRITE_PORT, None, report, "write")
     store.start()
     try:
         store.seed(report)
-        code, summary = unittest_run(GATE / "writetests", "test_writes.py", gate_env(library, store), report / "tier-c.log")
+        code, summary = unittest_run(runtime, GATE / "writetests", "test_writes.py", gate_env(runtime, store),
+                                     report / f"tier-c-{runtime.mode}.log")
     finally:
         store.stop()
-    return {"tier": "C", "exit": code, "summary": summary}
+    return {"tier": "C", "mode": runtime.mode, "exit": code, "summary": summary}
 
 
 def run(args: argparse.Namespace) -> int:
-    library = args.library.resolve()
-    if not library.is_file():
-        sys.exit(f"no library at {library}")
+    artifact = (args.library or args.wheel).resolve()
+    if not artifact.is_file():
+        sys.exit(f"no file at {artifact}")
     work = args.work.resolve()
     report = args.report.resolve()
     work.mkdir(parents=True, exist_ok=True)
     report.mkdir(parents=True, exist_ok=True)
     archive = neo4j_archive(work)
+    runtime = Runtime.library(artifact) if args.library else Runtime.wheel(artifact, work)
     tiers = {t.strip().upper() for t in args.tiers.split(",")}
     results = []
     if "B" in tiers:
-        results.append(tier_b(archive, library, work, report, args.tls.resolve() if args.tls else None))
+        results.append(tier_b(archive, runtime, work, report, args.tls.resolve() if args.tls else None))
     if "C" in tiers:
-        results.append(tier_c(archive, library, work, report))
+        results.append(tier_c(archive, runtime, work, report))
     record = {
         "platform": f"{platform.system()} {platform.machine()}",
         "python": platform.python_version(),
         "neo4j": NEO4J_VERSION,
-        "library": {"file": library.name, "bytes": library.stat().st_size,
-                    "sha256": hashlib.sha256(library.read_bytes()).hexdigest()},
+        "mode": runtime.mode,
+        runtime.mode: {"file": artifact.name, "bytes": artifact.stat().st_size,
+                       "sha256": hashlib.sha256(artifact.read_bytes()).hexdigest()},
         "tiers": results,
     }
-    (report / "store-gate.json").write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
-    lines = [f"| Tier | Result | Graph | TLS |", "|---|---|---|---|"]
+    (report / f"store-gate-{runtime.mode}.json").write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+    lines = ["| Tier | Mode | Result | Graph | TLS |", "|---|---|---|---|---|"]
     for r in results:
-        lines.append(f"| {r['tier']} | {'pass' if r['exit'] == 0 else 'FAIL'}: {r['summary']} | "
+        lines.append(f"| {r['tier']} | {r['mode']} | {'pass' if r['exit'] == 0 else 'FAIL'}: {r['summary']} | "
                      f"{r.get('graph', 'n/a')} | {'yes' if r.get('tls') else 'n/a'} |")
-    (report / "store-gate.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    (report / f"store-gate-{runtime.mode}.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     print("\n".join(lines))
     failed = any(r["exit"] != 0 or r.get("graph") == "CHANGED" for r in results)
     return 1 if failed else 0
@@ -358,7 +387,9 @@ def main() -> None:
     tls = sub.add_parser("tls", help="make a throw-away certificate authority and a server certificate for localhost")
     tls.add_argument("folder", type=Path)
     go = sub.add_parser("run", help="run tiers B and C against local Neo4j stores")
-    go.add_argument("--library", type=Path, required=True)
+    what = go.add_mutually_exclusive_group(required=True)
+    what.add_argument("--library", type=Path)
+    what.add_argument("--wheel", type=Path)
     go.add_argument("--work", type=Path, required=True)
     go.add_argument("--report", type=Path, required=True)
     go.add_argument("--tls", type=Path)
