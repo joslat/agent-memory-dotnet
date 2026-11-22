@@ -124,8 +124,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - With identity on (`identity-evidence`), a corrected name (`RenameOnCorrectedName`, on in the Conversational and
   Recommended presets) merged the old person into the new one without their identity bindings or kept names. Facts
   bound to the person under another name, such as a nickname, then dropped out of person details, and that name
-  stopped being anyone's, so another person known by it could be expanded as the only one. The merge now moves the
-  bindings in scope with the facts and keeps every name the merged person was known by on the survivor.
+  stopped being anyone's, so another person known by it could be expanded as the only one. Every connection identity
+  had observed for the person stayed with the old entity too, so the survivor had none in recall. The merge now moves
+  the bindings and decisions in scope with the facts and keeps every name the merged person was known by on the
+  survivor.
 - A hard delete of a fact (`IFactRepository.DeleteAsync`) or a destructive prune (`MemoryDecayOptions.NonDestructive =
   false`) left the fact's identity binding behind, with the name the fact used and its source message ids, and kept
   the person confirmed. The binding is now deleted with its fact, and a pruned person's bindings with them.

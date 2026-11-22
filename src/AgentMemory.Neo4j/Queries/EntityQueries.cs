@@ -374,13 +374,16 @@ internal static class EntityQueries
                 DELETE r
                 RETURN count(r) AS aboutMoved
             }
-            // P231-A F1. The merged person's identity bindings follow it, as its facts do: left on the merged entity, which every
-            // people read skips, their facts dropped out of person details. Only in-scope bindings move, by the facts' rule.
+            // P231-A F1. What identity resolved to the merged person follows it, as its facts do: the fact bindings (left behind,
+            // their facts dropped out of person details) and the decisions (identity keeps a connection between two decisions,
+            // so left behind, the survivor lost every connection identity had observed: F1b). Only in-scope ones move, by the
+            // facts' rule.
             CALL (source, target) {
-                MATCH (b:IdentityFactBinding)-[r:RESOLVES_TO]->(source)
-                " + factGuard.Replace("f.owner_id", "b.owner_id") + @"MERGE (b)-[:RESOLVES_TO]->(target)
+                MATCH (b)-[r:RESOLVES_TO]->(source)
+                WHERE (b:IdentityFactBinding OR b:IdentityDecision)
+                " + factGuard.Replace("WHERE ", "AND ").Replace("f.owner_id", "b.owner_id") + @"MERGE (b)-[:RESOLVES_TO]->(target)
                 DELETE r
-                RETURN count(r) AS bindingsMoved
+                RETURN count(r) AS resolvedMoved
             }
             // P231-A F1. Every name the merged person was known by stays a name of the survivor (kept names only grow), or a
             // namesake could hide behind a name nobody live has. As Bind keeps them: only on a survivor owned by the merged

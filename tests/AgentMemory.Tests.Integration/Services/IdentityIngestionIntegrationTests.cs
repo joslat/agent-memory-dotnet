@@ -2088,6 +2088,30 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
     }
 
     [Fact]
+    public async Task P231A_F1b_a_merged_person_s_connections_reach_the_survivor()
+    {
+        // With identity on, a connection is kept as an observation between two decisions, each resolving to its person, not as
+        // a RELATED_TO edge the merge already moves: the survivor must still have it.
+        using var host = Host(); using var scope = host.CreateScope(); var services = scope.ServiceProvider;
+        await Ingest(services, new UnifiedExtractionResult
+        {
+            Entities = [new() { Name = "Valentina", Type = "PERSON", Confidence = 1 }, new() { Name = "Córdoba", Type = "LOCATION", Confidence = 1 }],
+            Relationships = [new() { SourceEntity = "Valentina", RelationshipType = "LIVES_IN", TargetEntity = "Córdoba", Confidence = 1 }]
+        });
+        var relationships = services.GetRequiredService<IRelationshipRepository>();
+        var before = (await relationships.GetLiveAroundAsync([], ["Valentina"], 16, DateTimeOffset.UtcNow, Scope)).Should().ContainSingle().Subject;
+        var valentina = before.Relationship.SourceEntityId;
+        var entities = services.GetRequiredService<IEntityRepository>();
+        var survivor = await entities.UpsertAsync(new() { EntityId = "valentina-ruiz", Name = "Valentina Ruiz", Type = "PERSON", OwnerId = "pablito", Confidence = 1, CreatedAtUtc = DateTimeOffset.UnixEpoch });
+
+        (await entities.MergeEntitiesAsync(valentina, survivor.EntityId, Scope)).Should().BeTrue();
+
+        var after = (await relationships.GetLiveAroundAsync([survivor.EntityId], [], 16, DateTimeOffset.UtcNow, Scope)).Should().ContainSingle().Subject;
+        after.SourceName.Should().Be("Valentina Ruiz");
+        after.TargetName.Should().Be("Córdoba");
+    }
+
+    [Fact]
     public async Task P231A_F1_after_a_merge_a_shared_nickname_still_names_two_people()
     {
         using var host = Host(); using var scope = host.CreateScope();
