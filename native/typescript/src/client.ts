@@ -3,7 +3,7 @@
  *
  * Two layers, as in the Python binding. The low level (submit, Job.poll, cancel, release, state, waitAny) is
  * synchronous and maps one to one onto the C ABI; the gate runner drives it. The operations (getContext, remember, ...)
- * return promises: each job is admitted at once, and one waiter per context (am_v1_wait on koffi's worker threads)
+ * return promises: each job is admitted at once, and one waiter per context (am_v1_wait, at most 1 ms a turn)
  * settles them as they finish, so the event loop never blocks on the library. The waiter runs only while jobs are in
  * flight, so an idle client does not keep the process alive. An AbortSignal cancels the job in the library first.
  */
@@ -13,7 +13,8 @@ import { handle, hasWait, load, takeBuffer, type NativeFunctions } from "./libra
 import type { CapabilitiesResult, ContextResult, GetContextOptions, RememberOptions, ResultDocument, WriteResult } from "./results.js";
 
 const encoder = new TextEncoder();
-const WAIT_SLICE_MS = 200;
+/** How long one turn of the waiter waits inside the library before it yields to the event loop. */
+const TURN_WAIT_MS = 1;
 
 function encode(document: unknown): Uint8Array {
   return encoder.encode(JSON.stringify(document));
@@ -101,7 +102,7 @@ export class MemoryClient {
   private context: bigint;
   private closed = false;
   private readonly inFlight = new Map<bigint, InFlight>();
-  private waiting = false;
+  private scheduled = false;
 
   constructor(config: Record<string, unknown>, options: OpenOptions = {}) {
     this.functions = load(options.library);
@@ -202,41 +203,39 @@ export class MemoryClient {
     });
   }
 
-  /** The waiter: while jobs are in flight, one am_v1_wait at a time on a worker thread (a poll loop on ABI 1.0). */
+  /**
+   * The waiter: while jobs are in flight, each turn waits up to 1 ms inside the library (am_v1_wait returns at once
+   * when a job finishes), takes every finished job, and yields to the event loop (setImmediate) before the next turn;
+   * on ABI 1.0, a poll of each job and a 1 ms timer. So a result is taken within about a millisecond on every
+   * platform, the event loop is never held longer than that, and nothing spins. No thread of its own: an earlier
+   * version waited on koffi's worker threads, and on Linux a process that had used them failed as it exited; a timer of
+   * its own (setTimeout 1) fires only every 15.6 ms on Windows. Runs only while jobs are in flight.
+   */
   private pump(): void {
-    if (this.waiting || this.inFlight.size === 0 || this.closed) return;
-    this.waiting = true;
-    const done = (finished: bigint | null, failure?: unknown) => {
-      this.waiting = false;
-      if (failure !== undefined) {
-        for (const entry of [...this.inFlight.values()]) entry.reject(failure);
-        return;
+    if (this.scheduled || this.inFlight.size === 0 || this.closed) return;
+    this.scheduled = true;
+    setImmediate(() => this.tick());
+  }
+
+  private tick(): void {
+    this.scheduled = false;
+    if (this.closed) return;
+    let waitAgain = false;
+    try {
+      if (hasWait(this.functions)) {
+        for (let job = this.waitAny(TURN_WAIT_MS); job !== 0n; job = this.waitAny(0)) this.deliver(job);
+      } else {
+        for (const job of [...this.inFlight.keys()]) this.deliver(job);
+        waitAgain = true;
       }
-      if (finished !== null) this.deliver(finished);
-      this.pump();
-    };
-    if (hasWait(this.functions)) {
-      const out: unknown[] = [0];
-      this.functions.async.am_v1_wait!.async(this.context, WAIT_SLICE_MS, out, (error: unknown, status: number) => {
-        if (error) return done(null, error);
-        if (status !== Status.OK) return done(null, new NativeCallError("am_v1_wait", status));
-        const job = handle(out[0]);
-        done(job === 0n ? null : job);
-      });
+    } catch (failure) {
+      for (const entry of [...this.inFlight.values()]) entry.reject(failure);
       return;
     }
-    // ABI 1.0: poll the oldest job in flight on a worker thread, a slice at a time.
-    const first = this.inFlight.keys().next().value as bigint;
-    const disposition: unknown[] = [PENDING];
-    const pointer: unknown[] = [null];
-    const length: unknown[] = [0];
-    this.functions.async.am_v1_poll.async(this.context, first, WAIT_SLICE_MS, disposition, pointer, length, (error: unknown, status: number) => {
-      const data = takeBuffer(this.functions, pointer[0], length[0]);
-      if (error) return done(null, error);
-      if (status !== Status.OK) return done(null, new NativeCallError("am_v1_poll", status));
-      if (disposition[0] === TERMINAL && data) this.inFlight.get(first)?.resolve(JSON.parse(data.toString("utf8")));
-      done(null);
-    });
+    if (this.inFlight.size === 0 || this.closed) return;
+    this.scheduled = true;
+    if (waitAgain) setTimeout(() => this.tick(), TURN_WAIT_MS);
+    else setImmediate(() => this.tick());
   }
 
   private deliver(job: bigint): void {

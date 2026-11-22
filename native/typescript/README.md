@@ -26,9 +26,11 @@ try {
 ```
 
 - **Handles are BigInts**, the full 64 bits the ABI gives (a Number keeps 53).
-- **The operations return promises.** Each job is admitted at once; one waiter per context (`am_v1_wait`, on koffi's
-  worker threads) settles them as they finish, so the event loop never blocks on the library. The waiter runs only while
-  jobs are in flight: an idle client does not keep the process alive.
+- **The operations return promises.** Each job is admitted at once; one waiter per context settles them as they
+  finish. Each of its turns waits at most 1 ms inside the library (`am_v1_wait` returns at once when a job finishes),
+  then yields to the event loop, so a result is taken within about a millisecond and the loop is never held longer. It
+  runs only while jobs are in flight: an idle client does not keep the process alive. (koffi's worker-thread calls are
+  not used: on Linux a process that had used them failed as it exited.)
 - **An `AbortSignal` cancels the job in the library first**, then the promise rejects with an `AbortError`.
 - **The low level** (`submit`, `Job.poll`, `cancel`, `release`, `state`, `waitAny`) maps one to one onto the ABI and is
   synchronous; the gate runner drives it.

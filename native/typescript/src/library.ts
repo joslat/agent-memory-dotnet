@@ -26,13 +26,12 @@ export interface NativeFunctions {
   am_v1_buffer_free(buffer: unknown): void;
   am_v1_state(context: bigint, a: unknown[], b: unknown[], c: unknown[], d: unknown[], flags: unknown[]): number;
   am_v1_close(context: bigint): number;
-  /** ABI 1.1; absent from a 1.0 library. */
-  am_v1_wait?: KoffiCall;
-  /** The same functions, run on koffi's worker threads (for waits that must not block the event loop). */
-  readonly async: { am_v1_poll: KoffiCall; am_v1_wait?: KoffiCall };
+  /** ABI 1.1; absent from a 1.0 library. Blocks the calling thread up to waitMs. */
+  am_v1_wait?: (context: bigint, waitMs: number, outJob: unknown[]) => number;
 }
 
-type KoffiCall = ((...args: any[]) => any) & { async: (...args: any[]) => void };
+// koffi's worker-thread calls (fn.async) are not used: on Linux a process that had used them failed as it exited.
+type KoffiCall = (...args: any[]) => any;
 
 const FILE_NAMES: Record<string, string> = { win32: "agentmemory_native.dll", darwin: "agentmemory_native.dylib" };
 
@@ -134,7 +133,7 @@ export function load(explicit?: string): NativeFunctions {
     throw new NativeLibraryError(`${resolved.path} implements ABI ${major}.x; this binding needs ${ABI_MAJOR}.x`);
   }
   const poll = lib.func("int32_t am_v1_poll(uint64_t, uint64_t, uint32_t, _Out_ uint32_t *, _Out_ void **, _Out_ size_t *)") as KoffiCall;
-  const wait = optional("int32_t am_v1_wait(uint64_t, uint32_t, _Out_ uint64_t *)");
+  const wait = optional("int32_t am_v1_wait(uint64_t, uint32_t, _Out_ uint64_t *)") as NativeFunctions["am_v1_wait"];
   const functions: NativeFunctions = {
     path: resolved.path,
     am_v1_abi_version: version as () => number,
@@ -149,7 +148,6 @@ export function load(explicit?: string): NativeFunctions {
     ) as any,
     am_v1_close: lib.func("int32_t am_v1_close(uint64_t)") as any,
     am_v1_wait: wait,
-    async: { am_v1_poll: poll, am_v1_wait: wait },
   };
   loaded.set(resolved.path, functions);
   return functions;

@@ -8,6 +8,7 @@ import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { arch, platform, tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
+import { Worker } from "node:worker_threads";
 import { JobAbortedError, MemoryClient, NativeCallError, NativeLibraryError, OpenError, Status, load, resolveLibrary, verifyAgainstManifest } from "../src/index.js";
 
 const TIER = (process.env.GATE_TIER ?? "A").toUpperCase();
@@ -99,19 +100,27 @@ describe("REQUIRED.md: handles, state and the waiter", () => {
     }
   });
 
-  test("R-WAITER-CLOSE: a waiter blocked in am_v1_wait on a worker thread is woken by close", async () => {
-    const fn = load();
+  test("R-WAITER-CLOSE: a thread blocked in am_v1_wait is woken by close, within seconds, with no job", async () => {
     const memory = new MemoryClient(config());
-    const out: unknown[] = [0];
-    const started = Date.now();
-    const woken = new Promise<number>((resolve, reject) =>
-      fn.async.am_v1_wait!.async(memory.handle, 20_000, out, (error: unknown, status: number) => (error ? reject(error) : resolve(status))));
+    const worker = new Worker(new URL("./waiter-worker.js", import.meta.url), {
+      workerData: { library: load().path, context: memory.handle.toString() },
+    });
+    const messages: Array<{ kind: string; status?: number; job?: string; ms?: number }> = [];
+    const woken = new Promise<{ status?: number; job?: string; ms?: number }>((resolve, reject) => {
+      worker.on("message", (message) => {
+        messages.push(message);
+        if (message.kind === "woken") resolve(message);
+      });
+      worker.once("error", reject);
+    });
     await new Promise((r) => setTimeout(r, 300));
+    assert.deepEqual(messages.map((m) => m.kind), ["waiting"], "the worker is blocked in am_v1_wait");
     memory.close();
-    const status = await woken;
-    assert.ok([Status.OK, Status.INVALID_HANDLE].includes(status as 0 | 3), `status ${status}`);
-    assert.equal(Number(out[0]), 0);
-    assert.ok(Date.now() - started < 5000, "the waiter was not woken by close");
+    const result = await woken;
+    await worker.terminate();
+    assert.ok([Status.OK, Status.INVALID_HANDLE].includes(result.status as 0 | 3), `status ${result.status}`);
+    assert.equal(result.job, "0");
+    assert.ok((result.ms ?? 99_999) < 5000, `the waiter was woken after ${result.ms} ms`);
   });
 });
 
