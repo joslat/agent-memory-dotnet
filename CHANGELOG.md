@@ -121,6 +121,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- With identity on (`identity-evidence`), a corrected name (`RenameOnCorrectedName`, on in the Conversational and
+  Recommended presets) merged the old person into the new one without their identity bindings or kept names. Facts
+  bound to the person under another name, such as a nickname, then dropped out of person details, and that name
+  stopped being anyone's, so another person known by it could be expanded as the only one. The merge now moves the
+  bindings in scope with the facts and keeps every name the merged person was known by on the survivor.
+- A hard delete of a fact (`IFactRepository.DeleteAsync`) or a destructive prune (`MemoryDecayOptions.NonDestructive =
+  false`) left the fact's identity binding behind, with the name the fact used and its source message ids, and kept
+  the person confirmed. The binding is now deleted with its fact, and a pruned person's bindings with them.
+- Identity stored the creation time of each person it created as text. The decay prune, soft or hard, then failed
+  for the whole store with a type error, and recall as of a moment and the change windows skipped those people. New
+  ones are stored with a datetime, and the prune also reads the text times already stored. To convert existing ones:
+  `MATCH (e:Entity) WHERE e.created_at IS :: STRING SET e.created_at = datetime(e.created_at)`.
 - A `neo4j+s://` or `bolt+s://` store address (the form Neo4j Aura gives, and the one `docs/getting-started.md`
   shows) could not be used: the driver factory added its own encryption setting beside the scheme's, and the driver
   refused the pair ("The encryption and trust settings cannot both be set via uri scheme and driver configuration").
