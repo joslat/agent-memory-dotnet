@@ -330,7 +330,10 @@ def typescript_run(tier: str, env: dict, report: Path, runtime: Runtime) -> tupl
             done = subprocess.run(command, env=env | {"GATE_TIER": tier, "PYTHON": sys.executable}, cwd=package,
                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             out.write(done.stdout)
-            sys.stdout.write(done.stdout.decode("utf-8", errors="replace"))
+            # As bytes: node --test prints "▶", which a Windows console's code page cannot encode.
+            sys.stdout.flush()
+            sys.stdout.buffer.write(done.stdout)
+            sys.stdout.buffer.flush()
             code = code or done.returncode
             text = done.stdout.decode("utf-8", errors="replace")
             lines += [line for line in text.splitlines() if line.startswith(("tier ", "ℹ pass", "ℹ fail", "ℹ skipped", "METRIC"))]

@@ -101,6 +101,29 @@ export function verifyAgainstManifest(path: string, manifest: Manifest): void {
 }
 
 const loaded = new Map<string, NativeFunctions>();
+let openSslPreloaded = false;
+
+/**
+ * Linux: loads the system's libcrypto and libssl with RTLD_DEEPBIND before the library, so each binds to its own
+ * dependencies. Node exports the symbols of the OpenSSL it bundles, and without this the libssl that .NET loads for TLS
+ * binds some of its libcrypto calls to Node's copy: the first TLS connection crashed the process (SIGSEGV), on Node 24
+ * with the system's OpenSSL 3. .NET's own dlopen of the same library then gets these copies. Elsewhere .NET does not use
+ * OpenSSL (Windows: SChannel; macOS: the Security framework). A system without them is left as it is: .NET then
+ * reports TLS as unavailable.
+ */
+function preloadSystemOpenSsl(): void {
+  if (openSslPreloaded || platform() !== "linux") return;
+  openSslPreloaded = true;
+  for (const [crypto, ssl] of [["libcrypto.so.3", "libssl.so.3"], ["libcrypto.so.1.1", "libssl.so.1.1"]] as const) {
+    try {
+      koffi.load(crypto, { deep: true });
+      koffi.load(ssl, { deep: true });
+      return;
+    } catch {
+      // the next pair, or none
+    }
+  }
+}
 
 /** Loads the library once per path and declares its functions. */
 export function load(explicit?: string): NativeFunctions {
@@ -108,6 +131,7 @@ export function load(explicit?: string): NativeFunctions {
   const cached = loaded.get(resolved.path);
   if (cached) return cached;
   if (resolved.manifest) verifyAgainstManifest(resolved.path, resolved.manifest);
+  preloadSystemOpenSsl();
   let lib: ReturnType<typeof koffi.load>;
   try {
     lib = koffi.load(resolved.path);
