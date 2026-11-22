@@ -112,10 +112,15 @@ internal static class Arms
 
     public static IReadOnlyList<string> All => [.. Baselines, .. Graph.Select(arm => arm.Name)];
 
-    /// <summary>ILC-21: the arm with one identity component switched off; null keeps it unchanged.</summary>
+    /// <summary>
+    /// ILC-21: the arm with one identity component switched off; null keeps it unchanged. IKB-TIER2-RERUN adds the one
+    /// variant that switches something on: <c>namesake-filter-on</c>, RecallOptions.NamesakeFilter, measured before it can
+    /// become a default.
+    /// </summary>
     public static GraphArm Ablate(GraphArm arm, string? ablation) => ablation switch
     {
         null => arm,
+        "namesake-filter-on" => arm with { Memory = () => { var m = arm.Memory(); return m with { Recall = m.Recall with { NamesakeFilter = true } }; } },
         "adjudicator-off" => arm with { Identity = o => { arm.Identity!(o); o.MaxAdjudicationsPerIngestion = 0; } },
         "context-turns-off" => arm with { Memory = () => { var m = arm.Memory(); m.Extraction.ExtractionContextTurns = 0; return m; } },
         "context-rooted-off" => arm with { Identity = o =>
