@@ -2111,6 +2111,41 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
         after.TargetName.Should().Be("Córdoba");
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task P231A_G1_a_forgotten_person_s_connections_are_not_recalled(bool identity)
+    {
+        // An entity forgotten (invalidated, as the maintenance tool does) is skipped by every entity read; the connections read
+        // around a question's names must skip it too, whether identity keeps the connection (an observation) or not (an edge).
+        using var host = Host(enabled: identity, extension: identity); using var scope = host.CreateScope(); var services = scope.ServiceProvider;
+        var relationships = services.GetRequiredService<IRelationshipRepository>();
+        var entities = services.GetRequiredService<IEntityRepository>();
+        string forgotten;
+        if (identity)
+        {
+            await Ingest(services, new UnifiedExtractionResult
+            {
+                Entities = [new() { Name = "Valentina", Type = "PERSON", Confidence = 1 }, new() { Name = "Córdoba", Type = "LOCATION", Confidence = 1 }],
+                Relationships = [new() { SourceEntity = "Valentina", RelationshipType = "LIVES_IN", TargetEntity = "Córdoba", Confidence = 1 }]
+            });
+            forgotten = (await relationships.GetLiveAroundAsync([], ["Valentina"], 16, DateTimeOffset.UtcNow, Scope)).Should().ContainSingle().Subject.Relationship.SourceEntityId;
+        }
+        else
+        {
+            var valentina = await entities.UpsertAsync(new() { EntityId = "valentina", Name = "Valentina", Type = "PERSON", OwnerId = "pablito", Confidence = 1, CreatedAtUtc = DateTimeOffset.UnixEpoch });
+            var cordoba = await entities.UpsertAsync(new() { EntityId = "cordoba", Name = "Córdoba", Type = "LOCATION", OwnerId = "pablito", Confidence = 1, CreatedAtUtc = DateTimeOffset.UnixEpoch });
+            await relationships.UpsertAsync(new() { RelationshipId = "lives-in", SourceEntityId = valentina.EntityId, TargetEntityId = cordoba.EntityId, RelationshipType = "LIVES_IN", OwnerId = "pablito", Confidence = 1, CreatedAtUtc = DateTimeOffset.UnixEpoch });
+            (await relationships.GetLiveAroundAsync([], ["Valentina"], 16, DateTimeOffset.UtcNow, Scope)).Should().ContainSingle("precondition");
+            forgotten = valentina.EntityId;
+        }
+
+        (await entities.InvalidateAsync(forgotten, Scope)).Should().BeTrue();
+
+        (await relationships.GetLiveAroundAsync([], ["Valentina"], 16, DateTimeOffset.UtcNow, Scope)).Should().BeEmpty("Valentina was forgotten");
+        (await relationships.GetLiveAroundAsync([], ["Córdoba"], 16, DateTimeOffset.UtcNow, Scope)).Should().BeEmpty("its other end was forgotten");
+    }
+
     [Fact]
     public async Task P231A_F1_after_a_merge_a_shared_nickname_still_names_two_people()
     {

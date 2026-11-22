@@ -121,6 +121,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Without identity, recall's connections around a question's names still showed a forgotten entity's connections
+  (one invalidated, as the maintenance tool does) and a merged one's. Both ends must now be live, as the identity read
+  already required.
 - With identity on (`identity-evidence`), a corrected name (`RenameOnCorrectedName`, on in the Conversational and
   Recommended presets) merged the old person into the new one without their identity bindings or kept names. Facts
   bound to the person under another name, such as a nickname, then dropped out of person details, and that name
