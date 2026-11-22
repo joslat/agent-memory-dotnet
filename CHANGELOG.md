@@ -101,6 +101,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   embedder that returns no vector for a message) is stored message by message, as before. The AppContext switch
   `AgentMemory.Store.OneCallPerMessage` restores one call per message.
 
+- A recall that fans out (`MemoryOptions.FanOut`, on in the Conversational preset) sends its sub-questions' searches
+  together, at most eight at once, and merges their results in the same order as before. With the store 20 ms away a
+  two-part question waits 15.6 round trips instead of 27.7 (350 ms instead of 613 ms). A failing search no longer
+  stops the others from being sent; the first failure in the sub-questions' order is still the one thrown. The
+  AppContext switch `AgentMemory.Recall.FanOutSearchesInTurn` restores one search at a time.
+
 ### Fixed
 
 - A `neo4j+s://` or `bolt+s://` store address (the form Neo4j Aura gives, and the one `docs/getting-started.md`

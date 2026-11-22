@@ -261,8 +261,14 @@ internal sealed partial class MemoryContextAssembler
         // leg then embeds on its own below, with the same per-leg failure accounting as before.
         var prepared = await PrepareLegEmbeddingsAsync(legs, cancellationToken).ConfigureAwait(false);
 
-        foreach (var leg in legs)
+        // DRT-7 (C-03): two passes. First each leg's embedding, as before; then every search of every leg starts together,
+        // at most FanOutSearchesAtOnce at a time, and its rows are kept. Then the merge runs exactly as before, leg by leg
+        // and section by section over the kept rows, because each leg merges into what the earlier ones left. A failing
+        // search: all are sent, and the first failure in today's order is thrown after they have finished.
+        var embeddings = new float[]?[legs.Count];
+        for (var index = 0; index < legs.Count; index++)
         {
+            var leg = legs[index];
             var embedding = leg.QueryEmbedding;
             if ((embedding is null || embedding.Length == 0) && prepared.TryGetValue(leg.QueryText, out var batched))
                 embedding = batched;
@@ -283,7 +289,6 @@ internal sealed partial class MemoryContextAssembler
                         "Fan-out leg embedding failed for affinity {Affinity}; the leg is skipped.",
                         leg.Affinity);
                     embeddingFailures++;
-                    contributions.Add(new LegContribution(leg.Affinity, leg.QueryText, 0, []));
                     continue;
                 }
             }
@@ -291,6 +296,73 @@ internal sealed partial class MemoryContextAssembler
             if (embedding is null || embedding.Length == 0)
             {
                 embeddingFailures++;
+                continue;
+            }
+            embeddings[index] = embedding;
+        }
+
+        using var searchGate = new SemaphoreSlim(FanOutSearchesInTurn ? 1 : FanOutSearchesAtOnce);
+        async Task<T> Throttled<T>(Func<Task<T>> search)
+        {
+            await searchGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                return await search().ConfigureAwait(false);
+            }
+            finally
+            {
+                searchGate.Release();
+            }
+        }
+
+        var searches = new LegSearches?[legs.Count];
+        var started = new List<Task>();
+        for (var index = 0; index < legs.Count; index++)
+        {
+            if (embeddings[index] is not { } embedding) continue;
+            var found = new LegSearches();
+            foreach (var section in SubQueryAffinityMap.SectionsFor(legs[index].Affinity))
+            {
+                if (section == "entities" && recallOpts.MaxEntities > 0)
+                    started.Add(found.Entities = Throttled(() => scoredLongTerm.SearchEntitiesWithScoresAsync(
+                        embedding, recallOpts.MaxEntities, minScore, scope, cancellationToken)));
+                else if (section == "facts" && recallOpts.MaxFacts > 0)
+                    started.Add(found.Facts = Throttled(() => scoredLongTerm.SearchFactsWithScoresAsync(
+                        embedding, recallOpts.MaxFacts, minScore, scope,
+                        expandByPredicate: false, expansionLimit: 0,
+                        questionRelations: Array.Empty<string>(), cancellationToken)));
+                // R3. Session-scoped, matching the monolithic message search: a fan-out must not widen the session
+                // boundary the ordinary path respects.
+                else if (section == "messages" && recallOpts.MaxRelevantMessages > 0 && scoredMessages is not null)
+                    started.Add(found.Messages = Throttled(() => scoredMessages.SearchMessagesWithScoresAsync(
+                        request.SessionId, embedding, recallOpts.MaxRelevantMessages, minScore, cancellationToken)));
+                else if (section == "traces" && recallOpts.MaxTraces > 0 && scoredTraces is not null)
+                    started.Add(found.Traces = Throttled(() => scoredTraces.SearchSimilarTracesWithScoresAsync(
+                        embedding, recallOpts.SuccessfulTracesOnly, recallOpts.MaxTraces,
+                        recallOpts.EffectiveTraceMinScore, scope, cancellationToken)));
+                else if (section == "preferences" && recallOpts.MaxPreferences > 0)
+                    started.Add(found.Preferences = Throttled(() => scoredLongTerm.SearchPreferencesWithScoresAsync(
+                        embedding, recallOpts.MaxPreferences, minScore, scope, cancellationToken)));
+            }
+            searches[index] = found;
+        }
+        try
+        {
+            await Task.WhenAll(started).ConfigureAwait(false);
+        }
+        catch
+        {
+            // All have finished. Task.WhenAll reports failures in the order they happened; today's loop threw the first
+            // in leg and section order, so that one is rethrown, below.
+        }
+        foreach (var search in started)
+            if (!search.IsCompletedSuccessfully) await search.ConfigureAwait(false);
+
+        for (var index = 0; index < legs.Count; index++)
+        {
+            var leg = legs[index];
+            if (searches[index] is not { } found)
+            {
                 contributions.Add(new LegContribution(leg.Affinity, leg.QueryText, 0, []));
                 continue;
             }
@@ -300,11 +372,9 @@ internal sealed partial class MemoryContextAssembler
 
             foreach (var section in SubQueryAffinityMap.SectionsFor(leg.Affinity))
             {
-                if (section == "entities" && recallOpts.MaxEntities > 0)
+                if (section == "entities" && found.Entities is not null)
                 {
-                    var legRows = await scoredLongTerm.SearchEntitiesWithScoresAsync(
-                        embedding, recallOpts.MaxEntities, minScore, scope, cancellationToken)
-                        .ConfigureAwait(false);
+                    var legRows = await found.Entities.ConfigureAwait(false);
                     retrieved += legRows.Count;
                     var merge = RecallFanOutMerge.MergeScored(
                         entityPairs, legRows, static e => e.EntityId, recallOpts.MaxEntities,
@@ -312,13 +382,9 @@ internal sealed partial class MemoryContextAssembler
                     entityPairs = merge.Merged.ToList();
                     contributed.AddRange(merge.UniqueIds);
                 }
-                else if (section == "facts" && recallOpts.MaxFacts > 0)
+                else if (section == "facts" && found.Facts is not null)
                 {
-                    var legRows = await scoredLongTerm.SearchFactsWithScoresAsync(
-                        embedding, recallOpts.MaxFacts, minScore, scope,
-                        expandByPredicate: false, expansionLimit: 0,
-                        questionRelations: Array.Empty<string>(), cancellationToken)
-                        .ConfigureAwait(false);
+                    var legRows = await found.Facts.ConfigureAwait(false);
                     retrieved += legRows.Facts.Count;
                     var merge = RecallFanOutMerge.MergeScored(
                         factPairs, legRows.Scored, static f => f.FactId, recallOpts.MaxFacts,
@@ -326,44 +392,30 @@ internal sealed partial class MemoryContextAssembler
                     factPairs = merge.Merged.ToList();
                     contributed.AddRange(merge.UniqueIds);
                 }
-                else if (section == "messages" && recallOpts.MaxRelevantMessages > 0
-                         && scoredMessages is not null)
+                else if (section == "messages" && found.Messages is not null)
                 {
-                    // R3. This arm and the trace arm below were PUBLISHED in the affinity map and
-                    // never implemented, so an Episodic or Procedural leg paid for a live embedding
-                    // and could not retrieve anything in any mode -- reporting ItemsRetrieved=0,
-                    // indistinguishable from "the store had nothing". Advertised destinations that
-                    // silently retrieve nothing are the exact mechanism-substituted shape the router
-                    // audit existed to kill.
-                    //
-                    // Session-scoped, matching the monolithic message search: a fan-out must not widen
-                    // the session boundary the ordinary path respects.
-                    var legRows = await scoredMessages.SearchMessagesWithScoresAsync(
-                        request.SessionId, embedding, recallOpts.MaxRelevantMessages, minScore,
-                        cancellationToken).ConfigureAwait(false);
+                    // R3. This arm and the trace arm below were PUBLISHED in the affinity map and never implemented, so
+                    // an Episodic or Procedural leg paid for a live embedding and could not retrieve anything in any
+                    // mode -- reporting ItemsRetrieved=0, indistinguishable from "the store had nothing".
+                    var legRows = await found.Messages.ConfigureAwait(false);
                     retrieved += legRows.Count;
                     var merge = RecallFanOutMerge.MergeScored(
                         messagePairs, legRows, static m => m.MessageId, recallOpts.MaxRelevantMessages);
                     messagePairs = merge.Merged.ToList();
                     contributed.AddRange(merge.UniqueIds);
                 }
-                else if (section == "traces" && recallOpts.MaxTraces > 0 && scoredTraces is not null)
+                else if (section == "traces" && found.Traces is not null)
                 {
-                    var legRows = await scoredTraces.SearchSimilarTracesWithScoresAsync(
-                        embedding, recallOpts.SuccessfulTracesOnly, recallOpts.MaxTraces,
-                        recallOpts.EffectiveTraceMinScore, scope, cancellationToken)
-                        .ConfigureAwait(false);
+                    var legRows = await found.Traces.ConfigureAwait(false);
                     retrieved += legRows.Count;
                     var merge = RecallFanOutMerge.MergeScored(
                         tracePairs, legRows, static t => t.TraceId, recallOpts.MaxTraces);
                     tracePairs = merge.Merged.ToList();
                     contributed.AddRange(merge.UniqueIds);
                 }
-                else if (section == "preferences" && recallOpts.MaxPreferences > 0)
+                else if (section == "preferences" && found.Preferences is not null)
                 {
-                    var legRows = await scoredLongTerm.SearchPreferencesWithScoresAsync(
-                        embedding, recallOpts.MaxPreferences, minScore, scope, cancellationToken)
-                        .ConfigureAwait(false);
+                    var legRows = await found.Preferences.ConfigureAwait(false);
                     retrieved += legRows.Count;
                     var merge = RecallFanOutMerge.MergeScored(
                         preferencePairs, legRows, static p => p.PreferenceId, recallOpts.MaxPreferences,
@@ -404,6 +456,26 @@ internal sealed partial class MemoryContextAssembler
             messagePairs.Select(pair => pair.Item).ToList(),
             tracePairs.Select(pair => pair.Item).ToList(),
             contributions);
+    }
+
+    /// <summary>DRT-7: how many fan-out searches run at once.</summary>
+    internal const int FanOutSearchesAtOnce = 8;
+
+    /// <summary>
+    /// DRT-7: the AppContext switch <c>AgentMemory.Recall.FanOutSearchesInTurn</c> runs the fan-out's searches one at a
+    /// time, as before. Read per recall.
+    /// </summary>
+    private static bool FanOutSearchesInTurn =>
+        AppContext.TryGetSwitch("AgentMemory.Recall.FanOutSearchesInTurn", out var inTurn) && inTurn;
+
+    /// <summary>DRT-7: one leg's searches, started together; each section's rows, kept for the merge in today's order.</summary>
+    private sealed class LegSearches
+    {
+        public Task<IReadOnlyList<(Entity Entity, double Score)>>? Entities;
+        public Task<ScoredFactSearchResult>? Facts;
+        public Task<IReadOnlyList<(Message Message, double Score)>>? Messages;
+        public Task<IReadOnlyList<(ReasoningTrace Trace, double Score)>>? Traces;
+        public Task<IReadOnlyList<(Preference Preference, double Score)>>? Preferences;
     }
 
     /// <summary>

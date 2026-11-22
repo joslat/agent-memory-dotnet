@@ -69,7 +69,56 @@ public static partial class PerfScenarios
             SupportsInterleavedAb: false,
             SetupAsync: PauseAsync,
             IncludeInDefaultRun: false),
+        new(
+            "PERF-D-09",
+            "Recall of a two-part question with fan-out on (the Conversational preset's planner, the deterministic deriver)",
+            ctx => FanOutRecallAsync(ctx, "PERF-D-09", inTurn: false),
+            SupportsInterleavedAb: false,
+            IncludeInDefaultRun: false),
+        new(
+            "PERF-D-10",
+            "PERF-D-09 with the fan-out's searches one at a time, as before DRT-7 (the AppContext switch AgentMemory.Recall.FanOutSearchesInTurn)",
+            ctx => FanOutRecallAsync(ctx, "PERF-D-10", inTurn: true),
+            SupportsInterleavedAb: false,
+            IncludeInDefaultRun: false),
     ];
+
+    /// <summary>
+    /// DRT-7: recall with fan-out on, through an assembler built as the container builds it but with the planner enabled
+    /// and the registered deriver, on a question of two parts. Fails unless fan-out fired with every leg, so the
+    /// measurement cannot be of a fan-out that did nothing.
+    /// </summary>
+    private static async Task FanOutRecallAsync(ScenarioContext ctx, string scenarioId, bool inTurn)
+    {
+        var services = ctx.Profile.Services;
+        var configured = services.GetRequiredService<Microsoft.Extensions.Options.IOptions<AgentMemory.Abstractions.Options.MemoryOptions>>().Value;
+        var options = configured with { FanOut = new AgentMemory.Abstractions.Options.RecallFanOutOptions { Enabled = true } };
+        var assembler = new AgentMemory.Core.Services.MemoryContextAssembler(
+            services.GetRequiredService<IShortTermMemoryService>(), services.GetRequiredService<ILongTermMemoryService>(),
+            services.GetRequiredService<IReasoningMemoryService>(), null, services.GetRequiredService<IEmbeddingOrchestrator>(),
+            services.GetRequiredService<TimeProvider>(), Microsoft.Extensions.Options.Options.Create(options),
+            services.GetRequiredService<Microsoft.Extensions.Logging.ILogger<AgentMemory.Core.Services.MemoryContextAssembler>>(),
+            services.GetRequiredService<AgentMemory.Abstractions.Services.IMemoryIsolationPolicy>(), null, null,
+            subQueryDeriver: services.GetRequiredService<AgentMemory.Core.Services.ISubQueryDeriver>());
+        var identity = PerfFixture.DefaultIdentity;
+        AppContext.SetSwitch("AgentMemory.Recall.FanOutSearchesInTurn", inTurn);
+        try
+        {
+            var context = await assembler.AssembleContextAsync(new RecallRequest
+            {
+                SessionId = identity.SessionId, UserId = identity.OwnerId,
+                // Two question words (the gate's rule C1), so the planner splits it.
+                Query = $"What do I know about {PerfFixture.ProbeQueryFor(identity).TrimEnd('?', '.')}, and where do I prefer to work?",
+                Options = ctx.RecallOptions,
+            }, ctx.CancellationToken).ConfigureAwait(false);
+            if (context.FanOutReport is not { GateFired: true } report || report.VoidReason is not null || report.SubQueries.Count < 2)
+                throw new InvalidOperationException($"{scenarioId}: fan-out did not fire with two or more legs (fired {context.FanOutReport?.GateFired}, void {context.FanOutReport?.VoidReason ?? "none"}, legs {context.FanOutReport?.SubQueries.Count ?? 0})");
+        }
+        finally
+        {
+            AppContext.SetSwitch("AgentMemory.Recall.FanOutSearchesInTurn", false);
+        }
+    }
 
     /// <summary>DRT-PAUSE: the person reads the answer and types the next message. Not measured.</summary>
     private static Task PauseAsync(ScenarioSetupContext ctx) => Task.Delay(TimeSpan.FromSeconds(31), ctx.CancellationToken);
