@@ -72,6 +72,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   first call after a quiet spell opens a new connection instead of failing after 30 seconds on one a firewall or the
   server dropped. `Neo4jOptions.ConnectionIdleTimeout` (not set by default) closes connections idle for longer.
 
+- Where entities are listed for the prompt, each line is shown once: the profile block's key entities, the recalled
+  entities in the Agent Framework messages and the Markdown context, and the Semantic Kernel text search. A thing
+  stored as several entities (a dog, a café or a town named in three turns) said "Luna (OBJECT)" three times; a
+  namesake of another type, or with another description, keeps its own line. The profile block gives the freed places
+  to the next entities. What recall returns is unchanged, and so is a block with no repeated line.
+
 ### Fixed
 
 - A `neo4j+s://` or `bolt+s://` store address (the form Neo4j Aura gives, and the one `docs/getting-started.md`

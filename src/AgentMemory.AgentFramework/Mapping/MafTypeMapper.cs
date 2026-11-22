@@ -332,7 +332,8 @@ internal static class MafTypeMapper
         // 36.3. With shared memory recalled under its own budget, the owner-less items render after the
         // person's own under a label that says what they are. Without it both lists are the section as
         // before (Shared is empty), so the messages are byte-identical.
-        var (ownEntities, sharedEntities) = SharedKnowledge.Split(context, context.RelevantEntities.Items, e => e.OwnerId);
+        // IBP-1: each entity line once (one thing stored as several entities said its name once per entity).
+        var (ownEntities, sharedEntities) = SharedKnowledge.Split(context, MemoryContextFormatter.OncePerLine(context.RelevantEntities.Items), e => e.OwnerId);
         var (ownFacts, sharedFacts) = SharedKnowledge.Split(
             context, ProjectionRenderer.Reorder("facts", context.RelevantFacts.Items, f => f.FactId, context.Projection), f => f.OwnerId);
         var (ownPreferences, sharedPreferences) = SharedKnowledge.Split(context, context.RelevantPreferences.Items, p => p.OwnerId);

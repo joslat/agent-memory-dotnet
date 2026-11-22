@@ -29,6 +29,9 @@ namespace AgentMemory.Neo4j.Services;
 /// </remarks>
 internal sealed class Neo4jWorkingMemoryService : IWorkingMemoryService
 {
+    /// <summary>IBP-1: how many entity rows the block reads per line it shows, so repeated names leave no gap.</summary>
+    private const int EntityReadFactor = 3;
+
     private readonly INeo4jTransactionRunner _tx;
     private readonly TimeProvider _clock;
     private readonly IIdGenerator _ids;
@@ -313,11 +316,17 @@ internal sealed class Neo4jWorkingMemoryService : IWorkingMemoryService
             var cursor = await runner.RunAsync(WorkingMemoryQueries.SelectTopEntities, new
             {
                 ownerId,
-                limit = _options.MaxTopEntities,
+                // IBP-1: read three times the lines, so a name repeated by a split gives its place to the next entity.
+                limit = _options.MaxTopEntities * EntityReadFactor,
             }).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
+            // IBP-1: each line once. A thing stored as several entities (a split) said its name once per entity, which
+            // told the model nothing more; namesakes of different types keep their own lines. Without a repeated line
+            // the block is the one it was: the first MaxTopEntities lines in the same order.
             return records
                 .Select(r => $"{r["name"].As<string>()} ({r["type"].As<string>()})")
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(_options.MaxTopEntities)
                 .ToList();
         }, cancellationToken).ConfigureAwait(false) ?? [];
 

@@ -144,7 +144,8 @@ public sealed class Neo4jTextSearch : ITextSearch<TextSearchResult>
                 msg.Role, trustLevel, security.MinimumTrustForSystemRole);
             yield return new TextSearchResult(msg.Content) { Name = effectiveRole };
         }
-        foreach (var entity in ctx.RelevantEntities.Items)
+        // IBP-1: each entity line once (one thing stored as several entities said its name once per entity).
+        foreach (var entity in MemoryContextFormatter.OncePerLine(ctx.RelevantEntities.Items))
         {
             cancellationToken.ThrowIfCancellationRequested();
             var text = entity.Description ?? entity.Name;
