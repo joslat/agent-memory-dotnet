@@ -2,6 +2,7 @@ using AgentMemory.Native.Abi;
 using AgentMemory.Native.Composition;
 using AgentMemory.Native.Contract;
 using AgentMemory.Native.Journal;
+using AgentMemory.Neo4j.Infrastructure;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -118,6 +119,10 @@ internal sealed class NativeContext
         request switch
         {
             CapabilitiesRequest => ResultWriter.Capabilities(request.RequestId, Config, ContextRegistry.LibraryVersion, job.Timing()),
+            SchemaStatusRequest status => ResultWriter.Schema(SchemaStatusRequest.Name, status.RequestId,
+                await _provider.GetRequiredService<ISchemaInspector>().InspectAsync(token).ConfigureAwait(false), bootstrapped: false, job.Timing()),
+            SchemaBootstrapRequest bootstrap => ResultWriter.Schema(SchemaBootstrapRequest.Name, bootstrap.RequestId,
+                await BootstrapAsync(token).ConfigureAwait(false), bootstrapped: true, job.Timing()),
             GetContextRequest recall => ResultWriter.Context(
                 recall.RequestId, await RecallAsync(recall, token).ConfigureAwait(false), job.Timing()),
             RememberRequest remember => await RememberAsync(remember, job, token).ConfigureAwait(false),
@@ -132,6 +137,13 @@ internal sealed class NativeContext
                 _writes!.AdmitErase(), job, token).ConfigureAwait(false),
             _ => throw new ContractException("unknown_operation", $"Operation '{request.Operation}' is not offered."),
         };
+
+    /// <summary>The managed bootstrap (constraints, indexes, migrations), then what the store holds after it.</summary>
+    private async Task<SchemaInspection> BootstrapAsync(CancellationToken token)
+    {
+        await _provider.GetRequiredService<ISchemaBootstrapper>().BootstrapAsync(token).ConfigureAwait(false);
+        return await _provider.GetRequiredService<ISchemaInspector>().InspectAsync(token).ConfigureAwait(false);
+    }
 
     /// <summary>
     /// Accepts the words durably (or finds the earlier acceptance of the same source), then waits for the operation to

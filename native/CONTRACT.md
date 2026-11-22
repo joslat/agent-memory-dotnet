@@ -124,6 +124,27 @@ With none of them, a recall is exactly what it was before they existed, and its 
 
 Every status other than `ok` carries `"error": {"code": "…", "message": "…"}`. Metadata is returned exactly as stored. Results never contain vectors, passwords or stack traces.
 
+## The schema (profile `admin`)
+
+A store must hold AgentMemory's schema before any other profile can use it. The `admin` profile prepares it with no
+.NET installation:
+
+```json
+{"schemaVersion": 1, "profile": "admin",
+ "store": {"uri": "bolt://localhost:7687", "username": "neo4j", "password": "..."},
+ "embedding": {"dimensions": 1024}}
+```
+
+`owner` is optional (no owner's memory is read). It offers `capabilities_get` and two operations:
+
+| Operation | What it does | Result |
+|---|---|---|
+| `schema_status` | Reads what the store holds of the schema; changes nothing | `schema`: `complete`, `empty`, `expected` (how many constraints and indexes the bootstrap creates), `missing` (their names), `dimensions` (configured), `dimensionsMatch`, `vectorIndexes` (each vector index with its dimensions); `bootstrapped: false` |
+| `schema_bootstrap` | Creates what is missing and applies the schema migrations, exactly as the managed bootstrap does (`AgentMemory.Cli bootstrap`); what is there is left as it is, so a second run changes nothing | the same `schema`, read after it; `bootstrapped: true`. Give it a job time of its own (a first bootstrap takes seconds): the Python binding's `schema_bootstrap()` waits up to 120 s |
+
+The other profiles do not offer either operation, and `admin` offers no recall or write. One context per store and
+database per process holds for `admin` too: close it before opening the store with another profile.
+
 ## Explicit writes (profile `explicit_write`)
 
 The owner says "remember that …", and the host can tell truthfully whether it was saved, is being saved, failed, or is uncertain. Writes go through one durable journal per state directory; one writer runs them in acceptance order.

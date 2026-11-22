@@ -109,6 +109,33 @@ internal static class ResultWriter
         });
 
     /// <summary>
+    /// <c>schema_status</c> and <c>schema_bootstrap</c> (admin): what the store holds of the schema, after the bootstrap
+    /// when <paramref name="bootstrapped"/>.
+    /// </summary>
+    public static byte[] Schema(string operation, string? requestId, AgentMemory.Neo4j.Infrastructure.SchemaInspection inspection,
+        bool bootstrapped, JobTiming timing) =>
+        Write(writer =>
+        {
+            WriteHead(writer, operation, requestId, "ok");
+            writer.WriteStartObject("schema");
+            writer.WriteBoolean("complete", inspection.Complete);
+            writer.WriteBoolean("empty", inspection.Empty);
+            writer.WriteNumber("expected", inspection.Expected);
+            writer.WriteStartArray("missing");
+            foreach (var name in inspection.Missing) writer.WriteStringValue(name);
+            writer.WriteEndArray();
+            writer.WriteNumber("dimensions", inspection.ConfiguredDimensions);
+            writer.WriteBoolean("dimensionsMatch", inspection.DimensionsMatch);
+            writer.WriteStartObject("vectorIndexes");
+            foreach (var (name, dimensions) in inspection.VectorDimensions.OrderBy(p => p.Key, StringComparer.Ordinal))
+                writer.WriteNumber(name, dimensions);
+            writer.WriteEndObject();
+            writer.WriteEndObject();
+            writer.WriteBoolean("bootstrapped", bootstrapped);
+            WriteTiming(writer, timing);
+        });
+
+    /// <summary>
     /// The receipt of an explicit write: where it stands, by evidence. <c>duplicate</c> is true when the source was
     /// accepted before and this request ran nothing.
     /// </summary>

@@ -54,8 +54,9 @@ with MemoryClient(config) as memory:
         print(fact.subject, fact.predicate, fact.object, dict(fact.metadata))
 ```
 
-The store must already hold AgentMemory's schema (the managed `AgentMemory.Cli bootstrap` creates it); the library
-never creates or migrates schema.
+The store must hold AgentMemory's schema first. The `admin` profile creates it with no .NET (`schema_status`, then
+`schema_bootstrap`; see [CONTRACT.md](CONTRACT.md)), as the managed `AgentMemory.Cli bootstrap` does. The other profiles
+never create or migrate schema.
 
 ## Build and prove (Linux x64)
 
@@ -150,6 +151,7 @@ minimum macOS), checks the macOS signature, runs the gate's tiers and builds the
 | A | Everything that needs no store: loading, the ABI, handles, configuration and contract refusals, closed contexts, the embedding checks that end before the store, an unreachable store | the build runner (`GATE_TIER=A`) |
 | B | The read gate against a seeded store, the graph fingerprinted before and after (a read-only run must leave it unchanged), a recall over `bolt+s://` with the certificate validated, and a certificate for another name refused (`store_tls`) | a runner of the same platform, from the library and again from the installed wheel |
 | C | The write tests on a store of their own: receipts, the journal (its lock across processes, its privacy, crashes), forget and erase | the same runner |
+| S | The `admin` profile on a fresh, unseeded store: `schema_status` says it is empty, `schema_bootstrap` makes it complete at the configured dimensions from Python with no .NET, and a second bootstrap leaves the graph unchanged | the same runner |
 
 `gate/store/store_gate.py` runs tiers B and C with a local Neo4j 5.26 from its community distribution on Java 21, so one
 script serves every platform (macOS runners have no Docker); `run-gate.sh` and `run-write-gate.sh` remain the gate on the

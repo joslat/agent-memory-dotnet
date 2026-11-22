@@ -20,6 +20,12 @@ internal enum MemoryProfile
 
     /// <summary>R2: explicit writes plus observed ones, each applied once by its operation id (a receipt in the store).</summary>
     Learning,
+
+    /// <summary>
+    /// NATIVE-SCHEMA: the store's schema only, its status and its bootstrap, so a binding with no .NET can prepare a
+    /// store. No recall, no write of memories.
+    /// </summary>
+    Admin,
 }
 
 /// <summary>A validated <c>am_v1_open</c> configuration.</summary>
@@ -28,17 +34,22 @@ internal sealed record OpenConfig
     public const string ReadOnlyName = "read_only";
     public const string ExplicitWriteName = "explicit_write";
     public const string LearningName = "learning";
+    public const string AdminName = "admin";
 
     public MemoryProfile Profile { get; init; } = MemoryProfile.ReadOnly;
     public string ProfileName => Profile switch
     {
         MemoryProfile.ExplicitWrite => ExplicitWriteName,
         MemoryProfile.Learning => LearningName,
+        MemoryProfile.Admin => AdminName,
         _ => ReadOnlyName,
     };
 
-    /// <summary>The profile writes (explicit_write or learning).</summary>
-    public bool Writes => Profile != MemoryProfile.ReadOnly;
+    /// <summary>The profile writes memories (explicit_write or learning).</summary>
+    public bool Writes => Profile is MemoryProfile.ExplicitWrite or MemoryProfile.Learning;
+
+    /// <summary>The profile reads and prepares the schema only (admin).</summary>
+    public bool Admin => Profile == MemoryProfile.Admin;
 
     /// <summary>The writer's model (explicit_write only).</summary>
     public ChatEndpoint? Writer { get; init; }
@@ -83,20 +94,27 @@ internal sealed record OpenConfig
                 ReadOnlyName => MemoryProfile.ReadOnly,
                 ExplicitWriteName => MemoryProfile.ExplicitWrite,
                 LearningName => MemoryProfile.Learning,
+                AdminName => MemoryProfile.Admin,
                 var other => throw new ContractException("unsupported_profile",
-                    $"$.profile '{other}' is not offered; this library offers '{ReadOnlyName}', '{ExplicitWriteName}' and '{LearningName}'."),
+                    $"$.profile '{other}' is not offered; this library offers '{ReadOnlyName}', '{ExplicitWriteName}', '{LearningName}' and '{AdminName}'."),
             };
-            var writes = profile != MemoryProfile.ReadOnly;
+            var writes = profile is MemoryProfile.ExplicitWrite or MemoryProfile.Learning;
 
-            var owner = root.RequiredObject("owner");
-            var mode = owner.RequiredString("mode", 32) switch
+            // The admin profile reads no owner's memory: its owner is optional, and checked as usual when given.
+            var mode = OwnerMode.PerRequest;
+            string? fixedOwner = null;
+            if (profile != MemoryProfile.Admin || root.OptionalObject("owner") is not null)
             {
-                "fixed" => OwnerMode.Fixed,
-                "per_request" => OwnerMode.PerRequest,
-                var other => throw new ContractException("invalid_value", $"$.owner.mode '{other}' must be 'fixed' or 'per_request'."),
-            };
-            var fixedOwner = mode == OwnerMode.Fixed ? owner.RequiredString("id", 256) : null;
-            owner.EnsureNoUnknown();
+                var owner = root.RequiredObject("owner");
+                mode = owner.RequiredString("mode", 32) switch
+                {
+                    "fixed" => OwnerMode.Fixed,
+                    "per_request" => OwnerMode.PerRequest,
+                    var other => throw new ContractException("invalid_value", $"$.owner.mode '{other}' must be 'fixed' or 'per_request'."),
+                };
+                fixedOwner = mode == OwnerMode.Fixed ? owner.RequiredString("id", 256) : null;
+                owner.EnsureNoUnknown();
+            }
             if (writes && mode != OwnerMode.Fixed)
                 throw new ContractException("owner_mode_not_offered",
                     $"$.owner.mode must be 'fixed' for a writing profile: one configured owner writes; several owners need their own identity design.");
@@ -268,7 +286,9 @@ internal abstract record NativeRequest
             NativeRequest request = operation switch
             {
                 CapabilitiesRequest.Name => new CapabilitiesRequest { RequestId = requestId },
-                GetContextRequest.Name => GetContextRequest.Read(root, config, requestId),
+                GetContextRequest.Name when !config.Admin => GetContextRequest.Read(root, config, requestId),
+                SchemaStatusRequest.Name when config.Admin => new SchemaStatusRequest { RequestId = requestId },
+                SchemaBootstrapRequest.Name when config.Admin => new SchemaBootstrapRequest { RequestId = requestId },
                 RememberRequest.Name when writes => RememberRequest.Read(root, requestId, config.Profile == MemoryProfile.Learning),
                 OperationGetRequest.Name when writes => OperationGetRequest.Read(root, requestId),
                 OperationResolveRequest.Name when writes => OperationResolveRequest.Read(root, requestId),
@@ -289,7 +309,9 @@ internal abstract record NativeRequest
     }
 
     /// <summary>The operations a context of this configuration offers, in the order capabilities lists them.</summary>
-    public static IReadOnlyList<string> Offered(OpenConfig config) => config.Writes
+    public static IReadOnlyList<string> Offered(OpenConfig config) => config.Admin
+        ? [CapabilitiesRequest.Name, SchemaStatusRequest.Name, SchemaBootstrapRequest.Name]
+        : config.Writes
         ? [CapabilitiesRequest.Name, GetContextRequest.Name, RememberRequest.Name, OperationGetRequest.Name, OperationResolveRequest.Name,
             ForgetRequest.Name, EraseOwnerRequest.Name]
         : [CapabilitiesRequest.Name, GetContextRequest.Name];
@@ -387,6 +409,23 @@ internal sealed record OperationResolveRequest : NativeRequest
 internal sealed record CapabilitiesRequest : NativeRequest
 {
     public const string Name = "capabilities_get";
+    public override string Operation => Name;
+}
+
+/// <summary><c>schema_status</c> (admin): what the store holds of AgentMemory's schema, read without changing anything.</summary>
+internal sealed record SchemaStatusRequest : NativeRequest
+{
+    public const string Name = "schema_status";
+    public override string Operation => Name;
+}
+
+/// <summary>
+/// <c>schema_bootstrap</c> (admin): creates what is missing of the schema and applies its migrations, exactly as the
+/// managed bootstrap does (<c>AgentMemory.Cli bootstrap</c>); what is there already is left as it is.
+/// </summary>
+internal sealed record SchemaBootstrapRequest : NativeRequest
+{
+    public const string Name = "schema_bootstrap";
     public override string Operation => Name;
 }
 

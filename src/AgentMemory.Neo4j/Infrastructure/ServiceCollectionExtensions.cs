@@ -76,6 +76,7 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<INeo4jTransactionRunner, Neo4jTransactionRunner>();
         services.Replace(ServiceDescriptor.Singleton<IMemoryPersistenceTransaction, Neo4jMemoryPersistenceTransaction>());
         services.TryAddTransient<ISchemaBootstrapper, SchemaBootstrapper>();
+        services.TryAddTransient<ISchemaInspector, SchemaInspector>();
         services.TryAddTransient<IMigrationRunner, MigrationRunner>();
 
         // Application / memory-store isolation tier (R1b). Additive: the SharedDatabase default with a

@@ -39,6 +39,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the owner on one side and a short name on the other, and a word of its predicate in the question; at most three are
   followed, one read each; no model call. Found by the speech gate (B26).
 
+- `ISchemaInspector` (AgentMemory.Neo4j, registered by `AddNeo4jAgentMemory`) reads, without changing anything,
+  what a store holds of the schema: the bootstrap's constraints and indexes present and missing, and each vector
+  index's dimensions, the comparison `schema-check` makes. The native library's new `admin` profile uses it:
+  `schema_status` and `schema_bootstrap` (the managed bootstrap with its migrations) prepare a store from Python, or
+  any binding, with no .NET.
+
 ### Fixed
 
 - A `neo4j+s://` or `bolt+s://` store address (the form Neo4j Aura gives, and the one `docs/getting-started.md`

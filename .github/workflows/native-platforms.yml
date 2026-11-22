@@ -207,7 +207,7 @@ jobs:
         shell: pwsh
         run: Import-Certificate -FilePath out/tls/ca.crt -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
 
-      - name: Gate, tiers B and C
+      - name: Gate, tiers B, C and S
         run: |
           set +e
           python native/gate/store/store_gate.py run --library "out/bin/${{ matrix.library }}" --work "$RUNNER_TEMP/am-store" \
@@ -215,12 +215,12 @@ jobs:
           status=$?
           set -e
           {
-            echo "### ${{ matrix.rid }}: gate tiers B and C"
+            echo "### ${{ matrix.rid }}: gate tiers B, C and S"
             echo
             cat out/store/store-gate-library.md 2>/dev/null || echo "no summary (see the log)"
             echo
             echo '```'
-            grep -hE ' \.\.\. (ok|skipped|FAIL|ERROR)|^METRIC|^[0-9.]+s ' out/store/tier-b-library.log out/store/tier-c-library.log 2>/dev/null \
+            grep -hE ' \.\.\. (ok|skipped|FAIL|ERROR)|^METRIC|^[0-9.]+s ' out/store/tier-b-library.log out/store/tier-c-library.log out/store/tier-s-*-library.log 2>/dev/null \
               | sed -E 's/ \(test_(gate|writes)\.[^)]*\)//' || true
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"

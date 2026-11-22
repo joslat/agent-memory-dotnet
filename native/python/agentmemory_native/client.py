@@ -164,6 +164,16 @@ class MemoryClient:
     def capabilities(self) -> dict[str, Any]:
         return self.call({"schemaVersion": 1, "operation": "capabilities_get"})
 
+    def schema_status(self, timeout_ms: int = 0) -> dict[str, Any]:
+        """Admin profile: what the store holds of AgentMemory's schema (complete, missing objects, vector index
+        dimensions). Changes nothing."""
+        return self.call({"schemaVersion": 1, "operation": "schema_status"}, timeout_ms)
+
+    def schema_bootstrap(self, timeout_ms: int = 120_000) -> dict[str, Any]:
+        """Admin profile: creates what is missing of the schema and applies its migrations, as the managed bootstrap
+        does; what is there already is left as it is. Returns the schema as it is after."""
+        return self.call({"schemaVersion": 1, "operation": "schema_bootstrap"}, timeout_ms)
+
     def get_context(self, *, session_id: str, query: str | None = None, query_vector: Sequence[float] | None = None,
                     owner: str | None = None,
                     max_facts: int = 5, max_preferences: int = 5, min_score: float | None = None,
@@ -389,6 +399,12 @@ class AsyncMemoryClient:
 
     async def capabilities(self) -> dict[str, Any]:
         return await self.call({"schemaVersion": 1, "operation": "capabilities_get"})
+
+    async def schema_status(self, timeout_ms: int = 0) -> dict[str, Any]:
+        return await self.call({"schemaVersion": 1, "operation": "schema_status"}, timeout_ms)
+
+    async def schema_bootstrap(self, timeout_ms: int = 120_000) -> dict[str, Any]:
+        return await self.call({"schemaVersion": 1, "operation": "schema_bootstrap"}, timeout_ms)
 
     async def get_context(self, **arguments: Any) -> ContextResult:
         timeout_ms = int(arguments.pop("timeout_ms", 0))

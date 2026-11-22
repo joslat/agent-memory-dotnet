@@ -2,7 +2,8 @@
 
 Tier B is the read gate (native/gate/tests/test_gate.py) against a seeded store, with a fingerprint of the whole graph
 taken before and after: a read-only run must leave it unchanged. Tier C is the write tests (native/gate/writetests) on a
-store of their own, because they write. Both use a local Neo4j 5.26 from the community distribution and Java 21, so one
+store of their own, because they write. Tier S (NATIVE-SCHEMA) is the admin profile on a fresh, unseeded store: the
+library bootstraps it from Python with no .NET, then bootstraps it again, and the graph must not change between the two. Both use a local Neo4j 5.26 from the community distribution and Java 21, so one
 script serves Linux, macOS and Windows (macOS runners have no Docker). On Linux the Docker scripts beside it
 (run-gate.sh, run-write-gate.sh) stay the gate on the target image.
 
@@ -49,7 +50,7 @@ NEO4J_SHA256 = {
     "unix.tar.gz": "db8f7ab2eab05109c87d8bb2096e14100532e5701a76d56257f06301569b6c26",
     "windows.zip": "380a4cfd26ea23ece35922ed1ab27c33503eebda634e4e58cdd6f908bd0166ff",
 }
-READ_PORT, WRITE_PORT = 7697, 7698
+READ_PORT, WRITE_PORT, SCHEMA_PORT = 7697, 7698, 7699
 
 FINGERPRINT = """MATCH (n) WITH n ORDER BY elementId(n) RETURN elementId(n), labels(n), properties(n);
 MATCH ()-[r]->() WITH r ORDER BY elementId(r) RETURN elementId(r), type(r), properties(r);
@@ -345,6 +346,23 @@ def tier_c(archive: Path, runtime: Runtime, work: Path, report: Path) -> dict:
     return {"tier": "C", "mode": runtime.mode, "exit": code, "summary": summary}
 
 
+def tier_s(archive: Path, runtime: Runtime, work: Path, report: Path) -> dict:
+    store = Neo4j(archive, work / "neo4j-schema", SCHEMA_PORT, None, report, "schema")
+    store.start()
+    try:
+        env = gate_env(runtime, store)
+        first, first_summary = unittest_run(runtime, GATE / "schematests", "test_schema.py", env | {"GATE_SCHEMA_PASS": "first"},
+                                            report / f"tier-s-first-{runtime.mode}.log")
+        before, rows = store.fingerprint(work)
+        second, second_summary = unittest_run(runtime, GATE / "schematests", "test_schema.py", env | {"GATE_SCHEMA_PASS": "second"},
+                                              report / f"tier-s-second-{runtime.mode}.log")
+        after, _ = store.fingerprint(work)
+    finally:
+        store.stop()
+    return {"tier": "S", "mode": runtime.mode, "exit": first or second, "summary": f"first: {first_summary}; second: {second_summary}",
+            "graphRows": rows, "graph": "unchanged" if before == after else "CHANGED", "before": before, "after": after}
+
+
 def run(args: argparse.Namespace) -> int:
     artifact = (args.library or args.wheel).resolve()
     if not artifact.is_file():
@@ -361,6 +379,8 @@ def run(args: argparse.Namespace) -> int:
         results.append(tier_b(archive, runtime, work, report, args.tls.resolve() if args.tls else None))
     if "C" in tiers:
         results.append(tier_c(archive, runtime, work, report))
+    if "S" in tiers:
+        results.append(tier_s(archive, runtime, work, report))
     record = {
         "platform": f"{platform.system()} {platform.machine()}",
         "python": platform.python_version(),
@@ -393,7 +413,7 @@ def main() -> None:
     go.add_argument("--work", type=Path, required=True)
     go.add_argument("--report", type=Path, required=True)
     go.add_argument("--tls", type=Path)
-    go.add_argument("--tiers", default="B,C")
+    go.add_argument("--tiers", default="B,C,S")
     args = parser.parse_args()
     if args.command == "tls":
         make_tls(args.folder)
