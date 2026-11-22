@@ -9,7 +9,8 @@ turn, within a time limit it sets (about 100 ms a recall with a local embedding 
 
 ## Requirements
 
-- Linux x86-64 with glibc 2.34 or newer (Ubuntu 22.04+, Debian 12+), CPython 3.10 or newer.
+- CPython 3.10 or newer on one of: Linux x86-64 or ARM64 with glibc 2.34 or newer (Ubuntu 22.04+, Debian 12+),
+  macOS on Apple silicon, or Windows x64. Each wheel carries the library built and tested on that platform.
 - Neo4j 5.26 with the AgentMemory schema.
 - An OpenAI-compatible embeddings endpoint (for example Ollama with `bge-m3`), and for writing, an
   OpenAI-compatible chat model.

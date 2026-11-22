@@ -132,15 +132,26 @@ The binding stays framework-neutral; two thin adapters sit beside it, each impor
 
 ## Platform
 
-Built and proven for linux-x64 on Ubuntu 24.04 (glibc 2.39). A binary built against a newer glibc does not load on an
-older one, so build on the oldest distribution you support. Windows and macOS builds are possible from the same project
-on those systems; they are not qualified yet. Plain `bolt://` is qualified; TLS (`bolt+s://`) is not yet.
+| RID | Built and gated on | Wheel tag |
+|---|---|---|
+| linux-x64 | ubuntu-24.04 | `manylinux_2_34_x86_64` |
+| linux-arm64 | ubuntu-24.04-arm | `manylinux_2_34_aarch64` |
+| osx-arm64 | macos-15 | `macosx_<minimum>_0_arm64`, from the library's own minimum macOS |
+| win-x64 | windows-2025 | `win_amd64` |
 
-The workflow `.github/workflows/native-platforms.yml` builds the library for linux-x64, linux-arm64, osx-arm64 and win-x64,
-each on its own runner, as pull requests that touch the native library run it. It checks the compiler against the
-security floor (`packaging/check_toolchain.py`), writes `MANIFEST.json` (`packaging/native_manifest.py`: size, SHA-256,
-compiler, and on Linux the newest glibc symbol, at most 2.34), checks the macOS signature, and runs the gate's tier A from
-Python on each. Tier A is what the gate tests that needs no store: loading, the ABI, handles, configuration and contract
-refusals, closed contexts, the embedding checks that end before the store, and an unreachable store. Run it anywhere with
-`GATE_TIER=A` and `AGENTMEMORY_NATIVE_LIBRARY` set; the store tiers still run in `run-gate.sh`. This builds and loads the
-library on those platforms; it does not yet qualify them against a store, and nothing is published from it.
+The workflow `.github/workflows/native-platforms.yml` builds the library on each platform's own runner (Native AOT does not
+cross-compile between operating systems), when a pull request touches the native library or by hand. On each it checks
+the compiler against the security floor (`packaging/check_toolchain.py`), writes `MANIFEST.json`
+(`packaging/native_manifest.py`: size, SHA-256, compiler; on Linux the newest glibc symbol, at most 2.34; on macOS the
+minimum macOS), checks the macOS signature, runs the gate's tiers and builds the wheel:
+
+| Tier | What | Where |
+|---|---|---|
+| A | Everything that needs no store: loading, the ABI, handles, configuration and contract refusals, closed contexts, the embedding checks that end before the store, an unreachable store | the build runner (`GATE_TIER=A`) |
+| B | The read gate against a seeded store, the graph fingerprinted before and after (a read-only run must leave it unchanged), a recall over `bolt+s://` with the certificate validated, and a certificate for another name refused (`store_tls`) | a runner of the same platform, from the library and again from the installed wheel |
+| C | The write tests on a store of their own: receipts, the journal (its lock across processes, its privacy, crashes), forget and erase | the same runner |
+
+`gate/store/store_gate.py` runs tiers B and C with a local Neo4j 5.26 from its community distribution on Java 21, so one
+script serves every platform (macOS runners have no Docker); `run-gate.sh` and `run-write-gate.sh` remain the gate on the
+target image, plain Ubuntu 24.04 with no .NET. A binary built against a newer glibc does not load on an older one, so the
+Linux libraries are held to glibc 2.34. Nothing is published from the workflow.
