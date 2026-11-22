@@ -2190,6 +2190,18 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
             types.Where(t => t.Owner == "pablito").Select(t => t.Kind).Distinct());
         types.Should().NotContain(t => t.Kind.Contains("STRING"));
 
+        // Migrations and bootstrap on the copy (P231-A part 1): a start after the import, identity's scripts included, changes
+        // none of the copy's answers.
+        var answersBefore = (await facts.GetPersonIdentitiesAsync(1000, copyScope)).Select(p => (p.EntityId, string.Join("|", p.Surfaces), p.Confirmed)).ToList();
+        var bootstrapOptions = new Neo4jOptions { Database = "neo4j", EmbeddingDimensions = Neo4jIntegrationFixture.TestEmbeddingDimensions };
+        bootstrapOptions.Extensions.Add("identity-evidence");
+        await new SchemaBootstrapper(fixture.TransactionRunner, Options.Create(bootstrapOptions),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<SchemaBootstrapper>.Instance).BootstrapAsync();
+        (await facts.GetPersonIdentitiesAsync(1000, copyScope)).Select(p => (p.EntityId, string.Join("|", p.Surfaces), p.Confirmed))
+            .Should().BeEquivalentTo(answersBefore, "a start after the import leaves the copy as it was");
+        (await facts.GetPersonDetailsAsync([Mapped(valentina)], [], 8, copyScope)).Select(f => f.Object).Should().BeEquivalentTo(
+            (await facts.GetPersonDetailsAsync([valentina], [], 8, Scope)).Select(f => f.Object));
+
         // The same operation on each gives the same result: a merge (F1) keeps the nickname on the survivor.
         var entities = services.GetRequiredService<IEntityRepository>();
         foreach (var (owner, ownerScope, id) in new[] { ("pablito", Scope, valentina), ("copy-owner", copyScope, Mapped(valentina)) })
