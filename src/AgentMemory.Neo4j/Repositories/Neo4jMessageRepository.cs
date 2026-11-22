@@ -116,12 +116,14 @@ internal sealed class Neo4jMessageRepository : IMessageRepository
                     MessageQueries.AddBatchOptimized,
                     new { messages = msgParams }).ConfigureAwait(false);
                 var records = await cursor.ToListAsync().ConfigureAwait(false);
+                // DRT-10: the read-back is the mapped fields only; the caller already holds the embeddings.
                 return records.Select(record =>
                 {
-                    var node = record["m"].As<INode>();
-                    var id = node["id"].As<string>();
+                    var returned = record["m"];
+                    var properties = returned is INode node ? node.Properties : returned.As<IReadOnlyDictionary<string, object>>();
+                    var id = properties["id"].As<string>();
                     return MapToMessage(
-                        node,
+                        properties,
                         embeddingMap.TryGetValue(id, out var embedding) ? embedding : null);
                 }).ToList();
             }, cancellationToken).ConfigureAwait(false);

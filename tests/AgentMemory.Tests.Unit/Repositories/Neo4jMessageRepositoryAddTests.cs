@@ -122,6 +122,46 @@ public sealed class Neo4jMessageRepositoryAddTests
         calls[0].Cypher.Should().Contain("WITH DISTINCT msg.id AS id");
     }
 
+    [Fact]
+    public async Task AddBatchAsync_ReadsBackOnlyWhatItMaps_NotTheEmbeddingsItAlreadyHolds()
+    {
+        // DRT-10: RETURN m read every stored message back whole, vector included (PERF-W-03: 103,482 -> 126,964 bytes).
+        string? cypher = null;
+        var transactionRunner = Substitute.For<INeo4jTransactionRunner>();
+        var message = new Message
+        {
+            MessageId = "message-0", ConversationId = "conversation-1", SessionId = "session-1", Role = "user",
+            Content = "Stored.", TimestampUtc = new DateTimeOffset(2026, 7, 28, 12, 0, 0, TimeSpan.Zero), Embedding = [0.1f, 0.2f],
+        };
+        var projected = new Dictionary<string, object>
+        {
+            ["id"] = message.MessageId, ["conversation_id"] = message.ConversationId, ["session_id"] = message.SessionId,
+            ["role"] = message.Role, ["content"] = message.Content, ["timestamp"] = message.TimestampUtc.ToString("O"), ["metadata"] = "{}",
+        };
+        var record = Substitute.For<IRecord>();
+        record["m"].Returns(projected);
+        transactionRunner
+            .WriteAsync(Arg.Any<Func<IAsyncQueryRunner, Task<List<Message>>>>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                var runner = Substitute.For<IAsyncQueryRunner>();
+                runner.RunAsync(Arg.Any<string>(), Arg.Any<object>()).Returns(query =>
+                {
+                    cypher = query.Arg<string>();
+                    return Task.FromResult((IResultCursor)new FakeResultCursor([record]));
+                });
+                return call.Arg<Func<IAsyncQueryRunner, Task<List<Message>>>>()(runner);
+            });
+
+        var result = await new Neo4jMessageRepository(transactionRunner, NullLogger<Neo4jMessageRepository>.Instance)
+            .AddBatchAsync([message]);
+
+        result.Should().ContainSingle().Which.Should().BeEquivalentTo(message, o => o.Excluding(m => m.Metadata));
+        var readBack = System.Text.RegularExpressions.Regex.Match(cypher!, @"RETURN\s+m\s*\{(?<fields>[^}]*)\}\s+AS\s+m");
+        readBack.Success.Should().BeTrue("the read-back is a projection of the mapped fields, not the node");
+        readBack.Groups["fields"].Value.Should().Contain(".content").And.NotContain("embedding").And.NotContain(".*");
+    }
+
     private static IRecord BatchMessageRecord(Message message)
     {
         var properties = new Dictionary<string, object>
