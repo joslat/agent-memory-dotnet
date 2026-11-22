@@ -71,6 +71,7 @@ public sealed class WorkingMemoryEachNameOnceIntegrationTests : IAsyncLifetime
         await service.RebuildAsync("alice");
         var block = await service.GetAsync("alice");
 
-        KeyEntities(block!.Text).Should().Equal("Luna (OBJECT)", "Luna (PERSON)");
+        // Equal names and counts: the block orders them by id, which is random here.
+        KeyEntities(block!.Text).Should().BeEquivalentTo("Luna (OBJECT)", "Luna (PERSON)");
     }
 }
