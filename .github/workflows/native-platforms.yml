@@ -1,10 +1,13 @@
 # The AgentMemory native library on four platforms (NATIVE-PLAT-M1). Native AOT does not cross-compile between operating
 # systems, so each platform builds on its own free GitHub-hosted runner. There it checks the compiler against the security
 # floor, writes a manifest (size, SHA-256, compiler, glibc baseline on Linux), checks the signature on macOS, and loads the
-# library from Python to run the gate's tier A: everything the gate tests that needs no store. The store tiers, wheels and
-# releases are later rows (NATIVE-PLAT-STORE, NATIVE-PLAT-WHEELS, NATIVE-RELEASE).
+# library from Python to run the gate's tier A: everything the gate tests that needs no store. The store job then takes each
+# platform's library to a runner of the same platform and runs tiers B and C (NATIVE-PLAT-STORE): the read gate against a
+# seeded local Neo4j 5.26 with the graph fingerprinted before and after, the TLS recall with the certificate validated,
+# and the write tests on a store of their own. Wheels and releases are later rows (NATIVE-PLAT-WHEELS, NATIVE-RELEASE).
 #
-# Nothing is published: no secret, no environment, nothing leaves the run but its artifacts, kept 7 days.
+# Nothing is published: no secret, no environment, nothing leaves the run but its artifacts, kept 7 days. The store job
+# trusts a throw-away certificate authority on its own runner, which is discarded with the runner.
 name: Native platforms
 
 on:
@@ -91,7 +94,7 @@ jobs:
           AGENTMEMORY_NATIVE_LIBRARY: ${{ github.workspace }}/out/bin/${{ matrix.library }}
         run: |
           set +e
-          python -m unittest discover -v -s native/gate/tests -t native/gate/tests -p test_gate.py > out/gate.log 2>&1
+          python -m unittest discover -v --durations 8 -s native/gate/tests -t native/gate/tests -p test_gate.py > out/gate.log 2>&1
           status=$?
           set -e
           cat out/gate.log
@@ -122,5 +125,99 @@ jobs:
             out/publish.log
             out/gate.log
             out/timings.md
+          retention-days: 7
+          if-no-files-found: warn
+
+  store:
+    name: ${{ matrix.rid }} store
+    needs: build
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { rid: linux-x64, os: ubuntu-24.04, library: agentmemory_native.so }
+          - { rid: linux-arm64, os: ubuntu-24.04-arm, library: agentmemory_native.so }
+          - { rid: osx-arm64, os: macos-15, library: agentmemory_native.dylib }
+          - { rid: win-x64, os: windows-2025, library: agentmemory_native.dll }
+    defaults:
+      run:
+        shell: bash
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The seed writes the fixture through the managed library, so the native library reads what the library writes.
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+
+      - name: Setup Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+
+      # Neo4j 5.26 runs from its community distribution on Java 21 on every platform: macOS runners have no Docker.
+      - name: Setup Java
+        uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Download the library
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: agentmemory-native-${{ matrix.rid }}
+          path: out
+
+      - name: Test certificates
+        run: python native/gate/store/store_gate.py tls out/tls
+
+      # bolt+s:// validates the store's certificate against the system's trusted roots: trust the test authority here only.
+      - name: Trust the test authority (Linux)
+        if: runner.os == 'Linux'
+        run: sudo cp out/tls/ca.crt /usr/local/share/ca-certificates/agentmemory-gate-ca.crt && sudo update-ca-certificates
+
+      - name: Trust the test authority (macOS)
+        if: runner.os == 'macOS'
+        timeout-minutes: 3
+        run: sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain out/tls/ca.crt
+
+      - name: Trust the test authority (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Import-Certificate -FilePath out/tls/ca.crt -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
+
+      - name: Gate, tiers B and C
+        run: |
+          set +e
+          python native/gate/store/store_gate.py run --library "out/bin/${{ matrix.library }}" --work "$RUNNER_TEMP/am-store" \
+            --report out/store --tls out/tls
+          status=$?
+          set -e
+          {
+            echo "### ${{ matrix.rid }}: gate tiers B and C"
+            echo
+            cat out/store/store-gate.md 2>/dev/null || echo "no summary (see the log)"
+            echo
+            echo '```'
+            grep -hE ' \.\.\. (ok|skipped|FAIL|ERROR)|^METRIC|^[0-9.]+s ' out/store/tier-b.log out/store/tier-c.log 2>/dev/null \
+              | sed -E 's/ \(test_(gate|writes)\.[^)]*\)//' || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
+      - name: Upload the store gate's report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agentmemory-native-store-${{ matrix.rid }}
+          path: out/store
           retention-days: 7
           if-no-files-found: warn

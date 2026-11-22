@@ -23,20 +23,29 @@ import glob
 import hashlib
 import importlib.metadata
 import platform
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
 from agentmemory_native import AsyncMemoryClient, MemoryClient, NativeCallError, NativeLibraryError, OpenError, manifest
 from agentmemory_native import _library as abi
 
-# Tier A: the build runners of every platform, where there is no store (NATIVE-PLAT-M1).
-TIER_A = os.environ.get("GATE_TIER", "").upper() == "A"
+# Tier A: the build runners of every platform, where there is no store (NATIVE-PLAT-M1). Tier B: the same runners with a
+# local seeded store (native/gate/store/store_gate.py, NATIVE-PLAT-STORE). Unset: the target image, with no .NET.
+TIER = os.environ.get("GATE_TIER", "").upper()
+TIER_A = TIER == "A"
+ON_A_BUILD_RUNNER = TIER in ("A", "B")
 UNREACHABLE = "bolt://127.0.0.1:9"
 if TIER_A:
     os.environ.setdefault("AMP_URI", UNREACHABLE)
     os.environ.setdefault("AMP_USER", "neo4j")
     os.environ.setdefault("AMP_PASSWORD", "gate-tier-a-unused")
 needs_store = unittest.skipIf(TIER_A, "tier A: needs the seeded store")
+# A store that also takes TLS, with a certificate for "localhost" only, issued by an authority this machine trusts.
+TLS_URI = os.environ.get("AMP_TLS_URI")
+TLS_OTHER_NAME_URI = os.environ.get("AMP_TLS_OTHER_NAME_URI")
+needs_tls = unittest.skipUnless(TLS_URI and TLS_OTHER_NAME_URI, "no TLS store: store_gate.py run --tls sets AMP_TLS_URI")
 
 DIMENSIONS = 8
 OWNER_A = "gate-owner-a"
@@ -105,7 +114,7 @@ class Test1Library(unittest.TestCase):
     def test_loads_and_reports_abi_1_0(self):
         self.assertEqual(abi.load().am_v1_abi_version(), 0x00010000)
 
-    @unittest.skipIf(TIER_A, "tier A runs on a build runner, which has .NET")
+    @unittest.skipIf(ON_A_BUILD_RUNNER, "tiers A and B run on a build runner, which has .NET")
     def test_the_target_image_has_no_dotnet(self):
         self.assertIsNone(shutil.which("dotnet"), "the target image must not have .NET")
         self.assertFalse(os.path.exists("/usr/share/dotnet") or os.path.exists("/usr/lib/dotnet"))
@@ -406,10 +415,6 @@ class Test5Lifecycle(unittest.TestCase):
 
     @needs_store
     def test_many_recalls_keep_memory_bounded(self):
-        def rss_kib() -> int:
-            with open("/proc/self/status", encoding="ascii") as status:
-                return next(int(line.split()[1]) for line in status if line.startswith("VmRSS:"))
-
         with MemoryClient(config()) as memory:
             for _ in range(50):
                 memory.get_context(session_id="warm", query_vector=NEAR_AXIS_0, min_score=0.0)
@@ -425,6 +430,29 @@ class Test5Lifecycle(unittest.TestCase):
         p50, p95 = statistics.median(latencies), latencies[int(len(latencies) * 0.95) - 1]
         print(f"\nMETRIC recall_p50_ms={p50:.2f} recall_p95_ms={p95:.2f} rss_growth_kib={after - before}", flush=True)
         self.assertLess(after - before, 64 * 1024, "500 recalls must not grow the process by 64 MiB")
+
+
+def rss_kib() -> int:
+    """This process's resident memory now, in KiB: Linux, macOS and Windows."""
+    if sys.platform.startswith("linux"):
+        with open("/proc/self/status", encoding="ascii") as status:
+            return next(int(line.split()[1]) for line in status if line.startswith("VmRSS:"))
+    if sys.platform == "darwin":
+        return int(subprocess.run(["ps", "-o", "rss=", "-p", str(os.getpid())], capture_output=True, text=True,
+                                  check=True).stdout)
+
+    class Counters(ctypes.Structure):  # PROCESS_MEMORY_COUNTERS
+        _fields_ = [("cb", ctypes.c_uint32), ("PageFaultCount", ctypes.c_uint32)] + [(name, ctypes.c_size_t) for name in (
+            "PeakWorkingSetSize", "WorkingSetSize", "QuotaPeakPagedPoolUsage", "QuotaPagedPoolUsage",
+            "QuotaPeakNonPagedPoolUsage", "QuotaNonPagedPoolUsage", "PagefileUsage", "PeakPagefileUsage")]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+    kernel32.K32GetProcessMemoryInfo.argtypes = [ctypes.c_void_p, ctypes.POINTER(Counters), ctypes.c_uint32]
+    counters = Counters(cb=ctypes.sizeof(Counters))
+    if not kernel32.K32GetProcessMemoryInfo(kernel32.GetCurrentProcess(), ctypes.byref(counters), counters.cb):
+        raise ctypes.WinError(ctypes.get_last_error())
+    return counters.WorkingSetSize // 1024
 
 
 class FakeEmbeddings(http.server.BaseHTTPRequestHandler):
@@ -505,6 +533,24 @@ class Test6Embeddings(unittest.TestCase):
         self.assertEqual((text_only.status, text_only.error.code), ("invalid", "embedding_required"))
         self.assertEqual((both.status, both.error.code), ("invalid", "query_required"))
         self.assertEqual((neither.status, neither.error.code), ("invalid", "query_required"))
+
+
+class Test7Tls(unittest.TestCase):
+    """bolt+s://: TLS with the certificate checked against the system's trusted roots and the host name."""
+
+    @needs_tls
+    def test_recall_over_tls_with_the_certificate_validated(self):
+        with MemoryClient(config(uri=TLS_URI)) as memory:
+            result = memory.get_context(session_id="tls", query_vector=NEAR_AXIS_0, min_score=0.0)
+        self.assertTrue(result.ok, result.raw)
+        self.assertEqual(ids(result), A_IDS)
+
+    @needs_tls
+    def test_a_certificate_for_another_name_is_refused_at_open(self):
+        with self.assertRaises(OpenError) as refused:
+            MemoryClient(config(uri=TLS_OTHER_NAME_URI))
+        self.assertEqual(refused.exception.code, "store_tls", str(refused.exception))
+        print(f"\nMETRIC tls_refusal={str(refused.exception)!r}", flush=True)
 
 
 class Test8ReviewFindings(unittest.TestCase):

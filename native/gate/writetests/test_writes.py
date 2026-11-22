@@ -168,6 +168,24 @@ def child(document: dict, text: str | None = None, source_id: str | None = None)
                             stderr=subprocess.PIPE, text=True)
 
 
+WINDOWS_ACCESS = r"""
+$acl = Get-Acl -LiteralPath $env:AM_ACL_PATH
+$rules = @($acl.Access | ForEach-Object {
+  @{ sid = $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+     type = [string]$_.AccessControlType; rights = [string]$_.FileSystemRights; inherited = $_.IsInherited } })
+@{ protected = $acl.AreAccessRulesProtected; me = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+   rules = $rules } | ConvertTo-Json -Depth 4 -Compress
+"""
+SYSTEM_SID = "S-1-5-18"
+
+
+def windows_access(path: Path) -> dict:
+    """Windows: the access list of a file or folder, by security identifier, and who this process runs as."""
+    done = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", WINDOWS_ACCESS],
+                          env=dict(os.environ, AM_ACL_PATH=str(path)), capture_output=True, text=True, check=True)
+    return json.loads(done.stdout)
+
+
 def wait_until(predicate, timeout_s: float = 20.0) -> bool:
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
@@ -423,8 +441,20 @@ class Test3Journal(unittest.TestCase):
             talker.kill()
             _, errors = talker.communicate()
         self.assertNotIn("locker", errors)
-        self.assertEqual(os.stat(state).st_mode & 0o777, 0o700)
-        self.assertEqual(os.stat(Path(state) / "journal.jsonl").st_mode & 0o777, 0o600)
+        if os.name == "nt":
+            # The counterpart of 0700 and 0600: the folder grants only this user and SYSTEM, inherits nothing from its
+            # parent, and the journal inside inherits exactly that.
+            folder = windows_access(Path(state))
+            self.assertTrue(folder["protected"], folder)
+            self.assertEqual({r["sid"] for r in folder["rules"]}, {folder["me"], SYSTEM_SID}, folder)
+            self.assertTrue(all(r["type"] == "Allow" and r["rights"] == "FullControl" and not r["inherited"]
+                                for r in folder["rules"]), folder)
+            journal = windows_access(Path(state) / "journal.jsonl")
+            self.assertEqual({r["sid"] for r in journal["rules"]}, {journal["me"], SYSTEM_SID}, journal)
+            self.assertTrue(all(r["type"] == "Allow" and r["inherited"] for r in journal["rules"]), journal)
+        else:
+            self.assertEqual(os.stat(state).st_mode & 0o777, 0o700)
+            self.assertEqual(os.stat(Path(state) / "journal.jsonl").st_mode & 0o777, 0o600)
 
 
 

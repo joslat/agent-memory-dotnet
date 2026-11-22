@@ -187,7 +187,30 @@ internal sealed class NativeContext
     }
 
     /// <summary>A failure as the contract reports it. Messages never carry credentials or stack traces.</summary>
-    public static (string Status, string Code, string Message) Classify(Exception exception) => exception switch
+    public static (string Status, string Code, string Message) Classify(Exception exception) =>
+        StoreTlsRefusal(exception) is { } tls
+            ? ("unavailable", "store_tls",
+                $"The store's TLS certificate was refused: it is not trusted on this machine or not issued for the host in store.uri ({tls.Message})")
+            : ClassifyOther(exception);
+
+    /// <summary>
+    /// A TLS handshake with the store that this machine refused (bolt+s:// or neo4j+s://), however the driver wraps it:
+    /// the system's <see cref="System.Security.Authentication.AuthenticationException"/> inside a driver exception. The
+    /// embedding endpoint's own TLS failures stay embedding failures.
+    /// </summary>
+    private static System.Security.Authentication.AuthenticationException? StoreTlsRefusal(Exception exception)
+    {
+        var fromTheDriver = false;
+        for (var e = exception; e is not null; e = e.InnerException)
+        {
+            if (e is HttpRequestException) return null;
+            if (e is global::Neo4j.Driver.Neo4jException) fromTheDriver = true;
+            if (e is System.Security.Authentication.AuthenticationException tls) return fromTheDriver ? tls : null;
+        }
+        return null;
+    }
+
+    private static (string Status, string Code, string Message) ClassifyOther(Exception exception) => exception switch
     {
         global::Neo4j.Driver.AuthenticationException => ("unavailable", "authentication", "The store refused the credentials."),
         global::Neo4j.Driver.ServiceUnavailableException or global::Neo4j.Driver.SessionExpiredException =>
