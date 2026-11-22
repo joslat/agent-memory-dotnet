@@ -6,7 +6,7 @@ elsewhere. Needs Docker with Compose v2, the recipe's two images (see [README.md
 server with the memory hooks, Node.js (npm) and Python 3.10 or newer for the voice UI, and a microphone.
 
 ```bash
-git clone --branch agentmemory/native-memory https://github.com/joslat/speech-to-speech
+git clone --branch agentmemory/native-memory-full https://github.com/joslat/speech-to-speech
 ```
 
 ## 1. A settings file
