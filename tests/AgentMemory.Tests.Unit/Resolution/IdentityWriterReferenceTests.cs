@@ -288,6 +288,34 @@ public sealed class IdentityWriterReferenceTests
         IdentityRelationCue.Known(new IdentityCandidate { Entity = entity, KnownAs = known }).Should().BeEquivalentTo(["designer", "niece"]);
     }
 
+    [Fact]
+    public void With_no_fact_saying_what_it_is_the_candidate_s_own_sentence_does()
+    {
+        // IKB-TIER2-RERUN, re-run 1: no fact was stored from the designer's sentence.
+        var entity = new Entity { EntityId = "v", Name = "Valentina Ríos", Type = "PERSON", Confidence = 1, CreatedAtUtc = DateTimeOffset.UnixEpoch };
+
+        var known = IdentityRelationCue.FromFactsAndSources(entity, [("Valentina Ríos", "moved to", "the Madrid office")],
+            ["Valentina Ríos is the designer on Atlas.", "Marco is my brother and Valentina Ríos sat next to him.", ""]);
+
+        known.Should().Equal("designer");
+        IdentityRelationCue.Known(new IdentityCandidate { Entity = entity, KnownAs = known }).Should().BeEquivalentTo(["designer"]);
+        IdentityRelationCue.Disagree(IdentityRelationCue.InTurn("My niece Valentina started school this year.", ["Valentina Ríos"]),
+            IdentityRelationCue.Known(new IdentityCandidate { Entity = entity, KnownAs = known })).Should().BeTrue();
+        IdentityRelationCue.FromFactsAndSources(entity, [], []).Should().BeEmpty("nothing known is no disagreement");
+    }
+
+    [Theory]
+    [InlineData("My niece Valentina started school.", "niece")]
+    [InlineData("My little niece Valentina started school.", "niece")]
+    [InlineData("Marco is my brother and Valentina is his friend.", null)]
+    [InlineData("My sister's cat Valentina sleeps on the sofa.", "cat")]
+    [InlineData("Clara's cat and Valentina get along.", null)]
+    public void Only_the_word_next_to_the_name_is_its_relation(string text, string? relation)
+    {
+        var found = IdentityRelationCue.InText(text, ["Valentina"]);
+        if (relation is null) found.Should().BeEmpty(); else found.Should().Equal(relation);
+    }
+
     [Theory]
     [InlineData("My little niece Valentina lost a tooth.", "niece")]
     [InlineData("Valentina (my niece) lost a tooth.", "niece")]

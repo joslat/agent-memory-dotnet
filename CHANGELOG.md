@@ -160,8 +160,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the stored person is known by a different one, the reference is refused like any other unsupported reference, and the
   mention stays for review. The stored person's role comes from their description, aliases and subtype, and from their
   own live facts saying what they are ("is the designer on Atlas", "the user has niece …"), which the identity
-  candidate read now loads (at most 16 a candidate; the new `IdentityCandidate.KnownAs`). When neither side names a
-  relation, nothing changes.
+  candidate read now loads (at most 16 a candidate; the new `IdentityCandidate.KnownAs`). It also comes from up to
+  four of the person's own source messages, in the same read: in a real run the writer stored no fact from
+  "Valentina Ríos is the designer on Atlas", so she was known as nothing and the merge happened anyway. Only the word
+  next to a name is read as its relation ("my brother and Valentina" says nothing about Valentina). When neither side
+  names a relation, nothing changes.
 - Without identity, recall's connections around a question's names still showed a forgotten entity's connections
   (one invalidated, as the maintenance tool does) and a merged one's. Both ends must now be live, as the identity read
   already required.

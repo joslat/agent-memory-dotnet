@@ -91,10 +91,11 @@ internal static class IdentityRelationCue
         {
             var n = Regex.Escape(name);
             // Up to two words after "my": the relation may follow one other word ("my little niece"), so both are looked up.
+            // Before the name, only the word next to it is the relation: "my brother and Valentina" says nothing about her.
             const string two = @"(?<a>[\p{L}-]+)(?:\s+(?<b>[\p{L}-]+))?";
             var patterns = new List<string>
             {
-                $@"\b(?:my|our)\s+(?<a>[\p{{L}}-]+)\s+(?:(?<b>[\p{{L}}-]+)\s+)?{n}\b",
+                $@"\b(?:my|our)\s+(?:[\p{{L}}-]+\s+)?(?<a>[\p{{L}}-]+)\s+{n}\b",
                 $@"\b{n}\s*,\s*(?:my|our)\s+{two}",
                 $@"\b{n}\s+(?:is|was)\s+(?:my|our)\s+{two}",
                 $@"\b{n}\s*\(\s*(?:my|our)\s+{two}",
@@ -102,7 +103,7 @@ internal static class IdentityRelationCue
             if (describes)
                 patterns.AddRange(
                 [
-                    $@"\b[\p{{L}}]+['’]s\s+(?<a>[\p{{L}}-]+)\s+(?:(?<b>[\p{{L}}-]+)\s+)?{n}\b",
+                    $@"\b[\p{{L}}]+['’]s\s+(?:[\p{{L}}-]+\s+)?(?<a>[\p{{L}}-]+)\s+{n}\b",
                     $@"\b(?<a>[\p{{L}}-]+)\s+(?:is\s+)?(?:also\s+)?(?:called|named)\s+{n}\b",
                     $@"\b{n}\s+(?:is|was)\s+(?:the|a|an)\s+{two}",
                 ]);
@@ -153,6 +154,22 @@ internal static class IdentityRelationCue
             else if (@object is not null && names.Contains(MemoryTripleCanonicalizer.CanonicalValue(@object)) && MemoryUserNames.IsSelf(subject))
                 phrases.Add(Short(p));
         }
+        return phrases;
+    }
+
+    /// <summary>
+    /// <see cref="FromFacts"/>, and what the candidate's own source messages call it (<see cref="InText"/>: "Valentina Ríos is
+    /// the designer on Atlas" gives "designer"). IKB-TIER2-RERUN: the writer stored no fact from that sentence, so the facts
+    /// alone knew the designer as nothing and "my niece Valentina" had nothing to disagree with.
+    /// </summary>
+    public static IReadOnlyList<string> FromFactsAndSources(Entity entity, IEnumerable<(string? Subject, string? Predicate, string? Object)> facts,
+        IEnumerable<string> sourceTexts, int max = 16)
+    {
+        var phrases = FromFacts(entity, facts, max).ToList();
+        var names = new[] { entity.Name, entity.CanonicalName }.Concat(entity.Aliases).Where(n => !string.IsNullOrWhiteSpace(n)).Cast<string>().ToList();
+        foreach (var text in sourceTexts.Where(t => !string.IsNullOrWhiteSpace(t)).Take(4))
+            foreach (var relation in InText(text, names).Order(StringComparer.Ordinal))
+                if (phrases.Count < max + 4 && !phrases.Contains(relation, StringComparer.Ordinal)) phrases.Add(relation);
         return phrases;
     }
 
