@@ -308,6 +308,22 @@ internal abstract record NativeRequest
         }
     }
 
+    /// <summary>
+    /// ABI 1.1: the optional exports and request properties a context of this configuration accepts, by name
+    /// ("am_v1_wait", "get_context.timeWindows", "remember.origin"), so a binding can check before it sends.
+    /// </summary>
+    public static IReadOnlyList<string> Features(OpenConfig config)
+    {
+        List<string> features = ["am_v1_wait"];
+        if (!config.Admin)
+            features.AddRange(["get_context.query", "get_context.maxMessages", "get_context.maxEntities", "get_context.maxRelationships",
+                "get_context.timeWindows", "get_context.maxConnectionFacts"]);
+        if (config.Writes)
+            features.AddRange(["writer.reasoningEffort", "writer.contextTurns", "forget.memoryIds", "operation.resolve"]);
+        if (config.Profile == MemoryProfile.Learning) features.Add("remember.origin");
+        return features;
+    }
+
     /// <summary>The operations a context of this configuration offers, in the order capabilities lists them.</summary>
     public static IReadOnlyList<string> Offered(OpenConfig config) => config.Admin
         ? [CapabilitiesRequest.Name, SchemaStatusRequest.Name, SchemaBootstrapRequest.Name]

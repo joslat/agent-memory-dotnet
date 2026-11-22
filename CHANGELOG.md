@@ -45,6 +45,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `schema_status` and `schema_bootstrap` (the managed bootstrap with its migrations) prepare a store from Python, or
   any binding, with no .NET.
 
+- Native library ABI 1.1 (additive; a 1.0 binding keeps working): `am_v1_wait` reports each finished job of a context
+  once, so a binding runs one waiter per context instead of one blocked thread per job in flight; released jobs are
+  never reported and closing wakes the waiter. `capabilities_get` names the context's `features`. The Python binding
+  gains `MemoryClient.wait_any()`.
+
 ### Fixed
 
 - A `neo4j+s://` or `bolt+s://` store address (the form Neo4j Aura gives, and the one `docs/getting-started.md`

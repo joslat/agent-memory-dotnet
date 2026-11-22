@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 ABI_MAJOR = 1
-ABI_MINOR = 0
+ABI_MINOR = 1
 ABI_VERSION = (ABI_MAJOR << 16) | ABI_MINOR
 
 OK = 0
@@ -158,6 +158,16 @@ def _declare(lib: ctypes.CDLL) -> None:
 
     lib.am_v1_close.argtypes = [ctx]
     lib.am_v1_close.restype = ctypes.c_int32
+
+    # ABI 1.1: one waiter per context. A 1.0 library has no such export; callers check has_wait().
+    if hasattr(lib, "am_v1_wait"):
+        lib.am_v1_wait.argtypes = [ctx, ctypes.c_uint32, ctypes.POINTER(job)]
+        lib.am_v1_wait.restype = ctypes.c_int32
+
+
+def has_wait(lib: ctypes.CDLL) -> bool:
+    """Whether the library offers am_v1_wait (ABI 1.1)."""
+    return hasattr(lib, "am_v1_wait")
 
 
 def take_buffer(lib: ctypes.CDLL, pointer: ctypes.c_void_p, length: ctypes.c_size_t) -> bytes | None:

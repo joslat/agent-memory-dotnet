@@ -6,7 +6,7 @@ host needs no .NET installation. Any language with a C foreign-function interfac
 
 | Path | What it is |
 |---|---|
-| [`include/agentmemory_native.h`](include/agentmemory_native.h) | The C ABI, version 1.0: open, submit, poll, cancel, release, free, state, close |
+| [`include/agentmemory_native.h`](include/agentmemory_native.h) | The C ABI, version 1.1: open, submit, poll, wait (1.1), cancel, release, free, state, close |
 | [`CONTRACT.md`](CONTRACT.md) | The JSON documents that cross it: configuration, requests, results |
 | [`python/agentmemory_native`](python/agentmemory_native) | The Python binding: `MemoryClient` (sync) and `AsyncMemoryClient` (asyncio) |
 | [`gate/`](gate) | Build and proof on Linux x64: publish, seed a throw-away Neo4j, run the gate tests on the target image |

@@ -90,6 +90,10 @@ internal static class ResultWriter
             writer.WriteStartArray("operations");
             foreach (var operation in NativeRequest.Offered(config)) writer.WriteStringValue(operation);
             writer.WriteEndArray();
+            // ABI 1.1: what a binding may use beyond ABI 1.0's minimum, so it checks before it sends.
+            writer.WriteStartArray("features");
+            foreach (var feature in NativeRequest.Features(config)) writer.WriteStringValue(feature);
+            writer.WriteEndArray();
             if (config.Writer is { } model)
             {
                 // The writer's model is named; its address and key are not.

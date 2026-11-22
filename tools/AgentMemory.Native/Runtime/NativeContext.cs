@@ -20,6 +20,11 @@ internal sealed class NativeContext
 
     private readonly object _gate = new();
     private readonly Dictionary<ulong, NativeJob> _jobs = [];
+
+    // ABI 1.1 (am_v1_wait): finished jobs no wait has reported, oldest first. A release takes its job out at once, so a
+    // 1.0 binding that never waits keeps this as small as its unreleased jobs. Guarded by _gate; a finish pulses it.
+    private readonly LinkedList<ulong> _finished = [];
+    private readonly Dictionary<ulong, LinkedListNode<ulong>> _finishedNodes = [];
     private readonly HashSet<NativeJob> _active = [];
     private readonly SemaphoreSlim _running;
     private readonly TaskCompletionSource _closingSignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -62,6 +67,11 @@ internal sealed class NativeContext
         }
 
         var timeout = timeoutMs == 0 ? Config.DefaultTimeoutMs : (int)Math.Min(timeoutMs, int.MaxValue);
+        job.Result.Task.ContinueWith(static (_, state) =>
+        {
+            var (context, handle) = ((NativeContext, ulong))state!;
+            context.MarkFinished(handle);
+        }, (this, job.Handle), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
         job.Cancellation.Token.Register(static state => ((NativeJob)state!).FinishStopped(), job);
         job.Cancellation.CancelAfter(timeout);
         _ = Task.Run(() => RunAsync(job));
@@ -257,6 +267,43 @@ internal sealed class NativeContext
         return AbiStatus.Ok;
     }
 
+    /// <summary>A job reached its terminal state: queued for am_v1_wait, unless it was released already.</summary>
+    private void MarkFinished(ulong jobHandle)
+    {
+        lock (_gate)
+        {
+            if (!_jobs.ContainsKey(jobHandle) || _finishedNodes.ContainsKey(jobHandle)) return;
+            _finishedNodes[jobHandle] = _finished.AddLast(jobHandle);
+            Monitor.PulseAll(_gate);
+        }
+    }
+
+    /// <summary>
+    /// ABI 1.1: the oldest finished job no wait has reported, waiting up to <paramref name="waitMs"/> for one. 0 when the
+    /// time passed with none, or when the context is closing (at once).
+    /// </summary>
+    public int Wait(uint waitMs, out ulong jobHandle)
+    {
+        jobHandle = 0;
+        var deadline = Environment.TickCount64 + waitMs;
+        lock (_gate)
+        {
+            while (true)
+            {
+                if (_finished.First is { } oldest)
+                {
+                    _finished.RemoveFirst();
+                    _finishedNodes.Remove(oldest.Value);
+                    jobHandle = oldest.Value;
+                    return AbiStatus.Ok;
+                }
+                var left = deadline - Environment.TickCount64;
+                if (_closing || left <= 0) return AbiStatus.Ok;
+                Monitor.Wait(_gate, (int)Math.Min(left, int.MaxValue));
+            }
+        }
+    }
+
     public int Cancel(ulong jobHandle)
     {
         NativeJob? job;
@@ -272,6 +319,7 @@ internal sealed class NativeContext
     {
         lock (_gate)
         {
+            if (_finishedNodes.Remove(jobHandle, out var node)) _finished.Remove(node);
             return _jobs.Remove(jobHandle) ? AbiStatus.Ok : AbiStatus.InvalidHandle;
         }
     }
@@ -315,6 +363,7 @@ internal sealed class NativeContext
                 _closing = true;
                 _stateRevision++;
                 _closingSignal.TrySetResult();
+                Monitor.PulseAll(_gate);   // a waiter returns at once
             }
             running = [.. _active];
         }

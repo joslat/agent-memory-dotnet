@@ -113,8 +113,9 @@ def result_of(client: MemoryClient, data: bytes) -> dict:
 
 
 class Test1Library(unittest.TestCase):
-    def test_loads_and_reports_abi_1_0(self):
-        self.assertEqual(abi.load().am_v1_abi_version(), 0x00010000)
+    def test_loads_and_reports_abi_1_1(self):
+        self.assertEqual(abi.load().am_v1_abi_version(), 0x00010001)
+        self.assertTrue(abi.has_wait(abi.load()))
 
     @unittest.skipIf(ON_A_BUILD_RUNNER, "tiers A and B run on a build runner, which has .NET")
     def test_the_target_image_has_no_dotnet(self):
@@ -438,6 +439,86 @@ class Test5Lifecycle(unittest.TestCase):
         p50, p95 = statistics.median(latencies), latencies[int(len(latencies) * 0.95) - 1]
         print(f"\nMETRIC recall_p50_ms={p50:.2f} recall_p95_ms={p95:.2f} rss_growth_kib={after - before}", flush=True)
         self.assertLess(after - before, 64 * 1024, "500 recalls must not grow the process by 64 MiB")
+
+
+class Test5Waiter(unittest.TestCase):
+    """ABI 1.1, am_v1_wait: one waiter per context instead of one blocked thread per job in flight."""
+
+    CAPABILITIES = b'{"schemaVersion":1,"operation":"capabilities_get"}'
+
+    def submit(self, memory: MemoryClient, data: bytes = CAPABILITIES) -> int:
+        status, handle = submit_raw(memory, data)
+        self.assertEqual(status, abi.OK)
+        return handle
+
+    def drain(self, memory: MemoryClient, count: int, timeout_s: float = 30) -> list[int]:
+        reported: list[int] = []
+        deadline = time.monotonic() + timeout_s
+        while len(reported) < count and time.monotonic() < deadline:
+            if job := memory.wait_any(1000):
+                reported.append(job)
+        return reported
+
+    def test_each_finished_job_is_reported_once(self):
+        with MemoryClient(opened()) as memory:
+            handles = [self.submit(memory) for _ in range(5)]
+            reported = self.drain(memory, 5)
+            again = memory.wait_any(200)
+            for handle in handles:
+                memory._lib.am_v1_job_release(memory.handle, handle)
+        self.assertEqual(sorted(reported), sorted(handles))
+        self.assertEqual(again, 0, "a job was reported twice")
+
+    def test_a_released_job_is_never_reported(self):
+        with MemoryClient(opened()) as memory:
+            handle = self.submit(memory)
+            self.assertEqual(memory._lib.am_v1_job_release(memory.handle, handle), abi.OK)
+            self.assertEqual(memory.wait_any(300), 0)
+
+    def test_closing_wakes_a_waiting_waiter(self):
+        memory = MemoryClient(opened())
+        seen: dict = {}
+
+        def waiter() -> None:
+            started = time.monotonic()
+            seen["job"] = memory.wait_any(20_000)
+            seen["seconds"] = time.monotonic() - started
+
+        thread = threading.Thread(target=waiter)
+        thread.start()
+        time.sleep(0.3)
+        memory.close()
+        thread.join(10)
+        self.assertFalse(thread.is_alive(), "the waiter was not woken by close")
+        self.assertEqual(seen["job"], 0)
+        self.assertLess(seen["seconds"], 5)
+
+    def test_32_jobs_complete_through_one_waiter(self):
+        recall = json.dumps({"schemaVersion": 1, "operation": "memory_get_context", "sessionId": "w",
+                             "queryVector": NEAR_AXIS_0, "minScore": 0.0}).encode()
+        data = self.CAPABILITIES if TIER_A else recall
+        with MemoryClient(opened()) as memory:
+            handles = [self.submit(memory, data) for _ in range(32)]
+            reported = self.drain(memory, 32)
+            results = [result_of_handle(memory, handle) for handle in reported]
+        self.assertEqual(sorted(reported), sorted(handles))
+        self.assertTrue(all(r["status"] == "ok" for r in results), [r["status"] for r in results])
+        if not TIER_A:
+            self.assertTrue(all({f["id"] for f in r["facts"]} | {p["id"] for p in r["preferences"]} == A_IDS for r in results))
+
+    def test_capabilities_name_the_features(self):
+        with MemoryClient(opened()) as memory:
+            features = memory.capabilities()["features"]
+        self.assertIn("am_v1_wait", features)
+        self.assertIn("get_context.maxConnectionFacts", features)
+        self.assertNotIn("remember.origin", features)
+
+
+def result_of_handle(client: MemoryClient, handle: int) -> dict:
+    """The terminal result of a finished job, taken at once, then the job released."""
+    from agentmemory_native.client import Job
+    with Job(client, handle) as job:
+        return job.wait(0)
 
 
 def rss_kib() -> int:

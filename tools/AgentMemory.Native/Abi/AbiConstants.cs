@@ -4,7 +4,7 @@ namespace AgentMemory.Native.Abi;
 internal static class AbiVersion
 {
     public const uint Major = 1;
-    public const uint Minor = 0;
+    public const uint Minor = 1;
     public const uint Packed = (Major << 16) | Minor;
 }
 

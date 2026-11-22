@@ -79,7 +79,7 @@ With none of them, a recall is exactly what it was before they existed, and its 
 
 ### `capabilities_get`
 
-`{"schemaVersion":1,"operation":"capabilities_get"}` returns the library version, ABI version, profile, owner mode, embedding declaration and the supported operations.
+`{"schemaVersion":1,"operation":"capabilities_get"}` returns the library version, ABI version, profile, owner mode, embedding declaration and the supported operations. From ABI 1.1 it also returns `features`: the optional exports and request properties this context accepts, by name (`am_v1_wait`, `get_context.timeWindows`, `get_context.maxConnectionFacts`, `writer.contextTurns`, `remember.origin`, ...). A binding checks `operations` and `features` before it offers something, and a 1.0 library, which has no `features`, offers none of the 1.1 additions.
 
 ## Results: `am_v1_poll`
 

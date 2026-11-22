@@ -164,6 +164,18 @@ class MemoryClient:
     def capabilities(self) -> dict[str, Any]:
         return self.call({"schemaVersion": 1, "operation": "capabilities_get"})
 
+    def wait_any(self, wait_ms: int = 0) -> int:
+        """ABI 1.1: the handle of a finished job of this context that no wait has reported yet, waiting up to ``wait_ms``;
+        0 when none finished in time, or when the context is closing. Take its result with a poll. A 1.0 library has
+        no waiter: NativeCallError with UNSUPPORTED_ABI."""
+        if not abi.has_wait(self._lib):
+            raise NativeCallError("am_v1_wait", abi.UNSUPPORTED_ABI, "this library implements ABI 1.0, which has no waiter")
+        finished = ctypes.c_uint64(0)
+        status = self._lib.am_v1_wait(self._context, int(wait_ms), ctypes.byref(finished))
+        if status != abi.OK:
+            raise NativeCallError("am_v1_wait", status)
+        return finished.value
+
     def schema_status(self, timeout_ms: int = 0) -> dict[str, Any]:
         """Admin profile: what the store holds of AgentMemory's schema (complete, missing objects, vector index
         dimensions). Changes nothing."""
