@@ -1,7 +1,6 @@
 {
   "name": "agentmemory-native",
   "version": "0.2.0",
-  "private": true,
   "description": "AgentMemory's native library for Node.js and Bun: owner-scoped recall and journaled writes over a C ABI, no .NET needed.",
   "license": "MIT",
   "type": "module",
