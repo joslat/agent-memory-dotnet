@@ -324,6 +324,8 @@ def typescript_run(tier: str, env: dict, report: Path, runtime: Runtime) -> tupl
     commands = [[node, "dist/gate/runner.js", "--tier", tier]]
     if tier == "B":
         commands.append([node, "--test", "dist/test/*.test.js"])
+    if tier == "C":
+        commands.append([node, "--test", "dist/test/adapters.test.js"])  # NATIVE-TS-ADAPTERS: they write
     code, lines = 0, []
     with open(report / f"tier-{tier.lower()}-typescript.log", "wb") as out:
         for command in commands:

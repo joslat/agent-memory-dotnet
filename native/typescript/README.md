@@ -40,6 +40,23 @@ try {
   `AGENTMEMORY_NATIVE_LIBRARY`, else the platform package `agentmemory-native-<os>-<cpu>[-gnu]`, checked against its
   `MANIFEST.json` before it is loaded.
 
+## Adapters
+
+Optional, each behind its own import and peer dependency, so the main import needs neither.
+
+- **LangGraph.js** (`agentmemory-native/langgraph`, needs `@langchain/langgraph-checkpoint`): `AgentMemoryStore`, a
+  `BaseStore` with the Python adapter's projection. A put remembers `value.text` (or `value.content`) through the journal
+  as the context's one owner; a get returns that remember's receipt, not the words; a search returns the facts and
+  preferences recall finds for the query, from every key; a delete forgets. Other words under the same key replace the
+  earlier ones; the same words again run nothing. A search without a query returns nothing (recall is by meaning), and
+  neither filters nor namespace prefixes narrow it (memories are the owner's, not the key's).
+- **Vercel AI SDK** (`agentmemory-native/ai`, needs `ai` and `zod`): `agentMemoryTools(memory, { sessionId })` gives a
+  `recall` tool (the facts and preferences for a question, one line each, with ids) and a `remember` tool (the person's
+  own words, for a write profile; `remember: false` for a read-only context). The owner is never taken from the model.
+
+Both throw when the memory cannot be read (a timeout, an unreachable store, a refusal), so a failure is never read as
+"nothing stored". `test/adapters.test.ts` covers them in tier C, on the write gate's store with the stub model.
+
 ## The gate
 
 The binding passes the shared gate (`native/gate/cases`, `native/gate/cases/FORMAT.md`) through `gate/runner.ts`, and
