@@ -1,0 +1,2124 @@
+{
+  "format": "native/gate/cases/FORMAT.md",
+  "description": "Tier C: explicit and learning writes on their own store, with the stub model (native/gate/stubs.py).",
+  "cases": [
+    {
+      "id": "write.capabilities-name-the-profile-its-operations-and-the-writer",
+      "tier": "C",
+      "stubs": true,
+      "source": "native/gate/writetests/test_writes.py::Test1Contract::test_capabilities_name_the_profile_its_operations_and_the_writer",
+      "steps": [
+        {
+          "open": {
+            "config": {
+              "$config": "write"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "capabilities_get"
+            }
+          },
+          "expect": {
+            "profile": "explicit_write",
+            "operations": [
+              "capabilities_get",
+              "memory_get_context",
+              "memory_remember",
+              "memory_operation_get",
+              "memory_operation_resolve",
+              "memory_forget",
+              "memory_erase_owner"
+            ],
+            "writer": {
+              "model": "stub-writer",
+              "entityIdentity": false
+            },
+            "$textExcludes": {
+              "$var": "stubUrl"
+            }
+          }
+        },
+        {
+          "state": {},
+          "expect": {
+            "readAllowed": true,
+            "admissionAllowed": true,
+            "writeQuiescent": true
+          }
+        },
+        {
+          "close": {
+            "waitS": 60
+          },
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "write.the-read-only-profile-offers-no-write",
+      "tier": "C",
+      "stubs": true,
+      "source": "native/gate/writetests/test_writes.py::Test1Contract::test_the_read_only_profile_offers_no_write",
+      "steps": [
+        {
+          "set": {
+            "ro": {
+              "$unique": "gate/ro/"
+            }
+          }
+        },
+        {
+          "open": {
+            "config": {
+              "$config": "write",
+              "$with": {
+                "/profile": "read_only"
+              },
+              "$without": [
+                "/writer",
+                "/state"
+              ]
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_remember",
+              "sourceId": {
+                "$var": "ro"
+              },
+              "sessionId": "s",
+              "text": "I like tea.",
+              "occurredAt": "2026-11-20T10:00:00Z"
+            }
+          },
+          "expect": {
+            "status": "invalid",
+            "error": {
+              "code": "unknown_operation"
+            }
+          }
+        },
+        {
+          "close": {
+            "waitS": 60
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "open": {
+            "config": {
+              "$config": "write",
+              "$with": {
+                "/profile": "read_only",
+                "/writer": {
+                  "model": "x",
+                  "endpoint": {
+                    "url": {
+                      "$concat": [
+                        {
+                          "$var": "stubUrl"
+                        },
+                        "/v1/chat/completions"
+                      ]
+                    }
+                  }
+                }
+              },
+              "$without": [
+                "/state"
+              ]
+            }
+          },
+          "expect": {
+            "status": {
+              "$not": "OK"
+            },
+            "code": "not_in_profile"
+          }
+        }
+      ]
+    },
+    {
+      "id": "write.configurations-the-profile-cannot-serve-are-refused",
+      "tier": "C",
+      "stubs": true,
+      "source": "native/gate/writetests/test_writes.py::Test1Contract::test_configurations_the_profile_cannot_serve_are_refused",
+      "steps": [
+        {
+          "open": {
+            "config": {
+              "$config": "write",
+              "$with": {
+                "/owner": {
+                  "mode": "per_request"
+                }
+              }
+            }
+          },
+          "expect": {
+            "status": {
+              "$not": "OK"
+            },
+            "code": "owner_mode_not_offered"
+          }
+        },
+        {
+          "open": {
+            "config": {
+              "$config": "write",
+              "$without": [
+                "/writer"
+              ]
+            }
+          },
+          "expect": {
+            "status": {
+              "$not": "OK"
+            },
+            "code": "missing_property"
+          }
+        },
+        {
+          "open": {
+            "config": {
+              "$config": "write",
+              "$with": {
+                "/state": {
+                  "directory": "relative/state"
+                }
+              }
+            }
+          },
+          "expect": {
+            "status": {
+              "$not": "OK"
+            },
+            "code": "invalid_value"
+          }
+        }
+      ]
+    },
+    {
+      "id": "write.requests-are-checked-strictly",
+      "tier": "C",
+      "stubs": true,
+      "source": "native/gate/writetests/test_writes.py::Test1Contract::test_requests_are_checked_strictly",
+      "steps": [
+        {
+          "set": {
+            "t": {
+              "$unique": "gate/t/"
+            }
+          }
+        },
+        {
+          "open": {
+            "config": {
+              "$config": "write"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_remember",
+              "sourceId": {
+                "$var": "t"
+              },
+              "sessionId": "s",
+              "text": "x",
+              "occurredAt": "2026-11-20T10:00:00"
+            }
+          },
+          "expect": {
+            "status": "invalid",
+            "error": {
+              "code": "invalid_value"
+            }
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_remember",
+              "sourceId": {
+                "$var": "t"
+              },
+              "sessionId": "s",
+              "text": "x",
+              "occurredAt": "2026-11-20T10:00:00Z",
+              "owner": "someone-else"
+            }
+          },
+          "expect": {
+            "status": "invalid",
+            "error": {
+              "code": "owner_not_allowed"
+            }
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_operation_get"
+            }
+          },
+          "expect": {
+            "status": "invalid",
+            "error": {
+              "code": "operation_required"
+            }
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_operation_get",
+              "operationId": "op-missing"
+            }
+          },
+          "expect": {
+            "status": "invalid",
+            "error": {
+              "code": "operation_not_found"
+            }
+          }
+        },
+        {
+          "close": {
+            "waitS": 60
+          },
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "write.applied-means-verified-and-recall-finds-it",
+      "tier": "C",
+      "stubs": true,
+      "source": "native/gate/writetests/test_writes.py::Test2Remember::test_applied_means_verified_and_recall_finds_it",
+      "steps": [
+        {
+          "set": {
+            "apply": {
+              "$unique": "gate/apply/"
+            }
+          }
+        },
+        {
+          "open": {
+            "config": {
+              "$config": "write"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_remember",
+              "sourceId": {
+                "$var": "apply"
+              },
+              "sessionId": "s1",
+              "text": "I play the cello every Sunday.",
+              "occurredAt": "2026-11-20T10:00:00Z"
+            }
+          },
+          "expect": {
+            "status": "ok",
+            "receipt": {
+              "state": "applied",
+              "searchable": true,
+              "facts": {
+                "$len": 1
+              },
+              "duplicate": false
+            }
+          },
+          "save": "applied"
+        },
+        {
+          "state": {},
+          "expect": {
+            "readAllowed": true,
+            "writeQuiescent": true
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "s1",
+              "query": "cello every Sunday",
+              "maxFacts": 50,
+              "maxPreferences": 50,
+              "minScore": 0.0
+            }
+          },
+          "expect": {
+            "status": "ok",
+            "$ids": {
+              "$contains": {
+                "$var": "applied/receipt/facts/0"
+              }
+            }
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_operation_get",
+              "operationId": {
+                "$var": "applied/receipt/operationId"
+              }
+            }
+          },
+          "expect": {
+            "receipt": {
+              "state": "applied"
+            }
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_operation_get",
+              "sourceId": {
+                "$var": "applied/receipt/sourceId"
+              }
+            }
+          },
+          "expect": {
+            "receipt": {
+              "operationId": {
+                "$var": "applied/receipt/operationId"
+              }
+            }
+          }
+        },
+        {
+          "close": {
+            "waitS": 60
+          },
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "write.duplicate-source-returns-the-same-receipt-and-a-changed-payload-is-refused",
+      "tier": "C",
+      "stubs": true,
+      "source": "native/gate/writetests/test_writes.py::Test2Remember::test_duplicate_source_returns_the_same_receipt_and_a_changed_payload_is_refused",
+      "steps": [
+        {
+          "set": {
+            "dup": {
+              "$unique": "gate/dup/"
+            }
+          }
+        },
+        {
+          "open": {
+            "config": {
+              "$config": "write"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_remember",
+              "sourceId": {
+                "$var": "dup"
+              },
+              "sessionId": "s",
+              "text": "My bicycle is green.",
+              "occurredAt": "2026-11-20T10:00:00Z"
+            }
+          },
+          "expect": {
+            "receipt": {
+              "state": "applied"
+            }
+          },
+          "save": "first"
+        },
+        {
+          "stub": {
+            "seen": true
+          },
+          "save": "before"
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_remember",
+              "sourceId": {
+                "$var": "dup"
+              },
+              "sessionId": "s",
+              "text": "My bicycle is green.",
+              "occurredAt": "2026-11-20T10:00:00Z"
+            }
+          },
+          "expect": {
+            "receipt": {
+              "duplicate": true,
+              "operationId": {
+                "$var": "first/receipt/operationId"
+              }
+            }
+          }
+        },
+        {
+          "stub": {
+            "seen": true
+          },
+          "expect": {
+            "writerCalls": {
+              "$var": "before/writerCalls"
+            }
+          },
+          "note": "a duplicate does not run the writer"
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_remember",
+              "sourceId": {
+                "$var": "dup"
+              },
+              "sessionId": "s",
+              "text": "My bicycle is red.",
+              "occurredAt": "2026-11-20T10:00:00Z"
+            }
+          },
+          "expect": {
+            "status": "invalid",
+            "error": {
+              "code": "source_conflict"
+            }
+          }
+        },
+        {
+          "close": {
+            "waitS": 60
+          },
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "write.a-model-that-always-fails-is-rejected-and-reads-reopen",
+      "tier": "C",
+      "stubs": true,
+      "source": "native/gate/writetests/test_writes.py::Test2Remember::test_a_model_that_always_fails_is_rejected_and_reads_reopen",
+      "steps": [
+        {
+          "set": {
+            "fail": {
+              "$unique": "gate/fail/"
+            }
+          }
+        },
+        {
+          "stub": {
+            "mode": "fail"
+          }
+        },
+        {
+          "open": {
+            "config": {
+              "$config": "write"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_remember",
+              "sourceId": {
+                "$var": "fail"
+              },
+              "sessionId": "s",
+              "text": "I collect old maps.",
+              "occurredAt": "2026-11-20T10:00:00Z"
+            }
+          },
+          "expect": {
+            "receipt": {
+              "state": "rejected",
+              "searchable": false,
+              "facts": {
+                "$empty": true
+              },
+              "reason": {
+                "$type": "string"
+              }
+            }
+          }
+        },
+        {
+          "state": {},
+          "expect": {
+            "readAllowed": true,
+            "writeQuiescent": true
+          }
+        },
+        {
+          "stub": {
+            "mode": "ok"
+          }
+        },
+        {
+          "close": {
+            "waitS": 60
+          },
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "write.memories-the-store-cannot-embed-are-partial-not-applied",
+      "tier": "C",
+      "stubs": true,
+      "source": "native/gate/writetests/test_writes.py::Test2Remember::test_memories_the_store_cannot_embed_are_partial_not_applied",
+      "steps": [
+        {
+          "set": {
+            "zebra": {
+              "$unique": "gate/zebra/"
+            }
+          }
+        },
+        {
+          "open": {
+            "config": {
+              "$config": "write"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_remember",
+              "sourceId": {
+                "$var": "zebra"
+              },
+              "sessionId": "s",
+              "text": "My zebra is called Stripes.",
+              "occurredAt": "2026-11-20T10:00:00Z"
+            }
+          },
+          "expect": {
+            "receipt": {
+              "state": "partial",
+              "reason": {
+                "$startsWith": "not_verified"
+              },
+              "searchable": false
+            }
+          },
+          "save": "zebra"
+        },
+        {
+          "state": {},
+          "expect": {
+            "readAllowed": false
+          },
+          "note": "an unverified write pauses recall"
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_operation_resolve",
+              "operationId": {
+                "$var": "zebra/receipt/operationId"
+              },
+              "resolution": "keep"
+            }
+          },
+          "expect": {
+            "receipt": {
+              "state": "kept"
+            }
+          }
+        },
+        {
+          "state": {},
+          "expect": {
+            "readAllowed": true
+          }
+        },
+        {
+          "close": {
+            "waitS": 60
+          },
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "write.recall-is-paused-while-a-write-runs-and-finds-it-after",
+      "tier": "C",
+      "stubs": true,
+      "source": "native/gate/writetests/test_writes.py::Test2Remember::test_recall_is_paused_while_a_write_runs_and_finds_it_after",
+      "steps": [
+        {
+          "set": {
+            "hold": {
+              "$unique": "gate/hold/"
+            }
+          }
+        },
+        {
+          "stub": {
+            "mode": "hold"
+          }
+        },
+        {
+          "open": {
+            "config": {
+              "$config": "write"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_remember",
+              "sourceId": {
+                "$var": "hold"
+              },
+              "sessionId": "s",
+              "text": "I prefer tea to coffee.",
+              "occurredAt": "2026-11-20T10:00:00Z"
+            },
+            "timeoutMs": 500
+          },
+          "expect": {
+            "status": "ok",
+            "receipt": {
+              "state": "running"
+            }
+          },
+          "save": "first"
+        },
+        {
+          "state": {},
+          "expect": {
+            "readAllowed": false,
+            "writeQuiescent": false
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "s",
+              "query": "tea",
+              "maxFacts": 5,
+              "maxPreferences": 5,
+              "minScore": 0.0
+            }
+          },
+          "expect": {
+            "status": "unavailable",
+            "error": {
+              "code": "reads_paused"
+            }
+          }
+        },
+        {
+          "stub": {
+            "release": true
+          }
+        },
+        {
+          "repeat": {
+            "times": 400,
+            "sleepS": 0.05,
+            "step": {
+              "call": {
+                "request": {
+                  "schemaVersion": 1,
+                  "operation": "memory_operation_get",
+                  "operationId": {
+                    "$var": "first/receipt/operationId"
+                  }
+                }
+              }
+            },
+            "until": {
+              "receipt": {
+                "state": "applied"
+              }
+            }
+          },
+          "expect": {
+            "receipt": {
+              "state": "applied"
+            }
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_operation_get",
+              "operationId": {
+                "$var": "first/receipt/operationId"
+              }
+            }
+          },
+          "expect": {
+            "receipt": {
+              "preferences": {
+                "$len": 1
+              }
+            }
+          },
+          "save": "after"
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "s",
+              "query": "tea to coffee",
+              "maxFacts": 5,
+              "maxPreferences": 50,
+              "minScore": 0.0
+            }
+          },
+          "expect": {
+            "$ids": {
+              "$contains": {
+                "$var": "after/receipt/preferences/0"
+              }
+            }
+          }
+        },
+        {
+          "stub": {
+            "mode": "ok"
+          }
+        },
+        {
+          "close": {
+            "waitS": 60
+          },
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "write.a-forgotten-remember-is-no-longer-recalled-and-another-still-is",
+      "tier": "C",
+      "stubs": true,
+      "source": "native/gate/writetests/test_writes.py::Test4Privacy::test_a_forgotten_remember_is_no_longer_recalled_and_another_still_is",
+      "steps": [
+        {
+          "set": {
+            "oboe": {
+              "$unique": "gate/oboe/"
+            }
+          }
+        },
+        {
+          "set": {
+            "tomato": {
+              "$unique": "gate/tomato/"
+            }
+          }
+        },
+        {
+          "open": {
+            "config": {
+              "$config": "write"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_remember",
+              "sourceId": {
+                "$var": "oboe"
+              },
+              "sessionId": "s",
+              "text": "I play the oboe on Mondays.",
+              "occurredAt": "2026-11-20T10:00:00Z"
+            }
+          },
+          "expect": {
+            "receipt": {
+              "state": "applied",
+              "searchable": true
+            }
+          },
+          "save": "oboe"
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_remember",
+              "sourceId": {
+                "$var": "tomato"
+              },
+              "sessionId": "s",
+              "text": "I grow tomatoes on the balcony.",
+              "occurredAt": "2026-11-20T10:00:00Z"
+            }
+          },
+          "expect": {
+            "receipt": {
+              "state": "applied",
+              "searchable": true
+            }
+          },
+          "save": "tomato"
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_forget",
+              "operationId": {
+                "$var": "oboe/receipt/operationId"
+              }
+            }
+          },
+          "expect": {
+            "status": "ok",
+            "receipt": {
+              "kind": "forget",
+              "state": "applied",
+              "closed": {
+                "$setEq": {
+                  "$var": "oboe/receipt/facts"
+                }
+              }
+            }
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_operation_get",
+              "operationId": {
+                "$var": "oboe/receipt/operationId"
+              }
+            }
+          },
+          "expect": {
+            "receipt": {
+              "state": "forgotten"
+            }
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "s",
+              "query": "oboe on Mondays tomatoes on the balcony",
+              "maxFacts": 50,
+              "maxPreferences": 50,
+              "minScore": 0.0
+            }
+          },
+          "expect": {
+            "$ids": {
+              "$notContains": {
+                "$var": "oboe/receipt/facts"
+              },
+              "$contains": {
+                "$var": "tomato/receipt/facts"
+              }
+            }
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_forget",
+              "memoryIds": [
+                {
+                  "$var": "tomato/receipt/facts/0"
+                },
+                "no-such-memory"
+              ]
+            }
+          },
+          "expect": {
+            "receipt": {
+              "state": "applied",
+              "closed": {
+                "$var": "tomato/receipt/facts"
+              },
+              "reason": {
+                "$contains": "not_found: no-such-memory"
+              }
+            }
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "s",
+              "query": "tomatoes on the balcony",
+              "maxFacts": 50,
+              "maxPreferences": 50,
+              "minScore": 0.0
+            }
+          },
+          "expect": {
+            "$ids": {
+              "$notContains": {
+                "$var": "tomato/receipt/facts"
+              }
+            }
+          }
+        },
+        {
+          "close": {
+            "waitS": 60
+          },
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "write.a-forget-behind-a-running-remember-waits-and-then-closes-what-it-wrote",
+      "tier": "C",
+      "stubs": true,
+      "source": "native/gate/writetests/test_writes.py::Test4Privacy::test_a_forget_behind_a_running_remember_waits_and_then_closes_what_it_wrote",
+      "steps": [
+        {
+          "set": {
+            "violin": {
+              "$unique": "gate/violin/"
+            }
+          }
+        },
+        {
+          "stub": {
+            "mode": "hold"
+          }
+        },
+        {
+          "open": {
+            "config": {
+              "$config": "write"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_remember",
+              "sourceId": {
+                "$var": "violin"
+              },
+              "sessionId": "s",
+              "text": "I tune my violin every morning.",
+              "occurredAt": "2026-11-20T10:00:00Z"
+            },
+            "timeoutMs": 300
+          },
+          "expect": {
+            "receipt": {
+              "state": "running"
+            }
+          },
+          "save": "violin"
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_forget",
+              "operationId": {
+                "$var": "violin/receipt/operationId"
+              }
+            },
+            "timeoutMs": 300
+          },
+          "expect": {
+            "receipt": {
+              "kind": "forget",
+              "state": "accepted"
+            }
+          },
+          "save": "forget"
+        },
+        {
+          "stub": {
+            "mode": "ok",
+            "release": true
+          }
+        },
+        {
+          "repeat": {
+            "times": 400,
+            "sleepS": 0.05,
+            "step": {
+              "call": {
+                "request": {
+                  "schemaVersion": 1,
+                  "operation": "memory_operation_get",
+                  "operationId": {
+                    "$var": "forget/receipt/operationId"
+                  }
+                }
+              }
+            },
+            "until": {
+              "receipt": {
+                "state": "applied"
+              }
+            }
+          },
+          "expect": {
+            "receipt": {
+              "state": "applied"
+            }
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_operation_get",
+              "operationId": {
+                "$var": "violin/receipt/operationId"
+              }
+            }
+          },
+          "expect": {
+            "receipt": {
+              "state": "forgotten"
+            }
+          },
+          "save": "ended"
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_operation_get",
+              "operationId": {
+                "$var": "forget/receipt/operationId"
+              }
+            }
+          },
+          "expect": {
+            "receipt": {
+              "closed": {
+                "$setEq": {
+                  "$var": "ended/receipt/facts"
+                }
+              }
+            }
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "s",
+              "query": "tune my violin every morning",
+              "maxFacts": 50,
+              "maxPreferences": 50,
+              "minScore": 0.0
+            }
+          },
+          "expect": {
+            "$ids": {
+              "$notContains": {
+                "$var": "ended/receipt/facts"
+              }
+            }
+          }
+        },
+        {
+          "close": {
+            "waitS": 60
+          },
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "write.forgetting-a-remember-that-has-not-started-cancels-it",
+      "tier": "C",
+      "stubs": true,
+      "source": "native/gate/writetests/test_writes.py::Test4Privacy::test_forgetting_a_remember_that_has_not_started_cancels_it",
+      "steps": [
+        {
+          "set": {
+            "first": {
+              "$unique": "gate/first/"
+            }
+          }
+        },
+        {
+          "set": {
+            "second": {
+              "$unique": "gate/second/"
+            }
+          }
+        },
+        {
+          "stub": {
+            "mode": "hold"
+          }
+        },
+        {
+          "open": {
+            "config": {
+              "$config": "write"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_remember",
+              "sourceId": {
+                "$var": "first"
+              },
+              "sessionId": "s",
+              "text": "I read before sleeping.",
+              "occurredAt": "2026-11-20T10:00:00Z"
+            },
+            "timeoutMs": 300
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_remember",
+              "sourceId": {
+                "$var": "second"
+              },
+              "sessionId": "s",
+              "text": "My cat hides under the stairs.",
+              "occurredAt": "2026-11-20T10:00:00Z"
+            },
+            "timeoutMs": 300
+          },
+          "expect": {
+            "receipt": {
+              "state": "accepted"
+            }
+          },
+          "save": "second"
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_forget",
+              "operationId": {
+                "$var": "second/receipt/operationId"
+              }
+            },
+            "timeoutMs": 300
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_operation_get",
+              "operationId": {
+                "$var": "second/receipt/operationId"
+              }
+            }
+          },
+          "expect": {
+            "receipt": {
+              "state": "cancelled"
+            }
+          }
+        },
+        {
+          "stub": {
+            "mode": "ok",
+            "release": true
+          }
+        },
+        {
+          "repeat": {
+            "times": 400,
+            "sleepS": 0.05,
+            "step": {
+              "state": {}
+            },
+            "until": {
+              "writeQuiescent": true
+            }
+          },
+          "expect": {
+            "writeQuiescent": true
+          }
+        },
+        {
+          "stub": {
+            "seen": true
+          },
+          "expect": {
+            "said": {
+              "$notContains": "My cat hides under the stairs."
+            }
+          },
+          "note": "a cancelled remember never reached the writer"
+        },
+        {
+          "close": {
+            "waitS": 60
+          },
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "write.erase-needs-confirmation-and-waits-for-quiescence",
+      "tier": "C",
+      "stubs": true,
+      "source": "native/gate/writetests/test_writes.py::Test4Privacy::test_erase_needs_confirmation_and_waits_for_quiescence",
+      "steps": [
+        {
+          "set": {
+            "pending": {
+              "$unique": "gate/pending/"
+            }
+          }
+        },
+        {
+          "stub": {
+            "mode": "hold"
+          }
+        },
+        {
+          "open": {
+            "config": {
+              "$config": "write",
+              "$with": {
+                "/owner": {
+                  "mode": "fixed",
+                  "id": "gate-erased-owner"
+                }
+              }
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_erase_owner",
+              "confirm": false
+            }
+          },
+          "expect": {
+            "status": "invalid",
+            "error": {
+              "code": "confirmation_required"
+            }
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_remember",
+              "sourceId": {
+                "$var": "pending"
+              },
+              "sessionId": "s",
+              "text": "I water the ferns on Fridays.",
+              "occurredAt": "2026-11-20T10:00:00Z"
+            },
+            "timeoutMs": 300
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_erase_owner",
+              "confirm": true
+            }
+          },
+          "expect": {
+            "status": "unavailable",
+            "error": {
+              "code": "writes_pending"
+            }
+          }
+        },
+        {
+          "stub": {
+            "mode": "ok",
+            "release": true
+          }
+        },
+        {
+          "close": {
+            "waitS": 60
+          },
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "write.observed-words-are-admitted-only-by-the-learning-profile",
+      "tier": "C",
+      "stubs": true,
+      "source": "native/gate/writetests/test_writes.py::Test6Learning::test_observed_words_are_admitted_only_by_the_learning_profile",
+      "steps": [
+        {
+          "set": {
+            "observed": {
+              "$unique": "gate/observed/"
+            }
+          }
+        },
+        {
+          "open": {
+            "config": {
+              "$config": "write",
+              "$with": {
+                "/profile": "learning"
+              }
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "capabilities_get"
+            }
+          },
+          "expect": {
+            "profile": "learning"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_remember",
+              "sourceId": {
+                "$var": "observed"
+              },
+              "sessionId": "s",
+              "text": "My sister lives in Bern.",
+              "occurredAt": "2026-11-20T10:00:00Z",
+              "origin": "observed"
+            }
+          },
+          "expect": {
+            "receipt": {
+              "state": "applied",
+              "origin": "observed",
+              "searchable": true
+            }
+          }
+        },
+        {
+          "close": {
+            "waitS": 60
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "open": {
+            "config": {
+              "$config": "write",
+              "$with": {
+                "/state": {
+                  "directory": {
+                    "$freshState": true
+                  }
+                }
+              }
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_remember",
+              "sourceId": {
+                "$var": "observed"
+              },
+              "sessionId": "s",
+              "text": "My sister lives in Bern.",
+              "occurredAt": "2026-11-20T10:00:00Z",
+              "origin": "observed"
+            }
+          },
+          "expect": {
+            "status": "invalid",
+            "error": {
+              "code": "not_in_profile"
+            }
+          }
+        },
+        {
+          "close": {
+            "waitS": 60
+          },
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "write.recall-stays-open-while-a-learning-write-runs",
+      "tier": "C",
+      "stubs": true,
+      "source": "native/gate/writetests/test_writes.py::Test6Learning::test_recall_stays_open_while_a_learning_write_runs",
+      "steps": [
+        {
+          "set": {
+            "open": {
+              "$unique": "gate/open/"
+            }
+          }
+        },
+        {
+          "stub": {
+            "mode": "hold"
+          }
+        },
+        {
+          "open": {
+            "config": {
+              "$config": "write",
+              "$with": {
+                "/profile": "learning"
+              }
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_remember",
+              "sourceId": {
+                "$var": "open"
+              },
+              "sessionId": "s",
+              "text": "I fly kites at the beach.",
+              "occurredAt": "2026-11-20T10:00:00Z"
+            },
+            "timeoutMs": 300
+          },
+          "expect": {
+            "receipt": {
+              "state": "running"
+            }
+          },
+          "save": "pending"
+        },
+        {
+          "state": {},
+          "expect": {
+            "readAllowed": true,
+            "writeQuiescent": false
+          },
+          "note": "a write applied in one transaction does not pause recall"
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "s",
+              "query": "kites",
+              "maxFacts": 5,
+              "maxPreferences": 5,
+              "minScore": 0.0
+            }
+          },
+          "expect": {
+            "status": "ok"
+          }
+        },
+        {
+          "stub": {
+            "release": true
+          }
+        },
+        {
+          "repeat": {
+            "times": 400,
+            "sleepS": 0.05,
+            "step": {
+              "call": {
+                "request": {
+                  "schemaVersion": 1,
+                  "operation": "memory_operation_get",
+                  "operationId": {
+                    "$var": "pending/receipt/operationId"
+                  }
+                }
+              }
+            },
+            "until": {
+              "receipt": {
+                "state": "applied"
+              }
+            }
+          },
+          "expect": {
+            "receipt": {
+              "state": "applied"
+            }
+          }
+        },
+        {
+          "stub": {
+            "mode": "ok"
+          }
+        },
+        {
+          "close": {
+            "waitS": 60
+          },
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "write.a-reasoning-effort-is-sent-only-when-configured.not-configured",
+      "tier": "C",
+      "stubs": true,
+      "source": "native/gate/writetests/test_writes.py::Test7WriterSettings::test_a_reasoning_effort_is_sent_only_when_configured",
+      "steps": [
+        {
+          "set": {
+            "told": {
+              "$unique": "gate/told/"
+            }
+          }
+        },
+        {
+          "open": {
+            "config": {
+              "$config": "write",
+              "$with": {
+                "/profile": "learning"
+              }
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_remember",
+              "sourceId": {
+                "$var": "told"
+              },
+              "sessionId": {
+                "$var": "told"
+              },
+              "text": "I play the cello every Sunday.",
+              "occurredAt": "2026-11-20T10:00:00Z",
+              "origin": "observed"
+            }
+          },
+          "expect": {
+            "receipt": {
+              "state": "applied"
+            }
+          }
+        },
+        {
+          "stub": {
+            "seen": true
+          },
+          "expect": {
+            "reasoning": [
+              null
+            ]
+          }
+        },
+        {
+          "close": {
+            "waitS": 60
+          },
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "write.a-reasoning-effort-is-sent-only-when-configured.configured",
+      "tier": "C",
+      "stubs": true,
+      "source": "native/gate/writetests/test_writes.py::Test7WriterSettings::test_a_reasoning_effort_is_sent_only_when_configured",
+      "steps": [
+        {
+          "set": {
+            "told": {
+              "$unique": "gate/told/"
+            }
+          }
+        },
+        {
+          "open": {
+            "config": {
+              "$config": "write",
+              "$with": {
+                "/profile": "learning",
+                "/writer/reasoningEffort": "low"
+              }
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_remember",
+              "sourceId": {
+                "$var": "told"
+              },
+              "sessionId": {
+                "$var": "told"
+              },
+              "text": "I play the cello every Sunday.",
+              "occurredAt": "2026-11-20T10:00:00Z",
+              "origin": "observed"
+            }
+          },
+          "expect": {
+            "receipt": {
+              "state": "applied"
+            }
+          }
+        },
+        {
+          "stub": {
+            "seen": true
+          },
+          "expect": {
+            "reasoning": [
+              "low"
+            ]
+          }
+        },
+        {
+          "close": {
+            "waitS": 60
+          },
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "write.earlier-turns-reach-the-writer-as-context.with-context-turns",
+      "tier": "C",
+      "stubs": true,
+      "source": "native/gate/writetests/test_writes.py::Test7WriterSettings::test_earlier_turns_reach_the_writer_as_context_and_nothing_is_kept_from_them",
+      "steps": [
+        {
+          "set": {
+            "first": {
+              "$unique": "gate/first/"
+            }
+          }
+        },
+        {
+          "set": {
+            "second": {
+              "$unique": "gate/second/"
+            }
+          }
+        },
+        {
+          "set": {
+            "session": {
+              "$unique": "gate/session/"
+            }
+          }
+        },
+        {
+          "open": {
+            "config": {
+              "$config": "write",
+              "$with": {
+                "/profile": "learning",
+                "/writer/contextTurns": 4
+              }
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_remember",
+              "sourceId": {
+                "$var": "first"
+              },
+              "sessionId": {
+                "$var": "session"
+              },
+              "text": "I met somebody at the dinner yesterday.",
+              "occurredAt": "2026-11-20T10:00:00Z",
+              "origin": "observed"
+            }
+          },
+          "expect": {
+            "receipt": {
+              "state": "applied"
+            }
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_remember",
+              "sourceId": {
+                "$var": "second"
+              },
+              "sessionId": {
+                "$var": "session"
+              },
+              "text": "His name is Sam.",
+              "occurredAt": "2026-11-20T10:00:00Z",
+              "origin": "observed"
+            }
+          },
+          "expect": {
+            "receipt": {
+              "state": "applied",
+              "facts": {
+                "$len": 1
+              }
+            }
+          }
+        },
+        {
+          "stub": {
+            "seen": true
+          },
+          "expect": {
+            "/prompts/1": {
+              "$contains": "I met somebody at the dinner yesterday."
+            },
+            "/said/1": "His name is Sam."
+          }
+        },
+        {
+          "close": {
+            "waitS": 60
+          },
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "write.earlier-turns-reach-the-writer-as-context.without",
+      "tier": "C",
+      "stubs": true,
+      "source": "native/gate/writetests/test_writes.py::Test7WriterSettings::test_earlier_turns_reach_the_writer_as_context_and_nothing_is_kept_from_them",
+      "steps": [
+        {
+          "set": {
+            "first": {
+              "$unique": "gate/first/"
+            }
+          }
+        },
+        {
+          "set": {
+            "second": {
+              "$unique": "gate/second/"
+            }
+          }
+        },
+        {
+          "set": {
+            "session": {
+              "$unique": "gate/session/"
+            }
+          }
+        },
+        {
+          "open": {
+            "config": {
+              "$config": "write",
+              "$with": {
+                "/profile": "learning"
+              }
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_remember",
+              "sourceId": {
+                "$var": "first"
+              },
+              "sessionId": {
+                "$var": "session"
+              },
+              "text": "I met somebody at the dinner yesterday.",
+              "occurredAt": "2026-11-20T10:00:00Z",
+              "origin": "observed"
+            }
+          },
+          "expect": {
+            "receipt": {
+              "state": "applied"
+            }
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_remember",
+              "sourceId": {
+                "$var": "second"
+              },
+              "sessionId": {
+                "$var": "session"
+              },
+              "text": "His name is Sam.",
+              "occurredAt": "2026-11-20T10:00:00Z",
+              "origin": "observed"
+            }
+          },
+          "expect": {
+            "receipt": {
+              "state": "applied",
+              "facts": {
+                "$len": 1
+              }
+            }
+          }
+        },
+        {
+          "stub": {
+            "seen": true
+          },
+          "expect": {
+            "/prompts/1": {
+              "$notContains": "I met somebody at the dinner yesterday."
+            },
+            "/said/1": "His name is Sam."
+          }
+        },
+        {
+          "close": {
+            "waitS": 60
+          },
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "write.writer-settings-outside-their-values-are-refused",
+      "tier": "C",
+      "stubs": true,
+      "source": "native/gate/writetests/test_writes.py::Test7WriterSettings::test_writer_settings_outside_their_values_are_refused",
+      "steps": [
+        {
+          "open": {
+            "config": {
+              "$config": "write",
+              "$with": {
+                "/profile": "learning",
+                "/writer/reasoningEffort": "max"
+              }
+            }
+          },
+          "expect": {
+            "status": {
+              "$not": "OK"
+            },
+            "code": "invalid_value"
+          }
+        },
+        {
+          "open": {
+            "config": {
+              "$config": "write",
+              "$with": {
+                "/profile": "learning",
+                "/writer/contextTurns": 33
+              }
+            }
+          },
+          "expect": {
+            "status": {
+              "$not": "OK"
+            },
+            "code": "invalid_value"
+          }
+        },
+        {
+          "open": {
+            "config": {
+              "$config": "write",
+              "$with": {
+                "/profile": "learning",
+                "/writer/contextTurns": -1
+              }
+            }
+          },
+          "expect": {
+            "status": {
+              "$not": "OK"
+            },
+            "code": "invalid_value"
+          }
+        }
+      ]
+    }
+  ]
+}

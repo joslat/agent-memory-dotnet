@@ -60,8 +60,8 @@ This distinction matters more than any individual number.
 
 ### Structural counters — trustworthy, portable
 
-Round trips, queries, materialized database records, estimated payload bytes, embedding requests, model
-completions, tokens, items. These are **deterministic**: the same scenario on the same data produces
+Transactions, queries, materialized database records, estimated payload bytes, embedding requests, model
+completions, tokens, items, and, with `--db-latency`, round trips on the wire. These are **deterministic**: the same scenario on the same data produces
 identical counts on any machine, in any environment. Two consecutive runs matched all 29 counters.
 
 **These are safe to reason about, budget against, and compare across versions.** They are what
@@ -75,7 +75,7 @@ vectors.
 
 Every `memory.db.query` span also carries a safe `db.query.fingerprint`. Centralized constants use
 their stable source name; recognized method-built shapes use a stable method name; anything else is
-`unknown`. Reports group round trips by this value. Raw Cypher is never recorded because it can contain
+`unknown`. Reports group queries by this value. Raw Cypher is never recorded because it can contain
 embedded parameters. Two independent fresh-container runs produced the same query distributions and
 the per-fingerprint totals exactly matched `neo4j.queries`.
 
@@ -206,7 +206,7 @@ warm-ups. “Full phase” is the elapsed time for the complete recall or ingest
 | Ingestion | **336.83 / 2,859.29 ms** | **221.92 / 352.90 ms** | −114.91 ms (−34.1%) p50 | Control variance only: `feat-01` did not change ingestion |
 
 These are local hermetic characterization timings, not deployment latency. The portable causal result
-is recall write transactions **25 → 1**, queries **31 → 9**, and total database round trips **31 → 7**,
+is recall write transactions **25 → 1**, queries **31 → 9**, and total database transactions **31 → 7**,
 with retrieved and access-tracked item guards unchanged.
 
 ---
@@ -389,7 +389,7 @@ dotnet run --project tools/AgentMemory.Cli -- perf baseline --update \
 
 Each run writes a dated directory containing a manifest with the full environment fingerprint, an
 append-only trace log, per-iteration samples, a machine-readable summary, and a rendered report. The
-report includes exact round trips grouped by safe query fingerprint. The quality gate is on by default;
+report includes exact queries grouped by safe query fingerprint. The quality gate is on by default;
 `--quality-gate=false` is available for diagnostic runs, and the report
 marks those scores as report-only.
 

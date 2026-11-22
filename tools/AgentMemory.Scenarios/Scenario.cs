@@ -55,9 +55,17 @@ internal sealed record Session(DateOnly Date, string Topic, IReadOnlyList<string
 
 /// <summary>
 /// A question, the facts the prompt must contain for it to be answerable, and what a right answer says. The right
-/// answer is printed beside the model's for a person to read; nothing here grades it.
+/// answer is printed beside the model's for a person to read; nothing here grades it. <see cref="MustNot"/> (the Identity
+/// Kinds Benchmark's questions) are a namesake's facts: for "how old is my dog?" the prompt must not carry the cat's.
 /// </summary>
-internal sealed record Question(string Id, string Kind, string Text, IReadOnlyList<Need> Needs, string RightAnswer);
+internal sealed record Question(string Id, string Kind, string Text, IReadOnlyList<Need> Needs, string? RightAnswer,
+    IReadOnlyList<Forbidden>? MustNot = null);
+
+/// <summary>
+/// A fact that must not reach the prompt for a question: no item of the prompt may have every group of
+/// <see cref="Mentions"/>, read as <see cref="Need.Mentions"/> is.
+/// </summary>
+internal sealed record Forbidden(IReadOnlyList<IReadOnlyList<string>> Mentions);
 
 /// <summary>
 /// One fact the prompt must contain. It is there when one item of the prompt (a line, or one entry of a list the

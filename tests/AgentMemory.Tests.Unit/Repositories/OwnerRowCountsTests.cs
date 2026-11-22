@@ -37,6 +37,61 @@ public sealed class OwnerRowCountsTests
     }
 
     [Fact]
+    public async Task Past_the_ttl_the_count_is_answered_at_once_and_counted_again_in_the_background()
+    {
+        // DRT-PAUSE: a recall after a pause does not wait for the count; the next one gets the new count.
+        var time = new ManualTime();
+        var counts = new OwnerRowCounts(time);
+        var runs = 0;
+        var gate = new TaskCompletionSource();
+        async Task<int> Count() { var run = ++runs; if (run > 1) await gate.Task; return run * 10; }
+
+        (await counts.GetAsync("alice", Count, refreshInBackground: true)).Should().Be(10);
+        time.Now += OwnerRowCounts.Ttl + TimeSpan.FromSeconds(5);
+
+        var answer = counts.GetAsync("alice", Count, refreshInBackground: true);
+        answer.IsCompleted.Should().BeTrue("the cached count is answered without waiting for the new one");
+        (await answer).Should().Be(10);
+        (await counts.GetAsync("alice", Count, refreshInBackground: true)).Should().Be(10, "one refresh at a time");
+
+        gate.SetResult();
+        await counts.Refreshing("alice");
+        runs.Should().Be(2);
+        (await counts.GetAsync("alice", Count, refreshInBackground: true)).Should().Be(20);
+    }
+
+    [Fact]
+    public async Task Past_max_stale_or_inside_a_write_unit_it_is_counted_first_as_before()
+    {
+        var time = new ManualTime();
+        var counts = new OwnerRowCounts(time);
+        var runs = 0;
+        Task<int> Count() => Task.FromResult(++runs * 10);
+
+        await counts.GetAsync("alice", Count, refreshInBackground: true);
+        time.Now += OwnerRowCounts.Ttl + TimeSpan.FromSeconds(1);
+        (await counts.GetAsync("alice", Count, refreshInBackground: false)).Should().Be(20, "inside a write unit");
+
+        time.Now += OwnerRowCounts.MaxStale;
+        (await counts.GetAsync("alice", Count, refreshInBackground: true)).Should().Be(30, "too old to answer with");
+    }
+
+    [Fact]
+    public async Task A_failed_refresh_keeps_the_cached_count()
+    {
+        var time = new ManualTime();
+        var counts = new OwnerRowCounts(time);
+        await counts.GetAsync("alice", () => Task.FromResult(7), refreshInBackground: true);
+        time.Now += OwnerRowCounts.Ttl + TimeSpan.FromSeconds(1);
+
+        (await counts.GetAsync("alice", () => Task.FromException<int>(new InvalidOperationException("down")), refreshInBackground: true)).Should().Be(7);
+        await counts.Refreshing("alice");
+
+        (await counts.GetAsync("alice", () => Task.FromResult(99), refreshInBackground: true)).Should().Be(7,
+            "still within MaxStale: answered, and refreshed again");
+    }
+
+    [Fact]
     public async Task Each_store_keeps_its_own_count_for_the_same_owner()
     {
         var store = Substitute.For<IMemoryStoreContext>();

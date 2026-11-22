@@ -317,6 +317,28 @@ public sealed record RecallOptions
     public int MaxPersonDetailFacts { get; init; } = 8;
 
     /// <summary>
+    /// Follows a recalled fact that connects the owner to someone or something, by a relation the question names, one hop
+    /// to that one's own live facts: "Where does my sister live?" recalls "Anna | sister of | user" by similarity, and
+    /// with this on also "Anna | lives in | Madrid", which shares no word with the question (SPEECH-RELATION-RECALL, found
+    /// by the speech gate as B26). A connection has the owner on one side ("user", or "I" as the subject) and a short name
+    /// on the other, and a word of its predicate in the question ("sister" of "sister of"). At most three connections are
+    /// followed, one read each of that subject's facts; no model call. The facts added have no invented similarity score
+    /// and share the existing context budget. 0 (default) is off and issues nothing; supported range 0..32. Point-in-time
+    /// recall does not follow connections.
+    /// </summary>
+    public int MaxConnectionFacts { get; init; }
+
+    /// <summary>
+    /// Keeps a namesake's facts and messages out of recall (RECALL-NAMESAKE-LEAK, found by IKB-3): "How old is my dog?"
+    /// no longer brings the sister's cat Luna's facts. When the recalled facts and messages are about two entities that
+    /// share a name, and the question picks out one of them (by a relation it names, "my dog", or a spelling only that one
+    /// has, "Vale"), the items about a namesake known as something else ("a cat" against "a dog") are dropped. A namesake
+    /// with no known role is kept, and so is an item also about the one the question means. One bounded read, only when
+    /// the recalled items link to two namesakes; no model call. Off (default): nothing is read and nothing changes.
+    /// </summary>
+    public bool NamesakeFilter { get; init; }
+
+    /// <summary>
     /// Reports aged-out memory as a stated absence when a fact section comes back thin. Default off,
     /// and off is byte-identical.
     /// </summary>

@@ -1,3 +1,4 @@
+using AgentMemory.AgentFramework.Mapping;
 using AgentMemory.Tests.Unit.TestSupport;
 using FluentAssertions;
 using Microsoft.Extensions.AI;
@@ -28,6 +29,9 @@ public sealed class Neo4jMemoryContextProviderTests
         _clock.GetUtcNow().Returns(DateTimeOffset.UtcNow);
         _memoryService.RouteIdKeyedAdds();
         _idGenerator.GenerateId().Returns(_ => Guid.NewGuid().ToString("N"));
+        // DRT-8: a turn's messages go to AddMessagesAsync in one call; the store returns what it stored, here the input.
+        _memoryService.AddMessagesAsync(Arg.Any<IEnumerable<Message>>(), Arg.Any<CancellationToken>())
+            .Returns(call => (IReadOnlyList<Message>)call.Arg<IEnumerable<Message>>().ToList());
         _sut = new Neo4jMemoryContextProvider(
             _memoryService,
             _embeddingOrchestrator,
@@ -749,20 +753,13 @@ public sealed class Neo4jMemoryContextProviderTests
     [Fact]
     public async Task PerformStoreAsync_RequestMessages_AreNotPersistedAsNewNodes()
     {
-        // The duplication-avoidance guarantee: this provider must never call AddMessageAsync for a
-        // request message, since a host may also have Neo4jChatHistoryProvider/Neo4jChatMessageStore/their
-        // own component persisting the same messages, and there is no idempotency mechanism to make a
-        // second persist call for "the same" logical message safe.
+        // The duplication-avoidance guarantee: a request message is stored only under its provider id, which the store
+        // MERGEs on, so a host that also runs Neo4jChatHistoryProvider/Neo4jChatMessageStore/its own component persisting
+        // the same message still ends with one node. DRT-8: in the turn's one AddMessagesAsync call, never AddMessageAsync.
         var sut = CreateSut(new AgentFrameworkOptions { AutoExtractOnPersist = true, ExtractFromUserMessagesOnly = false });
-        var storedResponse = new Message
-        {
-            MessageId = "m-resp", SessionId = "s1", ConversationId = "c1",
-            Role = "assistant", Content = "Got it.", TimestampUtc = FixedTime
-        };
-        _memoryService
-            .AddMessageAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-                Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
-            .Returns(storedResponse);
+        List<Message>? sent = null;
+        _memoryService.AddMessagesAsync(Arg.Do<IEnumerable<Message>>(m => sent = m.ToList()), Arg.Any<CancellationToken>())
+            .Returns(call => (IReadOnlyList<Message>)call.Arg<IEnumerable<Message>>().ToList());
         _memoryService.ExtractAndPersistAsync(Arg.Any<ExtractionRequest>(), Arg.Any<CancellationToken>())
             .Returns(new ExtractionResult
             {
@@ -772,18 +769,19 @@ public sealed class Neo4jMemoryContextProviderTests
                 Relationships = Array.Empty<ExtractedRelationship>(),
                 SourceMessageIds = Array.Empty<string>()
             });
+        var request = new ChatMessage(ChatRole.User, "I prefer window seats.");
 
         await sut.PerformStoreAsync(
-            new List<ChatMessage> { new(ChatRole.User, "I prefer window seats.") },
+            new List<ChatMessage> { request },
             new List<ChatMessage> { new(ChatRole.Assistant, "Got it.") },
             "s1", "c1", CancellationToken.None);
 
-        // Exactly one AddMessageAsync call -- for the response, never for the request.
-        await _memoryService.Received(1).AddMessageAsync(
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-            Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>());
+        sent.Should().NotBeNull();
+        sent!.Select(m => m.Role).Should().Equal("user", "assistant");
+        sent[0].MessageId.Should().Be(MafTypeMapper.EnsureProviderMessageId(request), "the request is stored under its provider id only");
+        sent.Select(m => m.TimestampUtc).Should().BeInAscendingOrder().And.OnlyHaveUniqueItems("the batch write needs rising times");
         await _memoryService.DidNotReceive().AddMessageAsync(
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), "I prefer window seats.",
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
             Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>());
     }
 
@@ -924,27 +922,15 @@ public sealed class Neo4jMemoryContextProviderTests
     public async Task PerformStoreAsync_PersistsResponseMessages()
     {
         var sut = CreateSut();
-        var responseMessages = new List<ChatMessage>
-        {
-            new(ChatRole.Assistant, "I remember you like dark mode.")
-        };
+        List<Message>? sent = null;
+        _memoryService.AddMessagesAsync(Arg.Do<IEnumerable<Message>>(m => sent = m.ToList()), Arg.Any<CancellationToken>())
+            .Returns(call => (IReadOnlyList<Message>)call.Arg<IEnumerable<Message>>().ToList());
 
-        var storedMessage = new Message
-        {
-            MessageId = "m-store-1", SessionId = "s1", ConversationId = "c1",
-            Role = "assistant", Content = "I remember you like dark mode.",
-            TimestampUtc = FixedTime
-        };
-        _memoryService
-            .AddMessageAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-                Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
-            .Returns(storedMessage);
+        await sut.PerformStoreAsync(Array.Empty<ChatMessage>(),
+            new List<ChatMessage> { new(ChatRole.Assistant, "I remember you like dark mode.") }, "s1", "c1", CancellationToken.None);
 
-        await sut.PerformStoreAsync(Array.Empty<ChatMessage>(), responseMessages, "s1", "c1", CancellationToken.None);
-
-        await _memoryService.Received(1).AddMessageAsync(
-            "s1", "c1", Arg.Any<string>(), "I remember you like dark mode.",
-            Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>());
+        sent.Should().ContainSingle().Which.Should().Match<Message>(m =>
+            m.SessionId == "s1" && m.ConversationId == "c1" && m.Content == "I remember you like dark mode.");
     }
 
     [Fact]
@@ -969,50 +955,62 @@ public sealed class Neo4jMemoryContextProviderTests
     [Fact]
     public async Task PerformStoreAsync_ResponseMessageWithProviderMessageId_UsesAddMessageWithIdAsync()
     {
+        // DRT-8: a reply with a provider id is stored under that id (#89), in the turn's one call.
         var sut = CreateSut();
+        List<Message>? sent = null;
+        _memoryService.AddMessagesAsync(Arg.Do<IEnumerable<Message>>(m => sent = m.ToList()), Arg.Any<CancellationToken>())
+            .Returns(call => (IReadOnlyList<Message>)call.Arg<IEnumerable<Message>>().ToList());
         var responseMessage = new ChatMessage(ChatRole.Assistant, "Got it.") { MessageId = "resp-42" };
-        var storedMessage = new Message
-        {
-            MessageId = "maf:resp-42", SessionId = "s1", ConversationId = "c1",
-            Role = "assistant", Content = "Got it.", TimestampUtc = FixedTime
-        };
-        _memoryService
-            .AddMessageWithIdAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-                Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
-            .Returns(storedMessage);
 
         await sut.PerformStoreAsync(
             Array.Empty<ChatMessage>(), new List<ChatMessage> { responseMessage }, "s1", "c1", CancellationToken.None);
 
-        await _memoryService.Received(1).AddMessageWithIdAsync(
-            "s1", "c1", "assistant", "Got it.", "maf:resp-42",
-            Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>());
+        sent.Should().ContainSingle().Which.MessageId.Should().Be("maf:resp-42");
         await _memoryService.DidNotReceive().AddMessageAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
             Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task PerformStoreAsync_ResponseMessageWithoutProviderMessageId_FallsBackToAddMessageAsync()
+    public async Task PerformStoreAsync_ABatchThatFails_IsStoredMessageByMessage()
     {
+        // DRT-8: the batch refuses a message the embedder gives no vector (BUG-M1), where one message alone is stored
+        // without one. A failed batch wrote nothing, so the turn is stored message by message, as before.
         var sut = CreateSut();
-        var responseMessage = new ChatMessage(ChatRole.Assistant, "Got it.");
-        var storedMessage = new Message
-        {
-            MessageId = "m-store-1", SessionId = "s1", ConversationId = "c1",
-            Role = "assistant", Content = "Got it.", TimestampUtc = FixedTime
-        };
-        _memoryService
-            .AddMessageAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+        _memoryService.AddMessagesAsync(Arg.Any<IEnumerable<Message>>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("Batch embedding returned an unusable vector"));
+        var stored = new List<string>();
+        _memoryService.AddMessageWithIdAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
                 Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
-            .Returns(storedMessage);
+            .Returns(call =>
+            {
+                stored.Add(call.ArgAt<string>(3));
+                return new Message { MessageId = call.ArgAt<string>(4), SessionId = "s1", ConversationId = "c1",
+                    Role = call.ArgAt<string>(2), Content = call.ArgAt<string>(3), TimestampUtc = FixedTime };
+            });
 
         await sut.PerformStoreAsync(
-            Array.Empty<ChatMessage>(), new List<ChatMessage> { responseMessage }, "s1", "c1", CancellationToken.None);
+            new List<ChatMessage> { new(ChatRole.User, "I prefer window seats.") },
+            new List<ChatMessage> { new(ChatRole.Assistant, "Got it.") }, "s1", "c1", CancellationToken.None);
 
-        await _memoryService.Received(1).AddMessageAsync(
-            "s1", "c1", "assistant", "Got it.",
-            Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>());
+        stored.Should().Equal("I prefer window seats.", "Got it.");
+    }
+
+    [Fact]
+    public async Task PerformStoreAsync_ResponseMessageWithoutProviderMessageId_FallsBackToAddMessageAsync()
+    {
+        // DRT-8: a reply without a provider id gets a new id, as AddMessageAsync gave it, in the turn's one call.
+        var sut = CreateSut();
+        List<Message>? sent = null;
+        _memoryService.AddMessagesAsync(Arg.Do<IEnumerable<Message>>(m => sent = m.ToList()), Arg.Any<CancellationToken>())
+            .Returns(call => (IReadOnlyList<Message>)call.Arg<IEnumerable<Message>>().ToList());
+
+        await sut.PerformStoreAsync(
+            Array.Empty<ChatMessage>(), new List<ChatMessage> { new(ChatRole.Assistant, "Got it.") }, "s1", "c1", CancellationToken.None);
+
+        sent.Should().ContainSingle();
+        sent![0].Should().Match<Message>(m => m.SessionId == "s1" && m.ConversationId == "c1" && m.Role == "assistant"
+            && m.Content == "Got it." && !string.IsNullOrEmpty(m.MessageId) && !m.MessageId.StartsWith("maf:"));
         await _memoryService.DidNotReceive().AddMessageWithIdAsync(
             Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
             Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>());
@@ -1224,12 +1222,11 @@ public sealed class Neo4jMemoryContextProviderTests
         var messages = new List<ChatMessage> { new(ChatRole.Assistant, "Important data.") };
         using var cts = new CancellationTokenSource();
         cts.Cancel();
-        _memoryService.AddMessageAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
-            Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
+        _memoryService.AddMessagesAsync(Arg.Any<IEnumerable<Message>>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new OperationCanceledException(cts.Token));
 
         var act = async () => await sut.PerformStoreAsync(Array.Empty<ChatMessage>(), messages, "s1", "c1", cts.Token);
 
-        await act.Should().ThrowAsync<OperationCanceledException>();
+        await act.Should().ThrowAsync<OperationCanceledException>("a cancelled turn is not stored message by message instead");
     }
 }

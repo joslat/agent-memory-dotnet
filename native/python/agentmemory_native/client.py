@@ -164,12 +164,34 @@ class MemoryClient:
     def capabilities(self) -> dict[str, Any]:
         return self.call({"schemaVersion": 1, "operation": "capabilities_get"})
 
+    def wait_any(self, wait_ms: int = 0) -> int:
+        """ABI 1.1: the handle of a finished job of this context that no wait has reported yet, waiting up to ``wait_ms``;
+        0 when none finished in time, or when the context is closing. Take its result with a poll. A 1.0 library has
+        no waiter: NativeCallError with UNSUPPORTED_ABI."""
+        if not abi.has_wait(self._lib):
+            raise NativeCallError("am_v1_wait", abi.UNSUPPORTED_ABI, "this library implements ABI 1.0, which has no waiter")
+        finished = ctypes.c_uint64(0)
+        status = self._lib.am_v1_wait(self._context, int(wait_ms), ctypes.byref(finished))
+        if status != abi.OK:
+            raise NativeCallError("am_v1_wait", status)
+        return finished.value
+
+    def schema_status(self, timeout_ms: int = 0) -> dict[str, Any]:
+        """Admin profile: what the store holds of AgentMemory's schema (complete, missing objects, vector index
+        dimensions). Changes nothing."""
+        return self.call({"schemaVersion": 1, "operation": "schema_status"}, timeout_ms)
+
+    def schema_bootstrap(self, timeout_ms: int = 120_000) -> dict[str, Any]:
+        """Admin profile: creates what is missing of the schema and applies its migrations, as the managed bootstrap
+        does; what is there already is left as it is. Returns the schema as it is after."""
+        return self.call({"schemaVersion": 1, "operation": "schema_bootstrap"}, timeout_ms)
+
     def get_context(self, *, session_id: str, query: str | None = None, query_vector: Sequence[float] | None = None,
                     owner: str | None = None,
                     max_facts: int = 5, max_preferences: int = 5, min_score: float | None = None,
                     request_id: str | None = None, timeout_ms: int = 0, **sections: Any) -> ContextResult:
         """Owner-scoped recall of facts and preferences, and the sections ``get_context_request`` names (max_messages,
-        max_entities, max_relationships, time_windows) when asked for.
+        max_entities, max_relationships, time_windows, max_connection_facts) when asked for.
 
         Pass ``query`` (text, embedded by the context's embedding endpoint) or ``query_vector`` (made by the caller).
         """
@@ -254,7 +276,8 @@ def get_context_request(*, session_id: str, query: str | None = None, query_vect
                         owner: str | None = None,
                         max_facts: int = 5, max_preferences: int = 5, min_score: float | None = None,
                         request_id: str | None = None, max_messages: int = 0, max_entities: int = 0,
-                        max_relationships: int = 0, time_windows: bool = False) -> dict[str, Any]:
+                        max_relationships: int = 0, time_windows: bool = False,
+                        max_connection_facts: int = 0) -> dict[str, Any]:
     """A recall request. The extra sections (the session's own earlier messages, entities, relationships, the facts of
     a time the question names) are sent only when asked for, so the request stays the one an older library reads."""
     request: dict[str, Any] = {
@@ -275,7 +298,8 @@ def get_context_request(*, session_id: str, query: str | None = None, query_vect
     if request_id is not None:
         request["requestId"] = request_id
     for key, value in (("maxMessages", max_messages), ("maxEntities", max_entities),
-                       ("maxRelationships", max_relationships), ("timeWindows", time_windows)):
+                       ("maxRelationships", max_relationships), ("timeWindows", time_windows),
+                       ("maxConnectionFacts", max_connection_facts)):
         if value:
             request[key] = value
     return request
@@ -387,6 +411,12 @@ class AsyncMemoryClient:
 
     async def capabilities(self) -> dict[str, Any]:
         return await self.call({"schemaVersion": 1, "operation": "capabilities_get"})
+
+    async def schema_status(self, timeout_ms: int = 0) -> dict[str, Any]:
+        return await self.call({"schemaVersion": 1, "operation": "schema_status"}, timeout_ms)
+
+    async def schema_bootstrap(self, timeout_ms: int = 120_000) -> dict[str, Any]:
+        return await self.call({"schemaVersion": 1, "operation": "schema_bootstrap"}, timeout_ms)
 
     async def get_context(self, **arguments: Any) -> ContextResult:
         timeout_ms = int(arguments.pop("timeout_ms", 0))

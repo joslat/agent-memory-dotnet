@@ -851,20 +851,31 @@ public partial class Neo4jMemoryContextProvider : AIContextProvider
             // points at a :Message that exists, so every EXTRACTED_FROM edge and source_message_ids entry
             // resolves. Neo4jChatHistoryProvider stores the same message under the same id and the store
             // MERGEs on it, so running both still leaves one node per message (#89's concern).
-            var storedRequestMessages = new List<Message>();
-            foreach (var msg in requestMessages.Where(msg => msg.Role == ChatRole.User && !string.IsNullOrWhiteSpace(msg.Text)))
+            // DRT-8 (C-06): the turn's messages in one call, one embedder request and one write, unless the AppContext
+            // switch AgentMemory.Store.OneCallPerMessage asks for the previous path, or the batch fails.
+            List<Message> turnMessages;
+            if (OneCallPerMessage)
             {
-                storedRequestMessages.Add(await _memoryService.AddMessageWithIdAsync(
-                    sessionId, conversationId, "user", msg.Text, MafTypeMapper.EnsureProviderMessageId(msg),
-                    cancellationToken: cancellationToken).ConfigureAwait(false));
-            }
+                var storedRequestMessages = new List<Message>();
+                foreach (var msg in requestMessages.Where(msg => msg.Role == ChatRole.User && !string.IsNullOrWhiteSpace(msg.Text)))
+                {
+                    storedRequestMessages.Add(await _memoryService.AddMessageWithIdAsync(
+                        sessionId, conversationId, "user", msg.Text, MafTypeMapper.EnsureProviderMessageId(msg),
+                        cancellationToken: cancellationToken).ConfigureAwait(false));
+                }
 
-            var storedMessages = await StoreResponseMessagesAsync(
-                responseMessages, sessionId, conversationId, cancellationToken).ConfigureAwait(false);
+                var storedMessages = await StoreResponseMessagesAsync(
+                    responseMessages, sessionId, conversationId, cancellationToken).ConfigureAwait(false);
+                turnMessages = storedRequestMessages.Concat(storedMessages).ToList();
+            }
+            else
+            {
+                turnMessages = await StoreTurnAsync(requestMessages, responseMessages, sessionId, conversationId, cancellationToken)
+                    .ConfigureAwait(false);
+            }
 
             // Extraction sees the complete turn (#89): what the user said, as the :Message stored above,
             // so provenance resolves; the reply too unless ExtractFromUserMessagesOnly.
-            var turnMessages = storedRequestMessages.Concat(storedMessages).ToList();
             PersistedMemoryTurn? persisted = null;
             TaskCompletionSource<ExtractionResult?>? coreWrite = null;
             if (turnMessages.Count > 0 && ObservesPersistedTurns)
@@ -919,6 +930,78 @@ public partial class Neo4jMemoryContextProvider : AIContextProvider
             _logger.LogWarning(ex,
                 "Failed to persist messages after run for session {SessionId}.", sessionId);
         }
+    }
+
+    /// <summary>
+    /// DRT-8: the AppContext switch <c>AgentMemory.Store.OneCallPerMessage</c> stores each message with its own call, as
+    /// before. Read per turn.
+    /// </summary>
+    internal static bool OneCallPerMessage =>
+        AppContext.TryGetSwitch("AgentMemory.Store.OneCallPerMessage", out var one) && one;
+
+    /// <summary>
+    /// DRT-8 (C-06): the turn's messages, the user's then the reply's, stored with one
+    /// <see cref="IMemoryIngestion.AddMessagesAsync"/>: one embedder request for all of them and one write. Today's ids
+    /// (the provider's own, else a new one) and today's rule of which messages are kept; times rise by a millisecond per
+    /// message from one clock reading, so the order holds when read back (the batch write needs its input in time order).
+    /// Returned in the turn's order, whatever the stored order. A batch that fails (an embedder that returns no vector
+    /// is refused there, where one message alone would be stored without one) is stored message by message instead, as
+    /// before: nothing was written, so nothing is stored twice.
+    /// </summary>
+    private async Task<List<Message>> StoreTurnAsync(
+        IEnumerable<ChatMessage> requestMessages,
+        IEnumerable<ChatMessage> responseMessages,
+        string sessionId,
+        string conversationId,
+        CancellationToken cancellationToken)
+    {
+        using var span = AgentMemoryDiagnostics.Source.StartActivity("memory.store.messages");
+        DateTimeOffset? now = null; // read once, and only for a turn that has a message to store
+        var turn = new List<Message>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        void Add(string id, string role, string text)
+        {
+            if (!seen.Add(id)) return; // one node per id, as the MERGE of the per-message path gives
+            now ??= _clock.GetUtcNow();
+            turn.Add(new Message
+            {
+                MessageId = id, SessionId = sessionId, ConversationId = conversationId, Role = role, Content = text,
+                TimestampUtc = now.Value.AddMilliseconds(turn.Count), Metadata = new Dictionary<string, object>(),
+            });
+        }
+        foreach (var msg in requestMessages.Where(msg => msg.Role == ChatRole.User && !string.IsNullOrWhiteSpace(msg.Text)))
+            Add(MafTypeMapper.EnsureProviderMessageId(msg), "user", msg.Text);
+        var userMessages = turn.Count;
+        foreach (var msg in responseMessages.Where(msg => !string.IsNullOrWhiteSpace(msg.Text)))
+            Add(MafTypeMapper.TryGetProviderMessageId(msg) ?? _idGenerator.GenerateId(), MafTypeMapper.ToInternalRole(msg.Role), msg.Text);
+        // The reply's messages, as the span has always counted them; the whole turn beside it.
+        span?.SetTag("memory.store.message_count", turn.Count - userMessages);
+        span?.SetTag("memory.store.turn_message_count", turn.Count);
+        if (turn.Count == 0) return turn;
+
+        IReadOnlyList<Message> stored;
+        try
+        {
+            stored = await _memoryService.AddMessagesAsync(turn, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Storing the turn's {Count} messages in one call failed for session {SessionId}; storing them one by one.",
+                turn.Count, sessionId);
+            var one = new List<Message>(turn.Count);
+            foreach (var message in turn)
+            {
+                one.Add(await _memoryService.AddMessageWithIdAsync(sessionId, conversationId, message.Role, message.Content, message.MessageId,
+                    cancellationToken: cancellationToken).ConfigureAwait(false));
+            }
+            return one;
+        }
+        var byId = stored.GroupBy(m => m.MessageId, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+        return turn.Select(m => byId.TryGetValue(m.MessageId, out var persisted) ? persisted : m).ToList();
     }
 
     /// <summary>

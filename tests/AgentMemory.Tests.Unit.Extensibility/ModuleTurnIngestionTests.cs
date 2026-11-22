@@ -34,7 +34,10 @@ public sealed class ModuleTurnIngestionTests
         var request = seen.Single(); request.Owner.Should().Be("owner"); request.SessionId.Should().Be("session");
         request.Messages.Select(m => m.Role).Should().Equal("user", "assistant");
         request.Messages.Select(m => m.Text).Should().Equal("stored:hello", "stored:reply");
-        request.Messages.Should().OnlyContain(m => m.Id.StartsWith("stored-"));
+        // DRT-8: the store returns each message under the id it was stored with (MERGE on it); the user's words keep their
+        // provider id. The stored text above shows the module sees what the store returned.
+        request.Messages.Should().OnlyContain(m => !string.IsNullOrEmpty(m.Id));
+        request.Messages[0].Id.Should().StartWith("maf:");
         request.Trigger.Should().Be(IngestionTrigger.EveryTurn); request.ProviderIds.Should().BeEmpty();
     }
 
@@ -174,6 +177,9 @@ public sealed class ModuleTurnIngestionTests
             .Returns(c => Stored(c.ArgAt<string>(0), c.ArgAt<string>(1), c.ArgAt<string>(2), c.ArgAt<string>(3)));
         memory.AddMessageAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
             .Returns(c => Stored(c.ArgAt<string>(0), c.ArgAt<string>(1), c.ArgAt<string>(2), c.ArgAt<string>(3)));
+        // DRT-8: the provider stores a turn's messages in one call; the store returns them under their ids, as it stored them.
+        memory.AddMessagesAsync(Arg.Any<IEnumerable<Message>>(), Arg.Any<CancellationToken>())
+            .Returns(c => (IReadOnlyList<Message>)c.Arg<IEnumerable<Message>>().Select(m => m with { Content = "stored:" + m.Content }).ToList());
         services.AddSingleton(memory); services.AddSingleton(Substitute.For<IEmbeddingOrchestrator>());
         services.AddSingleton(Substitute.For<IMemoryQueryFacade>()); services.AddSingleton(Substitute.For<IMemoryIsolationPolicy>());
         var clock = Substitute.For<TimeProvider>(); clock.GetUtcNow().Returns(DateTimeOffset.UnixEpoch); services.AddSingleton(clock);

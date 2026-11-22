@@ -1,0 +1,795 @@
+{
+  "name": "whos-who-v1-gold",
+  "version": 1,
+  "frozen": "2026-11-16, before any run. Never edited to make a result pass; a new version only with a written reason.",
+  "levels": {
+    "1": "Named by its usual name, nothing else carries that name nearby",
+    "2": "Named again in a later session, or with a clear possessive",
+    "3": "Another surface (short name, role, new name), or a namesake that the sentence itself tells apart",
+    "4": "A shared name with nothing in the sentence that tells which one: only earlier facts decide"
+  },
+  "things": [
+    {
+      "id": "T01",
+      "kind": "person",
+      "type": "PERSON",
+      "what": "Valentina Ríos, the designer at Brisa (also 'Vale')",
+      "mentions": 4
+    },
+    {
+      "id": "T02",
+      "kind": "person",
+      "type": "PERSON",
+      "what": "Valentina, Inés's six-year-old niece",
+      "mentions": 3
+    },
+    {
+      "id": "T03",
+      "kind": "person",
+      "type": "PERSON",
+      "what": "Marco, Inés's partner",
+      "mentions": 2
+    },
+    {
+      "id": "T04",
+      "kind": "person",
+      "type": "PERSON",
+      "what": "Dr. Sosa, the vet",
+      "mentions": 3
+    },
+    {
+      "id": "T05",
+      "kind": "animal",
+      "type": "OBJECT",
+      "what": "Luna, Inés's dog, a border collie (also 'Lunita')",
+      "mentions": 6
+    },
+    {
+      "id": "T06",
+      "kind": "animal",
+      "type": "OBJECT",
+      "what": "Luna, Clara's cat, a grey Persian",
+      "mentions": 2
+    },
+    {
+      "id": "T07",
+      "kind": "venue",
+      "type": "LOCATION",
+      "what": "Café Tortoni in Buenos Aires (also 'the Tortoni')",
+      "mentions": 3
+    },
+    {
+      "id": "T08",
+      "kind": "venue",
+      "type": "LOCATION",
+      "what": "the other Café Tortoni, in Rosario",
+      "mentions": 1
+    },
+    {
+      "id": "T09",
+      "kind": "place",
+      "type": "LOCATION",
+      "what": "Córdoba in Argentina, where Inés's parents live",
+      "mentions": 3
+    },
+    {
+      "id": "T10",
+      "kind": "place",
+      "type": "LOCATION",
+      "what": "Córdoba in Spain, the trip in May",
+      "mentions": 1
+    },
+    {
+      "id": "T11",
+      "kind": "home",
+      "type": "LOCATION",
+      "what": "the family lake house in Villa Carlos Paz",
+      "mentions": 3
+    },
+    {
+      "id": "T12",
+      "kind": "company",
+      "type": "ORGANIZATION",
+      "what": "Brisa, the studio Inés works at (renamed Brisa Labs)",
+      "mentions": 6
+    },
+    {
+      "id": "T13",
+      "kind": "brand",
+      "type": "ORGANIZATION",
+      "what": "Patagonia, the clothing brand",
+      "mentions": 2
+    },
+    {
+      "id": "T14",
+      "kind": "place",
+      "type": "LOCATION",
+      "what": "Patagonia, the region",
+      "mentions": 1
+    },
+    {
+      "id": "T15",
+      "kind": "product",
+      "type": "OBJECT",
+      "what": "Inés's Kindle",
+      "mentions": 2
+    },
+    {
+      "id": "T16",
+      "kind": "product",
+      "type": "OBJECT",
+      "what": "her mother's Kindle",
+      "mentions": 1
+    },
+    {
+      "id": "T17",
+      "kind": "vehicle",
+      "type": "OBJECT",
+      "what": "Inés's Corolla (also 'the car')",
+      "mentions": 2
+    },
+    {
+      "id": "T18",
+      "kind": "project",
+      "type": "OBJECT",
+      "what": "Atlas, the billing migration at work",
+      "mentions": 5
+    },
+    {
+      "id": "T19",
+      "kind": "project",
+      "type": "OBJECT",
+      "what": "Atlas, the family's name for the kitchen renovation",
+      "mentions": 2
+    },
+    {
+      "id": "T20",
+      "kind": "work",
+      "type": "OBJECT",
+      "what": "Dune, the book",
+      "mentions": 2
+    },
+    {
+      "id": "T21",
+      "kind": "work",
+      "type": "OBJECT",
+      "what": "Dune, the film",
+      "mentions": 1
+    },
+    {
+      "id": "T22",
+      "kind": "event",
+      "type": "EVENT",
+      "what": "Marta's wedding, 14 March, Bariloche",
+      "mentions": 3
+    },
+    {
+      "id": "T23",
+      "kind": "document",
+      "type": "OBJECT",
+      "what": "the Q3 report Inés writes for the board",
+      "mentions": 2
+    },
+    {
+      "id": "T24",
+      "kind": "group",
+      "type": "ORGANIZATION",
+      "what": "the platform team",
+      "mentions": 3
+    },
+    {
+      "id": "T25",
+      "kind": "person",
+      "type": "PERSON",
+      "what": "Clara, Inés's sister",
+      "mentions": 3
+    },
+    {
+      "id": "T26",
+      "kind": "person",
+      "type": "PERSON",
+      "what": "Marta, a colleague at Brisa",
+      "mentions": 1
+    },
+    {
+      "id": "T27",
+      "kind": "document",
+      "type": "OBJECT",
+      "what": "Finance's own Q3 report",
+      "mentions": 1
+    }
+  ],
+  "namesakes": [
+    {
+      "a": "T01",
+      "b": "T02",
+      "what": "two people called Valentina"
+    },
+    {
+      "a": "T05",
+      "b": "T06",
+      "what": "a dog and a cat called Luna"
+    },
+    {
+      "a": "T07",
+      "b": "T08",
+      "what": "two cafés called Café Tortoni"
+    },
+    {
+      "a": "T09",
+      "b": "T10",
+      "what": "two cities called Córdoba"
+    },
+    {
+      "a": "T13",
+      "b": "T14",
+      "what": "a brand and a region called Patagonia"
+    },
+    {
+      "a": "T15",
+      "b": "T16",
+      "what": "two Kindles"
+    },
+    {
+      "a": "T18",
+      "b": "T19",
+      "what": "a work project and a renovation called Atlas"
+    },
+    {
+      "a": "T20",
+      "b": "T21",
+      "what": "a book and a film called Dune"
+    },
+    {
+      "a": "T23",
+      "b": "T27",
+      "what": "two documents called Q3 report"
+    }
+  ],
+  "mentions": [
+    {
+      "statement": 1,
+      "session": 1,
+      "message": 1,
+      "thing": "T12",
+      "as": "name",
+      "level": 1
+    },
+    {
+      "statement": 2,
+      "session": 1,
+      "message": 2,
+      "thing": "T05",
+      "as": "name",
+      "level": 1
+    },
+    {
+      "statement": 3,
+      "session": 1,
+      "message": 3,
+      "thing": "T03",
+      "as": "name",
+      "level": 1
+    },
+    {
+      "statement": 3,
+      "session": 1,
+      "message": 3,
+      "thing": "T05",
+      "as": "name",
+      "level": 1
+    },
+    {
+      "statement": 4,
+      "session": 1,
+      "message": 4,
+      "thing": "T25",
+      "as": "name",
+      "level": 1
+    },
+    {
+      "statement": 4,
+      "session": 1,
+      "message": 4,
+      "thing": "T06",
+      "as": "cue",
+      "level": 3
+    },
+    {
+      "statement": 5,
+      "session": 1,
+      "message": 5,
+      "thing": "T09",
+      "as": "name",
+      "level": 1
+    },
+    {
+      "statement": 6,
+      "session": 1,
+      "message": 6,
+      "thing": "T11",
+      "as": "name",
+      "level": 1
+    },
+    {
+      "statement": 7,
+      "session": 2,
+      "message": 1,
+      "thing": "T12",
+      "as": "name",
+      "level": 2
+    },
+    {
+      "statement": 7,
+      "session": 2,
+      "message": 1,
+      "thing": "T18",
+      "as": "name",
+      "level": 1
+    },
+    {
+      "statement": 8,
+      "session": 2,
+      "message": 2,
+      "thing": "T01",
+      "as": "name",
+      "level": 1
+    },
+    {
+      "statement": 8,
+      "session": 2,
+      "message": 2,
+      "thing": "T18",
+      "as": "name",
+      "level": 1
+    },
+    {
+      "statement": 9,
+      "session": 2,
+      "message": 3,
+      "thing": "T24",
+      "as": "name",
+      "level": 1
+    },
+    {
+      "statement": 10,
+      "session": 2,
+      "message": 4,
+      "thing": "T18",
+      "as": "name",
+      "level": 1
+    },
+    {
+      "statement": 11,
+      "session": 2,
+      "message": 5,
+      "thing": "T01",
+      "as": "short",
+      "level": 3
+    },
+    {
+      "statement": 12,
+      "session": 2,
+      "message": 6,
+      "thing": "T23",
+      "as": "name",
+      "level": 1
+    },
+    {
+      "statement": 13,
+      "session": 3,
+      "message": 1,
+      "thing": "T02",
+      "as": "cue",
+      "level": 3
+    },
+    {
+      "statement": 14,
+      "session": 3,
+      "message": 2,
+      "thing": "T02",
+      "as": "bare",
+      "level": 4
+    },
+    {
+      "statement": 15,
+      "session": 3,
+      "message": 3,
+      "thing": "T05",
+      "as": "cue",
+      "level": 2
+    },
+    {
+      "statement": 15,
+      "session": 3,
+      "message": 3,
+      "thing": "T04",
+      "as": "name",
+      "level": 1
+    },
+    {
+      "statement": 16,
+      "session": 3,
+      "message": 4,
+      "thing": "T04",
+      "as": "role",
+      "level": 3
+    },
+    {
+      "statement": 17,
+      "session": 3,
+      "message": 5,
+      "thing": "T25",
+      "as": "name",
+      "level": 2
+    },
+    {
+      "statement": 17,
+      "session": 3,
+      "message": 5,
+      "thing": "T06",
+      "as": "cue",
+      "level": 3
+    },
+    {
+      "statement": 18,
+      "session": 3,
+      "message": 6,
+      "thing": "T19",
+      "as": "cue",
+      "level": 3
+    },
+    {
+      "statement": 19,
+      "session": 4,
+      "message": 1,
+      "thing": "T25",
+      "as": "name",
+      "level": 2
+    },
+    {
+      "statement": 19,
+      "session": 4,
+      "message": 1,
+      "thing": "T07",
+      "as": "name",
+      "level": 1
+    },
+    {
+      "statement": 20,
+      "session": 4,
+      "message": 2,
+      "thing": "T07",
+      "as": "name",
+      "level": 1
+    },
+    {
+      "statement": 21,
+      "session": 4,
+      "message": 3,
+      "thing": "T08",
+      "as": "cue",
+      "level": 3
+    },
+    {
+      "statement": 22,
+      "session": 4,
+      "message": 4,
+      "thing": "T07",
+      "as": "short",
+      "level": 3
+    },
+    {
+      "statement": 23,
+      "session": 4,
+      "message": 5,
+      "thing": "T10",
+      "as": "cue",
+      "level": 3
+    },
+    {
+      "statement": 24,
+      "session": 4,
+      "message": 6,
+      "thing": "T09",
+      "as": "cue",
+      "level": 3
+    },
+    {
+      "statement": 25,
+      "session": 5,
+      "message": 1,
+      "thing": "T15",
+      "as": "name",
+      "level": 1
+    },
+    {
+      "statement": 26,
+      "session": 5,
+      "message": 2,
+      "thing": "T16",
+      "as": "cue",
+      "level": 3
+    },
+    {
+      "statement": 27,
+      "session": 5,
+      "message": 3,
+      "thing": "T15",
+      "as": "cue",
+      "level": 2
+    },
+    {
+      "statement": 28,
+      "session": 5,
+      "message": 4,
+      "thing": "T17",
+      "as": "name",
+      "level": 1
+    },
+    {
+      "statement": 28,
+      "session": 5,
+      "message": 4,
+      "thing": "T11",
+      "as": "name",
+      "level": 2
+    },
+    {
+      "statement": 29,
+      "session": 5,
+      "message": 5,
+      "thing": "T17",
+      "as": "role",
+      "level": 3
+    },
+    {
+      "statement": 30,
+      "session": 5,
+      "message": 6,
+      "thing": "T13",
+      "as": "name",
+      "level": 1
+    },
+    {
+      "statement": 31,
+      "session": 5,
+      "message": 7,
+      "thing": "T14",
+      "as": "cue",
+      "level": 3
+    },
+    {
+      "statement": 32,
+      "session": 5,
+      "message": 8,
+      "thing": "T13",
+      "as": "cue",
+      "level": 3
+    },
+    {
+      "statement": 33,
+      "session": 6,
+      "message": 1,
+      "thing": "T20",
+      "as": "name",
+      "level": 1
+    },
+    {
+      "statement": 34,
+      "session": 6,
+      "message": 2,
+      "thing": "T21",
+      "as": "cue",
+      "level": 3
+    },
+    {
+      "statement": 35,
+      "session": 6,
+      "message": 3,
+      "thing": "T20",
+      "as": "bare",
+      "level": 4
+    },
+    {
+      "statement": 35,
+      "session": 6,
+      "message": 3,
+      "thing": "T03",
+      "as": "name",
+      "level": 2
+    },
+    {
+      "statement": 36,
+      "session": 6,
+      "message": 4,
+      "thing": "T22",
+      "as": "name",
+      "level": 1
+    },
+    {
+      "statement": 37,
+      "session": 6,
+      "message": 5,
+      "thing": "T22",
+      "as": "role",
+      "level": 3
+    },
+    {
+      "statement": 38,
+      "session": 6,
+      "message": 6,
+      "thing": "T22",
+      "as": "name",
+      "level": 1
+    },
+    {
+      "statement": 39,
+      "session": 6,
+      "message": 7,
+      "thing": "T26",
+      "as": "name",
+      "level": 1
+    },
+    {
+      "statement": 39,
+      "session": 6,
+      "message": 7,
+      "thing": "T12",
+      "as": "name",
+      "level": 2
+    },
+    {
+      "statement": 40,
+      "session": 7,
+      "message": 1,
+      "thing": "T18",
+      "as": "cue",
+      "level": 3
+    },
+    {
+      "statement": 40,
+      "session": 7,
+      "message": 1,
+      "thing": "T24",
+      "as": "name",
+      "level": 2
+    },
+    {
+      "statement": 41,
+      "session": 7,
+      "message": 2,
+      "thing": "T19",
+      "as": "cue",
+      "level": 3
+    },
+    {
+      "statement": 42,
+      "session": 7,
+      "message": 3,
+      "thing": "T01",
+      "as": "bare",
+      "level": 4
+    },
+    {
+      "statement": 43,
+      "session": 7,
+      "message": 4,
+      "thing": "T12",
+      "as": "name",
+      "level": 2
+    },
+    {
+      "statement": 44,
+      "session": 7,
+      "message": 5,
+      "thing": "T23",
+      "as": "name",
+      "level": 2
+    },
+    {
+      "statement": 45,
+      "session": 7,
+      "message": 6,
+      "thing": "T27",
+      "as": "cue",
+      "level": 3
+    },
+    {
+      "statement": 46,
+      "session": 7,
+      "message": 7,
+      "thing": "T05",
+      "as": "bare",
+      "level": 4
+    },
+    {
+      "statement": 47,
+      "session": 7,
+      "message": 8,
+      "thing": "T05",
+      "as": "short",
+      "level": 4
+    },
+    {
+      "statement": 48,
+      "session": 7,
+      "message": 9,
+      "thing": "T24",
+      "as": "name",
+      "level": 2
+    },
+    {
+      "statement": 49,
+      "session": 8,
+      "message": 1,
+      "thing": "T04",
+      "as": "name",
+      "level": 2
+    },
+    {
+      "statement": 50,
+      "session": 8,
+      "message": 2,
+      "thing": "T12",
+      "as": "renamed",
+      "level": 3
+    },
+    {
+      "statement": 51,
+      "session": 8,
+      "message": 3,
+      "thing": "T12",
+      "as": "renamed",
+      "level": 3
+    },
+    {
+      "statement": 52,
+      "session": 8,
+      "message": 4,
+      "thing": "T09",
+      "as": "cue",
+      "level": 2
+    },
+    {
+      "statement": 52,
+      "session": 8,
+      "message": 4,
+      "thing": "T11",
+      "as": "name",
+      "level": 2
+    },
+    {
+      "statement": 53,
+      "session": 8,
+      "message": 5,
+      "thing": "T01",
+      "as": "short",
+      "level": 3
+    },
+    {
+      "statement": 53,
+      "session": 8,
+      "message": 5,
+      "thing": "T18",
+      "as": "cue",
+      "level": 3
+    },
+    {
+      "statement": 54,
+      "session": 8,
+      "message": 6,
+      "thing": "T02",
+      "as": "role",
+      "level": 3
+    },
+    {
+      "statement": 54,
+      "session": 8,
+      "message": 6,
+      "thing": "T05",
+      "as": "cue",
+      "level": 3
+    }
+  ]
+}

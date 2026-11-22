@@ -100,7 +100,7 @@ internal static class MemoryContextFormatter
         AppendMessages(sb, "### Relevant Past Messages", ctx.RelevantMessages, ctx.SessionId, opts, logger);
         // 36.3. The person's own items under the usual headings; shared ones (only when the recall separated
         // them) under their own, after. Without the flag Shared is empty and nothing changes.
-        var (ownEntities, sharedEntities) = SharedKnowledge.Split(ctx, ctx.RelevantEntities.Items, e => e.OwnerId);
+        var (ownEntities, sharedEntities) = SharedKnowledge.Split(ctx, OncePerLine(ctx.RelevantEntities.Items), e => e.OwnerId);
         var (ownFacts, sharedFacts) = SharedKnowledge.Split(
             ctx, ProjectionRenderer.Reorder("facts", ctx.RelevantFacts.Items, f => f.FactId, projection), f => f.OwnerId);
         var (ownPreferences, sharedPreferences) = SharedKnowledge.Split(ctx, ctx.RelevantPreferences.Items, p => p.OwnerId);
@@ -238,6 +238,13 @@ internal static class MemoryContextFormatter
     // heading-prefixed block -- mirroring AgentMemory.AgentFramework.Mapping.MafTypeMapper's generic
     // CategoryMessages<T> helper for the same three categories, instead of three near-identical
     // hand-written loops that could silently drift apart.
+    /// <summary>
+    /// IBP-1: each entity line once. Entities that would render alike (one thing stored as several entities) are shown
+    /// once, the first, most relevant, kept; namesakes that differ in type or description keep their own lines.
+    /// </summary>
+    internal static IReadOnlyList<Entity> OncePerLine(IReadOnlyList<Entity> entities) =>
+        entities.Count < 2 ? entities : entities.DistinctBy(DescribeEntity, StringComparer.OrdinalIgnoreCase).ToList();
+
     private static string DescribeEntity(Entity e) =>
         string.IsNullOrWhiteSpace(e.Description) ? $"- {e.Name} ({e.Type})" : $"- {e.Name} ({e.Type}) — {e.Description}";
 

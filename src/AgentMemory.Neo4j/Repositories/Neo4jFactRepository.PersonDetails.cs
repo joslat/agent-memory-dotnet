@@ -1,5 +1,6 @@
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
+using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Neo4j.Queries;
 using Neo4j.Driver;
 
@@ -19,7 +20,7 @@ internal sealed partial class Neo4jFactRepository
         {
             ["limit"] = limit, ["hasOwner"] = scope?.OwnerId is not null, ["ownerId"] = scope?.OwnerId, ["includeShared"] = scope?.IncludeShared ?? false,
         };
-        return await _tx.ReadAsync(async runner =>
+        return await _tx.ReadSingleAsync(async runner =>
         {
             var cursor = await runner.RunAsync(PersonDetailQueries.Identities, parameters).ConfigureAwait(false);
             var rows = await cursor.ToListAsync().ConfigureAwait(false);
@@ -46,7 +47,7 @@ internal sealed partial class Neo4jFactRepository
             // REV4-1: the people read's own bound (GetPersonIdentitiesAsync takes at most 1,000).
             ["people"] = 1000,
         };
-        return await _tx.ReadAsync(async runner =>
+        return await _tx.ReadSingleAsync(async runner =>
         {
             var cursor = await runner.RunAsync(PersonDetailQueries.Names, parameters).ConfigureAwait(false);
             var rows = await cursor.ToListAsync().ConfigureAwait(false);
@@ -75,7 +76,7 @@ internal sealed partial class Neo4jFactRepository
             ["limit"] = limit, ["hasOwner"] = scope?.OwnerId is not null, ["ownerId"] = scope?.OwnerId, ["includeShared"] = scope?.IncludeShared ?? false,
             ["now"] = _clock.GetUtcNow().ToString("O", System.Globalization.CultureInfo.InvariantCulture)
         };
-        return await _tx.ReadAsync(async runner =>
+        return await _tx.ReadSingleAsync(async runner =>
         {
             var cursor = await runner.RunAsync(PersonDetailQueries.Read, parameters).ConfigureAwait(false);
             var rows = await cursor.ToListAsync().ConfigureAwait(false);

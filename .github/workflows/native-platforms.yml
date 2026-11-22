@@ -1,10 +1,15 @@
 # The AgentMemory native library on four platforms (NATIVE-PLAT-M1). Native AOT does not cross-compile between operating
 # systems, so each platform builds on its own free GitHub-hosted runner. There it checks the compiler against the security
 # floor, writes a manifest (size, SHA-256, compiler, glibc baseline on Linux), checks the signature on macOS, and loads the
-# library from Python to run the gate's tier A: everything the gate tests that needs no store. The store tiers, wheels and
-# releases are later rows (NATIVE-PLAT-STORE, NATIVE-PLAT-WHEELS, NATIVE-RELEASE).
+# library from Python to run the gate's tier A: everything the gate tests that needs no store. The store job then takes each
+# platform's library to a runner of the same platform and runs tiers B and C (NATIVE-PLAT-STORE): the read gate against a
+# seeded local Neo4j 5.26 with the graph fingerprinted before and after, the TLS recall with the certificate validated,
+# and the write tests on a store of their own. Wheels and releases are later rows (NATIVE-PLAT-WHEELS, NATIVE-RELEASE).
 #
-# Nothing is published: no secret, no environment, nothing leaves the run but its artifacts, kept 7 days.
+# Nothing is published from here: no secret, no environment, nothing leaves the run but its artifacts, kept 7 days. The
+# PyPI publish workflow (publish-agentmemory-native-pypi.yml) calls this one and uploads its four wheels only after every
+# job here has passed and its reviewer has approved. The store job trusts a throw-away certificate authority on its own
+# runner, which is discarded with the runner.
 name: Native platforms
 
 on:
@@ -14,12 +19,14 @@ on:
       - 'tools/AgentMemory.Native/**'
       - '.github/workflows/native-platforms.yml'
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: native-platforms-${{ github.ref }}
+  # github.workflow is the caller's name when called, so a publish run and a pull request's run never cancel each other.
+  group: native-platforms-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -84,6 +91,9 @@ jobs:
         if: runner.os == 'macOS'
         run: codesign -v --verbose=2 "out/bin/${{ matrix.library }}"
 
+      - name: Gate cases map every original test
+        run: python native/gate/check_mapping.py
+
       - name: Gate, tier A
         env:
           GATE_TIER: A
@@ -91,7 +101,7 @@ jobs:
           AGENTMEMORY_NATIVE_LIBRARY: ${{ github.workspace }}/out/bin/${{ matrix.library }}
         run: |
           set +e
-          python -m unittest discover -v -s native/gate/tests -t native/gate/tests -p test_gate.py > out/gate.log 2>&1
+          python -m unittest discover -v --durations 8 -s native/gate/tests -t native/gate/tests -p test_gate.py > out/gate.log 2>&1
           status=$?
           set -e
           cat out/gate.log
@@ -99,11 +109,103 @@ jobs:
             echo "### ${{ matrix.rid }}: gate tier A"
             echo
             echo '```'
-            grep -E ' \.\.\. (ok|skipped|FAIL|ERROR)' out/gate.log | sed -E 's/ \(test_gate\.[^)]*\)//' || true
+            grep -E ' \.\.\. (ok|skipped|FAIL|ERROR)' out/gate.log | sed -E 's/ \(test_[a-z_]*\.[^)]*\)//' || true
             tail -3 out/gate.log
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           exit $status
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      # NATIVE-TS: the TypeScript binding over the same library, the shared cases of tier A, and its own REQUIRED.md
+      # tests that need no store.
+      - name: TypeScript binding, tier A
+        working-directory: native/typescript
+        env:
+          GATE_TIER: A
+          AGENTMEMORY_NATIVE_LIBRARY: ${{ github.workspace }}/out/bin/${{ matrix.library }}
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+          node dist/gate/runner.js --tier A | tee ../../out/typescript-tier-a.log
+          node --test "dist/test/*.test.js" | tee ../../out/typescript-required-a.log
+          { echo "### ${{ matrix.rid }}: TypeScript, tier A"; echo; echo '```'; tail -1 ../../out/typescript-tier-a.log; grep -E '^. (tests|pass|fail|skipped)' ../../out/typescript-required-a.log || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Setup Node 22
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - name: TypeScript binding, tier A on Node 22
+        working-directory: native/typescript
+        env:
+          GATE_TIER: A
+          AGENTMEMORY_NATIVE_LIBRARY: ${{ github.workspace }}/out/bin/${{ matrix.library }}
+        run: |
+          node --version
+          node dist/gate/runner.js --tier A | tee ../../out/typescript-tier-a-node22.log
+          node --test "dist/test/*.test.js" | tee ../../out/typescript-required-a-node22.log
+          { echo "### ${{ matrix.rid }}: TypeScript, tier A, Node 22"; echo; echo '```'; tail -1 ../../out/typescript-tier-a-node22.log; grep -E '^. (pass|fail)' ../../out/typescript-required-a-node22.log || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Setup Node 26
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+
+      - name: TypeScript binding, tier A on Node 26
+        working-directory: native/typescript
+        env:
+          GATE_TIER: A
+          AGENTMEMORY_NATIVE_LIBRARY: ${{ github.workspace }}/out/bin/${{ matrix.library }}
+        run: |
+          node --version
+          node dist/gate/runner.js --tier A | tee ../../out/typescript-tier-a-node26.log
+          node --test "dist/test/*.test.js" | tee ../../out/typescript-required-a-node26.log
+          { echo "### ${{ matrix.rid }}: TypeScript, tier A, Node 26"; echo; echo '```'; tail -1 ../../out/typescript-tier-a-node26.log; grep -E '^. (pass|fail)' ../../out/typescript-required-a-node26.log || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Setup Node 24 again
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      # NATIVE-TS: the same build under Bun (Linux and macOS) and Deno (Linux), as the plan asks. Required since run
+      # 44991529704, where both passed tier A on every runner they ran on.
+      - name: Setup Bun
+        if: runner.os != 'Windows'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.5
+
+      - name: TypeScript binding, tier A on Bun
+        if: runner.os != 'Windows'
+        working-directory: native/typescript
+        env:
+          GATE_TIER: A
+          AGENTMEMORY_NATIVE_LIBRARY: ${{ github.workspace }}/out/bin/${{ matrix.library }}
+        run: |
+          bun --version
+          bun dist/gate/runner.js --tier A | tee ../../out/typescript-tier-a-bun.log
+          { echo "### ${{ matrix.rid }}: TypeScript, tier A, Bun"; echo; echo '```'; tail -3 ../../out/typescript-tier-a-bun.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Setup Deno
+        if: runner.os == 'Linux'
+        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: v2.9.8
+
+      - name: TypeScript binding, tier A on Deno
+        if: runner.os == 'Linux'
+        working-directory: native/typescript
+        env:
+          GATE_TIER: A
+          AGENTMEMORY_NATIVE_LIBRARY: ${{ github.workspace }}/out/bin/${{ matrix.library }}
+        run: |
+          deno --version
+          deno run --allow-all dist/gate/runner.js --tier A | tee ../../out/typescript-tier-a-deno.log
+          { echo "### ${{ matrix.rid }}: TypeScript, tier A, Deno"; echo; echo '```'; tail -3 ../../out/typescript-tier-a-deno.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Timings
         env:
@@ -112,15 +214,169 @@ jobs:
           python native/gate/timings.py "${{ github.workspace }}/out/bin/${{ matrix.library }}" --rid "${{ matrix.rid }}" | tee out/timings.md
           { echo; echo "### ${{ matrix.rid }}: load and open times"; echo; cat out/timings.md; echo; echo '```json'; cat out/bin/MANIFEST.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload the library and its manifest
+      - name: Packaging helpers
+        run: python -m unittest discover -s native/packaging/tests
+
+      # The wheel this platform's users install (NATIVE-PLAT-WHEELS): the library, its manifest and the licence of
+      # everything compiled into it, from this runner's own restore and .NET installation. The store job installs it.
+      - name: Wheel
+        run: |
+          python native/packaging/collect_provenance.py --assets tools/AgentMemory.Native/obj/project.assets.json --out out/provenance
+          tag="$(python native/packaging/wheel_tag.py out/bin/MANIFEST.json)"
+          python native/python/build_wheel.py "out/bin/${{ matrix.library }}" out/wheel --platform-tag "$tag" \
+            --provenance out/provenance --commit "${{ github.sha }}"
+
+      # NATIVE-TS: the npm platform package from this wheel (the same library, manifest and notices) and the main
+      # package, packed, then installed into an empty project as a user would: the library loads from the platform
+      # package, a damaged one is refused, a missing one names the fix. Not published (the owner's call).
+      - name: npm packages
+        run: |
+          python native/packaging/npm_packages.py platform --wheel out/wheel/*.whl --rid "${{ matrix.rid }}" --out out/npm
+          python native/packaging/npm_packages.py main --out out/npm
+          for folder in out/npm/*/; do (cd "$folder" && npm pack --pack-destination .. > /dev/null); done
+          ls -l out/npm/*.tgz
+          main="$(ls out/npm/agentmemory-native-0*.tgz)"
+          platform="$(ls out/npm/agentmemory-native-*-*.tgz | grep -v "$main")"
+          python native/packaging/npm_install_test.py --main "$main" --platform "$platform" | tee out/npm-install.log
+          { echo "### ${{ matrix.rid }}: npm packages"; echo; echo '```'; ls out/npm/*.tgz; tail -1 out/npm-install.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the library, its manifest and its wheel
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: agentmemory-native-${{ matrix.rid }}
           path: |
             out/bin
+            out/wheel
+            out/npm/*.tgz
             out/publish.log
             out/gate.log
             out/timings.md
+          retention-days: 7
+          if-no-files-found: warn
+
+  store:
+    name: ${{ matrix.rid }} store
+    needs: build
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { rid: linux-x64, os: ubuntu-24.04, library: agentmemory_native.so }
+          - { rid: linux-arm64, os: ubuntu-24.04-arm, library: agentmemory_native.so }
+          - { rid: osx-arm64, os: macos-15, library: agentmemory_native.dylib }
+          - { rid: win-x64, os: windows-2025, library: agentmemory_native.dll }
+    defaults:
+      run:
+        shell: bash
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The seed writes the fixture through the managed library, so the native library reads what the library writes.
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+
+      - name: Setup Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+
+      # Neo4j 5.26 runs from its community distribution on Java 21 on every platform: macOS runners have no Docker.
+      - name: Setup Java
+        uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Download the library
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: agentmemory-native-${{ matrix.rid }}
+          path: out
+
+      - name: Test certificates
+        run: python native/gate/store/store_gate.py tls out/tls
+
+      # bolt+s:// validates the store's certificate against the system's trusted roots: trust the test authority here only.
+      - name: Trust the test authority (Linux)
+        if: runner.os == 'Linux'
+        run: sudo cp out/tls/ca.crt /usr/local/share/ca-certificates/agentmemory-gate-ca.crt && sudo update-ca-certificates
+
+      - name: Trust the test authority (macOS)
+        if: runner.os == 'macOS'
+        timeout-minutes: 3
+        run: sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain out/tls/ca.crt
+
+      - name: Trust the test authority (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Import-Certificate -FilePath out/tls/ca.crt -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      - name: Build the TypeScript binding
+        working-directory: native/typescript
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+
+      - name: Gate, tiers B, C and S
+        env:
+          GATE_TYPESCRIPT: ${{ github.workspace }}/native/typescript
+        run: |
+          set +e
+          python native/gate/store/store_gate.py run --library "out/bin/${{ matrix.library }}" --work "$RUNNER_TEMP/am-store" \
+            --report out/store --tls out/tls
+          status=$?
+          set -e
+          {
+            echo "### ${{ matrix.rid }}: gate tiers B, C and S"
+            echo
+            cat out/store/store-gate-library.md 2>/dev/null || echo "no summary (see the log)"
+            echo
+            echo '```'
+            grep -hE ' \.\.\. (ok|skipped|FAIL|ERROR)|^METRIC|^[0-9.]+s ' out/store/tier-b-library.log out/store/tier-c-library.log out/store/tier-s-*-library.log 2>/dev/null \
+              | sed -E 's/ \((test_(gate|writes)|shared_(write_)?cases)\.[^)]*\)//' || true
+            grep -hE '^tier |^FAIL|^. (tests|pass|fail)' out/store/tier-b-typescript.log out/store/tier-c-typescript.log 2>/dev/null || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
+      # What a user installs: the wheel in a fresh virtual environment, the read gate against the installed package
+      # with no path overrides (its manifest, licences and library checked), and the package index's own check.
+      - name: Gate, tier B from the installed wheel
+        run: |
+          python -m pip install --disable-pip-version-check "twine==7.0.0"
+          python -m twine check --strict out/wheel/*.whl
+          set +e
+          python native/gate/store/store_gate.py run --wheel out/wheel/*.whl --work "$RUNNER_TEMP/am-store-wheel" \
+            --report out/store --tls out/tls --tiers B
+          status=$?
+          set -e
+          {
+            echo "### ${{ matrix.rid }}: gate tier B from the installed wheel ($(cd out/wheel && ls *.whl))"
+            echo
+            cat out/store/store-gate-wheel.md 2>/dev/null || echo "no summary (see the log)"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
+      - name: Upload the store gate's report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agentmemory-native-store-${{ matrix.rid }}
+          path: out/store
           retention-days: 7
           if-no-files-found: warn

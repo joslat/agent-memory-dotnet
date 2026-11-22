@@ -28,7 +28,7 @@ The contract is for any host: an agent, an agent framework (LangChain, LangGraph
 |---|---|
 | `profile` | `read_only`: recall of facts and preferences, no writes of any kind (no access stamps, no working-memory rebuild). `explicit_write`: the same recall, plus remembering the owner's own words through a durable journal (see [Explicit writes](#explicit-writes-profile-explicit_write)). |
 | `owner.mode` | `fixed`: every request reads this one owner, and a request that names an owner is refused (the speech server: one configured owner). `per_request`: every request must name its owner (a multi-user application whose own trusted code knows who is asking). Recall without an owner is refused in both modes. |
-| `store` | The Neo4j connection. The password is used to connect and never written to a result or an error. `verifyConnectivity` (default `true`) makes `am_v1_open` fail at once on a wrong address or password. |
+| `store` | The Neo4j connection. The password is used to connect and never written to a result or an error. `verifyConnectivity` (default `true`) makes `am_v1_open` fail at once on a wrong address or password. `uri` schemes: `bolt://` and `neo4j://` in the clear; `bolt+s://` and `neo4j+s://` over TLS, with the store's certificate checked against the system's trusted roots and the host name in the URI; `bolt+ssc://` and `neo4j+ssc://` over TLS accepting any certificate (encrypted, but the store is not authenticated). A certificate the system refuses fails as `unavailable` with code `store_tls`. |
 | `embedding` | `dimensions` must match the store's vector index; `model` names the embedding model that made the stored vectors (the store does not record it, so it cannot be verified). Optional `endpoint` `{ "url", "apiKey", "timeoutMs" }`: an OpenAI-compatible `/v1/embeddings` URL (Ollama, llama.cpp, vLLM, OpenAI) that the library asks for `model` vectors, so requests may send `query` text; every vector it returns must have `dimensions` numbers. The API key is sent only to that URL. |
 | `limits` | `maxRunningJobs` run at once (default 4); up to `maxPendingJobs` are admitted in all, running and queued (default 32). A job holds its place until its work has really finished, even after a timeout, cancel or release. `defaultTimeoutMs` (default 2000) applies when a submit passes 0. At most `maxPendingJobs` + 256 jobs may be held by the caller unreleased; past that, submit returns `AM_V1_OVERLOADED`. |
 
@@ -56,7 +56,8 @@ An open that fails returns an error document: `{"schemaVersion":1,"error":{"code
   "maxMessages": 5,
   "maxEntities": 10,
   "maxRelationships": 10,
-  "timeWindows": true
+  "timeWindows": true,
+  "maxConnectionFacts": 8
 }
 ```
 
@@ -70,6 +71,7 @@ Recall reads the owner's own memory only (shared memory excluded), at the curren
 | `maxEntities` (0-50) | 0 | `entities`: the people, places and things most like the question. |
 | `maxRelationships` (0-50) | 0 | `relationships`: how those relate ("Sam is the user's sister"). |
 | `timeWindows` | false | `windowFacts`: the facts of a time the question names ("yesterday", "last week"), by their date fields (a date only inside a fact's text is not one). |
+| `maxConnectionFacts` (0-32) | 0 | More `facts`: when a recalled fact connects the owner to someone by a relation the question names ("Anna \| sister of \| user" for "where does my sister live?"), up to this many of that one's own live facts ("Anna \| lives in \| Madrid"), one hop, at most three connections. |
 
 Person and event details are not offered: they need identity-evidence storage, which the native profiles have not.
 
@@ -77,7 +79,7 @@ With none of them, a recall is exactly what it was before they existed, and its 
 
 ### `capabilities_get`
 
-`{"schemaVersion":1,"operation":"capabilities_get"}` returns the library version, ABI version, profile, owner mode, embedding declaration and the supported operations.
+`{"schemaVersion":1,"operation":"capabilities_get"}` returns the library version, ABI version, profile, owner mode, embedding declaration and the supported operations. From ABI 1.1 it also returns `features`: the optional exports and request properties this context accepts, by name (`am_v1_wait`, `get_context.timeWindows`, `get_context.maxConnectionFacts`, `writer.contextTurns`, `remember.origin`, ...). A binding checks `operations` and `features` before it offers something, and a 1.0 library, which has no `features`, offers none of the 1.1 additions.
 
 ## Results: `am_v1_poll`
 
@@ -122,6 +124,27 @@ With none of them, a recall is exactly what it was before they existed, and its 
 
 Every status other than `ok` carries `"error": {"code": "…", "message": "…"}`. Metadata is returned exactly as stored. Results never contain vectors, passwords or stack traces.
 
+## The schema (profile `admin`)
+
+A store must hold AgentMemory's schema before any other profile can use it. The `admin` profile prepares it with no
+.NET installation:
+
+```json
+{"schemaVersion": 1, "profile": "admin",
+ "store": {"uri": "bolt://localhost:7687", "username": "neo4j", "password": "..."},
+ "embedding": {"dimensions": 1024}}
+```
+
+`owner` is optional (no owner's memory is read). It offers `capabilities_get` and two operations:
+
+| Operation | What it does | Result |
+|---|---|---|
+| `schema_status` | Reads what the store holds of the schema; changes nothing | `schema`: `complete`, `empty`, `expected` (how many constraints and indexes the bootstrap creates), `missing` (their names), `dimensions` (configured), `dimensionsMatch`, `vectorIndexes` (each vector index with its dimensions); `bootstrapped: false` |
+| `schema_bootstrap` | Creates what is missing and applies the schema migrations, exactly as the managed bootstrap does (`AgentMemory.Cli bootstrap`); what is there is left as it is, so a second run changes nothing | the same `schema`, read after it; `bootstrapped: true`. Give it a job time of its own (a first bootstrap takes seconds): the Python binding's `schema_bootstrap()` waits up to 120 s |
+
+The other profiles do not offer either operation, and `admin` offers no recall or write. One context per store and
+database per process holds for `admin` too: close it before opening the store with another profile.
+
 ## Explicit writes (profile `explicit_write`)
 
 The owner says "remember that …", and the host can tell truthfully whether it was saved, is being saved, failed, or is uncertain. Writes go through one durable journal per state directory; one writer runs them in acceptance order.
@@ -146,7 +169,7 @@ Configuration, in addition to the read-only properties:
 | `owner.mode` | Must be `fixed`: one configured owner writes. |
 | `embedding.endpoint` | Required: the library embeds what it writes. |
 | `writer` | The model that turns the owner's words into facts and preferences: any OpenAI-compatible `/v1/chat/completions` endpoint. It runs AgentMemory's store-aware writer (it sees the owner's most relevant stored memories, so a change replaces what it changes), with no fallback to other extractors, the update judge on, and entity identity off; no setting turns identity on. `timeoutMs` (default 60000) bounds one model call. `reasoningEffort` (`none`, `low`, `medium` or `high`; default: not sent) is sent as `reasoning_effort` to models that think before answering: GLM-5.3-Flash took 2.1 s and 607 thinking tokens on a small extraction by default, 0.5 s and 3 with `low`. Leave it out for an endpoint or model that refuses the field. `contextTurns` (0-32, default 0) gives the writer that many earlier turns of the same session as read-only context, so "his name is Sam" can reach "I met somebody at dinner"; nothing is ever kept from a context turn. A turn that cannot carry a fact (a plain question, "ok, thanks") is stored but costs no model call and ends `applied` with `nothing_to_keep`. |
-| `state.directory` | An absolute path. The library creates it (mode 0700) and keeps the journal there (`journal.jsonl`, mode 0600), held with an exclusive lock: a second open of the same directory, in this process or another, returns `AM_V1_BUSY` with code `state_locked`. A journal damaged before its last line refuses the open (`journal_corrupt`); an unfinished last line (an append that never returned) is cut off. |
+| `state.directory` | An absolute path. The library creates it (mode 0700; on Windows, an access list that grants only the creating user and SYSTEM, inherits nothing from the parent folder, and is inherited by the files inside) and keeps the journal there (`journal.jsonl`, mode 0600), held with an exclusive lock: a second open of the same directory, in this process or another, returns `AM_V1_BUSY` with code `state_locked`. A journal damaged before its last line refuses the open (`journal_corrupt`); an unfinished last line (an append that never returned) is cut off. |
 | `limits.maxQueuedWrites` | The most writes accepted and not yet finished (default 16); past it, `memory_remember` is refused with `write_queue_full` and nothing is accepted. |
 
 ### `memory_remember`

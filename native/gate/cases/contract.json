@@ -1,0 +1,1261 @@
+{
+  "format": "native/gate/cases/FORMAT.md",
+  "description": "Tier A: the contract, with no store (and verified against the store in tier B).",
+  "cases": [
+    {
+      "id": "library.abi-1-1",
+      "tier": "A",
+      "source": "native/gate/tests/test_gate.py::Test1Library::test_loads_and_reports_abi_1_1",
+      "steps": [
+        {
+          "abi": {},
+          "expect": {
+            "version": 65537,
+            "hasWait": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "library.invalid-handles-are-refused",
+      "tier": "A",
+      "source": "native/gate/tests/test_gate.py::Test1Library::test_invalid_handles_are_refused_not_crashing",
+      "steps": [
+        {
+          "state": {
+            "ctx": 12345
+          },
+          "expect": {
+            "status": "INVALID_HANDLE"
+          }
+        },
+        {
+          "close": {
+            "ctx": 12345,
+            "waitS": 0
+          },
+          "expect": {
+            "status": "INVALID_HANDLE"
+          }
+        },
+        {
+          "cancel": {
+            "ctx": 12345,
+            "handle": 1
+          },
+          "expect": {
+            "status": "INVALID_HANDLE"
+          }
+        }
+      ]
+    },
+    {
+      "id": "open.capabilities-and-state",
+      "tier": "A",
+      "source": "native/gate/tests/test_gate.py::Test2Open::test_capabilities_and_state",
+      "steps": [
+        {
+          "open": {
+            "config": {
+              "$config": "read"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "capabilities_get"
+            }
+          },
+          "expect": {
+            "status": "ok",
+            "profile": "read_only",
+            "abi": {
+              "major": 1,
+              "minor": 1
+            },
+            "/embedding/dimensions": 8,
+            "operations": {
+              "$contains": "memory_get_context"
+            }
+          }
+        },
+        {
+          "state": {},
+          "expect": {
+            "status": "OK",
+            "readAllowed": true,
+            "closing": false
+          }
+        },
+        {
+          "close": {},
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "open.one-context-per-store-until-it-closes",
+      "tier": "A",
+      "source": "native/gate/tests/test_gate.py::Test2Open::test_one_context_per_store_until_it_closes",
+      "steps": [
+        {
+          "open": {
+            "config": {
+              "$config": "read"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "open": {
+            "config": {
+              "$config": "read",
+              "$with": {
+                "owner": {
+                  "mode": "fixed",
+                  "id": "gate-owner-b"
+                }
+              }
+            },
+            "as": "second"
+          },
+          "expect": {
+            "status": "BUSY",
+            "code": "authority_held"
+          }
+        },
+        {
+          "close": {},
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "open": {
+            "config": {
+              "$config": "read"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "close": {},
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "open.open-close-open-repeatedly",
+      "tier": "A",
+      "source": "native/gate/tests/test_gate.py::Test2Open::test_open_close_open_repeatedly",
+      "note": "Tier A asks for the capabilities; recall.open-close-open-repeatedly recalls (tier B).",
+      "steps": [
+        {
+          "open": {
+            "config": {
+              "$config": "read"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "capabilities_get"
+            }
+          },
+          "expect": {
+            "status": "ok"
+          }
+        },
+        {
+          "close": {},
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "open": {
+            "config": {
+              "$config": "read"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "capabilities_get"
+            }
+          },
+          "expect": {
+            "status": "ok"
+          }
+        },
+        {
+          "close": {},
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "open": {
+            "config": {
+              "$config": "read"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "capabilities_get"
+            }
+          },
+          "expect": {
+            "status": "ok"
+          }
+        },
+        {
+          "close": {},
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "open": {
+            "config": {
+              "$config": "read"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "capabilities_get"
+            }
+          },
+          "expect": {
+            "status": "ok"
+          }
+        },
+        {
+          "close": {},
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "open": {
+            "config": {
+              "$config": "read"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "capabilities_get"
+            }
+          },
+          "expect": {
+            "status": "ok"
+          }
+        },
+        {
+          "close": {},
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "open.bad-configuration-is-refused-with-a-reason",
+      "tier": "A",
+      "source": "native/gate/tests/test_gate.py::Test2Open::test_bad_configuration_is_refused_with_a_reason",
+      "steps": [
+        {
+          "open": {
+            "config": {
+              "$config": "read",
+              "$with": {
+                "store/surprise": 1
+              }
+            }
+          },
+          "expect": {
+            "status": "INVALID_ARGUMENT",
+            "code": "unknown_property"
+          }
+        }
+      ]
+    },
+    {
+      "id": "contract.malformed-requests-end-as-invalid",
+      "tier": "A",
+      "source": "native/gate/tests/test_gate.py::Test4Contract::test_malformed_requests_end_as_invalid_without_effects",
+      "steps": [
+        {
+          "open": {
+            "config": {
+              "$config": "read"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "raw": {
+              "$utf8": "{\"schemaVersion\":1,\"operation\":\"capabilities_get\",\"operation\":\"capabilities_get\"}"
+            }
+          },
+          "expect": {
+            "status": "invalid",
+            "error": {
+              "code": "malformed_json"
+            }
+          },
+          "note": "a repeated key"
+        },
+        {
+          "call": {
+            "raw": {
+              "schemaVersion": 1,
+              "operation": "capabilities_get",
+              "extra": true
+            }
+          },
+          "expect": {
+            "status": "invalid",
+            "error": {
+              "code": "unknown_property"
+            }
+          },
+          "note": "an unknown property"
+        },
+        {
+          "call": {
+            "raw": {
+              "schemaVersion": 2,
+              "operation": "capabilities_get"
+            }
+          },
+          "expect": {
+            "status": "invalid",
+            "error": {
+              "code": "unsupported_schema"
+            }
+          },
+          "note": "schema version 2"
+        },
+        {
+          "call": {
+            "raw": {
+              "schemaVersion": 1,
+              "operation": "memory_forget_everything"
+            }
+          },
+          "expect": {
+            "status": "invalid",
+            "error": {
+              "code": "unknown_operation"
+            }
+          },
+          "note": "an unknown operation"
+        },
+        {
+          "call": {
+            "raw": {
+              "$base64": "//57InNjaGVtYVZlcnNpb24iOjF9"
+            }
+          },
+          "expect": {
+            "status": "invalid",
+            "error": {
+              "code": "malformed_json"
+            }
+          },
+          "note": "bytes that are not UTF-8"
+        },
+        {
+          "call": {
+            "raw": {
+              "$utf8": "[1,2]"
+            }
+          },
+          "expect": {
+            "status": "invalid",
+            "error": {
+              "code": "not_an_object"
+            }
+          },
+          "note": "an array"
+        },
+        {
+          "call": {
+            "raw": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "s",
+              "maxFacts": 5,
+              "maxPreferences": 5,
+              "queryVector": {
+                "$vector": "three_dimensions"
+              }
+            }
+          },
+          "expect": {
+            "status": "invalid",
+            "error": {
+              "code": "dimension_mismatch"
+            }
+          },
+          "note": "a vector of 3"
+        },
+        {
+          "call": {
+            "raw": {
+              "$utf8": "{\"schemaVersion\":1,\"operation\":\"memory_get_context\",\"sessionId\":\"s\",\"queryVector\":[1,0,0,0,0,0,0,0],\"x\":{\"a\":1,\"a\":2}}"
+            }
+          },
+          "expect": {
+            "status": "invalid",
+            "error": {
+              "code": "malformed_json"
+            }
+          },
+          "note": "a repeated nested key"
+        },
+        {
+          "call": {
+            "raw": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "s",
+              "maxFacts": 5,
+              "maxPreferences": 5,
+              "queryVector": {
+                "$vector": "near_axis_0"
+              },
+              "nested": {
+                "a": 1
+              }
+            }
+          },
+          "expect": {
+            "status": "invalid",
+            "error": {
+              "code": "unknown_property"
+            }
+          },
+          "note": "an unknown nested property"
+        },
+        {
+          "close": {},
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "contract.what-cannot-become-a-job-is-refused-at-submit",
+      "tier": "A",
+      "source": "native/gate/tests/test_gate.py::Test4Contract::test_what_cannot_become_a_job_is_refused_at_submit",
+      "steps": [
+        {
+          "open": {
+            "config": {
+              "$config": "read"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "submit": {
+            "raw": {
+              "$utf8": ""
+            }
+          },
+          "expect": {
+            "status": "INVALID_ARGUMENT"
+          }
+        },
+        {
+          "submit": {
+            "raw": {
+              "$repeat": [
+                " ",
+                65537
+              ]
+            }
+          },
+          "expect": {
+            "status": "INVALID_ARGUMENT"
+          }
+        },
+        {
+          "close": {},
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "lifecycle.repeated-terminal-polls-return-copies",
+      "tier": "A",
+      "source": "native/gate/tests/test_gate.py::Test5Lifecycle::test_repeated_terminal_polls_return_independent_copies",
+      "steps": [
+        {
+          "open": {
+            "config": {
+              "$config": "read"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "submit": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "capabilities_get"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "await": {},
+          "save": "first",
+          "expect": {
+            "status": "ok"
+          }
+        },
+        {
+          "poll": {},
+          "expect": {
+            "status": "OK",
+            "result": {
+              "$var": "first"
+            }
+          }
+        },
+        {
+          "release": {},
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "close": {},
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "lifecycle.closed-context-refuses-everything",
+      "tier": "A",
+      "source": "native/gate/tests/test_gate.py::Test5Lifecycle::test_closed_context_refuses_everything",
+      "steps": [
+        {
+          "open": {
+            "config": {
+              "$config": "read"
+            }
+          },
+          "save": "opened",
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "set": {
+            "closedHandle": {
+              "$var": "opened/handle"
+            }
+          }
+        },
+        {
+          "close": {},
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "submit": {
+            "ctx": {
+              "$var": "closedHandle"
+            },
+            "request": {
+              "schemaVersion": 1,
+              "operation": "capabilities_get"
+            }
+          },
+          "expect": {
+            "status": "INVALID_HANDLE"
+          }
+        },
+        {
+          "close": {
+            "ctx": {
+              "$var": "closedHandle"
+            },
+            "waitS": 0
+          },
+          "expect": {
+            "status": "INVALID_HANDLE"
+          }
+        }
+      ]
+    },
+    {
+      "id": "waiter.each-finished-job-is-reported-once",
+      "tier": "A",
+      "source": "native/gate/tests/test_gate.py::Test5Waiter::test_each_finished_job_is_reported_once",
+      "steps": [
+        {
+          "open": {
+            "config": {
+              "$config": "read"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "submitMany": {
+            "count": 5,
+            "request": {
+              "schemaVersion": 1,
+              "operation": "capabilities_get"
+            }
+          },
+          "expect": {
+            "admitted": 5
+          }
+        },
+        {
+          "drain": {
+            "count": 5
+          },
+          "expect": {
+            "reported": 5,
+            "sameAsSubmitted": true
+          }
+        },
+        {
+          "waitAny": {
+            "waitMs": 200
+          },
+          "expect": {
+            "status": "OK",
+            "job": 0
+          }
+        },
+        {
+          "releaseAll": {}
+        },
+        {
+          "close": {},
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "waiter.a-released-job-is-never-reported",
+      "tier": "A",
+      "source": "native/gate/tests/test_gate.py::Test5Waiter::test_a_released_job_is_never_reported",
+      "steps": [
+        {
+          "open": {
+            "config": {
+              "$config": "read"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "submit": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "capabilities_get"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "release": {},
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "waitAny": {
+            "waitMs": 300
+          },
+          "expect": {
+            "status": "OK",
+            "job": 0
+          }
+        },
+        {
+          "close": {},
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "waiter.32-jobs-complete-through-one-waiter",
+      "tier": "A",
+      "source": "native/gate/tests/test_gate.py::Test5Waiter::test_32_jobs_complete_through_one_waiter",
+      "note": "Tier A asks for the capabilities; waiter.32-recalls-complete-through-one-waiter recalls (tier B).",
+      "steps": [
+        {
+          "open": {
+            "config": {
+              "$config": "read"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "submitMany": {
+            "count": 32,
+            "request": {
+              "schemaVersion": 1,
+              "operation": "capabilities_get"
+            }
+          },
+          "expect": {
+            "admitted": 32
+          }
+        },
+        {
+          "drain": {
+            "count": 32,
+            "takeResults": true
+          },
+          "expect": {
+            "reported": 32,
+            "sameAsSubmitted": true,
+            "results": {
+              "$all": {
+                "status": "ok"
+              }
+            }
+          }
+        },
+        {
+          "releaseAll": {}
+        },
+        {
+          "close": {},
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "waiter.capabilities-name-the-features",
+      "tier": "A",
+      "source": "native/gate/tests/test_gate.py::Test5Waiter::test_capabilities_name_the_features",
+      "steps": [
+        {
+          "open": {
+            "config": {
+              "$config": "read"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "capabilities_get"
+            }
+          },
+          "expect": {
+            "features": {
+              "$contains": [
+                "am_v1_wait",
+                "get_context.maxConnectionFacts"
+              ],
+              "$notContains": "remember.origin"
+            }
+          }
+        },
+        {
+          "close": {},
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "embeddings.vectors-of-the-wrong-size-are-refused",
+      "tier": "A",
+      "stubs": true,
+      "source": "native/gate/tests/test_gate.py::Test6Embeddings::test_vectors_of_the_wrong_size_are_refused",
+      "steps": [
+        {
+          "open": {
+            "config": {
+              "$config": "readEmbedding"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "s",
+              "maxFacts": 5,
+              "maxPreferences": 5,
+              "query": "wrong dimensions"
+            }
+          },
+          "expect": {
+            "status": "error",
+            "error": {
+              "code": "embedding_mismatch"
+            }
+          }
+        },
+        {
+          "close": {},
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "embeddings.an-unreachable-endpoint-reports-unavailable",
+      "tier": "A",
+      "source": "native/gate/tests/test_gate.py::Test6Embeddings::test_an_unreachable_endpoint_reports_unavailable",
+      "note": "Windows retries a refused local connection for about two seconds before it gives up.",
+      "steps": [
+        {
+          "open": {
+            "config": {
+              "$config": "readEmbedding",
+              "$with": {
+                "embedding/endpoint": {
+                  "url": "http://127.0.0.1:9/v1/embeddings",
+                  "apiKey": "gate-key",
+                  "timeoutMs": 10000
+                }
+              }
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "s",
+              "maxFacts": 5,
+              "maxPreferences": 5,
+              "query": "where do I work?"
+            },
+            "timeoutMs": 15000
+          },
+          "expect": {
+            "status": "unavailable",
+            "error": {
+              "code": "embedding_unavailable"
+            }
+          }
+        },
+        {
+          "close": {},
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "embeddings.text-without-an-endpoint-and-both-inputs-are-refused",
+      "tier": "A",
+      "source": "native/gate/tests/test_gate.py::Test6Embeddings::test_text_without_an_endpoint_and_both_inputs_are_refused",
+      "steps": [
+        {
+          "open": {
+            "config": {
+              "$config": "read"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "s",
+              "maxFacts": 5,
+              "maxPreferences": 5,
+              "query": "where do I work?"
+            }
+          },
+          "expect": {
+            "status": "invalid",
+            "error": {
+              "code": "embedding_required"
+            }
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "s",
+              "maxFacts": 5,
+              "maxPreferences": 5,
+              "query": "x",
+              "queryVector": {
+                "$vector": "near_axis_0"
+              }
+            }
+          },
+          "expect": {
+            "status": "invalid",
+            "error": {
+              "code": "query_required"
+            }
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "s",
+              "maxFacts": 5,
+              "maxPreferences": 5
+            }
+          },
+          "expect": {
+            "status": "invalid",
+            "error": {
+              "code": "query_required"
+            }
+          }
+        },
+        {
+          "close": {},
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "review.b12-invalid-text-inside-strings-is-malformed-json",
+      "tier": "A",
+      "source": "native/gate/tests/test_gate.py::Test8ReviewFindings::test_b12_invalid_text_inside_strings_is_malformed_json",
+      "steps": [
+        {
+          "open": {
+            "config": {
+              "$config": "read"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "raw": {
+              "$base64": "eyJzY2hlbWFWZXJzaW9uIjoxLCJvcGVyYXRpb24iOiJjYXBhYmlsaXRpZXNfZ2V0IiwicmVxdWVzdElkIjoi//4ifQ=="
+            }
+          },
+          "expect": {
+            "status": "invalid",
+            "error": {
+              "code": "malformed_json"
+            }
+          }
+        },
+        {
+          "call": {
+            "raw": {
+              "$utf8": "{\"schemaVersion\":1,\"operation\":\"capabilities_get\",\"requestId\":\"\\ud800\"}"
+            }
+          },
+          "expect": {
+            "status": "invalid",
+            "error": {
+              "code": "malformed_json"
+            }
+          }
+        },
+        {
+          "call": {
+            "raw": {
+              "$utf8": "{\"schemaVersion\":1,\"operation\":\"capabilities_get\",\"\\udc00\":1}"
+            }
+          },
+          "expect": {
+            "status": "invalid",
+            "error": {
+              "code": "malformed_json"
+            }
+          }
+        },
+        {
+          "close": {},
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "open": {
+            "raw": {
+              "$jsonReplace": [
+                {
+                  "$config": "read"
+                },
+                {
+                  "$var": "storePassword"
+                },
+                "\\ud800"
+              ]
+            }
+          },
+          "expect": {
+            "status": "INVALID_ARGUMENT",
+            "code": "malformed_json"
+          }
+        }
+      ]
+    },
+    {
+      "id": "review.b13-invalid-results-echo-the-request-id-and-operation",
+      "tier": "A",
+      "source": "native/gate/tests/test_gate.py::Test8ReviewFindings::test_b13_invalid_results_echo_the_request_id_and_operation",
+      "steps": [
+        {
+          "open": {
+            "config": {
+              "$config": "read"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "s",
+              "maxFacts": 5,
+              "maxPreferences": 5,
+              "requestId": "r-13",
+              "queryVector": {
+                "$vector": "two_dimensions"
+              }
+            }
+          },
+          "expect": {
+            "status": "invalid",
+            "requestId": "r-13",
+            "operation": "memory_get_context"
+          }
+        },
+        {
+          "close": {},
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "review.b14-configurations-the-store-refuses-fail-at-open",
+      "tier": "A",
+      "source": "native/gate/tests/test_gate.py::Test8ReviewFindings::test_b14_configurations_the_store_refuses_fail_at_open_as_invalid",
+      "steps": [
+        {
+          "open": {
+            "config": {
+              "$config": "read",
+              "$with": {
+                "store/verifyConnectivity": false,
+                "store/username": "   "
+              }
+            }
+          },
+          "expect": {
+            "status": "INVALID_ARGUMENT",
+            "code": "invalid_value"
+          }
+        },
+        {
+          "open": {
+            "config": {
+              "$config": "read",
+              "$with": {
+                "store/verifyConnectivity": false,
+                "store/uri": "http://neo4j:7474"
+              }
+            }
+          },
+          "expect": {
+            "status": "INVALID_ARGUMENT",
+            "code": "invalid_value"
+          }
+        }
+      ]
+    },
+    {
+      "id": "store.unreachable-store-fails-open-with-a-reason",
+      "tier": "A",
+      "source": "native/gate/tests/test_gate.py::Test9StoreFailures::test_unreachable_store_fails_open_with_a_reason",
+      "steps": [
+        {
+          "open": {
+            "config": {
+              "$config": "read",
+              "$with": {
+                "store/uri": "bolt://am-gate-nowhere.invalid:7687",
+                "store/verifyConnectivity": true
+              }
+            }
+          },
+          "expect": {
+            "status": {
+              "$not": "OK"
+            },
+            "code": "store_unavailable"
+          }
+        }
+      ]
+    },
+    {
+      "id": "store.unreachable-without-verification-reports-unavailable-per-request",
+      "tier": "A",
+      "source": "native/gate/tests/test_gate.py::Test9StoreFailures::test_unreachable_store_without_verification_reports_unavailable_per_request",
+      "note": "Closing waits for the abandoned work; the driver's bounds end it within seconds (the Python test measures it).",
+      "steps": [
+        {
+          "open": {
+            "config": {
+              "$config": "read",
+              "$with": {
+                "store/uri": "bolt://am-gate-nowhere.invalid:7687",
+                "store/verifyConnectivity": false
+              }
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "s",
+              "maxFacts": 5,
+              "maxPreferences": 5,
+              "queryVector": {
+                "$vector": "near_axis_0"
+              }
+            },
+            "timeoutMs": 500
+          },
+          "expect": {
+            "status": {
+              "$oneOf": [
+                "unavailable",
+                "timeout"
+              ]
+            }
+          }
+        },
+        {
+          "close": {
+            "waitS": 10
+          },
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    }
+  ]
+}

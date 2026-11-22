@@ -34,15 +34,17 @@ public sealed class IdentityWriterReferenceTests
         });
     }
 
-    private static IdentityCandidate Candidate(string id, string name = EventName, string type = "EVENT") => new()
+    private static IdentityCandidate Candidate(string id, string name = EventName, string type = "EVENT", string? description = null,
+        string[]? knownAs = null) => new()
     {
-        Entity = new() { EntityId = id, Name = name, Type = type, OwnerId = "bruna", Confidence = 1,
+        Entity = new() { EntityId = id, Name = name, Type = type, OwnerId = "bruna", Confidence = 1, Description = description,
             SourceMessageIds = ["prior-" + id], CreatedAtUtc = DateTimeOffset.UnixEpoch },
+        KnownAs = knownAs ?? [],
     };
 
     private async Task<IdentityDecision> Plan(ExtractedEntityReference? reference, IdentityCandidate[] found,
         bool allowContextualConfirmation = true, bool withModel = true, string type = "EVENT", string text = CurrentText,
-        IIdentityDecisionRepository? store = null)
+        IIdentityDecisionRepository? store = null, string name = EventName)
     {
         var candidates = Substitute.For<IIdentityCandidateProvider>();
         candidates.Capabilities.Returns(new IdentityCandidateCapabilities { BoundedReads = true, CalendarValueLookup = true, VerifiedKeyLookup = true });
@@ -59,7 +61,7 @@ public sealed class IdentityWriterReferenceTests
         options.Policies[type] = new() { AllowContextualConfirmation = allowContextualConfirmation };
         var ingestion = new IdentityIngestion(IdentityConfiguration.Capture(options), TimeProvider.System,
             candidates, store, embeddings, ids, adjudicator: withModel ? _model : null);
-        var plan = await ingestion.PlanAsync(new() { Name = EventName, Type = type, Confidence = 1, Reference = reference },
+        var plan = await ingestion.PlanAsync(new() { Name = name, Type = type, Confidence = 1, Reference = reference },
             new() { Targets = [new() { MessageId = "current", Content = text, Role = "user", SessionId = "s",
                 ConversationId = "c", TimestampUtc = DateTimeOffset.UnixEpoch }] },
             MemoryScope.For("bruna", false), default);
@@ -186,5 +188,116 @@ public sealed class IdentityWriterReferenceTests
         decision.Status.Should().Be(IdentityDecisionKind.Pending);
         decision.Diagnostics.Should().NotContain(d => d.StartsWith("writer_reference", StringComparison.Ordinal));
         _modelCalls.Should().Be(1);
+    }
+
+    // ── IDENTITY-NAMESAKE-WRITER-MERGE (IKB-3, whos-who-v1 statements 8 and 13) ──
+
+    [Theory]
+    [InlineData("My niece Valentina started school this year, she is six.")]
+    [InlineData("Valentina, my niece, started school this year.")]
+    [InlineData("Valentina is my niece and she started school this year.")]
+    public async Task A_reference_the_turn_ties_to_another_relation_than_the_stored_person_s_role_is_not_confirmed(string text)
+    {
+        // The store-aware writer referred "my niece Valentina" to the stored designer Valentina Ríos, and identity confirmed it:
+        // the quote was in the turn and she was the only Valentina. The turn's own words tie her to the owner as a niece, which
+        // the stored person is not known to be: that is not agreement, so the reference is kept for review instead.
+        var decision = await Plan(new() { EntityId = "designer", Quote = "Valentina" },
+            [Candidate("designer", "Valentina Ríos", "PERSON", "The designer on Atlas")], withModel: false, type: "PERSON",
+            text: text, name: "Valentina Ríos");
+
+        decision.Status.Should().NotBe(IdentityDecisionKind.Confirmed);
+        decision.ConfirmedEntityId.Should().BeNull();
+        decision.Diagnostics.Should().Contain("writer_reference_relation_conflict").And.NotContain("writer_reference_confirmed");
+    }
+
+    [Fact]
+    public async Task A_reference_the_turn_ties_to_the_stored_person_s_own_relation_still_confirms()
+    {
+        var decision = await Plan(new() { EntityId = "sister", Quote = "Marta" },
+            [Candidate("sister", "Marta", "PERSON", "The user's sister, a nurse in Rosario")], withModel: false, type: "PERSON",
+            text: "My sister Marta called me today.", name: "Marta");
+
+        decision.Status.Should().Be(IdentityDecisionKind.Confirmed);
+        decision.ConfirmedEntityId.Should().Be("sister");
+        decision.Diagnostics.Should().Contain("writer_reference_confirmed");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("Lives in Rosario and likes tango")]
+    public async Task A_reference_to_a_person_with_no_known_role_still_confirms(string? description)
+    {
+        // Nothing stored contradicts the turn, so the writer's judgment stands as before.
+        var decision = await Plan(new() { EntityId = "marta", Quote = "Marta" },
+            [Candidate("marta", "Marta", "PERSON", description)], withModel: false, type: "PERSON",
+            text: "My sister Marta called me today.", name: "Marta");
+
+        decision.Status.Should().Be(IdentityDecisionKind.Confirmed);
+        decision.ConfirmedEntityId.Should().Be("marta");
+    }
+
+    [Fact]
+    public async Task A_turn_with_no_relation_still_confirms_a_person_with_a_role()
+    {
+        var decision = await Plan(new() { EntityId = "designer", Quote = "Valentina" },
+            [Candidate("designer", "Valentina Ríos", "PERSON", "The designer on Atlas")], withModel: false, type: "PERSON",
+            text: "Valentina finished the new checkout mock-ups today.", name: "Valentina Ríos");
+
+        decision.Status.Should().Be(IdentityDecisionKind.Confirmed);
+        decision.ConfirmedEntityId.Should().Be("designer");
+    }
+
+    [Fact]
+    public async Task A_pet_the_turn_calls_another_animal_than_the_stored_one_is_not_confirmed()
+    {
+        var decision = await Plan(new() { EntityId = "cat", Quote = "Luna" },
+            [Candidate("cat", "Luna", "ANIMAL", "A Persian cat who sleeps on the sofa")], withModel: false, type: "ANIMAL",
+            text: "My dog Luna turned three last week.", name: "Luna");
+
+        decision.Status.Should().NotBe(IdentityDecisionKind.Confirmed);
+        decision.Diagnostics.Should().Contain("writer_reference_relation_conflict");
+    }
+
+    [Fact]
+    public async Task A_stored_person_known_only_by_a_fact_is_held_against_the_turn_too()
+    {
+        // The store-aware writer gives entities no description: the designer is known as one from her fact, which the backend
+        // reads into KnownAs. That is the run IKB-3 found.
+        var decision = await Plan(new() { EntityId = "designer", Quote = "Valentina" },
+            [Candidate("designer", "Valentina Ríos", "PERSON", knownAs: ["is the designer on Atlas"])], withModel: false, type: "PERSON",
+            text: "My niece Valentina started school this year, she is six.", name: "Valentina Ríos");
+
+        decision.Status.Should().NotBe(IdentityDecisionKind.Confirmed);
+        decision.Diagnostics.Should().Contain("writer_reference_relation_conflict");
+    }
+
+    [Fact]
+    public void What_a_candidate_is_known_as_comes_from_the_facts_that_say_what_it_is()
+    {
+        var entity = new Entity { EntityId = "v", Name = "Valentina Ríos", Aliases = ["Vale"], Type = "PERSON", Confidence = 1, CreatedAtUtc = DateTimeOffset.UnixEpoch };
+        var known = IdentityRelationCue.FromFacts(entity, [
+            ("Valentina Ríos", "is", "the designer on Atlas"),
+            ("Vale", "works as", "a UX lead"),
+            ("user", "has niece", "Valentina Ríos"),
+            ("Valentina Ríos", "moved to", "the Madrid office"),
+            ("Valentina Ríos", "works with", "my sister"),
+            ("Marco", "is", "a designer"),
+        ]);
+
+        known.Should().Equal("is the designer on Atlas", "works as a UX lead", "has niece");
+        IdentityRelationCue.Known(new IdentityCandidate { Entity = entity, KnownAs = known }).Should().BeEquivalentTo(["designer", "niece"]);
+    }
+
+    [Theory]
+    [InlineData("My little niece Valentina lost a tooth.", "niece")]
+    [InlineData("Valentina (my niece) lost a tooth.", "niece")]
+    [InlineData("Valentina, our designer, sent the mock-ups.", "designer")]
+    [InlineData("Valentina sent the mock-ups.", null)]
+    [InlineData("My friend's sister Valentina called.", null)]
+    public void The_turn_s_relation_for_a_name_is_read_from_its_own_words(string text, string? expected)
+    {
+        var found = IdentityRelationCue.InTurn(text, ["Valentina Ríos"]);
+        if (expected is null) found.Should().BeEmpty();
+        else found.Should().Contain(expected);
     }
 }

@@ -244,7 +244,7 @@ internal sealed class Neo4jMessageRepository : IMessageRepository
     {
         _logger.LogDebug("Getting {Limit} recent messages for session {SessionId}", limit, sessionId);
 
-        return await _tx.ReadAsync(async runner =>
+        return await _tx.ReadSingleAsync(async runner =>
         {
             var cursor = await runner.RunAsync(MessageQueries.GetRecentBySession, new { sessionId, limit }).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
@@ -330,7 +330,7 @@ internal sealed class Neo4jMessageRepository : IMessageRepository
         if (sessionId is not null) parameters["sessionId"] = sessionId;
         foreach (var (k, v) in filterParams) parameters[k] = v;
 
-        return await _tx.ReadAsync(async runner =>
+        return await _tx.ReadSingleAsync(async runner =>
         {
             var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
@@ -387,7 +387,7 @@ internal sealed class Neo4jMessageRepository : IMessageRepository
     {
         _logger.LogDebug("Getting recent messages for session {SessionId} as of {AsOf}, limit={Limit}", sessionId, asOf, limit);
 
-        return await _tx.ReadAsync(async runner =>
+        return await _tx.ReadSingleAsync(async runner =>
         {
             var cursor = await runner.RunAsync(TemporalQueries.GetRecentMessagesAsOf, new
             {

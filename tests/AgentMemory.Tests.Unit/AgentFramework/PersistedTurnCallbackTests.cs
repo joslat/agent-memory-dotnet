@@ -25,11 +25,12 @@ public sealed class PersistedTurnCallbackTests
         provider.Seen.Should().NotBeNull();
         provider.Seen!.SessionId.Should().Be("s"); provider.Seen.ConversationId.Should().Be("c"); provider.Seen.Owner.Should().Be("owner");
         provider.Seen.AtUtc.Should().Be(DateTimeOffset.UnixEpoch);
-        provider.Seen.Messages.Select(x => x.Id).Should().Equal("stored-user", "stored-assistant");
+        provider.Seen.Messages.Should().HaveCount(2);
+        provider.Seen.Messages[0].Id.Should().StartWith("maf:", "the user's words are stored under their provider id");
         provider.Seen.Messages.Select(x => x.Text).Should().Equal("stored:user", "stored:assistant");
         provider.Seen.Messages.Select(x => x.Role).Should().Equal("user", "assistant");
         extraction!.Messages.Select(x => x.Role).Should().Equal("user");
-        await memory.Received(1).AddMessageAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>());
+        await memory.Received(1).AddMessagesAsync(Arg.Any<IEnumerable<Message>>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -45,14 +46,17 @@ public sealed class PersistedTurnCallbackTests
     {
         var (memory, clock) = Services(); var provider = new Observer(memory, clock, new() { AutoExtractOnPersist = false }) { Enabled = false };
         clock.ClearReceivedCalls(); await Store(provider); provider.Seen.Should().BeNull();
-        _ = clock.DidNotReceive().GetUtcNow();
+        _ = clock.Received(1).GetUtcNow(); // DRT-8: the turn's message times, read once; nothing for the callback
     }
 
     [Fact]
     public async Task PartialPersistenceFailureDoesNotPublishASuccessfulTurn()
     {
         var (memory, clock) = Services();
-        memory.AddMessageAsync(Arg.Any<string>(), Arg.Any<string>(), "assistant", Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
+        // The turn's one call fails, and so does the reply when it is then stored on its own.
+        memory.AddMessagesAsync(Arg.Any<IEnumerable<Message>>(), Arg.Any<CancellationToken>())
+            .Returns<Task<IReadOnlyList<Message>>>(_ => throw new IOException("storage failure"));
+        memory.AddMessageWithIdAsync(Arg.Any<string>(), Arg.Any<string>(), "assistant", Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
             .Returns<Task<Message>>(_ => throw new IOException("storage failure"));
         var provider = new Observer(memory, clock, new()); await Store(provider);
         provider.Seen.Should().BeNull();
@@ -118,6 +122,10 @@ public sealed class PersistedTurnCallbackTests
             .Returns(call => new Message { MessageId = "stored-" + call.ArgAt<string>(2), SessionId = "s", ConversationId = "c", Role = call.ArgAt<string>(2), Content = "stored:" + call.ArgAt<string>(2), TimestampUtc = DateTimeOffset.UnixEpoch });
         memory.AddMessageWithIdAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
             .Returns(call => new Message { MessageId = "stored-" + call.ArgAt<string>(2), SessionId = "s", ConversationId = "c", Role = call.ArgAt<string>(2), Content = "stored:" + call.ArgAt<string>(2), TimestampUtc = DateTimeOffset.UnixEpoch });
+        // DRT-8: the turn's one call. The store returns each message under the id it was given, with what it stored.
+        memory.AddMessagesAsync(Arg.Any<IEnumerable<Message>>(), Arg.Any<CancellationToken>())
+            .Returns(call => (IReadOnlyList<Message>)call.Arg<IEnumerable<Message>>()
+                .Select(m => m with { Content = "stored:" + m.Role }).ToList());
         return (memory, clock);
     }
 

@@ -1,0 +1,112 @@
+# Diagnostic, started by hand only (NATIVE-TS-EXIT-ARM): runs one TypeScript test file again and again under one Node
+# version on one runner, to catch a crash as the process exits. On 22 Nov 2026 dist/test/adapters.test.js ended with
+# SIGSEGV once on linux-arm64 under Node 22 after all its tests passed (run 45029895629); the rerun passed, and 60 runs on
+# linux-x64 in Docker passed. Every crash keeps its core dump, and gdb prints the backtraces of all threads, so the cause
+# can be read rather than guessed. Nothing is published; the dumps and logs are kept 7 days.
+name: Native exit loop (diagnostic)
+
+on:
+  # A push of this file on the working branch runs it with the defaults: GitHub dispatches only workflows already on main.
+  push:
+    branches: [feat/native-and-quality]
+    paths: ['.github/workflows/native-exit-loop.yml']
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: How many runs of the test file
+        default: '200'
+      node:
+        description: Node version
+        default: '22'
+      runner:
+        description: Runner image
+        default: ubuntu-24.04-arm
+      file:
+        description: Test file under native/typescript
+        default: dist/test/adapters.test.js
+
+permissions:
+  contents: read
+
+jobs:
+  loop:
+    name: ${{ inputs.file || 'dist/test/adapters.test.js' }} x ${{ inputs.runs || '300' }} on Node ${{ inputs.node || '22' }}, ${{ inputs.runner || 'ubuntu-24.04-arm' }}
+    runs-on: ${{ inputs.runner || 'ubuntu-24.04-arm' }}
+    timeout-minutes: 90
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+
+      - name: Native AOT prerequisites and gdb
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq clang zlib1g-dev gdb
+
+      - name: Publish the library
+        run: |
+          rid="linux-$(uname -m | sed 's/aarch64/arm64/;s/x86_64/x64/')"
+          echo "RID: $rid"
+          dotnet publish tools/AgentMemory.Native/AgentMemory.Native.csproj -c Release -r "$rid" -o out/bin > out-publish.log 2>&1 \
+            || { tail -40 out-publish.log; exit 1; }
+          ls -l out/bin/agentmemory_native.so*
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ inputs.node || '22' }}
+
+      - name: Build the TypeScript binding
+        working-directory: native/typescript
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+
+      - name: Loop
+        working-directory: native/typescript
+        env:
+          GATE_TIER: A
+          AGENTMEMORY_NATIVE_LIBRARY: ${{ github.workspace }}/out/bin/agentmemory_native.so
+          RUNS: ${{ inputs.runs || '300' }}
+          FILE: ${{ inputs.file || 'dist/test/adapters.test.js' }}
+        run: |
+          node --version
+          mkdir -p "$GITHUB_WORKSPACE/cores"
+          sudo sysctl -w kernel.core_pattern="$GITHUB_WORKSPACE/cores/core.%p"
+          ulimit -c unlimited
+          ok=0; bad=0
+          for i in $(seq 1 "$RUNS"); do
+            rc=0; node "$FILE" > "/tmp/run.log" 2>&1 || rc=$?   # the step runs with -e: a failing run must not end the loop
+            if [ $rc -eq 0 ]; then ok=$((ok+1)); continue; fi
+            bad=$((bad+1)); echo "::warning::run $i: exit $rc"; tail -5 /tmp/run.log; cp /tmp/run.log "$GITHUB_WORKSPACE/cores/run-$i.log"
+          done
+          echo "$FILE on Node $(node --version), $(uname -m): $ok passed, $bad failed of $RUNS" | tee "$GITHUB_WORKSPACE/cores/summary.txt"
+          echo "### $(cat "$GITHUB_WORKSPACE/cores/summary.txt")" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Backtraces of every core dump
+        if: always()
+        run: |
+          shopt -s nullglob
+          for core in cores/core.*; do
+            echo "===== $core"
+            gdb -batch -ex "set pagination off" -ex "info sharedlibrary" -ex "thread apply all bt 25" "$(command -v node)" "$core" 2>&1 \
+              | grep -v "^warning: " | head -400 | tee "$core.bt.txt"
+          done
+          ls cores | head
+
+      - name: Keep the dumps' backtraces and logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: native-exit-loop
+          path: |
+            cores/*.txt
+            cores/*.log
+          retention-days: 7
+          if-no-files-found: warn

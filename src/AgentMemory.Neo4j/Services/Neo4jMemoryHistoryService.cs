@@ -12,13 +12,19 @@ namespace AgentMemory.Neo4j.Services;
 /// existing lifecycle fields (<c>invalidated_at</c>, <c>valid_until</c>, <c>:SUPERSEDED_BY</c>, provenance)
 /// plus read-audit/access fields into a normalized API/CLI surface.
 /// </summary>
-internal sealed class Neo4jMemoryHistoryService(INeo4jTransactionRunner tx) : IMemoryHistoryService
+/// <remarks>
+/// DRT-5: it waits for this process's read-note queue first (<see cref="IMemoryAccessTracker.FlushAsync"/>), so an
+/// item's history read right after a recall includes that recall, as it does when the note is written before recall
+/// returns. Only when something is pending; records still queued in another process are not waited for.
+/// </remarks>
+internal sealed class Neo4jMemoryHistoryService(INeo4jTransactionRunner tx, IMemoryAccessTracker? accessTracker = null) : IMemoryHistoryService
 {
     public async Task<IReadOnlyList<MemoryHistoryRecord>> GetHistoryAsync(
         MemoryHistoryQuery query,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(query);
+        if (accessTracker is not null) await accessTracker.FlushAsync(cancellationToken).ConfigureAwait(false);
 
         var parameters = new Dictionary<string, object?>
         {

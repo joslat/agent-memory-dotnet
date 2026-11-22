@@ -717,6 +717,18 @@ public interface IFactRepository
         throw new NotSupportedException("This backend does not support decision-bound person details.");
 
     /// <summary>
+    /// RECALL-NAMESAKE-LEAK: the live entities in scope that these facts are about (bound by identity or linked) and these
+    /// messages mention, with what each is known as. At most 64 items and 32 entities. A backend that cannot tell returns
+    /// none, and recall then filters nothing.
+    /// </summary>
+    Task<IReadOnlyList<RecalledItemEntity>> GetRecalledItemEntitiesAsync(
+        IReadOnlyList<string> factIds,
+        IReadOnlyList<string> messageIds,
+        MemoryScope? scope,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<RecalledItemEntity>>(Array.Empty<RecalledItemEntity>());
+
+    /// <summary>
     /// ILC-33: live facts bound to up to 3 confirmed person identities through current decision-owned fact bindings,
     /// newest first and taken in turn from each person; never a pending proposal or name similarity. At most 512 excluded
     /// IDs and 64 returned facts. Scope follows <see cref="GetEventDetailsAsync"/>.

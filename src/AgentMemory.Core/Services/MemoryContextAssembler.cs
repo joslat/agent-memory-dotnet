@@ -488,6 +488,14 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         var scope = _isolationPolicy.ResolveReadScope(
             recallOpts.Scope, request.UserId, nameof(AssembleContextAsync), MemoryOperationAccess.Tenant);
 
+        // DRT-3 (C-02): the profile block's point-read starts here, beside the searches, instead of after them; it reads
+        // the owner's block and nothing the searches write. Awaited where it was before. A recall that fails or returns
+        // before then still observes its failure. The AppContext switch AgentMemory.Recall.ProfileBlockAfterSearches
+        // restores the previous path.
+        var workingMemoryRead = _workingMemory is not null && !string.IsNullOrWhiteSpace(scope.OwnerId) && !ProfileBlockAfterSearches
+            ? Observed(_workingMemory.GetAsync(scope.OwnerId!, cancellationToken))
+            : null;
+
         // Blend policy (spec §5.5 / plan §12.5): decide which sources contribute to the context.
         //   MemoryOnly   → memory layers only; GraphRAG suppressed even when enabled.
         //   GraphRagOnly → GraphRAG only; memory layers (and query embedding) skipped.
@@ -961,6 +969,12 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
             (facts, personSubjects) = await ExpandPersonDetailsAsync(facts, lookAhead, prospective, request.Question ?? request.Query,
                 recallOpts, scope, cancellationToken, Remaining(recallOpts.LatencyBudget, budgetClock)).ConfigureAwait(false);
 
+        // SPEECH-RELATION-RECALL: one hop from a recalled connection to the owner, by a relation the question names, to
+        // that one's live facts. Off (0) by default, and then nothing is read.
+        if (includeMemory && recallOpts.MaxConnectionFacts != 0)
+            facts = await ExpandConnectionsAsync(facts, lookAhead, prospective, request.Question ?? request.Query,
+                recallOpts, scope, cancellationToken, Remaining(recallOpts.LatencyBudget, budgetClock)).ConfigureAwait(false);
+
         // PR260-N3, REV1-L10: the details above arrive after the hand-over to current values, so a value a begun plan
         // replaced could come back with them. Hand over again over everything recall now holds, the dated sections'
         // facts included as competitors (a plan found by date still replaces the old value), dropping only from the
@@ -1016,6 +1030,13 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
             traces = fanOut.Traces;
             fanOutLegs = fanOut.Legs;
         }
+
+        // RECALL-NAMESAKE-LEAK: once the fact and message sections are final (fan-out included) and before the budget, the
+        // items about a namesake of the one the question means leave. Off by default, and then nothing is read.
+        if (includeMemory && recallOpts.NamesakeFilter)
+            (facts, factScores, relevantMessages, relevantMessageScores) = await DropNamesakesAsync(request.Question ?? request.Query,
+                facts, factScores, relevantMessages, relevantMessageScores, scope, cancellationToken,
+                Remaining(recallOpts.LatencyBudget, budgetClock)).ConfigureAwait(false);
 
         // Apply context budget if configured
         var budget = _options.ContextBudget;
@@ -1118,9 +1139,11 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
         // be starved the way the sections above measurably are (an owner's own facts inside the global
         // top-60 averaged 7, minimum 1; one real question retrieved ZERO from a graph holding 504 of
         // its own). Null unless the tier is enabled AND the recall resolved to a concrete owner.
-        var workingMemory = _workingMemory is not null && !string.IsNullOrWhiteSpace(scope?.OwnerId)
-            ? await _workingMemory.GetAsync(scope!.OwnerId!, cancellationToken).ConfigureAwait(false)
-            : null;
+        var workingMemory = workingMemoryRead is not null
+            ? await workingMemoryRead.ConfigureAwait(false)
+            : _workingMemory is not null && !string.IsNullOrWhiteSpace(scope?.OwnerId)
+                ? await _workingMemory.GetAsync(scope!.OwnerId!, cancellationToken).ConfigureAwait(false)
+                : null;
 
         // 30.2. After truncation AND after reranking, so projection describes exactly the items that
         // reach the prompt in the order they will be rendered. Null unless a feature is enabled.
@@ -2281,6 +2304,18 @@ internal sealed partial class MemoryContextAssembler : IMemoryContextAssembler
     /// </remarks>
     /// <summary>What is left of a latency budget after the sections that raced against it.</summary>
     /// <remarks>Null budget means unbudgeted, which stays unbudgeted — the pre-E-1 behaviour exactly.</remarks>
+    /// <summary>DRT-3: the AppContext switch that reads the profile block after the searches, as before.</summary>
+    private static bool ProfileBlockAfterSearches =>
+        AppContext.TryGetSwitch("AgentMemory.Recall.ProfileBlockAfterSearches", out var after) && after;
+
+    /// <summary>A started read whose failure is observed even if nothing awaits it (a recall that failed before it did).</summary>
+    private static Task<T> Observed<T>(Task<T> task)
+    {
+        _ = task.ContinueWith(static t => _ = t.Exception, CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        return task;
+    }
+
     private static TimeSpan? Remaining(TimeSpan? budget, Stopwatch? clock) =>
         budget is { } total && clock is not null ? total - clock.Elapsed : null;
 

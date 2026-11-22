@@ -30,7 +30,7 @@ extern "C" {
 #endif
 
 #define AM_V1_ABI_MAJOR 1u
-#define AM_V1_ABI_MINOR 0u
+#define AM_V1_ABI_MINOR 1u
 #define AM_V1_ABI_VERSION ((AM_V1_ABI_MAJOR << 16) | AM_V1_ABI_MINOR)
 
 typedef uint64_t am_v1_context_t;
@@ -95,6 +95,15 @@ int32_t am_v1_poll(
     uint32_t wait_ms,
     uint32_t *out_disposition,
     uint8_t **out_result_utf8, size_t *out_result_len);
+
+/*
+ * ABI 1.1. Waits up to wait_ms for any job of this context to reach its terminal state that this function has not
+ * reported before. On AM_V1_OK, *out_job is that job, or 0 when wait_ms passed with none, or when the context started
+ * closing (then it returns at once). Each job is reported at most once; take its result with am_v1_poll(context, job, 0,
+ * ...). A released job is never reported. Thread-safe; normally one waiter per context, so a binding needs one thread
+ * per context instead of one per job in flight. A 1.0 library has no such export: look it up before calling it.
+ */
+int32_t am_v1_wait(am_v1_context_t context, uint32_t wait_ms, am_v1_job_t *out_job);
 
 /* Asks the job to stop. Cooperative: the work may still finish; the capacity it holds is returned only when it does. */
 int32_t am_v1_cancel(am_v1_context_t context, am_v1_job_t job);

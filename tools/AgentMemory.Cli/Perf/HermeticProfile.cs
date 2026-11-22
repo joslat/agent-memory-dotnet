@@ -64,6 +64,10 @@ public sealed class HermeticProfile : IAsyncDisposable
     /// <summary>Fixed product-driver pool size fingerprinted by concurrency artifacts.</summary>
     public int MaxConnectionPoolSize { get; }
 
+    /// <summary>DRT-6: whether the product sends single-statement reads without a transaction of their own (the default).</summary>
+    public static bool SingleStatementReads { get; } =
+        !string.Equals(Environment.GetEnvironmentVariable("AGENTMEMORY_PERF_SINGLE_STATEMENT_READS"), "false", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>
     /// True only when an operator explicitly selected the pool size (the D1 pool-curve arms).
     /// Lab self-assertions treat any non-16 pool without this deliberate, fingerprinted selection
@@ -88,6 +92,15 @@ public sealed class HermeticProfile : IAsyncDisposable
 
     /// <summary>Raw driver, for bulk fixture seeding that would be pointlessly slow through the services.</summary>
     public IDriver Driver { get; private set; } = null!;
+
+    /// <summary>
+    /// DRT-0: the proxy the product's driver reaches the store through, when the run measures waiting
+    /// (<c>--db-latency</c>); null otherwise, and the product connects directly as before. The raw <see cref="Driver"/>
+    /// always connects directly: the harness's own resets and read-backs are never counted or delayed.
+    /// </summary>
+    public LinkProxy? Link { get; private set; }
+
+    private bool _throughLinkProxy;
 
     /// <summary>Container identifier exposed only to explicit resource-capacity laboratory scenarios.</summary>
     internal string ContainerId => _container?.Id ?? throw new InvalidOperationException("Neo4j is not running.");
@@ -123,7 +136,8 @@ public sealed class HermeticProfile : IAsyncDisposable
         bool useUnifiedExtraction = false,
         bool useBatchEntityResolutionSnapshots = true,
         bool useCoalescedPersistenceTransactions = true,
-        bool poolSizeExplicitlyConfigured = false)
+        bool poolSizeExplicitlyConfigured = false,
+        bool throughLinkProxy = false)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxConnectionPoolSize);
         var scaleRunVolume = scale == PerfScale.Medium
@@ -132,7 +146,10 @@ public sealed class HermeticProfile : IAsyncDisposable
         var profile = new HermeticProfile(
             dimensions, scale, scaleRunVolume, maxConnectionPoolSize,
             useBatchEntityResolutionSnapshots, useCoalescedPersistenceTransactions,
-            poolSizeExplicitlyConfigured);
+            poolSizeExplicitlyConfigured)
+        {
+            _throughLinkProxy = throughLinkProxy,
+        };
         try
         {
             await profile.InitializeAsync(
@@ -167,7 +184,43 @@ public sealed class HermeticProfile : IAsyncDisposable
 
         var uri = _container.GetConnectionString();
         Driver = GraphDatabase.Driver(uri, AuthTokens.Basic(ContainerUser, ContainerPassword));
+        var productUri = uri;
+        if (_throughLinkProxy)
+        {
+            var store = new Uri(uri);
+            Link = LinkProxy.Start(store.Host, store.Port);
+            productUri = $"{store.Scheme}://127.0.0.1:{Link.Port}";
+            log.WriteLine($"perf: the product reaches Neo4j through the link proxy on 127.0.0.1:{Link.Port}");
+        }
 
+        _register = neo4jOverride => Register(productUri, embeddingLatency, modelLatency, scriptedRules, useUnifiedExtraction,
+            useBatchEntityResolutionSnapshots, useCoalescedPersistenceTransactions, neo4jOverride);
+        _provider = _register(null).BuildServiceProvider();
+        _scope = _provider.CreateAsyncScope();
+        _scopeCreated = true;
+
+        log.WriteLine("perf: bootstrapping schema…");
+        await Services.GetRequiredService<ISchemaBootstrapper>()
+            .BootstrapAsync(cancellationToken).ConfigureAwait(false);
+        await RestOfInitializeAsync(log, cancellationToken).ConfigureAwait(false);
+    }
+
+    private Func<Action<Neo4jOptions>?, ServiceCollection>? _register;
+
+    /// <summary>
+    /// DRT-WARM: a second product on the same store, with services, a driver and a connection pool of its own, exactly as
+    /// the profile's own (the same link, latencies and scripted model), for a scenario that measures what a new process
+    /// pays. The caller disposes it.
+    /// </summary>
+    internal ServiceProvider BuildFreshProduct(Action<Neo4jOptions>? neo4j = null) =>
+        (_register ?? throw new InvalidOperationException("the profile is not started")).Invoke(neo4j).BuildServiceProvider();
+
+    private ServiceCollection Register(
+        string productUri, TimeSpan embeddingLatency, TimeSpan modelLatency,
+        IReadOnlyList<ScriptedChatClient.Rule>? scriptedRules, bool useUnifiedExtraction,
+        bool useBatchEntityResolutionSnapshots, bool useCoalescedPersistenceTransactions,
+        Action<Neo4jOptions>? neo4jOverride)
+    {
         var services = new ServiceCollection();
         services.AddLogging(b => b.SetMinimumLevel(LogLevel.Warning));
 
@@ -181,12 +234,16 @@ public sealed class HermeticProfile : IAsyncDisposable
             },
             neo4j =>
             {
-                neo4j.Uri = uri;
+                neo4j.Uri = productUri;
                 neo4j.Username = ContainerUser;
                 neo4j.Password = ContainerPassword;
                 neo4j.Database = "neo4j";
                 neo4j.EmbeddingDimensions = Dimensions;
                 neo4j.MaxConnectionPoolSize = MaxConnectionPoolSize;
+                // DRT-6: AGENTMEMORY_PERF_SINGLE_STATEMENT_READS=false measures the same build with every read a managed
+                // transaction, as before. Recorded in the run's environment.
+                neo4j.SingleStatementReads = SingleStatementReads;
+                neo4jOverride?.Invoke(neo4j);
             },
             // A non-null delegate is what opts the LLM extractors in; without it the Core no-op stubs
             // stay registered and a post-turn scenario would measure extraction that never happens.
@@ -220,15 +277,11 @@ public sealed class HermeticProfile : IAsyncDisposable
         services.RemoveAll<IChatClient>();
         services.AddSingleton<IChatClient>(
             new CountingChatClient(new ScriptedChatClient(modelLatency, payload: null, rules: scriptedRules)));
+        return services;
+    }
 
-        _provider = services.BuildServiceProvider();
-        _scope = _provider.CreateAsyncScope();
-        _scopeCreated = true;
-
-        log.WriteLine("perf: bootstrapping schema…");
-        await Services.GetRequiredService<ISchemaBootstrapper>()
-            .BootstrapAsync(cancellationToken).ConfigureAwait(false);
-
+    private async Task RestOfInitializeAsync(TextWriter log, CancellationToken cancellationToken)
+    {
         await using var session = Driver.AsyncSession();
         await session.RunAsync("CALL db.awaitIndexes(120)").ConfigureAwait(false);
         if (_scaleRunVolume is not null)
@@ -247,6 +300,7 @@ public sealed class HermeticProfile : IAsyncDisposable
         if (_scopeCreated) await _scope.DisposeAsync().ConfigureAwait(false);
         if (_provider is not null) await _provider.DisposeAsync().ConfigureAwait(false);
         if (Driver is not null) await Driver.DisposeAsync().ConfigureAwait(false);
+        Link?.Dispose();
         if (_container is not null) await _container.DisposeAsync().ConfigureAwait(false);
         if (_scaleRunVolume is not null)
             await _scaleRunVolume.Volume.DisposeAsync().ConfigureAwait(false);
@@ -338,11 +392,13 @@ public sealed class HermeticProfile : IAsyncDisposable
     /// Inserts deterministic waiting inside the real transaction span. The original work delegate still
     /// receives the product's instrumented query runner, so query counting and behavior are unchanged.
     /// </summary>
-    private sealed class LatencyInjectingTransactionRunner : INeo4jTransactionRunner, INeo4jAtomicTransactionRunner
+    private sealed class LatencyInjectingTransactionRunner : INeo4jTransactionRunner, INeo4jAtomicTransactionRunner, INeo4jSingleStatementReader
     {
         private readonly INeo4jTransactionRunner _inner;
         private readonly PerfDependencyLatency _dependencyLatency;
         private readonly INeo4jAtomicTransactionRunner _atomicInner;
+
+        public bool? InWriteUnit => _inner.InWriteUnit;
 
         public LatencyInjectingTransactionRunner(
             INeo4jTransactionRunner inner,
@@ -364,6 +420,21 @@ public sealed class HermeticProfile : IAsyncDisposable
                     return await work(runner).ConfigureAwait(false);
                 },
                 cancellationToken);
+
+        // DRT-6: forwarded to the product's single-statement path, so it is measured as shipped.
+        public Task<T> ReadSingleAsync<T>(
+            Func<IAsyncQueryRunner, Task<T>> work,
+            CancellationToken cancellationToken = default)
+        {
+            Func<IAsyncQueryRunner, Task<T>> delayed = async runner =>
+            {
+                await DelayAsync(cancellationToken).ConfigureAwait(false);
+                return await work(runner).ConfigureAwait(false);
+            };
+            return _inner is INeo4jSingleStatementReader single
+                ? single.ReadSingleAsync(delayed, cancellationToken)
+                : _inner.ReadAsync(delayed, cancellationToken);
+        }
 
         public Task ReadAsync(
             Func<IAsyncQueryRunner, Task> work,

@@ -2,6 +2,7 @@ using AgentMemory.Native.Abi;
 using AgentMemory.Native.Composition;
 using AgentMemory.Native.Contract;
 using AgentMemory.Native.Journal;
+using AgentMemory.Neo4j.Infrastructure;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -19,6 +20,11 @@ internal sealed class NativeContext
 
     private readonly object _gate = new();
     private readonly Dictionary<ulong, NativeJob> _jobs = [];
+
+    // ABI 1.1 (am_v1_wait): finished jobs no wait has reported, oldest first. A release takes its job out at once, so a
+    // 1.0 binding that never waits keeps this as small as its unreleased jobs. Guarded by _gate; a finish pulses it.
+    private readonly LinkedList<ulong> _finished = [];
+    private readonly Dictionary<ulong, LinkedListNode<ulong>> _finishedNodes = [];
     private readonly HashSet<NativeJob> _active = [];
     private readonly SemaphoreSlim _running;
     private readonly TaskCompletionSource _closingSignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -61,6 +67,11 @@ internal sealed class NativeContext
         }
 
         var timeout = timeoutMs == 0 ? Config.DefaultTimeoutMs : (int)Math.Min(timeoutMs, int.MaxValue);
+        job.Result.Task.ContinueWith(static (_, state) =>
+        {
+            var (context, handle) = ((NativeContext, ulong))state!;
+            context.MarkFinished(handle);
+        }, (this, job.Handle), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
         job.Cancellation.Token.Register(static state => ((NativeJob)state!).FinishStopped(), job);
         job.Cancellation.CancelAfter(timeout);
         _ = Task.Run(() => RunAsync(job));
@@ -118,6 +129,10 @@ internal sealed class NativeContext
         request switch
         {
             CapabilitiesRequest => ResultWriter.Capabilities(request.RequestId, Config, ContextRegistry.LibraryVersion, job.Timing()),
+            SchemaStatusRequest status => ResultWriter.Schema(SchemaStatusRequest.Name, status.RequestId,
+                await _provider.GetRequiredService<ISchemaInspector>().InspectAsync(token).ConfigureAwait(false), bootstrapped: false, job.Timing()),
+            SchemaBootstrapRequest bootstrap => ResultWriter.Schema(SchemaBootstrapRequest.Name, bootstrap.RequestId,
+                await BootstrapAsync(token).ConfigureAwait(false), bootstrapped: true, job.Timing()),
             GetContextRequest recall => ResultWriter.Context(
                 recall.RequestId, await RecallAsync(recall, token).ConfigureAwait(false), job.Timing()),
             RememberRequest remember => await RememberAsync(remember, job, token).ConfigureAwait(false),
@@ -132,6 +147,13 @@ internal sealed class NativeContext
                 _writes!.AdmitErase(), job, token).ConfigureAwait(false),
             _ => throw new ContractException("unknown_operation", $"Operation '{request.Operation}' is not offered."),
         };
+
+    /// <summary>The managed bootstrap (constraints, indexes, migrations), then what the store holds after it.</summary>
+    private async Task<SchemaInspection> BootstrapAsync(CancellationToken token)
+    {
+        await _provider.GetRequiredService<ISchemaBootstrapper>().BootstrapAsync(token).ConfigureAwait(false);
+        return await _provider.GetRequiredService<ISchemaInspector>().InspectAsync(token).ConfigureAwait(false);
+    }
 
     /// <summary>
     /// Accepts the words durably (or finds the earlier acceptance of the same source), then waits for the operation to
@@ -180,6 +202,7 @@ internal sealed class NativeContext
                     MaxRelevantMessages = recall.MaxMessages,
                     MaxEntities = recall.MaxEntities,
                     MaxRelationships = recall.MaxRelationships,
+                    MaxConnectionFacts = recall.MaxConnectionFacts,
                     TimeWindows = recall.TimeWindows,
                 },
                 token)
@@ -187,7 +210,30 @@ internal sealed class NativeContext
     }
 
     /// <summary>A failure as the contract reports it. Messages never carry credentials or stack traces.</summary>
-    public static (string Status, string Code, string Message) Classify(Exception exception) => exception switch
+    public static (string Status, string Code, string Message) Classify(Exception exception) =>
+        StoreTlsRefusal(exception) is { } tls
+            ? ("unavailable", "store_tls",
+                $"The store's TLS certificate was refused: it is not trusted on this machine or not issued for the host in store.uri ({tls.Message})")
+            : ClassifyOther(exception);
+
+    /// <summary>
+    /// A TLS handshake with the store that this machine refused (bolt+s:// or neo4j+s://), however the driver wraps it:
+    /// the system's <see cref="System.Security.Authentication.AuthenticationException"/> inside a driver exception. The
+    /// embedding endpoint's own TLS failures stay embedding failures.
+    /// </summary>
+    private static System.Security.Authentication.AuthenticationException? StoreTlsRefusal(Exception exception)
+    {
+        var fromTheDriver = false;
+        for (var e = exception; e is not null; e = e.InnerException)
+        {
+            if (e is HttpRequestException) return null;
+            if (e is global::Neo4j.Driver.Neo4jException) fromTheDriver = true;
+            if (e is System.Security.Authentication.AuthenticationException tls) return fromTheDriver ? tls : null;
+        }
+        return null;
+    }
+
+    private static (string Status, string Code, string Message) ClassifyOther(Exception exception) => exception switch
     {
         global::Neo4j.Driver.AuthenticationException => ("unavailable", "authentication", "The store refused the credentials."),
         global::Neo4j.Driver.ServiceUnavailableException or global::Neo4j.Driver.SessionExpiredException =>
@@ -221,6 +267,43 @@ internal sealed class NativeContext
         return AbiStatus.Ok;
     }
 
+    /// <summary>A job reached its terminal state: queued for am_v1_wait, unless it was released already.</summary>
+    private void MarkFinished(ulong jobHandle)
+    {
+        lock (_gate)
+        {
+            if (!_jobs.ContainsKey(jobHandle) || _finishedNodes.ContainsKey(jobHandle)) return;
+            _finishedNodes[jobHandle] = _finished.AddLast(jobHandle);
+            Monitor.PulseAll(_gate);
+        }
+    }
+
+    /// <summary>
+    /// ABI 1.1: the oldest finished job no wait has reported, waiting up to <paramref name="waitMs"/> for one. 0 when the
+    /// time passed with none, or when the context is closing (at once).
+    /// </summary>
+    public int Wait(uint waitMs, out ulong jobHandle)
+    {
+        jobHandle = 0;
+        var deadline = Environment.TickCount64 + waitMs;
+        lock (_gate)
+        {
+            while (true)
+            {
+                if (_finished.First is { } oldest)
+                {
+                    _finished.RemoveFirst();
+                    _finishedNodes.Remove(oldest.Value);
+                    jobHandle = oldest.Value;
+                    return AbiStatus.Ok;
+                }
+                var left = deadline - Environment.TickCount64;
+                if (_closing || left <= 0) return AbiStatus.Ok;
+                Monitor.Wait(_gate, (int)Math.Min(left, int.MaxValue));
+            }
+        }
+    }
+
     public int Cancel(ulong jobHandle)
     {
         NativeJob? job;
@@ -236,6 +319,7 @@ internal sealed class NativeContext
     {
         lock (_gate)
         {
+            if (_finishedNodes.Remove(jobHandle, out var node)) _finished.Remove(node);
             return _jobs.Remove(jobHandle) ? AbiStatus.Ok : AbiStatus.InvalidHandle;
         }
     }
@@ -279,6 +363,7 @@ internal sealed class NativeContext
                 _closing = true;
                 _stateRevision++;
                 _closingSignal.TrySetResult();
+                Monitor.PulseAll(_gate);   // a waiter returns at once
             }
             running = [.. _active];
         }

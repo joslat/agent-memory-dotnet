@@ -42,4 +42,14 @@ internal sealed class Neo4jSessionFactory : INeo4jSessionFactory
             .WithDatabase(database)
             .WithDefaultAccessMode(accessMode));
     }
+
+    /// <inheritdoc/>
+    public IAsyncSession OpenSingleStatementSession(AccessMode accessMode)
+    {
+        var database = StoreDatabaseNaming.Resolve(_storeOptions, _defaultDatabase, _storeContext.ApplicationId);
+        return _driverFactory.GetDriver().AsyncSession(c => c
+            .WithDatabase(database)
+            .WithDefaultAccessMode(accessMode)
+            .WithDisableAutoCommitRetries(true));
+    }
 }

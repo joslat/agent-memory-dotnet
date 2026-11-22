@@ -5,6 +5,7 @@ using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Neo4j.Queries;
+using AgentMemory.Core.Services;
 using Neo4j.Driver;
 
 namespace AgentMemory.Neo4j.Services;
@@ -18,22 +19,25 @@ namespace AgentMemory.Neo4j.Services;
 /// when non-destructive is disabled. When a <see cref="MemoryScope"/> with an owner is supplied (R1) the prune is
 /// owner-scoped (own nodes only — never another owner's, never shared/global); a null scope prunes globally (admin).
 /// </summary>
-internal sealed class Neo4jMemoryDecayService : IMemoryDecayService
+internal sealed class Neo4jMemoryDecayService : IMemoryDecayService, IMemoryReadRecorder
 {
     private readonly INeo4jTransactionRunner _tx;
     private readonly TimeProvider _clock;
     private readonly MemoryDecayOptions _options;
     private readonly ILogger<Neo4jMemoryDecayService> _logger;
     private readonly bool _workingMemoryEnabled;
+    private readonly IMemoryAccessTracker? _accessTracker;
 
     public Neo4jMemoryDecayService(
         INeo4jTransactionRunner tx,
         TimeProvider clock,
         IOptions<MemoryDecayOptions> options,
         ILogger<Neo4jMemoryDecayService> logger,
-        IOptions<MemoryOptions>? memoryOptions = null)
+        IOptions<MemoryOptions>? memoryOptions = null,
+        IMemoryAccessTracker? accessTracker = null)
     {
         _workingMemoryEnabled = memoryOptions?.Value.WorkingMemory.Enabled ?? false;
+        _accessTracker = accessTracker;
         _tx = tx ?? throw new ArgumentNullException(nameof(tx));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _options = (options ?? throw new ArgumentNullException(nameof(options))).Value;
@@ -52,6 +56,8 @@ internal sealed class Neo4jMemoryDecayService : IMemoryDecayService
     public async Task<int> PruneExpiredMemoriesAsync(
         MemoryScope? scope = null, CancellationToken cancellationToken = default)
     {
+        // DRT-5: a memory recalled a moment ago is not pruned on a count its queued read note has not raised yet.
+        if (_accessTracker is not null) await _accessTracker.FlushAsync(cancellationToken).ConfigureAwait(false);
         bool hasOwner = scope?.HasOwnerFilter == true;
         bool nonDestructive = _options.NonDestructive;
         double lambda = Math.Log(2) / _options.DecayHalfLifeDays;
@@ -177,10 +183,80 @@ internal sealed class Neo4jMemoryDecayService : IMemoryDecayService
         ArgumentNullException.ThrowIfNull(nodes);
         if (nodes.Count == 0) return;
 
-        // Group by kind (the label is interpolated into Cypher, so it cannot be a parameter) and
-        // de-duplicate ids within each group: UNWIND yields one row per element, so a repeated id would
-        // increment access_count twice and write two audit rows. The per-node form could not have this
-        // problem, so guarding here is not paranoia — it is preserving the previous semantics.
+        // Grouped by kind, each id once per kind (ByKind): the per-node form could not count an id twice, so guarding
+        // here is not paranoia — it is preserving the previous semantics.
+        var byKind = ByKind(nodes);
+
+        string now = _clock.GetUtcNow().ToString("O");
+
+        // A single transaction for every kind: the whole point is to stop paying per-node transaction
+        // and session overhead on the read path. It is also more atomic than the loop it replaces, which
+        // could partially fail across 25 independent transactions.
+        await _tx.WriteAsync(runner => WriteRecordAsync(runner, byKind, now), cancellationToken).ConfigureAwait(false);
+
+        _logger.LogDebug(
+            "Bumped access timestamps for {NodeCount} nodes across {KindCount} kinds in one transaction.",
+            byKind.Sum(kv => kv.Value.Count), byKind.Count);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// DRT-5 (way A of the read-records design): one write transaction, and in it, read after read in the order given,
+    /// the same statement <see cref="UpdateAccessTimestampsAsync"/> runs, with that read's own time. So the stored state
+    /// is exactly that of one write per read, by construction, and the statement text does not change. The driver sends
+    /// the statements without waiting for each, so the transaction costs about the round trips of one.
+    /// </remarks>
+    async Task<int> IMemoryReadRecorder.RecordReadsAsync(IReadOnlyList<MemoryRead> reads, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(reads);
+        var records = reads.Select(read => (ByKind: ByKind(read.Nodes), Now: Stamp(read.ReadAtUtc)))
+            .Where(record => record.ByKind.Count > 0).ToList();
+        if (records.Count == 0) return reads.Count;
+
+        try
+        {
+            await _tx.WriteAsync(async runner =>
+            {
+                foreach (var (byKind, now) in records) await WriteRecordAsync(runner, byKind, now).ConfigureAwait(false);
+            }, cancellationToken).ConfigureAwait(false);
+            _logger.LogDebug("Recorded {Reads} reads in one transaction.", records.Count);
+            return reads.Count;
+        }
+        catch (Exception ex) when (records.Count > 1 && !Unreachable(ex) && ex is not OperationCanceledException)
+        {
+            // A transaction is all or nothing, so writing the reads again cannot count one twice. Each on its own, once:
+            // never worse than one write per read, and one bad read does not take the others with it.
+            _logger.LogWarning(ex, "Recording {Reads} reads together failed; writing them one by one.", records.Count);
+            var failed = 0;
+            foreach (var (byKind, now) in records)
+            {
+                try
+                {
+                    await _tx.WriteAsync(runner => WriteRecordAsync(runner, byKind, now), cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception single) when (!Unreachable(single) && single is not OperationCanceledException)
+                {
+                    failed++;
+                    _logger.LogWarning(single, "A read record failed on its own as well; its {Count} item(s) are not recorded.",
+                        byKind.Sum(kv => kv.Value.Count));
+                }
+            }
+            return reads.Count - failed;
+        }
+    }
+
+    /// <summary>The driver has given up reaching the store; nothing written one by one would do better.</summary>
+    private static bool Unreachable(Exception ex) => ex is ServiceUnavailableException or SessionExpiredException;
+
+    private static string Stamp(DateTimeOffset at) => at.ToUniversalTime().ToString("O", System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// Groups one read's items by kind (the label is interpolated into Cypher, so it cannot be a parameter) and makes the
+    /// ids distinct within each kind: UNWIND yields one row per element, so a repeated id would increment access_count
+    /// twice and write two audit rows.
+    /// </summary>
+    private static Dictionary<MemoryNodeKind, HashSet<string>> ByKind(IEnumerable<(string NodeId, MemoryNodeKind NodeKind)> nodes)
+    {
         var byKind = new Dictionary<MemoryNodeKind, HashSet<string>>();
         foreach (var (nodeId, nodeKind) in nodes)
         {
@@ -192,26 +268,19 @@ internal sealed class Neo4jMemoryDecayService : IMemoryDecayService
                 byKind[nodeKind] = ids = new HashSet<string>(StringComparer.Ordinal);
             ids.Add(nodeId);
         }
+        return byKind;
+    }
 
-        string now = _clock.GetUtcNow().ToString("O");
-
-        // A single transaction for every kind: the whole point is to stop paying per-node transaction
-        // and session overhead on the read path. It is also more atomic than the loop it replaces, which
-        // could partially fail across 25 independent transactions.
-        await _tx.WriteAsync(async runner =>
+    /// <summary>One read's statements, one per kind, inside the caller's transaction.</summary>
+    private static async Task WriteRecordAsync(IAsyncQueryRunner runner, Dictionary<MemoryNodeKind, HashSet<string>> byKind, string now)
+    {
+        foreach (var (nodeKind, ids) in byKind)
         {
-            foreach (var (nodeKind, ids) in byKind)
-            {
-                var label = nodeKind.ToString(); // enum name == Neo4j label (Entity/Fact/Preference)
-                await runner.RunAsync(
-                    DecayQueries.UpdateAccessTimestampBatch(label),
-                    new { ids = ids.ToList(), kind = label, now }).ConfigureAwait(false);
-            }
-        }, cancellationToken).ConfigureAwait(false);
-
-        _logger.LogDebug(
-            "Bumped access timestamps for {NodeCount} nodes across {KindCount} kinds in one transaction.",
-            byKind.Sum(kv => kv.Value.Count), byKind.Count);
+            var label = nodeKind.ToString(); // enum name == Neo4j label (Entity/Fact/Preference)
+            await runner.RunAsync(
+                DecayQueries.UpdateAccessTimestampBatch(label),
+                new { ids = ids.ToList(), kind = label, now }).ConfigureAwait(false);
+        }
     }
 
     /// <summary>

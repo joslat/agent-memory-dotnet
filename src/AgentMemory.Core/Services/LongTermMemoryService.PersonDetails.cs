@@ -21,6 +21,14 @@ internal sealed partial class LongTermMemoryService
         return _factRepo.GetPersonNamesAsync(limit, resolved, cancellationToken);
     }
 
+    public Task<IReadOnlyList<RecalledItemEntity>> GetRecalledItemEntitiesAsync(IReadOnlyList<string> factIds,
+        IReadOnlyList<string> messageIds, MemoryScope? scope, CancellationToken cancellationToken = default)
+    {
+        var resolved = _isolationPolicy.ResolveReadScope(
+            scope, ownerId: null, nameof(GetRecalledItemEntitiesAsync), MemoryOperationAccess.Tenant);
+        return _factRepo.GetRecalledItemEntitiesAsync(factIds, messageIds, resolved, cancellationToken);
+    }
+
     public Task<IReadOnlyList<Fact>> GetPersonDetailsAsync(IReadOnlyList<string> personEntityIds,
         IReadOnlyCollection<string> excludeFactIds, int limit, MemoryScope? scope,
         CancellationToken cancellationToken = default)

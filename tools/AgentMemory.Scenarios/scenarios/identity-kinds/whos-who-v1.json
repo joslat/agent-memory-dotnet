@@ -1,0 +1,353 @@
+{
+  "name": "whos-who-v1",
+  "title": "Who's who and what's what: eleven weeks of chat about people, animals, places and things that share names",
+  "source": "Written for the Identity Kinds Benchmark, 16 November 2026. In the shape of Pablo Piovano's three-memories-one-question scenarios (MIT).",
+  "owner": "ines",
+  "ownerName": "Inés",
+  "assistantBrief": "You are the personal assistant of Inés, a product manager.",
+  "askedOn": "2026-12-04",
+  "sessions": [
+    {
+      "date": "2026-09-01",
+      "topic": "Home",
+      "messages": [
+        "Hi, I'm Inés. I work as a product manager at Brisa, a software studio in Rosario.",
+        "My dog Luna is a border collie, she is four years old.",
+        "My partner Marco walks Luna every morning.",
+        "My sister Clara has a cat that is also called Luna, a grey Persian.",
+        "My parents live in Córdoba, about four hours from here.",
+        "We have a family lake house in Villa Carlos Paz."
+      ]
+    },
+    {
+      "date": "2026-09-08",
+      "topic": "Work",
+      "messages": [
+        "At Brisa I lead a project called Atlas, we are migrating the billing system.",
+        "Valentina Ríos is the designer on Atlas.",
+        "The platform team owns the billing service.",
+        "Atlas goes live on 20 November.",
+        "Vale finished the new checkout mock-ups today.",
+        "I am writing the Q3 report for the board."
+      ]
+    },
+    {
+      "date": "2026-09-15",
+      "topic": "Family",
+      "messages": [
+        "My niece Valentina started school this year, she is six.",
+        "Valentina lost her first tooth yesterday.",
+        "My dog Luna had knee surgery in May with Dr. Sosa.",
+        "The vet wants to see her again in October.",
+        "Clara's Luna scratched the sofa again.",
+        "At home we call the kitchen renovation Atlas, because it never ends."
+      ]
+    },
+    {
+      "date": "2026-09-22",
+      "topic": "Places",
+      "messages": [
+        "We met Clara at Café Tortoni in Buenos Aires last weekend.",
+        "Café Tortoni closes at midnight.",
+        "There is another Café Tortoni here in Rosario, much smaller, it opens only in the morning.",
+        "The Tortoni in Buenos Aires has live tango on Fridays.",
+        "In May we are flying to Córdoba in Spain to see the mosque.",
+        "Córdoba is very hot in January, my parents complain every year."
+      ]
+    },
+    {
+      "date": "2026-10-06",
+      "topic": "Things",
+      "messages": [
+        "I bought a Kindle for the trip.",
+        "My mother has her own Kindle, an old one with buttons.",
+        "My Kindle's battery lasts three weeks.",
+        "My Corolla needs new tyres before the trip to the lake house.",
+        "The car passed its inspection.",
+        "I only buy jackets from Patagonia.",
+        "Next summer we want to travel through Patagonia by car.",
+        "Patagonia repairs its clothes for free."
+      ]
+    },
+    {
+      "date": "2026-10-20",
+      "topic": "Reading and plans",
+      "messages": [
+        "I am reading Dune, I am halfway through the book.",
+        "We watched Dune at the cinema, the new film is three hours long.",
+        "I lent Dune to Marco.",
+        "Marta's wedding is on 14 March.",
+        "The wedding will be in Bariloche.",
+        "I am the witness at Marta's wedding.",
+        "Marta works with me at Brisa."
+      ]
+    },
+    {
+      "date": "2026-11-03",
+      "topic": "Work again",
+      "messages": [
+        "Atlas is two weeks late, the platform team found a billing bug.",
+        "The renovation is finally done, Atlas at home is over.",
+        "Valentina moved to the Madrid office.",
+        "Brisa pays on the 25th.",
+        "The Q3 report is due on Friday.",
+        "Finance has its own Q3 report, a separate one.",
+        "Luna is now allowed to run again.",
+        "Lunita turns five in December.",
+        "The platform team is hiring two engineers."
+      ]
+    },
+    {
+      "date": "2026-11-17",
+      "topic": "Loose ends",
+      "messages": [
+        "Dr. Sosa moved his clinic to Oroño street.",
+        "Brisa is called Brisa Labs now.",
+        "Brisa Labs opened an office in Madrid.",
+        "My parents sold their house in Córdoba and moved to the lake house.",
+        "Vale and I presented Atlas to the client.",
+        "My niece wants a dog like Luna."
+      ]
+    }
+  ],
+  "questions": [
+    {
+      "id": "dog",
+      "kind": "Two animals share a name",
+      "text": "How old is my dog, and what happened to her knee?",
+      "needs": [
+        {
+          "fact": "the dog is four, five in December",
+          "mentions": [
+            [
+              "four",
+              "4",
+              "five",
+              "5"
+            ]
+          ]
+        },
+        {
+          "fact": "she had knee surgery",
+          "mentions": [
+            [
+              "surgery",
+              "operation"
+            ]
+          ]
+        }
+      ],
+      "mustNot": [
+        {
+          "mentions": [
+            [
+              "Persian"
+            ]
+          ]
+        },
+        {
+          "mentions": [
+            [
+              "sofa"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "niece",
+      "kind": "Two people share a name",
+      "text": "What is new with my niece?",
+      "needs": [
+        {
+          "fact": "she started school",
+          "mentions": [
+            [
+              "school"
+            ]
+          ]
+        },
+        {
+          "fact": "she lost her first tooth",
+          "mentions": [
+            [
+              "tooth"
+            ]
+          ]
+        }
+      ],
+      "mustNot": [
+        {
+          "mentions": [
+            [
+              "Madrid"
+            ]
+          ]
+        },
+        {
+          "mentions": [
+            [
+              "mock-ups",
+              "mockups"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "vale",
+      "kind": "A nickname, and a fact only earlier facts can place",
+      "text": "What has Vale been working on, and where is she now?",
+      "needs": [
+        {
+          "fact": "the checkout mock-ups",
+          "mentions": [
+            [
+              "mock-ups",
+              "mockups",
+              "checkout"
+            ]
+          ]
+        },
+        {
+          "fact": "she moved to the Madrid office",
+          "mentions": [
+            [
+              "Madrid"
+            ]
+          ]
+        }
+      ],
+      "mustNot": [
+        {
+          "mentions": [
+            [
+              "tooth"
+            ]
+          ]
+        },
+        {
+          "mentions": [
+            [
+              "school"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tortoni",
+      "kind": "A short name and a second place with the same name",
+      "text": "When does the Tortoni in Buenos Aires close, and what happens there on Fridays?",
+      "needs": [
+        {
+          "fact": "it closes at midnight",
+          "mentions": [
+            [
+              "midnight"
+            ]
+          ]
+        },
+        {
+          "fact": "live tango on Fridays",
+          "mentions": [
+            [
+              "tango"
+            ]
+          ]
+        }
+      ],
+      "mustNot": [
+        {
+          "mentions": [
+            [
+              "only in the morning"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cordoba",
+      "kind": "Two cities share a name",
+      "text": "Where did my parents move to, and which Córdoba am I flying to in May?",
+      "needs": [
+        {
+          "fact": "they moved to the lake house",
+          "mentions": [
+            [
+              "lake house"
+            ]
+          ]
+        },
+        {
+          "fact": "Córdoba in Spain",
+          "mentions": [
+            [
+              "Spain"
+            ]
+          ]
+        }
+      ],
+      "mustNot": []
+    },
+    {
+      "id": "atlas",
+      "kind": "Two projects share a name",
+      "text": "Is Atlas at work on time, and when does it go live?",
+      "needs": [
+        {
+          "fact": "it is two weeks late",
+          "mentions": [
+            [
+              "two weeks late",
+              "late"
+            ]
+          ]
+        },
+        {
+          "fact": "it goes live on 20 November",
+          "mentions": [
+            [
+              "20 November",
+              "November 20"
+            ]
+          ]
+        }
+      ],
+      "mustNot": [
+        {
+          "mentions": [
+            [
+              "renovation is finally done"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "brisa",
+      "kind": "A renamed company",
+      "text": "What is my company called now, and where did it open an office?",
+      "needs": [
+        {
+          "fact": "it is called Brisa Labs",
+          "mentions": [
+            [
+              "Brisa Labs"
+            ]
+          ]
+        },
+        {
+          "fact": "it opened an office in Madrid",
+          "mentions": [
+            [
+              "Madrid"
+            ]
+          ]
+        }
+      ],
+      "mustNot": []
+    }
+  ]
+}

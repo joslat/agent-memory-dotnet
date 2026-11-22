@@ -27,8 +27,140 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (earlier turns of the session, read and never kept from), and turns that cannot carry a fact cost no model call.
   Defaults keep every existing configuration and request behaving as before.
 
+- Native library on four platforms: linux-x64, linux-arm64, osx-arm64 and win-x64 each pass the read gate against a
+  seeded store (the graph unchanged after it) and the write gate on their own runner. On Windows the state directory
+  is now private: an access list for the creating user and SYSTEM only, not inherited from its parent and inherited
+  by the journal (the counterpart of mode 0700 and 0600 on Unix). A store certificate the system refuses fails open
+  as `unavailable` with the new code `store_tls`.
+
+- Recall can follow a relation the question names, one hop: `RecallOptions.MaxConnectionFacts` (off at 0, the
+  default; up to 32). "Where does my sister live?" recalls "Anna | sister of | user" by similarity; with the option on,
+  Anna's own live facts come too ("Anna | lives in | Madrid", which shares no word with the question). A connection has
+  the owner on one side and a short name on the other, and a word of its predicate in the question; at most three are
+  followed, one read each; no model call. Found by the speech gate (B26).
+
+- `ISchemaInspector` (AgentMemory.Neo4j, registered by `AddNeo4jAgentMemory`) reads, without changing anything,
+  what a store holds of the schema: the bootstrap's constraints and indexes present and missing, and each vector
+  index's dimensions, the comparison `schema-check` makes. The native library's new `admin` profile uses it:
+  `schema_status` and `schema_bootstrap` (the managed bootstrap with its migrations) prepare a store from Python, or
+  any binding, with no .NET.
+
+- Native library ABI 1.1 (additive; a 1.0 binding keeps working): `am_v1_wait` reports each finished job of a context
+  once, so a binding runs one waiter per context instead of one blocked thread per job in flight; released jobs are
+  never reported and closing wakes the waiter. `capabilities_get` names the context's `features`. The Python binding
+  gains `MemoryClient.wait_any()`.
+
+- Start-up on an existing store is faster: the schema bootstrap lists the constraints and indexes the store has (one
+  read) and sends only the statements whose object is missing, and the migration runner reads which scripts are applied
+  once instead of once per script. Every statement is `IF NOT EXISTS`, so the result is the same. Measured (PERF-D-03,
+  the store 20 ms away): 280 round trips to 33, 6.1 s to 0.7 s; locally 252 ms to 41 ms. A listing that fails runs
+  every statement as before; `Neo4jOptions.BootstrapOnlyMissingSchema = false` is the previous path exactly.
+
+- Every save is faster: the profile block's rebuild starts its six independent reads together instead of one after
+  another (outside a write unit only; inside one, whose single transaction runs one statement at a time, they keep
+  their order). Measured with the store 20 ms away: a fact through the API waits for 16.7 round trips instead of 32.8
+  (735 ms to 381 ms), a stored turn 23.2 instead of 39.7 (896 ms to 552 ms). `WorkingMemoryOptions.ReadTogether =
+  false` is the previous path; `INeo4jTransactionRunner.InWriteUnit` (default `null`, read as "in order") tells the
+  service whether reads may start together.
+
+- Recall is faster: the profile block's point-read starts beside the searches instead of after them. Measured with the
+  store 20 ms away: recall at the defaults waits for 7.6 round trips instead of 11.5 (267 ms to 183 ms), locally
+  31 ms to 25 ms. The AppContext switch `AgentMemory.Recall.ProfileBlockAfterSearches` restores the previous order.
+
+- A pooled Neo4j connection unused for two minutes is now tested before it is used
+  (`Neo4jOptions.ConnectionLivenessCheckTimeout`, new default 2 minutes; null for the driver's own default), so the
+  first call after a quiet spell opens a new connection instead of failing after 30 seconds on one a firewall or the
+  server dropped. `Neo4jOptions.ConnectionIdleTimeout` (not set by default) closes connections idle for longer.
+
+- Where entities are listed for the prompt, each line is shown once: the profile block's key entities, the recalled
+  entities in the Agent Framework messages and the Markdown context, and the Semantic Kernel text search. A thing
+  stored as several entities (a dog, a café or a town named in three turns) said "Luna (OBJECT)" three times; a
+  namesake of another type, or with another description, keeps its own line. The profile block gives the freed places
+  to the next entities. What recall returns is unchanged, and so is a block with no repeated line.
+
+- The read-note queue (`MemoryOptions.UseAccessTrackingQueue`, on in the Conversational preset) keeps up with a busy
+  service: it writes everything waiting, up to 64 recalls, in one transaction per store, so with the store 20 ms away
+  100 recalls' notes take 0.39 s instead of 9.0 s (about 255 recalls a second instead of 11). Each note carries the
+  time of its read, not of its write. `IMemoryAccessTracker.FlushAsync` waits until everything tracked so far is
+  written, for a host that ends or freezes between requests; the history service and the decay job call it before
+  they read. The AppContext switch `AgentMemory.AccessTracking.OneWritePerRecall` restores one write per recall. The
+  library default is unchanged.
+
+- A recall after a pause of more than 30 seconds no longer waits for the owner's fact count before its fact search.
+  The count, which decides whether the owner's facts are scanned or searched through the index, is answered from the
+  cache for up to 10 minutes and counted again in the background. With the store 20 ms away a recall after a pause
+  waits 7.3 round trips instead of 11.5 (186 ms instead of 270 ms), as much as recalls back to back. Inside a write
+  unit, or after 10 minutes, it is counted first as before; the AppContext switch
+  `AgentMemory.Recall.OwnerCountsInLine` restores the previous order.
+
+- A turn's messages are saved in one call. The Agent Framework provider stores the user's words and the reply together,
+  with one embedder request and one write, instead of one of each per message: with the store 20 ms away a stored
+  turn waits 19.1 round trips instead of 23.2 (457 ms instead of 552 ms), and a six-message tool-heavy turn 19.3
+  instead of 42.8 (459 ms instead of 1,033 ms), with 2 embedder requests instead of 8. Ids, roles and which messages
+  are kept are as before; times rise by a millisecond per message. A turn that cannot be stored in one call (an
+  embedder that returns no vector for a message) is stored message by message, as before. The AppContext switch
+  `AgentMemory.Store.OneCallPerMessage` restores one call per message.
+
+- A recall that fans out (`MemoryOptions.FanOut`, on in the Conversational preset) sends its sub-questions' searches
+  together, at most eight at once, and merges their results in the same order as before. With the store 20 ms away a
+  two-part question waits 15.6 round trips instead of 27.7 (350 ms instead of 613 ms). A failing search no longer
+  stops the others from being sent; the first failure in the sub-questions' order is still the one thrown. The
+  AppContext switch `AgentMemory.Recall.FanOutSearchesInTurn` restores one search at a time.
+
+- `RecallOptions.NamesakeFilter` keeps a namesake's facts and messages out of recall. "How old is my dog?" no longer
+  brings the facts of the sister's cat, also called Luna; "What is new with my niece?" no longer brings the designer
+  Valentina's move to Madrid. When the recalled items are about two entities that share a name, and the question picks
+  out one of them by a relation it names ("my dog") or a spelling only that one has ("Vale"), the items about a
+  namesake known as something else are dropped. What an entity is known as comes from its description, its own facts
+  and its source messages ("my sister's cat is also called Luna"). A namesake with no known role is kept, and so is an
+  item also about the one meant. One bounded read, and only when on: off by default, since the presets are frozen for
+  the major version.
+
+- A read of one statement is sent without a transaction of its own: two round trips to the store instead of four
+  (begin, the statement, commit and reset). It covers the reads of recall (the similarity searches and the reads that
+  widen them, recent messages, the profile block, due facts and the look-ahead, person and event details,
+  relationships), recall as of a moment, the profile block's rebuild, and the duplicate check before a fact or a
+  preference is saved: 41 reads, each sending one statement, which a test counts on a real store. Retries are a
+  managed read's: a retriable failure is tried again with waits from 1 s, doubling, within
+  `Neo4jOptions.MaxTransactionRetryTime` (30 s by default), counted in `db.attempts`; the driver's own one-shot retry
+  of such a query is turned off on these sessions so the two do not add up. Inside a write unit the read still runs
+  on the unit's transaction. `Neo4jOptions.SingleStatementReads = false` sends them as managed transactions, as
+  before. A runner decorator can forward the path by implementing the new `INeo4jSingleStatementReader`; one that
+  does not keeps its own `ReadAsync`.
+
 ### Fixed
 
+- With identity on and the Conversational preset's identity policies, a store-aware writer's reference to a stored
+  person no longer merges a namesake the turn itself describes differently. "My niece Valentina started school" was
+  confirmed into the stored designer Valentina Ríos: the quote was in the turn and she was the only Valentina. Now,
+  when the turn ties the mention to a relation or role ("my niece", "Valentina, my niece", "Valentina is my niece") and
+  the stored person is known by a different one, the reference is refused like any other unsupported reference, and the
+  mention stays for review. The stored person's role comes from their description, aliases and subtype, and from their
+  own live facts saying what they are ("is the designer on Atlas", "the user has niece …"), which the identity
+  candidate read now loads (at most 16 a candidate; the new `IdentityCandidate.KnownAs`). When neither side names a
+  relation, nothing changes.
+- Without identity, recall's connections around a question's names still showed a forgotten entity's connections
+  (one invalidated, as the maintenance tool does) and a merged one's. Both ends must now be live, as the identity read
+  already required.
+- With identity on (`identity-evidence`), a corrected name (`RenameOnCorrectedName`, on in the Conversational and
+  Recommended presets) merged the old person into the new one without their identity bindings or kept names. Facts
+  bound to the person under another name, such as a nickname, then dropped out of person details, and that name
+  stopped being anyone's, so another person known by it could be expanded as the only one. Every connection identity
+  had observed for the person stayed with the old entity too, so the survivor had none in recall. The merge now moves
+  the bindings and decisions in scope with the facts and keeps every name the merged person was known by on the
+  survivor.
+- A hard delete of a fact (`IFactRepository.DeleteAsync`) or a destructive prune (`MemoryDecayOptions.NonDestructive =
+  false`) left the fact's identity binding behind, with the name the fact used and its source message ids, and kept
+  the person confirmed. The binding is now deleted with its fact, and a pruned person's bindings with them.
+- Identity stored the creation time of each person it created as text. The decay prune, soft or hard, then failed
+  for the whole store with a type error, and recall as of a moment and the change windows skipped those people. New
+  ones are stored with a datetime, and the prune also reads the text times already stored. To convert existing ones:
+  `MATCH (e:Entity) WHERE e.created_at IS :: STRING SET e.created_at = datetime(e.created_at)`.
+- A `neo4j+s://` or `bolt+s://` store address (the form Neo4j Aura gives, and the one `docs/getting-started.md`
+  shows) could not be used: the driver factory added its own encryption setting beside the scheme's, and the driver
+  refused the pair ("The encryption and trust settings cannot both be set via uri scheme and driver configuration").
+  A scheme with `+s` or `+ssc` now carries its own encryption and trust; `Neo4jOptions.EncryptionEnabled` applies to
+  plain `bolt://` and `neo4j://` only. Found by the native gate's TLS tier.
 - A signed pack now refuses a change to any one of its bits. Every reader (.NET, the Rust reader behind the npm and crates
   packages, and the Python verifier) took any "version made by" from 0 to 63 in a zip entry, so six bits per entry could
   change and the pack still verified (no content, name or signature changed). R-CORE-016 now pins it to 20 (0x0014: MS-DOS,
@@ -72,6 +204,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   replacement could be written as the event ("Anna | moved to | Madrid last month"), which closed the old value but no
   longer answered the question the old value answered ("where does my sister live?"). Applies to every host using the
   writer, the Recommended preset included.
+- The `agentmemory-native` PyPI release publishes a wheel for each of the four platforms (Linux x86-64 and ARM64 with
+  glibc 2.34, macOS on Apple silicon, Windows x64) instead of Linux x86-64 alone. The publish workflow calls the
+  four-platform workflow, so the wheels uploaded are the ones that passed every platform's gate, installed; it then checks
+  that there are exactly four, one per platform, all of the source's version, before the reviewer's approval.
 
 ### Added
 

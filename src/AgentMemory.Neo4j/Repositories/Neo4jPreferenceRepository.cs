@@ -46,7 +46,7 @@ internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository,
         MemoryScope scope,
         bool includeShared,
         CancellationToken cancellationToken) =>
-        await _tx.ReadAsync(async runner =>
+        await _tx.ReadSingleAsync(async runner =>
         {
             var cursor = await runner.RunAsync(
                 PreferenceQueries.SearchByVectorOwnerScopedFallback(includeShared),
@@ -287,7 +287,7 @@ internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository,
             if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
             if (recencyRerank) RerankParameters.Add(parameters, ranking, _decay, _clock.GetUtcNow());
 
-            return await _tx.ReadAsync(async runner =>
+            return await _tx.ReadSingleAsync(async runner =>
             {
                 var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
                 var records = await cursor.ToListAsync().ConfigureAwait(false);
@@ -434,7 +434,7 @@ internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository,
         };
         if (!ownerIsShared) parameters["ownerId"] = ownerId;
 
-        return await _tx.ReadAsync(async runner =>
+        return await _tx.ReadSingleAsync(async runner =>
         {
             var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
@@ -654,7 +654,7 @@ internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository,
         };
         if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
 
-        var results = await _tx.ReadAsync(async runner =>
+        var results = await _tx.ReadSingleAsync(async runner =>
         {
             var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
@@ -685,7 +685,7 @@ internal sealed partial class Neo4jPreferenceRepository : IPreferenceRepository,
     {
         if (!_skipEscalationWhenOwnerHasNoRows || scope?.OwnerId is null) return true;
 
-        var present = await _tx.ReadAsync(async runner =>
+        var present = await _tx.ReadSingleAsync(async runner =>
         {
             var cursor = await runner.RunAsync(
                 OwnerRowExistence.Any("Preference", includeShared),

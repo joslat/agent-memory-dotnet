@@ -33,7 +33,7 @@ internal sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
         bool? successFilter,
         bool? proceduresOnly,
         CancellationToken cancellationToken) =>
-        await _tx.ReadAsync(async runner =>
+        await _tx.ReadSingleAsync(async runner =>
         {
             var parameters = new Dictionary<string, object?>
             {
@@ -270,7 +270,7 @@ internal sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
             if (successFilter.HasValue) parameters["successFilter"] = successFilter.Value;
             if (hasOwner) parameters["ownerId"] = scope!.OwnerId!;
 
-            return await _tx.ReadAsync(async runner =>
+            return await _tx.ReadSingleAsync(async runner =>
             {
                 var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
                 var records = await cursor.ToListAsync().ConfigureAwait(false);
@@ -390,7 +390,7 @@ internal sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
         if (successFilter.HasValue) parameters["successFilter"] = successFilter.Value;
         if (hasOwner) parameters["ownerId"] = scope!.OwnerId!;
 
-        var results = await _tx.ReadAsync(async runner =>
+        var results = await _tx.ReadSingleAsync(async runner =>
         {
             var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
@@ -608,7 +608,7 @@ internal sealed class Neo4jReasoningTraceRepository : IReasoningTraceRepository
     {
         if (!_skipEscalationWhenOwnerHasNoRows || scope?.OwnerId is null) return true;
 
-        var present = await _tx.ReadAsync(async runner =>
+        var present = await _tx.ReadSingleAsync(async runner =>
         {
             var cursor = await runner.RunAsync(
                 OwnerRowExistence.Any("ReasoningTrace", includeShared),

@@ -1,5 +1,8 @@
 using System.Buffers;
+using System.Runtime.Versioning;
+using System.Security.AccessControl;
 using System.Security.Cryptography;
+using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -211,8 +214,24 @@ internal sealed class OperationJournal : IDisposable
     private static void CreatePrivateDirectory(string directory)
     {
         if (Directory.Exists(directory)) return;
-        if (OperatingSystem.IsWindows()) Directory.CreateDirectory(directory);
+        if (OperatingSystem.IsWindows()) CreatePrivateDirectoryOnWindows(directory);
         else Directory.CreateDirectory(directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+    }
+
+    /// <summary>
+    /// The Windows counterpart of mode 0700: an access list that grants full control to the creating user and to SYSTEM
+    /// (the counterpart of root) only, inherits nothing from the parent, and is inherited by every file created inside,
+    /// the journal and its lock among them. Missing parents are created as ordinary folders, as on Unix.
+    /// </summary>
+    [SupportedOSPlatform("windows")]
+    private static void CreatePrivateDirectoryOnWindows(string directory)
+    {
+        var full = Path.GetFullPath(directory);
+        if (Path.GetDirectoryName(full) is { } parent) Directory.CreateDirectory(parent);
+        using var identity = WindowsIdentity.GetCurrent();
+        var security = new DirectorySecurity();
+        security.SetSecurityDescriptorSddlForm($"D:P(A;OICI;FA;;;{identity.User!.Value})(A;OICI;FA;;;SY)", AccessControlSections.Access);
+        security.CreateDirectory(full);
     }
 
     private void Load(string owner)

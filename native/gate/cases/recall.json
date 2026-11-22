@@ -1,0 +1,1256 @@
+{
+  "format": "native/gate/cases/FORMAT.md",
+  "description": "Tier B: recall on the seeded store (native/gate/seed/seed.cs).",
+  "cases": [
+    {
+      "id": "recall.owned-recall-decodes-facts-preferences-and-metadata",
+      "tier": "B",
+      "source": "native/gate/tests/test_gate.py::Test3Recall::test_owned_recall_decodes_facts_preferences_and_metadata",
+      "steps": [
+        {
+          "open": {
+            "config": {
+              "$config": "read"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "s1",
+              "maxFacts": 5,
+              "maxPreferences": 5,
+              "queryVector": {
+                "$vector": "near_axis_0"
+              },
+              "minScore": 0.0,
+              "requestId": "r-1"
+            }
+          },
+          "expect": {
+            "status": "ok",
+            "requestId": "r-1",
+            "$ids": [
+              "gate-fact-a-colour",
+              "gate-fact-a-work",
+              "gate-pref-a-concise"
+            ],
+            "/facts/0/id": "gate-fact-a-work",
+            "/facts/0/object": "Zurich",
+            "/facts/0/metadata": {
+              "$len": 0
+            },
+            "/facts/1/id": "gate-fact-a-colour",
+            "/facts/1/metadata": {
+              "trust_level": "verified",
+              "source": "gate-seed",
+              "count": 3,
+              "ratio": 2.5,
+              "flags": [
+                true,
+                null,
+                "x"
+              ],
+              "nested": {
+                "depth": 2,
+                "label": "Zürich ✓"
+              }
+            },
+            "/preferences/0/metadata": {
+              "source": "gate-seed"
+            }
+          }
+        },
+        {
+          "close": {},
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "recall.fixed-owner-contexts-see-only-their-owner",
+      "tier": "B",
+      "source": "native/gate/tests/test_gate.py::Test3Recall::test_fixed_owner_contexts_see_only_their_owner",
+      "steps": [
+        {
+          "open": {
+            "config": {
+              "$config": "read"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "s",
+              "maxFacts": 5,
+              "maxPreferences": 5,
+              "queryVector": {
+                "$vector": "near_axis_0"
+              },
+              "minScore": 0.0
+            }
+          },
+          "expect": {
+            "$ids": [
+              "gate-fact-a-colour",
+              "gate-fact-a-work",
+              "gate-pref-a-concise"
+            ]
+          }
+        },
+        {
+          "close": {},
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "open": {
+            "config": {
+              "$config": "read",
+              "$with": {
+                "owner": {
+                  "mode": "fixed",
+                  "id": "gate-owner-b"
+                }
+              }
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "s",
+              "maxFacts": 5,
+              "maxPreferences": 5,
+              "queryVector": {
+                "$vector": "near_axis_0"
+              },
+              "minScore": 0.0
+            }
+          },
+          "expect": {
+            "$ids": [
+              "gate-fact-b-work",
+              "gate-pref-b-detail"
+            ]
+          }
+        },
+        {
+          "close": {},
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "recall.per-request-owner",
+      "tier": "B",
+      "source": "native/gate/tests/test_gate.py::Test3Recall::test_per_request_owner",
+      "steps": [
+        {
+          "open": {
+            "config": {
+              "$config": "read",
+              "$with": {
+                "owner": {
+                  "mode": "per_request"
+                }
+              }
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "s",
+              "maxFacts": 5,
+              "maxPreferences": 5,
+              "owner": "gate-owner-b",
+              "queryVector": {
+                "$vector": "near_axis_0"
+              },
+              "minScore": 0.0
+            }
+          },
+          "expect": {
+            "$ids": [
+              "gate-fact-b-work",
+              "gate-pref-b-detail"
+            ]
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "s",
+              "maxFacts": 5,
+              "maxPreferences": 5,
+              "owner": "gate-owner-nobody",
+              "queryVector": {
+                "$vector": "near_axis_0"
+              },
+              "minScore": 0.0
+            }
+          },
+          "expect": {
+            "status": "ok",
+            "$ids": []
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "s",
+              "maxFacts": 5,
+              "maxPreferences": 5,
+              "queryVector": {
+                "$vector": "near_axis_0"
+              }
+            }
+          },
+          "expect": {
+            "status": "invalid",
+            "error": {
+              "code": "owner_required"
+            }
+          }
+        },
+        {
+          "close": {},
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "recall.fixed-owner-refuses-a-request-that-names-an-owner",
+      "tier": "B",
+      "source": "native/gate/tests/test_gate.py::Test3Recall::test_fixed_owner_refuses_a_request_that_names_an_owner",
+      "steps": [
+        {
+          "open": {
+            "config": {
+              "$config": "read"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "s",
+              "maxFacts": 5,
+              "maxPreferences": 5,
+              "owner": "gate-owner-b",
+              "queryVector": {
+                "$vector": "near_axis_0"
+              }
+            }
+          },
+          "expect": {
+            "status": "invalid",
+            "error": {
+              "code": "owner_not_allowed"
+            },
+            "$ids": []
+          }
+        },
+        {
+          "close": {},
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "recall.min-score-and-limits-apply",
+      "tier": "B",
+      "source": "native/gate/tests/test_gate.py::Test3Recall::test_min_score_and_limits_apply",
+      "steps": [
+        {
+          "open": {
+            "config": {
+              "$config": "read"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "s",
+              "maxFacts": 5,
+              "maxPreferences": 0,
+              "queryVector": {
+                "$vector": "near_axis_0"
+              },
+              "minScore": 0.9
+            }
+          },
+          "expect": {
+            "$ids": [
+              "gate-fact-a-work"
+            ]
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "s",
+              "maxFacts": 1,
+              "maxPreferences": 0,
+              "queryVector": {
+                "$vector": "near_axis_0"
+              },
+              "minScore": 0.0
+            }
+          },
+          "expect": {
+            "$ids": [
+              "gate-fact-a-work"
+            ]
+          }
+        },
+        {
+          "close": {},
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "recall.extra-sections-are-off-unless-asked",
+      "tier": "B",
+      "source": "native/gate/tests/test_gate.py::Test3Recall::test_extra_sections_are_off_unless_asked_and_answer_when_asked",
+      "steps": [
+        {
+          "open": {
+            "config": {
+              "$config": "read"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "s",
+              "maxFacts": 5,
+              "maxPreferences": 5,
+              "queryVector": {
+                "$vector": "near_axis_0"
+              },
+              "minScore": 0.0
+            }
+          },
+          "expect": {
+            "$ids": [
+              "gate-fact-a-colour",
+              "gate-fact-a-work",
+              "gate-pref-a-concise"
+            ],
+            "windowFacts": [],
+            "messages": [],
+            "entities": [],
+            "relationships": []
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "s",
+              "maxFacts": 5,
+              "maxPreferences": 5,
+              "queryVector": {
+                "$vector": "near_axis_0"
+              },
+              "minScore": 0.0,
+              "maxMessages": 5,
+              "maxEntities": 10,
+              "maxRelationships": 10,
+              "timeWindows": true
+            }
+          },
+          "expect": {
+            "status": "ok",
+            "$ids": [
+              "gate-fact-a-colour",
+              "gate-fact-a-work",
+              "gate-pref-a-concise"
+            ]
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "s",
+              "maxFacts": 5,
+              "maxPreferences": 5,
+              "queryVector": {
+                "$vector": "near_axis_0"
+              },
+              "maxMessages": 21
+            }
+          },
+          "expect": {
+            "status": "invalid",
+            "error": {
+              "code": "invalid_value"
+            }
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "s",
+              "maxFacts": 5,
+              "maxPreferences": 5,
+              "queryVector": {
+                "$vector": "near_axis_0"
+              },
+              "timeWindows": "yes"
+            }
+          },
+          "expect": {
+            "status": "invalid",
+            "error": {
+              "code": "invalid_value"
+            }
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "s",
+              "maxFacts": 5,
+              "maxPreferences": 5,
+              "queryVector": {
+                "$vector": "near_axis_0"
+              },
+              "details": true
+            }
+          },
+          "expect": {
+            "status": "invalid",
+            "error": {
+              "code": "unknown_property"
+            }
+          }
+        },
+        {
+          "close": {},
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "recall.open-close-open-repeatedly",
+      "tier": "B",
+      "source": "native/gate/tests/test_gate.py::Test2Open::test_open_close_open_repeatedly",
+      "steps": [
+        {
+          "open": {
+            "config": {
+              "$config": "read"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "loop",
+              "maxFacts": 5,
+              "maxPreferences": 5,
+              "queryVector": {
+                "$vector": "near_axis_0"
+              },
+              "minScore": 0.0
+            }
+          },
+          "expect": {
+            "status": "ok"
+          }
+        },
+        {
+          "close": {},
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "open": {
+            "config": {
+              "$config": "read"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "loop",
+              "maxFacts": 5,
+              "maxPreferences": 5,
+              "queryVector": {
+                "$vector": "near_axis_0"
+              },
+              "minScore": 0.0
+            }
+          },
+          "expect": {
+            "status": "ok"
+          }
+        },
+        {
+          "close": {},
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "open": {
+            "config": {
+              "$config": "read"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "loop",
+              "maxFacts": 5,
+              "maxPreferences": 5,
+              "queryVector": {
+                "$vector": "near_axis_0"
+              },
+              "minScore": 0.0
+            }
+          },
+          "expect": {
+            "status": "ok"
+          }
+        },
+        {
+          "close": {},
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "open": {
+            "config": {
+              "$config": "read"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "loop",
+              "maxFacts": 5,
+              "maxPreferences": 5,
+              "queryVector": {
+                "$vector": "near_axis_0"
+              },
+              "minScore": 0.0
+            }
+          },
+          "expect": {
+            "status": "ok"
+          }
+        },
+        {
+          "close": {},
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "open": {
+            "config": {
+              "$config": "read"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "loop",
+              "maxFacts": 5,
+              "maxPreferences": 5,
+              "queryVector": {
+                "$vector": "near_axis_0"
+              },
+              "minScore": 0.0
+            }
+          },
+          "expect": {
+            "status": "ok"
+          }
+        },
+        {
+          "close": {},
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "lifecycle.timeout-retires-the-result",
+      "tier": "B",
+      "source": "native/gate/tests/test_gate.py::Test5Lifecycle::test_timeout_retires_the_result",
+      "note": "1 ms is shorter than a recall almost everywhere; a fast runner can finish one in time, so it is tried until one runs out.",
+      "steps": [
+        {
+          "open": {
+            "config": {
+              "$config": "read"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "repeat": {
+            "times": 50,
+            "step": {
+              "call": {
+                "request": {
+                  "schemaVersion": 1,
+                  "operation": "memory_get_context",
+                  "sessionId": "s",
+                  "maxFacts": 5,
+                  "maxPreferences": 5,
+                  "queryVector": {
+                    "$vector": "near_axis_0"
+                  }
+                },
+                "timeoutMs": 1
+              }
+            },
+            "until": {
+              "status": {
+                "$not": "ok"
+              }
+            }
+          },
+          "expect": {
+            "status": "timeout",
+            "error": {
+              "code": "timeout"
+            }
+          }
+        },
+        {
+          "close": {},
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "lifecycle.cancel-then-release-then-the-handle-is-dead",
+      "tier": "B",
+      "source": "native/gate/tests/test_gate.py::Test5Lifecycle::test_cancel_then_release_then_the_handle_is_dead",
+      "steps": [
+        {
+          "open": {
+            "config": {
+              "$config": "read"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "submit": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "s",
+              "maxFacts": 5,
+              "maxPreferences": 5,
+              "queryVector": {
+                "$vector": "near_axis_0"
+              }
+            },
+            "timeoutMs": 5000
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "cancel": {},
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "await": {},
+          "expect": {
+            "status": {
+              "$oneOf": [
+                "cancelled",
+                "ok"
+              ]
+            }
+          }
+        },
+        {
+          "release": {},
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "poll": {},
+          "expect": {
+            "status": "INVALID_HANDLE"
+          }
+        },
+        {
+          "close": {},
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "lifecycle.overload-is-refused-at-submit-and-capacity-returns",
+      "tier": "B",
+      "source": "native/gate/tests/test_gate.py::Test5Lifecycle::test_overload_is_refused_at_submit_and_capacity_returns",
+      "steps": [
+        {
+          "open": {
+            "config": {
+              "$config": "read",
+              "$with": {
+                "limits": {
+                  "maxRunningJobs": 1,
+                  "maxPendingJobs": 2
+                }
+              }
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "submitMany": {
+            "count": 20,
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "s",
+              "maxFacts": 5,
+              "maxPreferences": 5,
+              "queryVector": {
+                "$vector": "near_axis_0"
+              }
+            },
+            "timeoutMs": 5000
+          },
+          "expect": {
+            "refused": {
+              "OVERLOADED": {
+                "$gt": 0
+              }
+            }
+          }
+        },
+        {
+          "awaitAll": {},
+          "expect": {
+            "results": {
+              "$all": {
+                "status": "ok"
+              }
+            }
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "s",
+              "maxFacts": 5,
+              "maxPreferences": 5,
+              "queryVector": {
+                "$vector": "near_axis_0"
+              }
+            }
+          },
+          "expect": {
+            "status": "ok"
+          }
+        },
+        {
+          "close": {},
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "waiter.32-recalls-complete-through-one-waiter",
+      "tier": "B",
+      "source": "native/gate/tests/test_gate.py::Test5Waiter::test_32_jobs_complete_through_one_waiter",
+      "steps": [
+        {
+          "open": {
+            "config": {
+              "$config": "read"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "submitMany": {
+            "count": 32,
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "w",
+              "maxFacts": 5,
+              "maxPreferences": 5,
+              "queryVector": {
+                "$vector": "near_axis_0"
+              },
+              "minScore": 0.0
+            }
+          },
+          "expect": {
+            "admitted": 32
+          }
+        },
+        {
+          "drain": {
+            "count": 32,
+            "takeResults": true
+          },
+          "expect": {
+            "reported": 32,
+            "sameAsSubmitted": true,
+            "results": {
+              "$all": {
+                "status": "ok",
+                "$ids": [
+                  "gate-fact-a-colour",
+                  "gate-fact-a-work",
+                  "gate-pref-a-concise"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "releaseAll": {}
+        },
+        {
+          "close": {},
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "embeddings.query-text-is-embedded-through-the-endpoint",
+      "tier": "B",
+      "stubs": true,
+      "source": "native/gate/tests/test_gate.py::Test6Embeddings::test_query_text_is_embedded_through_the_endpoint",
+      "note": "Neo4j vector scores are (1 + cosine) / 2: an unrelated (orthogonal) item scores exactly 0.5.",
+      "steps": [
+        {
+          "open": {
+            "config": {
+              "$config": "readEmbedding"
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "capabilities_get"
+            }
+          },
+          "expect": {
+            "/embedding/generatesEmbeddings": true
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "s",
+              "maxFacts": 5,
+              "maxPreferences": 5,
+              "query": "where do I work?",
+              "minScore": 0.0
+            }
+          },
+          "expect": {
+            "status": "ok",
+            "/facts/0/id": "gate-fact-a-work"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "s",
+              "maxFacts": 5,
+              "maxPreferences": 5,
+              "query": "how should answers sound?",
+              "minScore": 0.75
+            }
+          },
+          "expect": {
+            "$ids": [
+              "gate-pref-a-concise"
+            ]
+          }
+        },
+        {
+          "stub": {
+            "seen": true
+          },
+          "expect": {
+            "/embeddings/0/model": "gate-unit-axes",
+            "/embeddings/0/input": [
+              "where do I work?"
+            ],
+            "/embeddings/0/authorization": "Bearer gate-key"
+          }
+        },
+        {
+          "close": {},
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "embeddings.a-relation-the-question-names-reaches-that-persons-own-facts",
+      "tier": "B",
+      "stubs": true,
+      "source": "native/gate/tests/test_gate.py::Test6Embeddings::test_a_relation_the_question_names_reaches_that_persons_own_facts",
+      "steps": [
+        {
+          "open": {
+            "config": {
+              "$config": "readEmbedding",
+              "$with": {
+                "owner": {
+                  "mode": "per_request"
+                }
+              }
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "c",
+              "maxFacts": 5,
+              "maxPreferences": 5,
+              "owner": "gate-owner-c",
+              "query": "Where does my sister live?",
+              "minScore": 0.7
+            }
+          },
+          "expect": {
+            "$ids": [
+              "gate-fact-c-sister"
+            ]
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "c",
+              "maxFacts": 5,
+              "maxPreferences": 5,
+              "owner": "gate-owner-c",
+              "query": "Where does my sister live?",
+              "minScore": 0.7,
+              "maxConnectionFacts": 4
+            }
+          },
+          "expect": {
+            "$ids": [
+              "gate-fact-c-city",
+              "gate-fact-c-sister"
+            ]
+          }
+        },
+        {
+          "close": {},
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "tls.recall-over-tls-with-the-certificate-validated",
+      "tier": "B",
+      "needs": [
+        "tlsUri"
+      ],
+      "source": "native/gate/tests/test_gate.py::Test7Tls::test_recall_over_tls_with_the_certificate_validated",
+      "note": "localhost is tried as ::1 first and the store listens on 127.0.0.1: Windows retries for about 2 s.",
+      "steps": [
+        {
+          "open": {
+            "config": {
+              "$config": "read",
+              "$with": {
+                "store/uri": {
+                  "$var": "tlsUri"
+                }
+              }
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "tls",
+              "maxFacts": 5,
+              "maxPreferences": 5,
+              "queryVector": {
+                "$vector": "near_axis_0"
+              },
+              "minScore": 0.0
+            },
+            "timeoutMs": 15000
+          },
+          "expect": {
+            "status": "ok",
+            "$ids": [
+              "gate-fact-a-colour",
+              "gate-fact-a-work",
+              "gate-pref-a-concise"
+            ]
+          }
+        },
+        {
+          "close": {},
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "tls.a-certificate-for-another-name-is-refused-at-open",
+      "tier": "B",
+      "needs": [
+        "tlsOtherNameUri"
+      ],
+      "source": "native/gate/tests/test_gate.py::Test7Tls::test_a_certificate_for_another_name_is_refused_at_open",
+      "steps": [
+        {
+          "open": {
+            "config": {
+              "$config": "read",
+              "$with": {
+                "store/uri": {
+                  "$var": "tlsOtherNameUri"
+                }
+              }
+            }
+          },
+          "expect": {
+            "status": {
+              "$not": "OK"
+            },
+            "code": "store_tls"
+          }
+        }
+      ]
+    },
+    {
+      "id": "review.b11-a-null-default-timeout-is-treated-as-absent",
+      "tier": "B",
+      "source": "native/gate/tests/test_gate.py::Test8ReviewFindings::test_b11_a_null_default_timeout_is_treated_as_absent",
+      "steps": [
+        {
+          "open": {
+            "config": {
+              "$config": "read",
+              "$with": {
+                "limits": {
+                  "defaultTimeoutMs": null
+                }
+              }
+            }
+          },
+          "expect": {
+            "status": "OK"
+          }
+        },
+        {
+          "call": {
+            "request": {
+              "schemaVersion": 1,
+              "operation": "memory_get_context",
+              "sessionId": "s",
+              "maxFacts": 5,
+              "maxPreferences": 5,
+              "queryVector": {
+                "$vector": "near_axis_0"
+              }
+            }
+          },
+          "expect": {
+            "status": "ok"
+          }
+        },
+        {
+          "close": {},
+          "expect": {
+            "status": "OK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "store.wrong-password-is-reported-as-authentication",
+      "tier": "B",
+      "source": "native/gate/tests/test_gate.py::Test9StoreFailures::test_wrong_password_is_reported_as_authentication",
+      "steps": [
+        {
+          "open": {
+            "config": {
+              "$config": "read",
+              "$with": {
+                "store/password": "not-the-password"
+              }
+            }
+          },
+          "expect": {
+            "status": {
+              "$not": "OK"
+            },
+            "code": "authentication",
+            "message": {
+              "$notContains": "not-the-password"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

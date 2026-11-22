@@ -1,4 +1,4 @@
-"""AgentMemory for Python through the AgentMemory native library (C ABI 1.0, no .NET installation needed).
+"""AgentMemory for Python through the AgentMemory native library (C ABI 1.1, no .NET installation needed).
 
     from agentmemory_native import MemoryClient
 
@@ -23,4 +23,4 @@ __all__ = [
     "remember_request",
     "library_file_name", "manifest", "resolve_library_path",
 ]
-__version__ = "0.1.0"
+__version__ = "0.2.0"

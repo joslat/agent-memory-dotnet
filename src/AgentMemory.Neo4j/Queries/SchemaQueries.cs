@@ -496,6 +496,9 @@ internal static class SchemaQueries
     /// <summary>Check whether a migration has already been applied.</summary>
     public const string IsMigrationApplied = "MATCH (m:Migration {version: $version}) RETURN m LIMIT 1";
 
+    /// <summary>DRT-2: every applied migration's version, read once at start-up.</summary>
+    public const string AppliedMigrationVersions = "MATCH (m:Migration) RETURN m.version AS version";
+
     /// <summary>Record a migration as applied.</summary>
     /// <remarks>
     /// <c>extension_id</c> is the schema-extension discriminator (30.14): null for the base sequence,

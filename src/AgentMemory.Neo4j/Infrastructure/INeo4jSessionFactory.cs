@@ -17,4 +17,11 @@ internal interface INeo4jSessionFactory
     /// administrative work (the <c>system</c> database) and per-store provisioning/bootstrap.
     /// </summary>
     IAsyncSession OpenSession(string database, AccessMode accessMode = AccessMode.Write);
+
+    /// <summary>
+    /// DRT-6: a session for single-statement reads, with the driver's own one-shot retry of an auto-commit query turned
+    /// off (the runner retries such reads itself, with a managed read's limits, and the two would multiply). The
+    /// default is an ordinary session.
+    /// </summary>
+    IAsyncSession OpenSingleStatementSession(AccessMode accessMode) => OpenSession(accessMode);
 }

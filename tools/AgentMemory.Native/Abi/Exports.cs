@@ -83,6 +83,25 @@ internal static unsafe class Exports
         }
     }
 
+    /// <summary>ABI 1.1: the next finished job of the context that no wait has reported yet, or 0.</summary>
+    [UnmanagedCallersOnly(EntryPoint = "am_v1_wait", CallConvs = [typeof(CallConvCdecl)])]
+    public static int Wait(ulong context, uint waitMs, ulong* outJob)
+    {
+        if (outJob != null) *outJob = 0;
+        try
+        {
+            if (outJob == null) return AbiStatus.InvalidArgument;
+            if (!ContextRegistry.TryGet(context, out var target)) return AbiStatus.InvalidHandle;
+            var status = target.Wait(waitMs, out var job);
+            *outJob = job;
+            return status;
+        }
+        catch (Exception)
+        {
+            return AbiStatus.InternalError;
+        }
+    }
+
     [UnmanagedCallersOnly(EntryPoint = "am_v1_cancel", CallConvs = [typeof(CallConvCdecl)])]
     public static int Cancel(ulong context, ulong job)
     {

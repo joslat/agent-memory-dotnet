@@ -563,12 +563,23 @@ internal static class FactQueries
     /// Detach-delete a fact by id and report whether it existed. When scoped (R1) the delete only affects
     /// the owner's own facts — never another owner's, and never shared/global ones. Null ⇒ unscoped.
     /// </summary>
+    /// <summary>
+    /// P231-A F2: deletes the identity bindings of the fact bound to <paramref name="fact"/> that no other fact uses, before the
+    /// fact itself is deleted. A unit subquery: the row count is unchanged. With identity off there are none.
+    /// </summary>
+    internal static string DeleteOwnBindings(string fact) =>
+        "CALL (" + fact + ") { MATCH (" + fact + ")-[:HAS_IDENTITY_BINDING]->(binding:IdentityFactBinding) " +
+        "WHERE NOT EXISTS { MATCH (other:Fact)-[:HAS_IDENTITY_BINDING]->(binding) WHERE other <> " + fact + " } DETACH DELETE binding }";
+
     public static string Delete(bool hasOwnerFilter)
     {
         var owner = hasOwnerFilter ? " AND f.owner_id = $ownerId" : string.Empty;
+        // P231-A F2: the fact's identity bindings go with it (one no other fact uses). Left behind, a binding kept the fact's
+        // name and source message ids after a delete meant to remove them, and kept its person confirmed.
         return @"
             MATCH (f:Fact {id: $factId})
             WHERE true" + owner + @"
+            " + DeleteOwnBindings("f") + @"
             DETACH DELETE f
             RETURN count(f) > 0 AS deleted";
     }

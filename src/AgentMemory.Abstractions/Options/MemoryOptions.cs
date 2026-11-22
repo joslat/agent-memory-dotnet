@@ -262,6 +262,13 @@ public sealed record MemoryOptions
     /// against a 30-day half-life, while an unbounded queue turns a slow database into unbounded memory
     /// and a blocking one puts the latency straight back. Drops are counted and logged.
     /// </para>
+    /// <para>
+    /// DRT-5: each note carries the time of its read, and the queue writes everything waiting (up to 64 recalls) in one
+    /// transaction per store, so it keeps up with a busy service. The notes land a few milliseconds after recall returns;
+    /// the history service and the decay job wait for them first. A host that ends or freezes between requests (a
+    /// serverless function, a command-line tool) calls <see cref="Services.IMemoryAccessTracker.FlushAsync"/> before it
+    /// returns, or leaves this option off. A process that is killed loses what was still queued.
+    /// </para>
     /// </remarks>
     public bool UseAccessTrackingQueue { get; set; }
 

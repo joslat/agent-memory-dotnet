@@ -31,6 +31,25 @@ public class Neo4jOptions
     /// </remarks>
     public TimeSpan? MaxTransactionRetryTime { get; set; }
 
+    /// <summary>
+    /// DRT-4 (C-08). A pooled connection unused for longer than this is tested (one round trip) before it is used, so the
+    /// first call after a quiet spell finds a connection a firewall or the server dropped and opens a new one, instead of
+    /// failing after the driver's 30 seconds. Tested by hand: 34 ms instead of a failure. Default 2 minutes;
+    /// <see langword="null"/> leaves the driver's own default (no test).
+    /// </summary>
+    public TimeSpan? ConnectionLivenessCheckTimeout { get; set; } = TimeSpan.FromMinutes(2);
+
+    /// <summary>
+    /// DRT-4 (C-08). A pooled connection idle for longer than this is closed. Set it below a server's or a firewall's
+    /// known idle limit. Default not set (the driver keeps idle connections).
+    /// </summary>
+    public TimeSpan? ConnectionIdleTimeout { get; set; }
+
+    /// <summary>
+    /// Encrypts the connection for a plain <c>bolt://</c> or <c>neo4j://</c> URI. A URI whose scheme sets encryption
+    /// itself (<c>neo4j+s://</c>, <c>neo4j+ssc://</c>, <c>bolt+s://</c>, <c>bolt+ssc://</c>) is used as it says, and this
+    /// option is not applied to it.
+    /// </summary>
     public bool EncryptionEnabled { get; set; } = false;
 
     /// <summary>
@@ -104,6 +123,25 @@ public class Neo4jOptions
     /// next start tries again.
     /// </remarks>
     public bool ApplyMigrationsOnBootstrap { get; set; } = true;
+
+    /// <summary>
+    /// DRT-2. Bootstrap first lists the constraints and indexes the store has (one read) and sends only the statements
+    /// whose object is missing, and the migration runner reads which scripts are applied once instead of once per
+    /// script. Every statement is <c>IF NOT EXISTS</c>, so the ones skipped would have changed nothing: the result is the
+    /// same, by fewer round trips (start-up on an existing store: 280 waited at 20 ms away, measured by PERF-D-03). A
+    /// listing that fails runs every statement, as before. <see langword="false"/> is the previous path exactly, for
+    /// measuring both on one build.
+    /// </summary>
+    public bool BootstrapOnlyMissingSchema { get; set; } = true;
+
+    /// <summary>
+    /// DRT-6 (C-01). A read the library knows sends one statement runs as an auto-commit query (2 round trips) instead of
+    /// a managed transaction (4: begin, the statement, commit, reset), with the same retries: a retriable failure is
+    /// tried again with growing waits for up to <see cref="MaxTransactionRetryTime"/> (the driver's 30 seconds when not
+    /// set), as a managed read is. Inside a write unit it runs on the unit's transaction, as every read does.
+    /// <see langword="false"/> runs those reads as managed transactions, as before.
+    /// </summary>
+    public bool SingleStatementReads { get; set; } = true;
 
     /// <summary>
     /// Ids of the optional schema extensions this deployment activates. Empty (the default) is today's

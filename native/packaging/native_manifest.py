@@ -5,7 +5,8 @@ Usage: python native_manifest.py --rid <rid> --bin <publish dir> --assets <proje
 
 The library is agentmemory_native.so, .dylib or .dll by the runtime identifier. On Linux, the newest GLIBC_ symbol
 version the library asks for is recorded, and with --max-glibc a newer one is refused: the wheel's platform tag promises
-that baseline. The manifest is read back and its SHA-256 compared with the file before it counts. Standard library only.
+that baseline. On macOS the oldest macOS the library runs on (its LC_BUILD_VERSION) is recorded, for the wheel's tag.
+The manifest is read back and its SHA-256 compared with the file before it counts. Standard library only.
 """
 from __future__ import annotations
 
@@ -47,6 +48,27 @@ def newest_glibc(data: bytes) -> tuple[int, ...] | None:
     return max(found) if found else None
 
 
+LC_VERSION_MIN_MACOSX, LC_BUILD_VERSION = 0x24, 0x32
+
+
+def macos_minimum(data: bytes) -> str | None:
+    """The oldest macOS a thin 64-bit Mach-O library runs on, as "major.minor" (LC_BUILD_VERSION's minos)."""
+    if data[:4] != b"\xcf\xfa\xed\xfe":  # MH_MAGIC_64, little-endian
+        return None
+
+    def word(at: int) -> int:
+        return int.from_bytes(data[at:at + 4], "little")
+
+    offset = 32  # past the mach_header_64
+    for _ in range(word(16)):  # ncmds
+        command, size = word(offset), word(offset + 4)
+        if command in (LC_BUILD_VERSION, LC_VERSION_MIN_MACOSX):
+            version = word(offset + 12) if command == LC_BUILD_VERSION else word(offset + 8)
+            return f"{version >> 16}.{(version >> 8) & 0xFF}"
+        offset += size
+    return None
+
+
 def sdk_version() -> str:
     return subprocess.run(["dotnet", "--version"], capture_output=True, text=True, check=True).stdout.strip()
 
@@ -85,6 +107,10 @@ def main() -> None:
         manifest["glibcNewest"] = ".".join(map(str, glibc)) if glibc else None
         if args.max_glibc and glibc and glibc > tuple(int(n) for n in args.max_glibc.split(".")):
             sys.exit(f"{library.name} asks for GLIBC_{manifest['glibcNewest']}, newer than the promised baseline {args.max_glibc}")
+    if args.rid.startswith("osx"):
+        manifest["macosMinimum"] = macos_minimum(data)
+        if manifest["macosMinimum"] is None:
+            sys.exit(f"{library.name} is not a thin 64-bit Mach-O library with a minimum macOS version")
     args.out.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
     written = json.loads(args.out.read_text(encoding="utf-8"))

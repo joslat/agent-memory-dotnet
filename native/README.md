@@ -6,7 +6,7 @@ host needs no .NET installation. Any language with a C foreign-function interfac
 
 | Path | What it is |
 |---|---|
-| [`include/agentmemory_native.h`](include/agentmemory_native.h) | The C ABI, version 1.0: open, submit, poll, cancel, release, free, state, close |
+| [`include/agentmemory_native.h`](include/agentmemory_native.h) | The C ABI, version 1.1: open, submit, poll, wait (1.1), cancel, release, free, state, close |
 | [`CONTRACT.md`](CONTRACT.md) | The JSON documents that cross it: configuration, requests, results |
 | [`python/agentmemory_native`](python/agentmemory_native) | The Python binding: `MemoryClient` (sync) and `AsyncMemoryClient` (asyncio) |
 | [`gate/`](gate) | Build and proof on Linux x64: publish, seed a throw-away Neo4j, run the gate tests on the target image |
@@ -54,8 +54,9 @@ with MemoryClient(config) as memory:
         print(fact.subject, fact.predicate, fact.object, dict(fact.metadata))
 ```
 
-The store must already hold AgentMemory's schema (the managed `AgentMemory.Cli bootstrap` creates it); the library
-never creates or migrates schema.
+The store must hold AgentMemory's schema first. The `admin` profile creates it with no .NET (`schema_status`, then
+`schema_bootstrap`; see [CONTRACT.md](CONTRACT.md)), as the managed `AgentMemory.Cli bootstrap` does. The other profiles
+never create or migrate schema.
 
 ## Build and prove (Linux x64)
 
@@ -73,6 +74,15 @@ native/gate/run-gate.sh artifacts/native/neo4j.env artifacts/native/current/bin 
 `run-gate.sh` runs the gate tests (`gate/tests`, standard library only) inside plain Ubuntu 24.04 with the
 distribution's Python and no .NET, and fingerprints the whole graph before and after: a read-only run must leave it
 unchanged.
+
+Most of the gate is data that every binding runs (NATIVE-GATE-SHARED): `gate/cases/*.json` describes each case as steps
+on the C ABI (open, submit, await, cancel, release, state, wait, close) with the results expected, tiers A (no store),
+B (the seeded read store) and C (writes). `gate/cases/FORMAT.md` is the format and the contract a runner keeps;
+`gate/runner/gate_runner.py` is the Python runner (`python native/gate/runner/gate_runner.py --tier B`), and the gate's
+unittest files run the cases after their own tests. The stub embedding and chat servers are one script,
+`gate/stubs.py`, which every language's runner starts. `gate/REQUIRED.md` lists what each binding tests in its own
+language (its loader, handles, async cancellation, memory bound) and what the Python harness tests once (the journal,
+crashes, LangGraph, the schema tier); `gate/check_mapping.py` proves every original test is one or the other.
 
 The explicit-write tests (`gate/writetests`) run on their own throw-away store, because they write:
 
@@ -132,15 +142,27 @@ The binding stays framework-neutral; two thin adapters sit beside it, each impor
 
 ## Platform
 
-Built and proven for linux-x64 on Ubuntu 24.04 (glibc 2.39). A binary built against a newer glibc does not load on an
-older one, so build on the oldest distribution you support. Windows and macOS builds are possible from the same project
-on those systems; they are not qualified yet. Plain `bolt://` is qualified; TLS (`bolt+s://`) is not yet.
+| RID | Built and gated on | Wheel tag |
+|---|---|---|
+| linux-x64 | ubuntu-24.04 | `manylinux_2_34_x86_64` |
+| linux-arm64 | ubuntu-24.04-arm | `manylinux_2_34_aarch64` |
+| osx-arm64 | macos-15 | `macosx_<minimum>_0_arm64`, from the library's own minimum macOS |
+| win-x64 | windows-2025 | `win_amd64` |
 
-The workflow `.github/workflows/native-platforms.yml` builds the library for linux-x64, linux-arm64, osx-arm64 and win-x64,
-each on its own runner, as pull requests that touch the native library run it. It checks the compiler against the
-security floor (`packaging/check_toolchain.py`), writes `MANIFEST.json` (`packaging/native_manifest.py`: size, SHA-256,
-compiler, and on Linux the newest glibc symbol, at most 2.34), checks the macOS signature, and runs the gate's tier A from
-Python on each. Tier A is what the gate tests that needs no store: loading, the ABI, handles, configuration and contract
-refusals, closed contexts, the embedding checks that end before the store, and an unreachable store. Run it anywhere with
-`GATE_TIER=A` and `AGENTMEMORY_NATIVE_LIBRARY` set; the store tiers still run in `run-gate.sh`. This builds and loads the
-library on those platforms; it does not yet qualify them against a store, and nothing is published from it.
+The workflow `.github/workflows/native-platforms.yml` builds the library on each platform's own runner (Native AOT does not
+cross-compile between operating systems), when a pull request touches the native library or by hand. On each it checks
+the compiler against the security floor (`packaging/check_toolchain.py`), writes `MANIFEST.json`
+(`packaging/native_manifest.py`: size, SHA-256, compiler; on Linux the newest glibc symbol, at most 2.34; on macOS the
+minimum macOS), checks the macOS signature, runs the gate's tiers and builds the wheel:
+
+| Tier | What | Where |
+|---|---|---|
+| A | Everything that needs no store: loading, the ABI, handles, configuration and contract refusals, closed contexts, the embedding checks that end before the store, an unreachable store | the build runner (`GATE_TIER=A`) |
+| B | The read gate against a seeded store, the graph fingerprinted before and after (a read-only run must leave it unchanged), a recall over `bolt+s://` with the certificate validated, and a certificate for another name refused (`store_tls`) | a runner of the same platform, from the library and again from the installed wheel |
+| C | The write tests on a store of their own: receipts, the journal (its lock across processes, its privacy, crashes), forget and erase | the same runner |
+| S | The `admin` profile on a fresh, unseeded store: `schema_status` says it is empty, `schema_bootstrap` makes it complete at the configured dimensions from Python with no .NET, and a second bootstrap leaves the graph unchanged | the same runner |
+
+`gate/store/store_gate.py` runs tiers B and C with a local Neo4j 5.26 from its community distribution on Java 21, so one
+script serves every platform (macOS runners have no Docker); `run-gate.sh` and `run-write-gate.sh` remain the gate on the
+target image, plain Ubuntu 24.04 with no .NET. A binary built against a newer glibc does not load on an older one, so the
+Linux libraries are held to glibc 2.34. Nothing is published from the workflow itself: `.github/workflows/publish-agentmemory-native-pypi.yml` calls it, checks that there are exactly four wheels of the source's version, one per platform, and uploads them to PyPI after the `pypi` environment's reviewer approves.

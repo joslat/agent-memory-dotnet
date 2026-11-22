@@ -40,7 +40,10 @@ internal sealed class SchemaBootstrapper : ISchemaBootstrapper
         _validateVectorIndexDimensions = options.Value.ValidateVectorIndexDimensions;
         _vectorIndexes = SchemaQueries.BuildVectorIndexes(_embeddingDimensions);
         _filteredVectorIndexes = options.Value.FilteredVectorIndexes;
+        _onlyMissing = options.Value.BootstrapOnlyMissingSchema;
     }
+
+    private readonly bool _onlyMissing;
 
     /// <summary>
     /// Facts written before canonical identity carry no <c>*_key</c> properties, so a re-extracted
@@ -323,32 +326,37 @@ internal sealed class SchemaBootstrapper : ISchemaBootstrapper
             SchemaQueries.Constraints.Length, SchemaQueries.FulltextIndexes.Length,
             _vectorIndexes.Length, SchemaQueries.PropertyIndexes.Length);
 
-        foreach (var constraint in SchemaQueries.Constraints)
+        // DRT-2: what exists already, in one read; a statement whose object is there is skipped (its IF NOT EXISTS would
+        // have done nothing). Null when off or when the listing failed: then every statement runs, as before.
+        var existing = _onlyMissing ? await ExistingSchemaObjectsAsync(cancellationToken).ConfigureAwait(false) : null;
+        var skipped = 0;
+        async Task RunUnlessPresentAsync(string statement)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            await RunStatementAsync(constraint, cancellationToken).ConfigureAwait(false);
+            if (existing is not null && existing.Contains(SchemaConformance.ParseObjectName(statement)))
+            {
+                skipped++;
+                return;
+            }
+            await RunStatementAsync(statement, cancellationToken).ConfigureAwait(false);
         }
+
+        foreach (var constraint in SchemaQueries.Constraints)
+            await RunUnlessPresentAsync(constraint).ConfigureAwait(false);
 
         foreach (var index in SchemaQueries.FulltextIndexes)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            await RunStatementAsync(index, cancellationToken).ConfigureAwait(false);
-        }
+            await RunUnlessPresentAsync(index).ConfigureAwait(false);
 
         foreach (var index in _vectorIndexes)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            await RunStatementAsync(index, cancellationToken).ConfigureAwait(false);
-        }
+            await RunUnlessPresentAsync(index).ConfigureAwait(false);
 
         if (_filteredVectorIndexes)
             await CreateOwnerFilteredVectorIndexesAsync(cancellationToken).ConfigureAwait(false);
 
         foreach (var index in SchemaQueries.PropertyIndexes)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            await RunStatementAsync(index, cancellationToken).ConfigureAwait(false);
-        }
+            await RunUnlessPresentAsync(index).ConfigureAwait(false);
+        if (skipped > 0)
+            _logger.LogInformation("Schema bootstrap: {Skipped} statement(s) skipped, their objects exist already.", skipped);
 
         // Fail-fast guard: a CREATE VECTOR INDEX ... IF NOT EXISTS above is a no-op when the index
         // already exists, so an embedder/dimension change leaves stale indexes that would only fail at
@@ -500,6 +508,37 @@ internal sealed class SchemaBootstrapper : ISchemaBootstrapper
         _logger.LogDebug(
             "Validated {Count} vector index(es) at {Dimensions} dimensions.",
             existing.Count, _embeddingDimensions);
+    }
+
+    /// <summary>
+    /// DRT-2: the names of the constraints and indexes the store has, in one read. Null when the store cannot list them
+    /// (a listing refused, an older server): bootstrap then sends every statement, as it always did.
+    /// </summary>
+    private async Task<HashSet<string>?> ExistingSchemaObjectsAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _txRunner.ReadAsync(async runner =>
+            {
+                var names = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var query in new[] { SchemaQueries.ShowConstraintNames, SchemaQueries.ShowIndexNames })
+                {
+                    var cursor = await runner.RunAsync(query).ConfigureAwait(false);
+                    foreach (var record in await cursor.ToListAsync().ConfigureAwait(false))
+                        if (record["name"].As<string>() is { Length: > 0 } name) names.Add(name);
+                }
+                return names;
+            }, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Could not list the schema objects; bootstrap sends every statement.");
+            return null;
+        }
     }
 
     private async Task RunStatementAsync(string cypher, CancellationToken cancellationToken)

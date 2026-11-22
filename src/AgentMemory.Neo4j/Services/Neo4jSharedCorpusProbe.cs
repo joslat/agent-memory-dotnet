@@ -51,7 +51,7 @@ internal sealed class Neo4jSharedCorpusProbe : ISharedCorpusProbe
             SharedKind.Fact => FactQuery,
             _ => PreferenceQuery,
         };
-        var shared = await _tx.ReadAsync(async runner =>
+        var shared = await _tx.ReadSingleAsync(async runner =>
         {
             var cursor = await runner.RunAsync(cypher).ConfigureAwait(false);
             var record = await cursor.SingleAsync().ConfigureAwait(false);

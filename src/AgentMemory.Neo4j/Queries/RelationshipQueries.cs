@@ -106,6 +106,9 @@ internal static class RelationshipQueries
                        OR any(a IN coalesce(s.aliases, []) WHERE toLower(a) IN $names)
                        OR any(a IN coalesce(t.aliases, []) WHERE toLower(a) IN $names))))
               AND (r.valid_until IS NULL OR r.valid_until > datetime($now)){OwnerAnd(hasOwnerFilter, includeShared)}
+              // P231-A G1: both ends live, as the identity read requires (IdentityRelationshipReadQueries.EndpointOwners): a
+              // forgotten or merged entity's connections are not recalled.
+              AND s.invalidated_at IS NULL AND s.merged_into IS NULL AND t.invalidated_at IS NULL AND t.merged_into IS NULL
             // 40.91. Most relevant first: by the rank of its best end among the recalled entities ($entityIds is in recall
             // order), then among the names the recalled facts give ($names, in fact order); confidence and recency only break
             // ties. Before, every recall returned the same few edges, whatever was asked.
