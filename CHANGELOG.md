@@ -56,6 +56,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the store 20 ms away): 280 round trips to 33, 6.1 s to 0.7 s; locally 252 ms to 41 ms. A listing that fails runs
   every statement as before; `Neo4jOptions.BootstrapOnlyMissingSchema = false` is the previous path exactly.
 
+- Every save is faster: the profile block's rebuild starts its six independent reads together instead of one after
+  another (outside a write unit only; inside one, whose single transaction runs one statement at a time, they keep
+  their order). Measured with the store 20 ms away: a fact through the API waits for 16.7 round trips instead of 32.8
+  (735 ms to 381 ms), a stored turn 23.2 instead of 39.7 (896 ms to 552 ms). `WorkingMemoryOptions.ReadTogether =
+  false` is the previous path; `INeo4jTransactionRunner.InWriteUnit` (default `null`, read as "in order") tells the
+  service whether reads may start together.
+
 ### Fixed
 
 - A `neo4j+s://` or `bolt+s://` store address (the form Neo4j Aura gives, and the one `docs/getting-started.md`

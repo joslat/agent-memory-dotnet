@@ -366,6 +366,8 @@ public sealed class HermeticProfile : IAsyncDisposable
         private readonly PerfDependencyLatency _dependencyLatency;
         private readonly INeo4jAtomicTransactionRunner _atomicInner;
 
+        public bool? InWriteUnit => _inner.InWriteUnit;
+
         public LatencyInjectingTransactionRunner(
             INeo4jTransactionRunner inner,
             PerfDependencyLatency dependencyLatency)

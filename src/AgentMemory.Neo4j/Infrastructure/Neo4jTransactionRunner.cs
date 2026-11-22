@@ -36,6 +36,9 @@ internal sealed class Neo4jTransactionRunner : INeo4jTransactionRunner, INeo4jAt
     private readonly AsyncLocal<IAsyncQueryRunner?> _ambientWriteTransaction = new();
     public bool HasActiveWriteTransaction => _ambientWriteTransaction.Value is not null;
 
+    /// <inheritdoc/>
+    public bool? InWriteUnit => HasActiveWriteTransaction;
+
     /// <summary>
     /// Applies the configured server-side deadline, or null when none is configured.
     /// </summary>

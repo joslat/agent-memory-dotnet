@@ -35,4 +35,7 @@ internal sealed class DatabaseTransactionRunner(INeo4jSessionFactory sessions, s
 
     public Task WriteAsync(Func<IAsyncQueryRunner, Task> work, CancellationToken cancellationToken = default) =>
         WriteAsync(async runner => { await work(runner).ConfigureAwait(false); return true; }, cancellationToken);
+
+    /// <summary>Every call opens a session of its own: there is never a unit to join.</summary>
+    public bool? InWriteUnit => false;
 }

@@ -16,4 +16,11 @@ public interface INeo4jTransactionRunner
     Task ReadAsync(Func<IAsyncQueryRunner, Task> work, CancellationToken cancellationToken = default);
     Task<T> WriteAsync<T>(Func<IAsyncQueryRunner, Task<T>> work, CancellationToken cancellationToken = default);
     Task WriteAsync(Func<IAsyncQueryRunner, Task> work, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Whether this flow is inside a write unit, whose one transaction every read joins and which runs one statement at a
+    /// time; <see langword="null"/> when the runner cannot tell. Reads that could start together run one after another
+    /// unless this is <see langword="false"/> (DRT-1).
+    /// </summary>
+    bool? InWriteUnit => null;
 }

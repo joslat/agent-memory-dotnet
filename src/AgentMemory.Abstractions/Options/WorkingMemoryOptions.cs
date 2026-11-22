@@ -20,6 +20,15 @@ namespace AgentMemory.Abstractions.Options;
 public sealed class WorkingMemoryOptions
 {
     /// <summary>
+    /// DRT-1. A rebuild starts its reads together (the facts, preferences, entities and recent topics it composes from,
+    /// the next validity boundary and the stored hash), so it waits about one transaction instead of six: they read
+    /// independent things. Inside a write unit, whose one transaction runs one statement at a time, they run in order
+    /// as before, and so with a store runner that cannot say. <see langword="false"/> is the previous path exactly, for
+    /// measuring both on one build.
+    /// </summary>
+    public bool ReadTogether { get; set; } = true;
+
+    /// <summary>
     /// On by default (since 2026-09-26). When false the block is never compiled, never stored, never
     /// rendered. Measured: a new session asked "what do you know about me?" answered with the user's name,
     /// job, employer, manager, family, neighbour and preferences with the block (3 of 3 runs) and "a pretty

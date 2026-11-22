@@ -60,8 +60,24 @@ internal sealed class Neo4jWorkingMemoryService : IWorkingMemoryService
         if (ShouldSkip(ownerId)) return;
 
         var now = _clock.GetUtcNow();
-        var text = await ComposeAsync(ownerId, now, cancellationToken).ConfigureAwait(false);
-        var validUntil = await NextValidityBoundaryAsync(ownerId, now, cancellationToken).ConfigureAwait(false);
+        string text;
+        string? validUntil;
+        string? stored;
+        if (ReadTogether)
+        {
+            // DRT-1: three independent reads, started together.
+            var composing = ComposeAsync(ownerId, now, cancellationToken);
+            var boundary = NextValidityBoundaryAsync(ownerId, now, cancellationToken);
+            var storedHash = StoredHashAsync(ownerId, cancellationToken);
+            await Task.WhenAll((Task)composing, boundary, storedHash).ConfigureAwait(false);
+            (text, validUntil, stored) = (composing.Result, boundary.Result, storedHash.Result);
+        }
+        else
+        {
+            text = await ComposeAsync(ownerId, now, cancellationToken).ConfigureAwait(false);
+            validUntil = await NextValidityBoundaryAsync(ownerId, now, cancellationToken).ConfigureAwait(false);
+            stored = null;
+        }
         // 37.5. A block with a "Lately" line is a view of a sliding window: it is rebuilt at least daily, writes or not.
         if (text.Contains("Lately (", StringComparison.Ordinal))
             validUntil = EarlierOf(validUntil, now.AddDays(1));
@@ -72,13 +88,7 @@ internal sealed class Neo4jWorkingMemoryService : IWorkingMemoryService
         // Hash short-circuit: a rebuild that changes nothing writes nothing, so built_at moves only
         // when the CONTENT moves. Without this, every write burst would churn a transaction and
         // invalidate prompt-prefix caching for a block that did not change.
-        var stored = await _tx.ReadAsync(async runner =>
-        {
-            var cursor = await runner.RunAsync(
-                WorkingMemoryQueries.GetBlockHash, new { ownerId }).ConfigureAwait(false);
-            var records = await cursor.ToListAsync().ConfigureAwait(false);
-            return records.Count == 0 ? null : records[0]["hash"].As<string?>();
-        }, cancellationToken).ConfigureAwait(false);
+        if (!ReadTogether) stored = await StoredHashAsync(ownerId, cancellationToken).ConfigureAwait(false);
 
         if (string.Equals(stored, hash, StringComparison.Ordinal))
         {
@@ -143,6 +153,18 @@ internal sealed class Neo4jWorkingMemoryService : IWorkingMemoryService
         }
         return block.Block;
     }
+
+    /// <summary>DRT-1: reads together only outside a write unit, and only when the runner can say so.</summary>
+    private bool ReadTogether => _options.ReadTogether && _tx.InWriteUnit == false;
+
+    private async Task<string?> StoredHashAsync(string ownerId, CancellationToken cancellationToken) =>
+        await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(
+                WorkingMemoryQueries.GetBlockHash, new { ownerId }).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            return records.Count == 0 ? null : records[0]["hash"].As<string?>();
+        }, cancellationToken).ConfigureAwait(false);
 
     private async Task<string?> NextValidityBoundaryAsync(string ownerId, DateTimeOffset now, CancellationToken cancellationToken) =>
         await _tx.ReadAsync(async runner =>
@@ -233,7 +255,7 @@ internal sealed class Neo4jWorkingMemoryService : IWorkingMemoryService
     {
         var stamp = now.ToString("O", CultureInfo.InvariantCulture);
 
-        var facts = await _tx.ReadAsync(async runner =>
+        async Task<List<string>> FactsAsync() => await _tx.ReadAsync(async runner =>
         {
             var cursor = await runner.RunAsync(WorkingMemoryQueries.SelectStableFacts, new
             {
@@ -272,7 +294,7 @@ internal sealed class Neo4jWorkingMemoryService : IWorkingMemoryService
                 .ToList();
         }, cancellationToken).ConfigureAwait(false) ?? [];
 
-        var preferences = await _tx.ReadAsync(async runner =>
+        async Task<List<string>> PreferencesAsync() => await _tx.ReadAsync(async runner =>
         {
             var cursor = await runner.RunAsync(WorkingMemoryQueries.SelectActivePreferences, new
             {
@@ -286,7 +308,7 @@ internal sealed class Neo4jWorkingMemoryService : IWorkingMemoryService
                 .ToList();
         }, cancellationToken).ConfigureAwait(false) ?? [];
 
-        var entities = await _tx.ReadAsync(async runner =>
+        async Task<List<string>> EntitiesAsync() => await _tx.ReadAsync(async runner =>
         {
             var cursor = await runner.RunAsync(WorkingMemoryQueries.SelectTopEntities, new
             {
@@ -300,7 +322,7 @@ internal sealed class Neo4jWorkingMemoryService : IWorkingMemoryService
         }, cancellationToken).ConfigureAwait(false) ?? [];
 
         // 37.5. Only when asked: no query, and the block as it was, otherwise.
-        var lately = _options.RecentTopicsDays <= 0 ? [] : await _tx.ReadAsync(async runner =>
+        async Task<List<string>> LatelyAsync() => _options.RecentTopicsDays <= 0 ? [] : await _tx.ReadAsync(async runner =>
         {
             var cursor = await runner.RunAsync(WorkingMemoryQueries.SelectRecentTopics, new
             {
@@ -320,6 +342,25 @@ internal sealed class Neo4jWorkingMemoryService : IWorkingMemoryService
                 .Select(r => $"{r["topic"].As<string>()} ({r["mentions"].As<long>().ToString(System.Globalization.CultureInfo.InvariantCulture)} mentions)")
                 .ToList();
         }, cancellationToken).ConfigureAwait(false) ?? [];
+
+        List<string> facts, preferences, entities, lately;
+        if (ReadTogether)
+        {
+            // DRT-1: four independent reads, started together; composed in the same order as before.
+            var f = FactsAsync();
+            var p = PreferencesAsync();
+            var e = EntitiesAsync();
+            var l = LatelyAsync();
+            await Task.WhenAll(f, p, e, l).ConfigureAwait(false);
+            (facts, preferences, entities, lately) = (f.Result, p.Result, e.Result, l.Result);
+        }
+        else
+        {
+            facts = await FactsAsync().ConfigureAwait(false);
+            preferences = await PreferencesAsync().ConfigureAwait(false);
+            entities = await EntitiesAsync().ConfigureAwait(false);
+            lately = await LatelyAsync().ConfigureAwait(false);
+        }
 
         return Compose(facts, preferences, entities, _options.MaxTokens, lately, _options.RecentTopicsDays);
     }
