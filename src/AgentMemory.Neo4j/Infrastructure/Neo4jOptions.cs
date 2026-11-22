@@ -31,6 +31,11 @@ public class Neo4jOptions
     /// </remarks>
     public TimeSpan? MaxTransactionRetryTime { get; set; }
 
+    /// <summary>
+    /// Encrypts the connection for a plain <c>bolt://</c> or <c>neo4j://</c> URI. A URI whose scheme sets encryption
+    /// itself (<c>neo4j+s://</c>, <c>neo4j+ssc://</c>, <c>bolt+s://</c>, <c>bolt+ssc://</c>) is used as it says, and this
+    /// option is not applied to it.
+    /// </summary>
     public bool EncryptionEnabled { get; set; } = false;
 
     /// <summary>

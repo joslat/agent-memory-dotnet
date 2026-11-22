@@ -14,6 +14,7 @@ import http.server
 import json
 import os
 import shutil
+import socketserver
 import statistics
 import threading
 import time
@@ -455,6 +456,15 @@ def rss_kib() -> int:
     return counters.WorkingSetSize // 1024
 
 
+class LocalHTTPServer(http.server.ThreadingHTTPServer):
+    """A test server on 127.0.0.1, bound without HTTPServer's reverse lookup of its own name (socket.getfqdn): that
+    lookup took about 35 s on macOS runners, for each server (NATIVE-PLAT-STORE)."""
+
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
+
+
 class FakeEmbeddings(http.server.BaseHTTPRequestHandler):
     """An OpenAI-compatible /v1/embeddings endpoint with fixed answers, so the library's HTTP path is tested exactly."""
 
@@ -485,7 +495,7 @@ class FakeEmbeddings(http.server.BaseHTTPRequestHandler):
 class Test6Embeddings(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), FakeEmbeddings)
+        cls.server = LocalHTTPServer(("127.0.0.1", 0), FakeEmbeddings)
         threading.Thread(target=cls.server.serve_forever, daemon=True).start()
         cls.url = f"http://127.0.0.1:{cls.server.server_address[1]}/v1/embeddings"
 
@@ -585,23 +595,23 @@ class Test8ReviewFindings(unittest.TestCase):
 
     @needs_store
     def test_b8_a_cancelled_open_does_not_keep_the_store(self):
-        async def scenario():
+        async def scenario() -> int:
+            cancelled = 0
             for i in range(30):
                 try:
-                    await asyncio.wait_for(AsyncMemoryClient.open(config()), timeout=0.0005 * (i % 6))
+                    opened = await asyncio.wait_for(AsyncMemoryClient.open(config()), timeout=0.0005 * (i % 6))
                 except (asyncio.TimeoutError, TimeoutError):
-                    pass
+                    cancelled += 1
                 except OpenError as busy:
                     self.assertEqual(busy.code, "authority_held", "a cancelled open is still being closed")
                 else:
-                    raise AssertionError("an open finished; the scenario needs it cancelled")
+                    # A store on the same machine can answer inside the deadline: that open is not the case under
+                    # test, and it is closed here, or it would hold the store for the rest of the run.
+                    await opened.close()
             await asyncio.sleep(1.0)
+            return cancelled
 
-        try:
-            asyncio.run(scenario())
-        except AssertionError as finished:
-            if "authority_held" in str(finished):
-                raise
+        self.assertGreater(asyncio.run(scenario()), 0, "no open was cancelled")
         for _ in range(50):
             try:
                 MemoryClient(config()).close()

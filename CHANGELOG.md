@@ -27,8 +27,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (earlier turns of the session, read and never kept from), and turns that cannot carry a fact cost no model call.
   Defaults keep every existing configuration and request behaving as before.
 
+- Native library on four platforms: linux-x64, linux-arm64, osx-arm64 and win-x64 each pass the read gate against a
+  seeded store (the graph unchanged after it) and the write gate on their own runner. On Windows the state directory
+  is now private: an access list for the creating user and SYSTEM only, not inherited from its parent and inherited
+  by the journal (the counterpart of mode 0700 and 0600 on Unix). A store certificate the system refuses fails open
+  as `unavailable` with the new code `store_tls`.
+
 ### Fixed
 
+- A `neo4j+s://` or `bolt+s://` store address (the form Neo4j Aura gives, and the one `docs/getting-started.md`
+  shows) could not be used: the driver factory added its own encryption setting beside the scheme's, and the driver
+  refused the pair ("The encryption and trust settings cannot both be set via uri scheme and driver configuration").
+  A scheme with `+s` or `+ssc` now carries its own encryption and trust; `Neo4jOptions.EncryptionEnabled` applies to
+  plain `bolt://` and `neo4j://` only. Found by the native gate's TLS tier.
 - A signed pack now refuses a change to any one of its bits. Every reader (.NET, the Rust reader behind the npm and crates
   packages, and the Python verifier) took any "version made by" from 0 to 63 in a zip entry, so six bits per entry could
   change and the pack still verified (no content, name or signature changed). R-CORE-016 now pins it to 20 (0x0014: MS-DOS,

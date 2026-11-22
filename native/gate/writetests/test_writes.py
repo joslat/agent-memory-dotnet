@@ -12,6 +12,7 @@ import http.server
 import json
 import math
 import os
+import socketserver
 import subprocess
 import sys
 import tempfile
@@ -112,7 +113,16 @@ class StubModel(http.server.BaseHTTPRequestHandler):
         pass
 
 
-SERVER = http.server.ThreadingHTTPServer(("127.0.0.1", 0), StubModel)
+class LocalHTTPServer(http.server.ThreadingHTTPServer):
+    """A test server on 127.0.0.1, bound without HTTPServer's reverse lookup of its own name (socket.getfqdn): that
+    lookup took about 35 s on macOS runners, for each server (NATIVE-PLAT-STORE)."""
+
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
+
+
+SERVER = LocalHTTPServer(("127.0.0.1", 0), StubModel)
 threading.Thread(target=SERVER.serve_forever, daemon=True).start()
 BASE = f"http://127.0.0.1:{SERVER.server_address[1]}"
 

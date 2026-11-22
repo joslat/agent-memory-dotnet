@@ -14,17 +14,18 @@ internal sealed class Neo4jDriverFactory : INeo4jDriverFactory
         _logger = logger;
         var cfg = options.Value;
 
-        var encryptionLevel = cfg.EncryptionEnabled
-            ? EncryptionLevel.Encrypted
-            : EncryptionLevel.None;
+        // A scheme with "+s" or "+ssc" (neo4j+s://, the address Aura gives, or bolt+s://) carries its own encryption and
+        // trust, and the driver refuses any encryption setting beside it: the option speaks only for plain schemes.
+        var schemeEncrypts = SchemeCarriesEncryption(cfg.Uri);
 
         _driver = GraphDatabase.Driver(
             cfg.Uri,
             AuthTokens.Basic(cfg.Username, cfg.Password),
             c =>
             {
-                c.WithEncryptionLevel(encryptionLevel)
-                    .WithMaxConnectionPoolSize(cfg.MaxConnectionPoolSize)
+                if (!schemeEncrypts)
+                    c.WithEncryptionLevel(cfg.EncryptionEnabled ? EncryptionLevel.Encrypted : EncryptionLevel.None);
+                c.WithMaxConnectionPoolSize(cfg.MaxConnectionPoolSize)
                     .WithConnectionAcquisitionTimeout(cfg.ConnectionAcquisitionTimeout);
                 // Both unset by default: the driver keeps its own defaults, configured exactly as before.
                 if (cfg.ConnectionTimeout is { } connectionTimeout) c.WithConnectionTimeout(connectionTimeout);
@@ -35,6 +36,13 @@ internal sealed class Neo4jDriverFactory : INeo4jDriverFactory
     }
 
     public IDriver GetDriver() => _driver;
+
+    /// <summary>Whether the URI's scheme sets encryption itself: neo4j+s, neo4j+ssc, bolt+s or bolt+ssc.</summary>
+    internal static bool SchemeCarriesEncryption(string uri)
+    {
+        var colon = uri.IndexOf("://", StringComparison.Ordinal);
+        return colon > 0 && uri.AsSpan(0, colon).Contains('+');
+    }
 
     public async ValueTask DisposeAsync()
     {

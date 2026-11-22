@@ -2,13 +2,12 @@
 from __future__ import annotations
 
 import asyncio
-import http.server
 import importlib.util
 import threading
 import unittest
 
 from agentmemory_native import AsyncMemoryClient, MemoryClient
-from test_gate import A_IDS, COLOUR_METADATA, OWNER_B, FakeEmbeddings, config
+from test_gate import A_IDS, COLOUR_METADATA, OWNER_B, FakeEmbeddings, LocalHTTPServer, config
 
 HAS_LANGCHAIN = importlib.util.find_spec("langchain_core") is not None
 
@@ -17,7 +16,7 @@ HAS_LANGCHAIN = importlib.util.find_spec("langchain_core") is not None
 class Test7LangChain(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), FakeEmbeddings)
+        cls.server = LocalHTTPServer(("127.0.0.1", 0), FakeEmbeddings)
         threading.Thread(target=cls.server.serve_forever, daemon=True).start()
         cls.url = f"http://127.0.0.1:{cls.server.server_address[1]}/v1/embeddings"
 
