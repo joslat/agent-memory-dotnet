@@ -270,7 +270,10 @@ def read_zip(data):
         if sig != 0x02014B50 or any(b < 0x20 or b > 0x7E for b in name_bytes):
             raise Refused("a central entry is malformed")
         name = name_bytes.decode("ascii")
-        if (made >> 8) or (made & 0xFF) > 63 or need not in (10, 20) or flags or method not in (0, 8) or time or date != 0x21:
+        # R-CORE-016: 'version made by' is exactly 20 (MS-DOS, ZIP 2.0), so no bit of an entry is free to change.
+        if made != 20:
+            raise Refused(f"entry '{name}' has version made by {made:04x}; the profile writes 0014 (MS-DOS, ZIP 2.0)")
+        if need not in (10, 20) or flags or method not in (0, 8) or time or date != 0x21:
             raise Refused(f"entry '{name}' is not in the profile")
         if xlen or clen or dsk or iattr or eattr or name.endswith("/") or not safe_path(name):
             raise Refused(f"entry '{name}' is not in the profile")

@@ -29,6 +29,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A signed pack now refuses a change to any one of its bits. Every reader (.NET, the Rust reader behind the npm and crates
+  packages, and the Python verifier) took any "version made by" from 0 to 63 in a zip entry, so six bits per entry could
+  change and the pack still verified (no content, name or signature changed). R-CORE-016 now pins it to 20 (0x0014: MS-DOS,
+  ZIP 2.0), the value every writer and all 31 certified packs use; the new vector `version-made-by-not-20` is refused by
+  every reader.
 - A pack whose schema names another pack id already holds is refused with that owner named:
   `Namespace is owned by another module (io.agentmemory.packs.martialarts): MartialArtsKata`, instead of
   "owned by another module or has invalid ownership". A removal keeps a pack's schema and its owner, so the

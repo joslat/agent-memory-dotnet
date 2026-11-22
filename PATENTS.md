@@ -1,8 +1,8 @@
-# Proposed patent non-assertion pledge for the ampack specification
+# Patent non-assertion pledge for the ampack specification
 
-**Status: draft, not issued.** This is the canonical draft of a unilateral statement the patent applicant intends to issue. It binds nobody and grants nothing until the applicant issues it in this repository without this warning, after a check by patent counsel. Until then, read every "will" below as "intends to". The patent licence that the Apache License 2.0 (section 3) grants to users of the Apache-2.0 code in this repository is separate, already in force, and not affected by the status of this draft. Not legal advice.
+**Status: issued.** Version 1 of this unilateral pledge is issued by its publication on this repository's `main` branch in the commit tagged `ampack-spec-v1`; that commit's date is the date of issue. The patent licence that the Apache License 2.0 (section 3) grants to users of the Apache-2.0 code in this repository is separate and not affected by this pledge. Not legal advice.
 
-Version 1 draft, 5 November 2026. On 17 November 2026 the office's application number was entered; nothing else changed. A later version can only widen the pledge for implementations made while an earlier issued version was in force.
+Version 1. Drafted 5 November 2026; the office's application number was entered on 17 November 2026; issued as stated above. A later version can only widen the pledge for implementations made while an earlier issued version was in force.
 
 ## Background
 
@@ -10,9 +10,9 @@ Jose Luis Latorre Millas (the "pledgor") filed Swiss patent application CH001531
 
 The reference implementations in this repository are licensed under the Apache License 2.0. Its section 3 grants every user of that code a patent licence under the pledgor's claims that the code necessarily infringes; this pledge does not restrict, condition or replace it. The pledge exists for implementations that do not use that code: a reader, writer or host written from the specification alone, in any language.
 
-## The pledge (as proposed)
+## The pledge
 
-Once issued: the pledgor will not assert any Covered Claim against anyone for making, having made, using, selling, offering for sale, importing, distributing or running a Conforming Implementation, commercially or not. No royalty, registration, notice or licence agreement is required.
+The pledgor will not assert any Covered Claim against anyone for making, having made, using, selling, offering for sale, importing, distributing or running a Conforming Implementation, commercially or not. No royalty, registration, notice or licence agreement is required.
 
 **Covered Claims** are the claims of Swiss patent application CH001531/2026 (the applicant's reference is JLM-2026-01), of any application claiming priority from it, and of any later application the pledgor lists in this file, that are necessarily infringed by implementing the normative requirements of a Covered Version. A claim that is infringed only by a feature the specification does not require, by an implementation's own additions, or by using the pledgor's products or services is not covered.
 
@@ -24,11 +24,11 @@ Once issued: the pledgor will not assert any Covered Claim against anyone for ma
 
 | Specification version | Immutable identifier | Conformance classes and profiles covered | Status |
 |---|---|---|---|
-| ampack specification, version 1 (the `spec/` folder; marked draft) | [pending: the repository release tag that first ships it, expected `v2.0.0`, and the commit it points to; to be entered when the pledge is issued, never guessed] | Core Reader and Core Writer (core.md section 2); the profiles the registry marks implemented: `walk`, `trial`, `compose`, `federation`, `permissions`, `embeddings` (core.md section 13); the host documents `spec/host/trust-policy.md`, `ledger.md`, `decision-record.md` | pending issue |
+| ampack specification, version 1 (the `spec/` folder; marked draft) | the tag `ampack-spec-v1`: the `spec/` folder at the commit that issued this pledge | Core Reader and Core Writer (core.md section 2); the profiles the registry marks implemented: `walk`, `trial`, `compose`, `federation`, `permissions`, `embeddings` (core.md section 13); the host documents `spec/host/trust-policy.md`, `ledger.md`, `decision-record.md` | covered |
 
 Profiles the registry marks not implemented (`protection`, `code`) are not covered by this row. How a later version becomes covered: by a new version of this file that adds a row for it, with its own immutable identifier and its own list of classes and profiles. A new version of this file never removes a row that an issued version carried, so an implementation made while a row was in force stays covered.
 
-Difference from the previous wording of this draft (4 November 2026): that wording covered any release tag or any named `main` commit, so every future version would have been covered automatically; this table covers only what it lists.
+Difference from an earlier draft wording (4 November 2026): that wording covered any release tag or any named `main` commit, so every future version would have been covered automatically; this table covers only what it lists.
 
 ## What the pledge does not cover
 
@@ -57,6 +57,6 @@ The complete licence map of the repository is `LICENSING.md` at the root.
 
 ## In one paragraph
 
-Once issued: anyone may implement a Covered Version of the ampack specification, commercially or not, without patent royalties under the Covered Claims. Certification, trademarks, proprietary products and hosted services remain separately governed. This pledge does not restrict rights granted under Apache-2.0.
+Anyone may implement a Covered Version of the ampack specification, commercially or not, without patent royalties under the Covered Claims. Certification, trademarks, proprietary products and hosted services remain separately governed. This pledge does not restrict rights granted under Apache-2.0.
 
 Questions about the pledge: open an issue in this repository.

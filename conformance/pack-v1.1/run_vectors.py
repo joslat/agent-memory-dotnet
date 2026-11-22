@@ -981,6 +981,14 @@ def main():
         return b
     raw["data-descriptor-flag"] = (write_zip(s, mutate=flag_descriptor), "trust.json", "refused")
 
+    def made_by_21(b):
+        # FORMAT-ZIP-VERSION-FIELD: 21 was accepted before 21 Nov 2026 (any 0 to 63); no content or signature changes.
+        b = bytearray(b)
+        cd = struct.unpack("<I", b[-6:-2])[0]
+        b[cd + 4:cd + 6] = struct.pack("<H", 21)
+        return b
+    raw["version-made-by-not-20"] = (write_zip(s, mutate=made_by_21), "trust.json", "refused")
+
     def local_name(b):
         b = bytearray(b)
         b[30] = ord("X")  # the first entry's local name only

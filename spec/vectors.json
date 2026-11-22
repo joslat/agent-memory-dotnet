@@ -2311,6 +2311,9 @@
   "zip-compressed-size-wraps-32-bit": [
    "R-CORE-019",
    "R-CORE-002"
+  ],
+  "version-made-by-not-20": [
+   "R-CORE-016"
   ]
  }
 }
