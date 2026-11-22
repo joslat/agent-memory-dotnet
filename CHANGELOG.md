@@ -151,6 +151,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A detail no longer replaces the value it narrows. "The go-live takes place at a war room at Acme" closed "... takes
+  place at Acme's office in Córdoba", and the city was lost: the update judges count a more precise value as a
+  replacement, and this one keeps a name the stored value has (Acme), drops another (Córdoba) and adds none. Such a
+  value is now stored beside the old one without being judged. A value that names something new still replaces it
+  ("Acme's office in Rosario", "Madrid" for "Lisbon"), and so does a correction the writer flags.
+
 - Native library, TypeScript binding: a Node process could crash (SIGSEGV) as it exited, after all its work had
   succeeded. It was rare, and seen on Linux ARM. As Node shut down, koffi unloaded the library while threads of its
   .NET runtime were still running, and one of them woke in code that was no longer there. The binding now pins the
