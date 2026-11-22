@@ -212,7 +212,7 @@ public sealed class PerfCommand
             _output.WriteLine($"perf: {scenario.Id} — {scenario.Description}");
             try
             {
-                await RunScenarioAsync(scenario, profile, provider, collector, warmup, iterations, cancellationToken, dbRoundTrip)
+                await RunScenarioAsync(scenario, profile, provider, collector, warmup, iterations, cancellationToken)
                     .ConfigureAwait(false);
             }
             catch (Exception ex)
@@ -222,6 +222,34 @@ public sealed class PerfCommand
                 _output.WriteLine($"error: {scenario.Id} failed: {ex.Message}");
                 trace.RunEnd(collector.Records.Count, runStopwatch.Elapsed.TotalMilliseconds);
                 return 1;
+            }
+        }
+
+        // DRT-0: every scenario again, each round trip costing dbRoundTrip, after the whole zero-latency pass, so that
+        // pass runs in the order and at the pace of a run without the option (interleaved, the delayed iterations
+        // lengthened the run until PERF-R-07's exact transaction count no longer held). The delayed iterations carry
+        // their own phase: every ordinary aggregate stays the zero-latency one, and the difference of the medians is
+        // the waiting. A scenario with its own dependency delays (PERF-R-07, the degraded control) is counted at zero
+        // only: added to its 250 ms per transaction, the round trips would change the shape its checks expect.
+        if (dbRoundTrip is { } far && far > TimeSpan.Zero)
+        {
+            foreach (var scenario in scenarios.Where(s => s.DependencyLatency is null))
+            {
+                _output.WriteLine($"perf: {scenario.Id} — again, each database round trip costing {far.TotalMilliseconds:0} ms");
+                try
+                {
+                    for (var i = 0; i < iterations; i++)
+                    {
+                        await RunIterationAsync(
+                            scenario, profile, provider, collector, i, DatabaseLatencyPhase, cancellationToken, far).ConfigureAwait(false);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _output.WriteLine($"error: {scenario.Id} failed with the delay: {ex.Message}");
+                    trace.RunEnd(collector.Records.Count, runStopwatch.Elapsed.TotalMilliseconds);
+                    return 1;
+                }
             }
         }
 
@@ -275,8 +303,7 @@ public sealed class PerfCommand
         PerfCollector collector,
         int warmup,
         int iterations,
-        CancellationToken cancellationToken,
-        TimeSpan? dbRoundTrip = null)
+        CancellationToken cancellationToken)
     {
         // Warm-up samples are recorded (so they can be inspected in the trace) but carry Phase="warmup"
         // and are excluded from every aggregate by construction rather than by convention. JIT, the
@@ -292,17 +319,6 @@ public sealed class PerfCommand
         {
             await RunIterationAsync(
                 scenario, profile, provider, collector, i, "measure", cancellationToken).ConfigureAwait(false);
-        }
-
-        // DRT-0: the same iterations again with each round trip costing dbRoundTrip. They carry their own phase, so
-        // every ordinary aggregate stays the zero-latency one; the difference of the medians is the waiting.
-        if (dbRoundTrip is { } far && far > TimeSpan.Zero)
-        {
-            for (var i = 0; i < iterations; i++)
-            {
-                await RunIterationAsync(
-                    scenario, profile, provider, collector, i, DatabaseLatencyPhase, cancellationToken, far).ConfigureAwait(false);
-            }
         }
     }
 
@@ -351,6 +367,13 @@ public sealed class PerfCommand
                 }
             }
         }
+
+        // What the turn left running (a queued write, slower with the delay) must end before the next turn starts, or it
+        // is counted there: PERF-R-07 saw four transactions too many after delayed recalls. The product has no flush for
+        // it yet (DRT W1.5), so the run waits until the product's connections have been quiet for a moment.
+        if (phase != "warmup" && profile.Link is { } quietLink &&
+            !await quietLink.WaitForQuietAsync(TimeSpan.FromMilliseconds(300), TimeSpan.FromSeconds(30), cancellationToken).ConfigureAwait(false))
+            throw new InvalidOperationException($"{scenario.Id}: the store link was still busy 30 s after the turn ended");
 
         // Verification is deliberately outside the measured turn. Scenarios may read their writes back
         // to prove learning occurred; charging that harness-only query to the product path would corrupt

@@ -57,6 +57,7 @@ public sealed class LinkProxy : IDisposable
     private int _nextConnection;
     private volatile bool _disposed;
     private long _halfDelayTicks;
+    private long _lastActivity = Stopwatch.GetTimestamp();
 
     private LinkProxy(string targetHost, int targetPort)
     {
@@ -152,6 +153,7 @@ public sealed class LinkProxy : IDisposable
                 {
                     var read = source.Receive(buffer);
                     if (read == 0) break;
+                    Interlocked.Exchange(ref _lastActivity, Stopwatch.GetTimestamp());
                     var measuring = Measuring;
                     // The flag is set before the bytes move on, so an answer is always seen before the next send.
                     if (fromClient) Counter.ClientSent(connection, measuring);
@@ -170,6 +172,23 @@ public sealed class LinkProxy : IDisposable
                 if (!fromClient) Counter.Closed(connection);
             }
         }) { IsBackground = true, Name = $"link-proxy-{connection}-{(fromClient ? "up" : "down")}-read" }.Start();
+    }
+
+    /// <summary>
+    /// Waits until no bytes have crossed for <paramref name="quiet"/>: work the product left running after a turn (a
+    /// queued write, which a delay makes slower) ends before the next turn starts and is counted there. Gives up after
+    /// <paramref name="timeout"/> and says so.
+    /// </summary>
+    public async Task<bool> WaitForQuietAsync(TimeSpan quiet, TimeSpan timeout, CancellationToken cancellationToken = default)
+    {
+        var deadline = Stopwatch.GetTimestamp() + (long)(timeout.TotalSeconds * Stopwatch.Frequency);
+        var quietTicks = (long)(quiet.TotalSeconds * Stopwatch.Frequency);
+        while (Stopwatch.GetTimestamp() < deadline)
+        {
+            if (Stopwatch.GetTimestamp() - Interlocked.Read(ref _lastActivity) >= quietTicks) return true;
+            await Task.Delay(20, cancellationToken).ConfigureAwait(false);
+        }
+        return false;
     }
 
     private static void WaitUntil(long due)
