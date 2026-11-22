@@ -347,9 +347,14 @@ class Test4Contract(unittest.TestCase):
 class Test5Lifecycle(unittest.TestCase):
     @needs_store
     def test_timeout_retires_the_result(self):
+        # 1 ms is shorter than a recall almost everywhere, but a fast runner (macOS: 1.9 ms median) can finish one in
+        # time, which tests nothing: try until one runs out.
         with MemoryClient(config()) as memory:
-            result = memory.get_context(session_id="s", query_vector=NEAR_AXIS_0, timeout_ms=1)
-        self.assertEqual((result.status, result.error.code), ("timeout", "timeout"))
+            for _ in range(50):
+                result = memory.get_context(session_id="s", query_vector=NEAR_AXIS_0, timeout_ms=1)
+                if result.status != "ok":
+                    break
+        self.assertEqual((result.status, result.error.code if result.error else None), ("timeout", "timeout"))
 
     @needs_store
     def test_cancel_then_release_then_the_handle_is_dead(self):
