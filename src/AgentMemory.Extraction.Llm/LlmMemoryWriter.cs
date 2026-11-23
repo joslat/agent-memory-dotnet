@@ -435,8 +435,11 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
     private async Task<IReadOnlyList<MemoryWriterOps.Stored>> WithFirstSaidAsync(IReadOnlyList<MemoryWriterOps.Stored> shown,
         CancellationToken cancellationToken)
     {
+        // IDENTITY-HARD-CASES A1: by name, whatever the type (whos-who-v2 run 1: a bid stored as an event and a project as a
+        // thing, both "Lighthouse", were shown without their first words, and the writer picked the wrong one).
         var repeated = shown.Where(item => item.Letter == 'E' && item.SourceMessageId is not null)
-            .GroupBy(item => item.Text, StringComparer.OrdinalIgnoreCase).Where(group => group.Count() > 1)
+            .GroupBy(item => MemoryWriterContract.Canonical(MemoryWriterContract.EntityName(item.Text)), StringComparer.Ordinal)
+            .Where(group => group.Count() > 1)
             .SelectMany(group => group).ToList();
         if (repeated.Count == 0 || _services.GetService<IMessageRepository>() is not { } messages) return shown;
         var firstSaid = new Dictionary<string, string>(StringComparer.Ordinal);

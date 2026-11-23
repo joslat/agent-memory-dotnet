@@ -252,6 +252,29 @@ public sealed class LlmMemoryWriterTests
         shown.Should().Contain("E2: Café Lumen (LOCATION), first said in \"There is another Café Lumen in Porto, open only at night.\"");
     }
 
+    /// <summary>
+    /// IDENTITY-HARD-CASES A1 (whos-who-v2 run 1): two stored things of one name but different types (a bid stored as an
+    /// event, a project as a thing) were shown without the words each was first said in, so the writer could not tell which
+    /// one "went live" and picked the other. Namesakes of any type are shown with their first words.
+    /// </summary>
+    [Fact]
+    public async Task In_event_identity_mode_stored_things_of_one_name_and_two_types_are_shown_with_their_first_words()
+    {
+        _entities.SearchByVectorAsync(default!, default, default, default, default).ReturnsForAnyArgs(
+        [
+            (Cafe("e-lisbon", "m-lisbon"), 0.9),
+            (Cafe("e-porto", "m-porto") with { Type = "EVENT" }, 0.8),
+        ]);
+        _messages.GetByIdAsync("m-lisbon", Arg.Any<CancellationToken>()).Returns(Said("m-lisbon", "We had dinner at Café Lumen in Lisbon."));
+        _messages.GetByIdAsync("m-porto", Arg.Any<CancellationToken>()).Returns(Said("m-porto", "Café Lumen is also the name of the jazz night in Porto."));
+
+        await Writer(true).WriteAsync(Turn("Café Lumen was packed on Friday.", MemoryScope.For("lukas")));
+
+        var shown = Stored(_asked.Single().User);
+        shown.Should().Contain("E1: Café Lumen (LOCATION), first said in \"We had dinner at Café Lumen in Lisbon.\"");
+        shown.Should().Contain("E2: Café Lumen (EVENT), first said in \"Café Lumen is also the name of the jazz night in Porto.\"");
+    }
+
     [Fact]
     public async Task The_default_writer_and_a_unique_name_read_no_source_message()
     {
