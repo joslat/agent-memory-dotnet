@@ -260,7 +260,7 @@ public sealed record MemoryOptions
 
     /// <summary>
     /// Routes access tracking through a root-owned background queue instead of the recall path (30.12).
-    /// Default off.
+    /// On by default from 2.4 (DRT-5b, the owner's decision D-10); <c>false</c> gives the waited-for write, unchanged.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -283,7 +283,7 @@ public sealed record MemoryOptions
     /// returns, or leaves this option off. A process that is killed loses what was still queued.
     /// </para>
     /// </remarks>
-    public bool UseAccessTrackingQueue { get; set; }
+    public bool UseAccessTrackingQueue { get; set; } = true;
 
     /// <summary>
     /// How many recall batches the access-tracking queue holds before dropping. Default 1024.

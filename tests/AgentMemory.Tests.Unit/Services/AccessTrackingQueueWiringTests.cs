@@ -87,6 +87,12 @@ public sealed class AccessTrackingQueueWiringTests
 
     // ── DRT-5b: the default, and the read time the same on both paths (T-3: read_at is the context's AssembledAtUtc) ──
 
+    [Fact]
+    public void The_queue_is_on_by_default()
+    {
+        new MemoryOptions().UseAccessTrackingQueue.Should().BeTrue("the owner's decision D-10: on by default from 2.4");
+    }
+
     private sealed class RecordingTracker : IMemoryAccessTracker
     {
         public List<(IReadOnlyList<(string NodeId, MemoryNodeKind Kind)> Nodes, DateTimeOffset? ReadAt)> Tracked { get; } = [];

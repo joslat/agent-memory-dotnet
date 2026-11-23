@@ -34,7 +34,7 @@ public sealed class PresetDefaultDifferenceTests
         ["MemoryOptions.WorkingMemory.RecentTopicsDays"] = "Adds the \"Lately\" line to the profile block: 0 leaves the block as it was.",
         ["MemoryOptions.Isolation.Mode"] = "StrictMultiTenant fails an unscoped recall closed; the default keeps SingleTenant for compatibility.",
         // Speed only, the same results. DEF-check found these three with no recorded reason (17 Nov 2026).
-        ["MemoryOptions.UseAccessTrackingQueue"] = "Decision D (DRT-D): with the queue the read notes land after recall returns and a killed process loses what was queued, a changed promise that waits for the owner's plain yes.",
+        // UseAccessTrackingQueue: no longer a difference. On by default from 2.4 (DRT-5b, the owner's decision D-10).
         // EmbeddingCacheCapacity: no longer a difference. Since 2.4 the default is 512 unless the host chose strict
         // multi-tenant isolation, which the preset pairs with an explicit 512 (owner decision, 22 Nov 2026).
         ["MemoryOptions.SkipEscalationWhenOwnerHasNoRows"] = "Measured worse as a default: on an owner who holds rows it adds a probe per kind (PERF-R-01 13 to 16 queries, 14 Aug 2026). It pays off only where most owners hold nothing, as in a one-person assistant's early sessions; the owner kept it opt-in on 22 Nov 2026.",

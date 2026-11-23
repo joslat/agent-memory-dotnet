@@ -48,7 +48,9 @@ if (!explicitUrlsConfigured)
 
 // ---- Services (meta-package overload, same as TckMirroredBehaviorTests) ----
 builder.Services.AddNeo4jAgentMemory(
-    configureMemory: _ => { },
+    // DRT-5b: pinned to the waited-for read note, so a conformance check that reads an access count right after a recall
+    // sees it; the queue is on by default from 2.4.
+    configureMemory: o => o.UseAccessTrackingQueue = false,
     configureNeo4j: o =>
     {
         o.Uri = neo4jUri;

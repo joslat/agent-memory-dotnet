@@ -210,6 +210,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `MaxEntities` and keeps that many distinct entities. In the four measured runs no question did worse, and no prompt
   changed (the searches held no further entity). Set it to `false` for the 2.3 entity list.
 
+- **Recall no longer waits for its read notes (`MemoryOptions.UseAccessTrackingQueue` is on by default; the owner's
+  decision D-10).** The note of what a recall read (its access count and time, which decay and retention use) is written
+  by the root-owned queue a few milliseconds after recall returns, everything waiting in one transaction per store: with
+  the defaults a recall waits for four round trips fewer. Its stored time is the recall's `AssembledAtUtc`, on the queue
+  and on the waited-for path alike. A host that must read those counts right after a recall calls
+  `IMemoryAccessTracker.FlushAsync` (the history service and the decay prune already do); a host that ends or freezes
+  between requests (a function, a command-line tool) calls it before it returns, or sets the option to `false` for the
+  2.3 behaviour. A killed process loses what was still queued.
+
 - **`source_pack_transferred_from` is now a reserved record property.** A module or pack that declares a property of
   that name is refused by validation, as for the other `source_*` names; rename it. A store where a pack under a new id
   is refused with `Namespace is owned by another module (<old id>)` can now take the names with
