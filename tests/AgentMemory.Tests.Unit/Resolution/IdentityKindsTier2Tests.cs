@@ -142,6 +142,35 @@ public sealed class IdentityKindsTier2Tests
         score.ByKind["product"].Missed.Should().Be(1);
     }
 
+    /// <summary>
+    /// The paid check of 23 Nov (ikb-cover-1, 2): the writer stored the city "Buenos Aires" (statement 19) and the town
+    /// "Villa Carlos Paz" (statement 6) as places of their own, which is right, and the scorer counted them as splits of
+    /// T07 ("Café Tortoni in Buenos Aires") and T11 ("the family lake house in Villa Carlos Paz"): by the words of the
+    /// "in ..." qualifier, and by type alone when nothing else matched. A place a thing is "in" is not that thing.
+    /// </summary>
+    [Fact]
+    public void The_place_a_thing_is_in_is_not_that_thing()
+    {
+        var score = IdentityKindsScorer.Score(Key, WhosWho, Store([.. PerfectEntities(),
+                Entity("e-city", "Buenos Aires", "LOCATION", [19]), Entity("e-town", "Villa Carlos Paz", "LOCATION", [6])]),
+            IdentityGoldScorer.EntitiesView);
+
+        score.Mentions.Single(m => m.Identity == "e-city").Thing.Should().BeNull();
+        score.Mentions.Single(m => m.Identity == "e-town").Thing.Should().BeNull();
+        score.Splits.Should().Be(0);
+        score.Right.Should().Be(27);
+    }
+
+    [Fact]
+    public void A_role_noun_still_finds_the_one_thing_of_its_type()
+    {
+        var withoutTheVet = PerfectEntities().Where(e => !e.ToString()!.Contains("e-T04", StringComparison.Ordinal)).ToArray();
+        var score = IdentityKindsScorer.Score(Key, WhosWho, Store([.. withoutTheVet, Entity("e-vet", "the vet", "PERSON", StatementsOf("T04"))]),
+            IdentityGoldScorer.EntitiesView);
+
+        score.Mentions.Where(m => m.Identity == "e-vet").Should().OnlyContain(m => m.Thing == "T04");
+    }
+
     [Fact]
     public void A_namesakes_fact_in_the_prompt_is_found_and_its_absence_passes()
     {

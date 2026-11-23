@@ -150,6 +150,9 @@ internal static class IdentityKindsScorer
         if (namedAndTyped.Count > 1) return (null, "two things of this name and type in the statement");
         if (named.Count == 1) return (named[0], "name, another type");
         if (named.Count > 1) return (null, "two things of this name in the statement");
+        // A proper name that names none of the statement's things is a thing the key does not hold (the city a venue is
+        // in, the town a house is in), not the one thing of its type. Only a role noun ("the vet") is labelled by type.
+        if (IsProperName(o.Words)) return (null, "a name the key does not hold in this statement");
         var typed = candidates.Where(c => things[c].Type == kind).ToList();
         if (typed.Count == 1) return (typed[0], "the one thing of this type in the statement");
         return (null, typed.Count == 0 ? "no thing of this name or type in the statement" : "two things of this type, neither named");
@@ -161,12 +164,28 @@ internal static class IdentityKindsScorer
     /// </summary>
     internal static IEnumerable<string> NameWords(string name)
     {
+        // The place a thing is in names that place, not the thing: "Café Tortoni in Buenos Aires" is "café tortoni".
+        name = PlaceItIsIn.Replace(name, "");
         var possessive = Possessive.Match(name);
         return possessive.Success ? Words(name).Except(Words(possessive.Value), StringComparer.Ordinal) : Words(name);
     }
 
     private static readonly System.Text.RegularExpressions.Regex Possessive =
         new(@"^.*?\p{L}['’]s(?=\s)", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    private static readonly System.Text.RegularExpressions.Regex PlaceItIsIn =
+        new(@"\s+in\s+\p{Lu}.*$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// Words that name something, as a writer stores a name: every word but the small ones starts with a capital or a
+    /// digit ("Buenos Aires", "Q3"). "the vet" and "the lake house" are role nouns, which may be labelled by type.
+    /// </summary>
+    internal static bool IsProperName(string words)
+    {
+        var tokens = words.Split([' ', ',', '.', '(', ')', '\'', '’', '"'], StringSplitOptions.RemoveEmptyEntries)
+            .Where(t => !SmallWords.Contains(t.ToLowerInvariant()) && !(t.Length == 1 && char.IsLower(t[0]))).ToList();
+        return tokens.Count > 0 && tokens.All(t => char.IsUpper(t[0]) || char.IsDigit(t[0]));
+    }
 
     /// <summary>The words of a name: lower case, without accents or punctuation, without small words.</summary>
     internal static HashSet<string> Words(string text)
