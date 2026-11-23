@@ -165,6 +165,13 @@ function recalledIds(result: Json): string[] {
   return [...ids].sort();
 }
 
+/** What the library reported beside a failed expectation. A status-only expectation would otherwise hide a failed
+ * open's error code and message (NATIVE-TLS-WIN-READY: two TLS opens on Windows said only INTERNAL_ERROR). */
+function librarySaid(outcome: Json): string {
+  if (outcome === null || typeof outcome !== "object" || Array.isArray(outcome)) return "";
+  return outcome.code || outcome.message ? `; the library said ${String(outcome.code)}: ${short(outcome.message ?? "")}` : "";
+}
+
 function short(value: Json): string {
   const text = value === MISSING ? "(missing)" : toJson(value);
   return text.length <= 300 ? text : text.slice(0, 297) + "...";
@@ -529,7 +536,7 @@ export async function runCase(c: Case, env: Environment, fx: Json, stubs: Stubs 
         } catch (failure) {
           if (!(failure instanceof CaseFailure)) throw failure;
           const action = Object.keys(step).find((k) => !["expect", "as", "note", "save"].includes(k));
-          throw new CaseFailure(`${c.id}, step ${index + 1} (${action}): ${failure.message}`);
+          throw new CaseFailure(`${c.id}, step ${index + 1} (${action}): ${failure.message}${librarySaid(outcome)}`);
         }
       }
     }

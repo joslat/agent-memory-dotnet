@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using AgentMemory.Extensibility.Ingestion;
 using AgentMemory.Extensibility.Packs;
+using AgentMemory.Packs.Intent;
 
 namespace AgentMemory.Packs.Decisions;
 
@@ -65,7 +66,9 @@ public sealed partial class CodeIndex
 /// Reads decisions from a project's Markdown (coding packs CMP-3) into the decisions pack's snapshot, deterministically: ADR and
 /// MADR files (one decision each, sections Status, Context, Decision, Consequences) and Squad's decision log (dated, D-numbered
 /// or directive entries; entries that only review something are skipped). What a decision applies to comes from the paths,
-/// file names and type names its text mentions that the code index holds.
+/// file names and type names its text mentions that the code index holds. The requirements it addresses (CO-2b,
+/// <see cref="DecisionsPack.Addresses"/>) come from its <c>Addresses: REQ-2, REQ-3</c> line and the requirement ids
+/// (<c>REQ-12</c>) its decision drivers name; an id its other text mentions is not a claim it addresses it.
 /// </summary>
 [Experimental("AMEXT001")]
 public static partial class DecisionsReader
@@ -96,7 +99,7 @@ public static partial class DecisionsReader
         }
         // Keys repeat when two entries share a heading: keep the first, as Markdown readers do.
         var unique = records.GroupBy(r => r.Record.Key, StringComparer.Ordinal).Select(g => g.First()).ToList();
-        return new ModuleSnapshot { Module = DecisionsPack.Manifest, Source = source, Records = Supersessions(unique) };
+        return new ModuleSnapshot { Module = DecisionsPack.Manifest, Dependencies = [IntentPack.Manifest], Source = source, Records = Supersessions(unique) };
     }
 
     /// <summary>
@@ -146,7 +149,8 @@ public static partial class DecisionsReader
             {
                 var properties = record.Properties.Where(p => p.Key is not ("appliesTo" or "mentions")).ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
                 properties["status"] = JsonSerializer.SerializeToElement("superseded");
-                record = record with { Properties = properties.AsReadOnly() };
+                // Nor does it address anything any more (CO-2b): the decision that replaced it does.
+                record = record with { Properties = properties.AsReadOnly(), Links = [.. record.Links.Where(l => l.Relation != DecisionsPack.Addresses)] };
             }
             return record;
         })];
@@ -230,9 +234,48 @@ public static partial class DecisionsReader
         {
             Type = DecisionsPack.Type, Key = Clip(decision.File + "#" + (decision.Anchor.Length > 0 ? decision.Anchor : "decision"), 200)!,
             Properties = properties.Where(p => p.Value is not null).ToDictionary(p => p.Key, p => JsonSerializer.SerializeToElement(p.Value), StringComparer.Ordinal).AsReadOnly(),
+            Links = superseded ? [] : [.. Addressed(decision.Body).Select(id => new ProposedLink { Relation = DecisionsPack.Addresses, Target = id })],
             Source = new ProposalSource { Excerpt = decision.File, Pack = new PackSource { Id = DecisionsPack.Id, Version = "", Digest = "", File = decision.File, Line = decision.Line } },
         };
     }
+
+    /// <summary>Most requirements one decision addresses.</summary>
+    internal const int MaximumAddressed = 16;
+
+    /// <summary>
+    /// The requirements a decision says it addresses (CO-2b), in order: the ids on its <c>Addresses:</c> lines, then the
+    /// requirement ids (<c>REQ-12</c>) its decision drivers section names. Mentions elsewhere are not claims.
+    /// </summary>
+    internal static IReadOnlyList<string> Addressed(string body)
+    {
+        var found = new List<string>();
+        void Take(IEnumerable<Match> matches)
+        {
+            foreach (var id in matches.Select(m => m.Value))
+                if (!found.Contains(id, StringComparer.Ordinal)) found.Add(id);
+        }
+        var lines = body.Split('\n');
+        foreach (var line in lines)
+            if (AddressesLine().Match(line) is { Success: true } addresses) Take(LedgerId().Matches(addresses.Groups["ids"].Value));
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var level = Level(lines[i]);
+            if (level < 2 || !Regex.Replace(lines[i].TrimStart('#').Trim().ToLowerInvariant(), @"[:*]", "").Trim().StartsWith("decision drivers", StringComparison.Ordinal)) continue;
+            for (var j = i + 1; j < lines.Length && (Level(lines[j]) is 0 || Level(lines[j]) > level); j++) Take(RequirementId().Matches(lines[j]));
+        }
+        return [.. found.Take(MaximumAddressed)];
+    }
+
+    [GeneratedRegex(@"^[\s>*-]*\**addresses\**\s*:\**\s*(?<ids>.+)$", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    private static partial Regex AddressesLine();
+
+    // An id on an Addresses line: REQ-12, CO-2b, PACK-REMOVE, 40.28.
+    [GeneratedRegex(@"(?<![A-Za-z0-9_])[A-Za-z0-9]+(?:[-.][A-Za-z0-9]+)+(?![A-Za-z0-9_])", RegexOptions.CultureInvariant)]
+    private static partial Regex LedgerId();
+
+    // A requirement id in free text, as the intent pack writes one: REQ-12.
+    [GeneratedRegex(@"(?<![A-Za-z0-9_-])[A-Z][A-Z0-9]*-\d+(?![A-Za-z0-9_]|-[A-Za-z0-9])", RegexOptions.CultureInvariant)]
+    private static partial Regex RequirementId();
 
     /// <summary>The paths and types a text mentions that the code index holds: files exactly, folders as <c>folder/**</c>, types by their files.</summary>
     internal static (IReadOnlyList<string> AppliesTo, IReadOnlyList<string> Mentions) Targets(string text, CodeIndex code)

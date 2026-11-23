@@ -1646,7 +1646,7 @@ what that means for it — for most, the query is never issued at all rather tha
 | Dates from the writer's words | `LlmExtractionOptions.DatesFromText` | `false` (on in Recommended) | the store-aware writer keeps dates in the text; this reads an explicit date or range into `occurred_on` / `valid_from` / `valid_until` as well, deterministically, never overwriting a field the writer set |
 | Projection layer (§3.2.8) | `MemoryProjectionOptions` × 6 | all `false` | reachable at `MemoryOptions.Projection` and per-request `RecallOptions.Projection`; no flag ⇒ `MemoryContext.Projection` is `null` |
 | Delta recall (§3.2.9) | `AgentFrameworkOptions.InjectDeltaOnSessionResume` | `false` | `IMemoryRecall.RecallChangedSinceAsync` is callable directly regardless; the flag governs automatic injection on session resume |
-| Access-tracking queue (§3.2.8b) | `MemoryOptions.UseAccessTrackingQueue` | `false` | supersedes `MemoryOptions.DeferAccessTracking` (also `false`) where both are set |
+| Access-tracking queue (§3.2.8b) | `MemoryOptions.UseAccessTrackingQueue` | `true` (from 2.4) | supersedes `MemoryOptions.DeferAccessTracking` (`false`) where both are set; `false` gives the waited-for write |
 | Legible forgetting (§3.2.9b) | `RecallOptions.LegibleForgetting` | `false` | three gates; see the invariant table |
 | Arithmetic / derived memory (§3.2.10) | `MemoryOptions.Extraction.DerivedMemory.Enabled` | `false` | note the path — it lives under `Extraction`, not on `MemoryOptions` directly |
 | Working memory (§3.2.11) | `MemoryOptions.WorkingMemory.Enabled` | `true` (was `false` when this table was written) | plus `ContextFormatOptions.IncludeWorkingMemory` / `MemoryContextFormatterOptions.IncludeWorkingMemory` to render it |

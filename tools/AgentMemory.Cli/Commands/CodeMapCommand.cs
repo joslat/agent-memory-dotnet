@@ -22,7 +22,7 @@ namespace AgentMemory.Cli.Commands;
 /// signed snapshot pack (pack format v1.2 §3), offline; <c>codemap import --pack &lt;file.ampack&gt; --trust &lt;trust.json&gt;</c>
 /// imports one, verified, instead of reading a repository.
 /// </summary>
-internal sealed class CodeMapCommand(TextWriter output)
+internal sealed class CodeMapCommand(TextWriter output, bool namedTestLinks = false)
 {
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
@@ -30,7 +30,7 @@ internal sealed class CodeMapCommand(TextWriter output)
     {
         if (root is null && scip is null) return Usage("codemap scan needs --root <repository>, --scip <index.scip>, or both.");
         var watch = Stopwatch.StartNew();
-        var builder = Read(root, scip);
+        var builder = Read(root, scip, namedTestLinks);
         var snapshot = builder.Build((root is null ? null : Head(root)) ?? "scan");
         var (projects, files, symbols, tests) = builder.Counts;
         var problems = snapshot.Problems();
@@ -56,7 +56,7 @@ internal sealed class CodeMapCommand(TextWriter output)
         if (!File.Exists(keyPath)) return Usage($"there is no key at {keyPath} (ampack keygen makes one).");
         var watch = Stopwatch.StartNew();
         var head = root is null ? null : Head(root);
-        var snapshot = Read(root, scip).Build(head ?? "pack");
+        var snapshot = Read(root, scip, namedTestLinks).Build(head ?? "pack");
         if (snapshot.Problems() is { Count: > 0 } problems)
         {
             output.WriteLine(JsonSerializer.Serialize(new { records = snapshot.Records.Count, problems }, Json));
@@ -88,7 +88,7 @@ internal sealed class CodeMapCommand(TextWriter output)
         if (packPath is not null) return await ImportPackAsync(runner, packPath, trustPath, root, rebuildIfStale).ConfigureAwait(false);
         if (root is null && scip is null) return Usage("codemap import needs --root <repository>, --scip <index.scip>, --pack <file.ampack>, or one of them.");
         var watch = Stopwatch.StartNew();
-        var snapshot = Read(root, scip).Build(source ?? (root is null ? null : Head(root)) ?? throw new InvalidOperationException(
+        var snapshot = Read(root, scip, namedTestLinks).Build(source ?? (root is null ? null : Head(root)) ?? throw new InvalidOperationException(
             "codemap import needs --source when there is no Git repository to take the commit from."));
         var read = watch.Elapsed;
         var result = await new Neo4jModuleSnapshotStore(runner).ImportAsync(snapshot, DateTimeOffset.UtcNow).ConfigureAwait(false);
@@ -113,7 +113,8 @@ internal sealed class CodeMapCommand(TextWriter output)
         try
         {
             pack = PackLoader.Load(packPath, PackTrust.Load(trustPath));
-            snapshot = pack.ToSnapshot(CodeMapPack.Manifest);
+            // The code map links its tests into the intent pack's requirements (CO-2b): its snapshot names that dependency.
+            snapshot = pack.ToSnapshot(CodeMapPack.Manifest, [AgentMemory.Packs.Intent.IntentPack.Manifest]);
         }
         catch (PackLoadException e)
         {
@@ -130,7 +131,7 @@ internal sealed class CodeMapCommand(TextWriter output)
         var rebuilt = false;
         if (freshness?.Fresh == false && rebuildIfStale)
         {
-            snapshot = Read(root, null).Build(Head(root!)!);
+            snapshot = Read(root, null, namedTestLinks).Build(Head(root!)!);
             rebuilt = true;
         }
         var read = watch.Elapsed;
@@ -163,10 +164,12 @@ internal sealed class CodeMapCommand(TextWriter output)
         catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException) { return null; }
     }
 
-    // C# from the repository with Roslyn, then each SCIP index into the same map.
-    internal static CodeMapBuilder Read(string? root, string? scip)
+    // C# from the repository with Roslyn, then each SCIP index into the same map. --named-test-links (CMP-2g, for its trial):
+    // a test class named after one type outside its project also tests it.
+    internal static CodeMapBuilder Read(string? root, string? scip, bool namedTestLinks = false)
     {
-        var builder = root is null ? new CodeMapBuilder() : RoslynCodeMapReader.Read(Path.GetFullPath(root));
+        var builder = root is null ? new CodeMapBuilder()
+            : RoslynCodeMapReader.Read(Path.GetFullPath(root), new RoslynCodeMapOptions { NamedTestLinks = namedTestLinks });
         foreach (var index in (scip ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             ScipCodeMapReader.Read(index, builder);
         return builder;

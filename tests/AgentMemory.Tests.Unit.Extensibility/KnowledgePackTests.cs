@@ -161,6 +161,30 @@ public sealed class KnowledgePackTests
         store.Imports.Should().Be(1);
     }
 
+    [Fact]
+    public async Task TheImporterRemovesByAValidIdOnlyAndAStoreThatCannotSaysSoAtItsStep()
+    {
+        var importer = new KnowledgePackImporter(new Store { State = new() { PackId = "io.example.packs.lost" } });
+        await FluentActions.Awaiting(() => importer.RemoveByIdAsync("not a pack id")).Should().ThrowAsync<ArgumentException>();
+
+        // A store that removes by manifest only says so; the failure names the pack, the operation and the step.
+        var refused = await FluentActions.Awaiting(() => importer.RemoveByIdAsync("io.example.packs.lost")).Should().ThrowAsync<NotSupportedException>();
+        PackFailure.Of(refused.Which).Should().BeEquivalentTo(new { Code = "pack.remove.store.failed", PackId = "io.example.packs.lost", Version = (string?)null });
+    }
+
+    [Fact]
+    public async Task ATransferNeedsAnotherValidIdAndAnActorAndAStoreThatCannotSaysSoAtItsStep()
+    {
+        var pack = KnowledgePack.Open(Signed(), Trust());
+        var importer = new KnowledgePackImporter(new Store { State = new() { PackId = pack.Id } });
+        await FluentActions.Awaiting(() => importer.TransferAsync("not a pack id", pack, "operator")).Should().ThrowAsync<ArgumentException>();
+        await FluentActions.Awaiting(() => importer.TransferAsync(pack.Id, pack, "operator")).Should().ThrowAsync<ArgumentException>();
+        await FluentActions.Awaiting(() => importer.TransferAsync("io.example.packs.old", pack, " ")).Should().ThrowAsync<ArgumentException>();
+
+        var refused = await FluentActions.Awaiting(() => importer.TransferAsync("io.example.packs.old", pack, "operator")).Should().ThrowAsync<NotSupportedException>();
+        PackFailure.Of(refused.Which).Should().BeEquivalentTo(new { Code = "pack.transfer.store.failed", PackId = pack.Id, Operation = PackOperations.Transfer });
+    }
+
     private sealed class Store : IKnowledgePackStore
     {
         public required KnowledgePackState State { get; init; }

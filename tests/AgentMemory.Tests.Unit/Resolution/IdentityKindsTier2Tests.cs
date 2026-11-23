@@ -127,6 +127,99 @@ public sealed class IdentityKindsTier2Tests
         score.Right.Should().Be(27);
     }
 
+    /// <summary>
+    /// The tier 2 runs of 22 Nov counted the product T16 ("her mother's Kindle") as right when the writer stored only
+    /// "user's mother" as a person: the possessive's owner made "mother" a name word of the Kindle.
+    /// </summary>
+    [Fact]
+    public void A_mention_of_a_possessives_owner_is_not_the_thing_it_owns()
+    {
+        var withoutTheKindle = PerfectEntities().Where(e => !e.ToString()!.Contains("e-T16", StringComparison.Ordinal)).ToArray();
+        var score = IdentityKindsScorer.Score(Key, WhosWho, Store([.. withoutTheKindle, Entity("e-mother", "user's mother", "PERSON", StatementsOf("T16"))]),
+            IdentityGoldScorer.EntitiesView);
+
+        score.Mentions.Single(m => m.Identity == "e-mother").Thing.Should().NotBe("T16");
+        score.ByKind["product"].Missed.Should().Be(1);
+    }
+
+    /// <summary>
+    /// The paid check of 23 Nov (ikb-cover-1, 2): the writer stored the city "Buenos Aires" (statement 19) and the town
+    /// "Villa Carlos Paz" (statement 6) as places of their own, which is right, and the scorer counted them as splits of
+    /// T07 ("Café Tortoni in Buenos Aires") and T11 ("the family lake house in Villa Carlos Paz"): by the words of the
+    /// "in ..." qualifier, and by type alone when nothing else matched. A place a thing is "in" is not that thing.
+    /// </summary>
+    [Fact]
+    public void The_place_a_thing_is_in_is_not_that_thing()
+    {
+        var score = IdentityKindsScorer.Score(Key, WhosWho, Store([.. PerfectEntities(),
+                Entity("e-city", "Buenos Aires", "LOCATION", [19]), Entity("e-town", "Villa Carlos Paz", "LOCATION", [6])]),
+            IdentityGoldScorer.EntitiesView);
+
+        score.Mentions.Single(m => m.Identity == "e-city").Thing.Should().BeNull();
+        score.Mentions.Single(m => m.Identity == "e-town").Thing.Should().BeNull();
+        score.Splits.Should().Be(0);
+        score.Right.Should().Be(27);
+    }
+
+    /// <summary>
+    /// The second paid check of 23 Nov (ikb-cover2-1, 2): the writer stored Clara's cat as "Clara's cat Luna" (PERSON, as it
+    /// types pets), and the scorer counted it as a split of Clara (T25) through the possessive's owner. A stored mention's
+    /// possessive owner is not what it names, as a key name's owner is not (A_mention_of_a_possessives_owner...).
+    /// </summary>
+    [Fact]
+    public void A_stored_mention_named_with_its_owners_possessive_is_the_owned_thing()
+    {
+        var withoutTheCat = PerfectEntities().Where(e => !e.ToString()!.Contains("e-T06", StringComparison.Ordinal)).ToArray();
+        var score = IdentityKindsScorer.Score(Key, WhosWho, Store([.. withoutTheCat, Entity("e-cat", "Clara's cat Luna", "PERSON", StatementsOf("T06"))]),
+            IdentityGoldScorer.EntitiesView);
+
+        score.Mentions.Where(m => m.Identity == "e-cat").Should().OnlyContain(m => m.Thing == "T06");
+        score.SplitThings.Should().NotContainKey("T25");
+    }
+
+    /// <summary>
+    /// The third paid check (cover3-1, cover3-2): the writer stored the cat as "Luna, Clara's cat". The possessive strip took
+    /// everything up to the owner, "Luna" too, so the mention lost its own name. The owner is one word.
+    /// </summary>
+    [Fact]
+    public void A_stored_mention_that_names_the_owned_thing_before_its_owner_keeps_its_own_name()
+    {
+        var withoutTheCat = PerfectEntities().Where(e => !e.ToString()!.Contains("e-T06", StringComparison.Ordinal)).ToArray();
+        var score = IdentityKindsScorer.Score(Key, WhosWho, Store([.. withoutTheCat, Entity("e-cat", "Luna, Clara's cat", "PERSON", StatementsOf("T06"))]),
+            IdentityGoldScorer.EntitiesView);
+
+        score.Mentions.Where(m => m.Identity == "e-cat").Should().OnlyContain(m => m.Thing == "T06");
+        score.SplitThings.Should().NotContainKey("T25");
+        IdentityKindsScorer.MentionWords("Luna, Clara's cat").Should().Contain("luna").And.NotContain("clara");
+    }
+
+    /// <summary>
+    /// IKB-SCORER-PLACE-MENTION, the fourth paid check (cover4-1, statement 23): the writer stored "the mosque in Córdoba", a
+    /// thing the key does not hold, and the scorer counted it as Córdoba in Spain. A common-noun head with the place it is in
+    /// names the head; a proper name with its place ("Córdoba in Spain") still tells namesakes apart.
+    /// </summary>
+    [Fact]
+    public void A_stored_thing_named_with_the_place_it_is_in_is_not_that_place()
+    {
+        var score = IdentityKindsScorer.Score(Key, WhosWho, Store([.. PerfectEntities(), Entity("e-mosque", "the mosque in Córdoba", "OBJECT", [23])]),
+            IdentityGoldScorer.EntitiesView);
+
+        score.Mentions.Where(m => m.Identity == "e-mosque").Should().OnlyContain(m => m.Thing == null);
+        score.SplitThings.Should().NotContainKey("T10");
+        IdentityKindsScorer.MentionWords("the mosque in Córdoba").Should().Equal("mosque");
+        IdentityKindsScorer.MentionWords("Córdoba in Spain").Should().Contain("spain");
+    }
+
+    [Fact]
+    public void A_role_noun_still_finds_the_one_thing_of_its_type()
+    {
+        var withoutTheVet = PerfectEntities().Where(e => !e.ToString()!.Contains("e-T04", StringComparison.Ordinal)).ToArray();
+        var score = IdentityKindsScorer.Score(Key, WhosWho, Store([.. withoutTheVet, Entity("e-vet", "the vet", "PERSON", StatementsOf("T04"))]),
+            IdentityGoldScorer.EntitiesView);
+
+        score.Mentions.Where(m => m.Identity == "e-vet").Should().OnlyContain(m => m.Thing == "T04");
+    }
+
     [Fact]
     public void A_namesakes_fact_in_the_prompt_is_found_and_its_absence_passes()
     {
@@ -134,5 +227,23 @@ public sealed class IdentityKindsTier2Tests
 
         Checks.Forbidden(dog, "Known facts: Luna is four; Clara's cat is a grey Persian").Should().Contain(f => f.Found);
         Checks.Forbidden(dog, "Known facts: Luna is four; Luna had knee surgery").Should().OnlyContain(f => !f.Found);
+    }
+
+    /// <summary>
+    /// IKB-SCORER-MUSTNOT-SCOPE (found by IKB-TIER2-RERUN): gold v1's niece question forbids "Madrid" anywhere, so the
+    /// company's own fact ("Brisa Labs opened an office in Madrid") counted as the designer's namesake fact. A forbidden
+    /// fact is already every group of its mentions in one prompt item, so a gold v2 scopes it to the namesake by adding
+    /// her names as a second group; no scorer change is needed, and v1 stays frozen as it is.
+    /// </summary>
+    [Fact]
+    public void A_forbidden_fact_scoped_to_the_namesake_ignores_the_same_word_in_another_thing_s_fact()
+    {
+        var niece = WhosWho.Questions.Single(q => q.Id == "niece");
+        var scoped = niece with { MustNot = [new([["Madrid"], ["Valentina", "Vale"]])] };
+        const string company = "Known facts: Valentina started school; Brisa Labs opened an office in Madrid";
+
+        Checks.Forbidden(niece, company).Should().Contain(f => f.Found, "v1 counts the word anywhere, as frozen");
+        Checks.Forbidden(scoped, company).Should().OnlyContain(f => !f.Found);
+        Checks.Forbidden(scoped, "Known facts: Valentina moved to the Madrid office").Should().Contain(f => f.Found);
     }
 }

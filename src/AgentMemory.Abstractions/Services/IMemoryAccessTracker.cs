@@ -12,7 +12,7 @@ namespace AgentMemory.Abstractions.Services;
 /// transactions before the model was even invoked.
 /// </para>
 /// <para>
-/// <b><see cref="Track"/> returns void, and that is the contract, not an oversight.</b> A
+/// <b><c>Track</c> returns void (both overloads), and that is the contract, not an oversight.</b> A
 /// <c>Task</c>-returning version invites a caller to await it, which reinstates exactly the latency this
 /// exists to remove — and awaiting it inside a request scope is what makes the older
 /// fire-and-forget approach unsafe, because the scope can be disposed under an in-flight write. The
@@ -23,6 +23,13 @@ public interface IMemoryAccessTracker
 {
     /// <summary>Queues one recall's worth of accessed nodes. Never blocks, never throws.</summary>
     void Track(IReadOnlyList<(string NodeId, MemoryNodeKind Kind)> nodes);
+
+    /// <summary>
+    /// DRT-5b: <see cref="Track(IReadOnlyList{ValueTuple{string, MemoryNodeKind}})"/> with the time of the read, the recall's
+    /// <c>MemoryContext.AssembledAtUtc</c>, so the stored read time is the context's whichever way it is written. The default
+    /// ignores the time, for a tracker that stamps its own.
+    /// </summary>
+    void Track(IReadOnlyList<(string NodeId, MemoryNodeKind Kind)> nodes, DateTimeOffset readAtUtc) => Track(nodes);
 
     /// <summary>
     /// Waits until everything tracked before the call has been written, or given up on (a failed write is logged, a

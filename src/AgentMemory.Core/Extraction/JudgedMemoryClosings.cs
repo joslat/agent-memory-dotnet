@@ -74,6 +74,8 @@ internal sealed class JudgedMemoryClosings
                 foreach (var stored in similar.Select(s => s.Fact)
                              .Where(f => !created.Contains(f.FactId) && f.InvalidatedAtUtc is null && Closable(f.OwnerId)).Take(limit))
                 {
+                    // SUPERSEDE-NARROWER: a value that only narrows the stored one is a detail beside it, never asked about.
+                    if (NarrowingValue.KeepsBoth(fact, stored)) continue;
                     var key = $"p{pairs.Count + 1}";
                     pairs.Add(new MemoryUpdatePair(key, FactText(fact), FactText(stored)));
                     targets[key] = (fact, fact.FactId, stored.FactId);
@@ -214,6 +216,14 @@ internal sealed class JudgedMemoryClosings
                 {
                     _logger.LogInformation("Memory writer: '{Id}' is not a live fact or relationship of this owner; '{New}' is stored without closing it.",
                         item.ReplacesId, NamedFactText(written));
+                    continue;
+                }
+                // SUPERSEDE-NARROWER: "a war room at Acme" only narrows "Acme's office in Córdoba" (keeps Acme, drops Córdoba, adds
+                // nothing): kept beside it, not judged. A correction the writer flags still goes to the judge.
+                if (!item.ReplacementIsCorrection && NarrowingValue.KeepsBoth(written, stored))
+                {
+                    _logger.LogInformation("Memory writer: '{New}' narrows '{Stored}' without restating it; both are kept.",
+                        NamedFactText(written), NamedFactText(stored));
                     continue;
                 }
                 var key = $"p{pairs.Count + 1}";

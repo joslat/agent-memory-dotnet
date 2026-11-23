@@ -13,16 +13,18 @@ namespace AgentMemory.Cli.Commands;
 /// (or, with <c>--github-issues &lt;issues.json&gt; [--github-milestones &lt;milestones.json&gt;]</c>, GitHub's exports instead), the
 /// repository's commits and its release tags, and reports what it found, offline. <c>work import ...</c> writes the work items,
 /// their waves and releases into the configured store, each item linked to the code map files its commits changed: import the
-/// code map first; links to files it does not hold are left out.
+/// code map first; links to files it does not hold are left out. With <c>--ledger-as-intent</c> (CO-2d), the ledger was imported
+/// as intent too (<c>intent import --ledger</c>): each item implements its own row, and a commit names its rows anywhere in its
+/// subject, as this repository's later commits do ("... (PACK-REMOVE)").
 /// </summary>
 internal sealed class WorkCommand(TextWriter output)
 {
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
-    public int Scan(string? ledger, string? root, string? issues = null, string? milestones = null)
+    public int Scan(string? ledger, string? root, string? issues = null, string? milestones = null, bool ledgerAsIntent = false)
     {
         if (ledger is null && issues is null || root is null) return Usage("work scan needs --ledger <tasks.json> (or --github-issues <issues.json>) and --root <repository>.");
-        var snapshot = Read(ledger, Path.GetFullPath(root), null, issues, milestones);
+        var snapshot = Read(ledger, Path.GetFullPath(root), null, issues, milestones, ledgerAsIntent);
         var problems = snapshot.Problems();
         var items = snapshot.Records.Where(r => r.Type == WorkPack.ItemType).ToList();
         output.WriteLine(JsonSerializer.Serialize(new
@@ -33,15 +35,17 @@ internal sealed class WorkCommand(TextWriter output)
             links = snapshot.Records.Sum(r => r.Links.Count),
             byStatus = items.GroupBy(r => r.Properties["status"].GetString()).ToDictionary(g => g.Key!, g => g.Count()),
             shipped = items.Count(r => r.Links.Any(l => l.Relation == WorkPack.ReleasedIn)), blocked = items.Count(r => r.Links.Any(l => l.Relation == WorkPack.BlockedBy)),
+            implementing = items.Count(r => r.Links.Any(l => l.Relation == WorkPack.Implements)),
             mostLinked = items.OrderByDescending(r => r.Links.Count).Take(8).Select(r => r.Key + " (" + r.Links.Count + ")"), problems,
         }, Json));
         return problems.Count == 0 ? 0 : 1;
     }
 
-    public async Task<int> ImportAsync(INeo4jTransactionRunner runner, string? ledger, string? root, string? source, string? issues = null, string? milestones = null)
+    public async Task<int> ImportAsync(INeo4jTransactionRunner runner, string? ledger, string? root, string? source, string? issues = null, string? milestones = null,
+        bool ledgerAsIntent = false)
     {
         if (ledger is null && issues is null || root is null) return Usage("work import needs --ledger <tasks.json> (or --github-issues <issues.json>) and --root <repository>.");
-        var snapshot = Read(ledger, Path.GetFullPath(root), source, issues, milestones);
+        var snapshot = Read(ledger, Path.GetFullPath(root), source, issues, milestones, ledgerAsIntent);
         var result = await new Neo4jModuleSnapshotStore(runner).ImportAsync(snapshot, DateTimeOffset.UtcNow).ConfigureAwait(false);
         output.WriteLine(JsonSerializer.Serialize(new
         {
@@ -53,7 +57,8 @@ internal sealed class WorkCommand(TextWriter output)
 
     // The ledger's (or GitHub's) items; the repository's commits (no merges), each with the files it changed that are still
     // tracked C# files, which is what a Roslyn code map holds; and its release tags, each with the commits it shipped.
-    internal static Extensibility.Packs.ModuleSnapshot Read(string? ledger, string root, string? source, string? issues = null, string? milestones = null)
+    internal static Extensibility.Packs.ModuleSnapshot Read(string? ledger, string root, string? source, string? issues = null, string? milestones = null,
+        bool ledgerAsIntent = false)
     {
         var tracked = (Git(root, "ls-files", "-z") ?? "").Split('\0', StringSplitOptions.RemoveEmptyEntries)
             .Where(f => f.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)).ToHashSet(StringComparer.Ordinal);
@@ -76,8 +81,12 @@ internal sealed class WorkCommand(TextWriter output)
         }
         var json = File.ReadAllText(Path.GetFullPath(ledger!));
         var ledgerHash = Hash(json);
-        return WorkLedgerReader.Read(json, Path.GetFileName(ledger!), commits,
-            source ?? (head is { Length: 40 or 64 } ? $"git:{head} ledger:{ledgerHash}" : "scan ledger:" + ledgerHash), tracked, releases);
+        var named = source ?? (head is { Length: 40 or 64 } ? $"git:{head} ledger:{ledgerHash}" : "scan ledger:" + ledgerHash);
+        if (!ledgerAsIntent) return WorkLedgerReader.Read(json, Path.GetFileName(ledger!), commits, named, tracked, releases);
+        // CO-2d: the ledger read as intent, so each row is a requirement its own item implements.
+        var rows = LedgerIntent.Read(json, Path.GetFileName(ledger!), "ledger:" + ledgerHash).Records.Select(r => r.Key).ToHashSet(StringComparer.Ordinal);
+        return WorkLedgerReader.Read(json, Path.GetFileName(ledger!), commits, named,
+            new WorkLedgerOptions { SourceFiles = tracked, Releases = releases, Requirements = rows, CommitIds = WorkCommitIds.Anywhere });
     }
 
     // Every tag, oldest first, with its commit and the commits it shipped since the tag before it.

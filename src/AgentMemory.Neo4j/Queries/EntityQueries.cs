@@ -163,6 +163,24 @@ internal static class EntityQueries
             LIMIT 2";
 
     /// <summary>
+    /// IDENTITY-CONFIRMED-ALIAS: the owner's live entities identity has seen under a name besides their own name and aliases
+    /// (identity_surfaces: the names bound facts used, and the short forms confirmed references gave), case-insensitive.
+    /// Not the observation of a decision confirmed as another entity (as the people reads leave it out). Owned only: no
+    /// owner's spelling is kept on a shared node.
+    /// </summary>
+    public const string FindLiveBySeenName = @"
+            MATCH (e:Entity {owner_id: $ownerId})
+            WHERE e.merged_into IS NULL AND e.invalidated_at IS NULL AND e.identity_surfaces IS NOT NULL
+              AND any(s IN e.identity_surfaces WHERE toLower(s) = $nameLower)
+              AND NOT EXISTS {
+                MATCH (o:IdentityDecision)-[:RESOLVES_TO]->(t:Entity)
+                WHERE e.identity_observation_key IS NOT NULL AND o.identity_observation_key = e.identity_observation_key
+                  AND o.owner_scope = 'owned:' + e.owner_id AND t.id <> e.id AND NOT EXISTS { (o)-[:POSSIBLE_SAME_AS]->() } }
+            RETURN e
+            ORDER BY coalesce(e.mention_count, 1) DESC, e.id
+            LIMIT $limit";
+
+    /// <summary>
     /// <see cref="FindLiveByName"/> for a scope that includes shared memory: the owner's entity, else a shared one
     /// (owner_key '*', a seek). 38.6 review: a write without an owner reads shared-only, and the owner-only read found
     /// nothing, so a closed fact's edge never ended in a single-tenant store.

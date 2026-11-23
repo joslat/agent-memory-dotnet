@@ -462,6 +462,9 @@ public static partial class PerfScenarios
     private static async Task DegradedRecallAsync(ScenarioContext ctx)
     {
         await RunDefaultRecallAsync(ctx, "PERF-R-07").ConfigureAwait(false);
+        // PERF-R07-ORDER: a warm-up turn absorbs one-time costs (the process's first recall counts the owner's rows in
+        // line); the exact shape is checked on the measured turns, which are what the report and the gate read.
+        if (ctx.Phase == "warmup") return;
 
         var preset = PerfDependencyLatencyPreset.Degraded;
         var embeddingCalls = ctx.Turn.Counter("injected.embedding_delay.calls");
@@ -485,8 +488,27 @@ public static partial class PerfScenarios
         // formatter hides reasoning traces (the MAF default): the provider no longer searches what it would
         // not render, one transaction and one query fewer.
         var tracesShown = ctx.Profile.Services.GetService<IOptions<ContextFormatOptions>>()?.Value.IncludeReasoningTraces ?? false;
-        long expectedDatabaseCalls = tracesShown ? 8 : 7;
-        var expectedQueries = tracesShown ? 10 : 9;
+        // DRT-5b (on by default from 2.4): with the access-tracking queue the read notes leave the recall, one write
+        // transaction and its three statements (one per kind recalled) fewer on the measured path; the harness writes them
+        // after the turn and reports them as background.*.
+        var queued = ctx.Profile.Services.GetService<IOptions<MemoryOptions>>()?.Value.UseAccessTrackingQueue ?? false;
+        long expectedDatabaseCalls = (tracesShown ? 8 : 7) - (queued ? 1 : 0);
+        var expectedQueries = (tracesShown ? 10 : 9) - (queued ? 3 : 0);
+        // PERF-R07-ORDER: the shared-corpus probe asks again, once per kind, when its cached answer expires (30 s after
+        // "none"), so a slow run's turn that crosses that mark carries those reads: one read transaction with one query
+        // each, delayed like the rest. Time, not the recall's shape; more than one per kind in a turn would be a fault.
+        var probeReads = 0;
+        foreach (var (fingerprint, count) in ctx.Turn.QueryFingerprints)
+        {
+            if (!fingerprint.StartsWith("SharedCorpusProbe.", StringComparison.Ordinal)) continue;
+            if (count > 1)
+                throw new InvalidOperationException(
+                    $"PERF-R-07 saw the shared-corpus probe ask {count} times for one kind ({fingerprint}) in one turn; " +
+                    "its cached answer should make that at most once.");
+            probeReads += (int)count;
+        }
+        expectedDatabaseCalls += probeReads;
+        expectedQueries += probeReads;
         var expectedDatabaseMs = checked(
             expectedDatabaseCalls * (long)preset.DatabaseDelay.TotalMilliseconds);
         if (embeddingCalls != 1 || embeddingMs != expectedEmbeddingMs ||
@@ -500,7 +522,10 @@ public static partial class PerfScenarios
                 $"1/{expectedEmbeddingMs}; database delay calls/ms={databaseCalls}/{databaseMs}, " +
                 $"expected {expectedDatabaseCalls}/{expectedDatabaseMs}; embedding spans=" +
                 $"{embeddingSpans}/1; transaction spans={transactionSpans}/{expectedDatabaseCalls}; " +
-                $"access_tracking.items={accessTracked}/25; neo4j.queries={queries}/{expectedQueries}). The scenario " +
+                $"access_tracking.items={accessTracked}/25; neo4j.queries={queries}/{expectedQueries}; " +
+                $"shared-corpus probe reads allowed={probeReads}; queries by name: " +
+                string.Join(", ", ctx.Turn.QueryFingerprints.OrderBy(q => q.Key, StringComparer.Ordinal).Select(q => $"{q.Key}={q.Value}")) +
+                "). The scenario " +
                 "would not grade timeouts or graceful degradation reliably.");
         }
     }

@@ -160,7 +160,7 @@ public sealed class PackBindTests : IDisposable
             StringComparer.Ordinal);
         var loaded = PackLoader.Load(PackAuthoring.Build(source, key.PrivateKeyPem), trust);
 
-        var snapshot = loaded.ToSnapshot(CodeMapPack.Manifest);
+        var snapshot = loaded.ToSnapshot(CodeMapPack.Manifest, [AgentMemory.Packs.Intent.IntentPack.Manifest]);
 
         snapshot.Carrier.Should().Be(new PackCarrier { Id = "io.example.acme-map", Version = "1.0.0", Digest = loaded.Digest, Signer = loaded.Signers.Single() });
         snapshot.Stamped().Should().OnlyContain(r => r.Source.Pack!.Id == CodeMapPack.Id && r.Source.Pack.Version == "git:0a1b2c3d4e5f"

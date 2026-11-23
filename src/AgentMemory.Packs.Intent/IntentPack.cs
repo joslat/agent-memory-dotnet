@@ -31,6 +31,11 @@ public sealed class IntentPack : IAgentMemoryModule
     public const string ScenarioOf = "INTENT_SCENARIO_OF";
     /// <summary>Scenario is tagged with a requirement's id.</summary>
     public const string Verifies = "INTENT_VERIFIES";
+    /// <summary>
+    /// A requirement decomposes its parent (CO-2b; OSLC RM <c>decomposes</c>): stored on the child, which names its parent, so a
+    /// parent that changes leaves its children's links pointing at its older version (a suspect link, CO-2c).
+    /// </summary>
+    public const string Decomposes = "INTENT_DECOMPOSES";
 
     private static readonly Lazy<ModuleManifest> Metadata = new(() => ModuleManifest.Load(typeof(IntentPack).Assembly));
 

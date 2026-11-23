@@ -603,9 +603,17 @@ def run_case(case: dict, env: Environment, fx: dict, stubs: Stubs | None) -> Non
                     match(outcome, run.resolve(step["expect"]))
                 except CaseFailure as failure:
                     action = next(k for k in step if k not in ("expect", "as", "note", "save"))
-                    raise CaseFailure(f"{case['id']}, step {number} ({action}): {failure}") from None
+                    raise CaseFailure(f"{case['id']}, step {number} ({action}): {failure}{library_said(outcome)}") from None
     finally:
         run.finish()
+
+
+def library_said(outcome: Any) -> str:
+    """What the library reported beside a failed expectation. A status-only expectation would otherwise hide a failed
+    open's error code and message (NATIVE-TLS-WIN-READY: two TLS opens on Windows said only INTERNAL_ERROR)."""
+    if isinstance(outcome, dict) and (outcome.get("code") or outcome.get("message")):
+        return f"; the library said {outcome.get('code')}: {short(outcome.get('message'))}"
+    return ""
 
 
 def main(argv: list[str]) -> int:

@@ -24,6 +24,11 @@ public sealed class CodeMapPack : IAgentMemoryModule
     public const string SymbolType = "CodemapSymbol";
     /// <summary>A test method.</summary>
     public const string TestType = "CodemapTest";
+    /// <summary>
+    /// A test validates a requirement (CO-2b; OSLC QM <c>validatesRequirement</c>): read from the requirement the test names in
+    /// its own attributes, and stored on the test, whose source says it.
+    /// </summary>
+    public const string Validates = "CODEMAP_VALIDATES";
 
     private static readonly Lazy<ModuleManifest> Metadata = new(() => ModuleManifest.Load(typeof(CodeMapPack).Assembly));
 

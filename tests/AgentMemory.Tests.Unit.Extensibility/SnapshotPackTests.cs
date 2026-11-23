@@ -47,7 +47,7 @@ public sealed class SnapshotPackTests
         var source = Source(CodeMap("git:local"));
         source["policy.json"] = Encoding.UTF8.GetBytes("""{"format":"agentmemory.pack.policy/1","rules":[{"allow":["read","rehydrate:local"],"audience":["*"]}]}""");
         var loaded = PackLoader.Load(PackAuthoring.Build(source, _key.PrivateKeyPem), Trust());
-        var stamped = loaded.ToSnapshot(CodeMapPack.Manifest).Stamped().ToList();
+        var stamped = loaded.ToSnapshot(CodeMapPack.Manifest, [AgentMemory.Packs.Intent.IntentPack.Manifest]).Stamped().ToList();
         loaded.PolicyDigest.Should().StartWith("sha256:");
         stamped.Should().NotBeEmpty().And.OnlyContain(r => r.Source.Pack!.UsagePolicy == loaded.PolicyDigest);
         new ModuleSetBuilder().UsePackPolicy(loaded).PackPolicies.Should().ContainSingle(p => p.Digest == loaded.PolicyDigest);
@@ -59,7 +59,7 @@ public sealed class SnapshotPackTests
         var snapshot = CodeMap("git:local");
 
         var loaded = PackLoader.Load(PackAuthoring.Build(Source(snapshot), _key.PrivateKeyPem), Trust());
-        var back = loaded.ToSnapshot(CodeMapPack.Manifest);
+        var back = loaded.ToSnapshot(CodeMapPack.Manifest, [AgentMemory.Packs.Intent.IntentPack.Manifest]);
 
         loaded.Kind.Should().Be("snapshot");
         loaded.Knowledge.Should().BeNull();
@@ -102,7 +102,7 @@ public sealed class SnapshotPackTests
 
         var loaded = PackLoader.Load(PackAuthoring.Build(source, _key.PrivateKeyPem), Trust());
 
-        FluentActions.Invoking(() => loaded.ToSnapshot(CodeMapPack.Manifest)).Should().Throw<PackLoadException>()
+        FluentActions.Invoking(() => loaded.ToSnapshot(CodeMapPack.Manifest, [AgentMemory.Packs.Intent.IntentPack.Manifest])).Should().Throw<PackLoadException>()
             .Which.Problems.Should().Contain(p => p.Contains($"{file}:{lines + 1}", StringComparison.Ordinal));
     }
 

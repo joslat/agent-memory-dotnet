@@ -1,8 +1,13 @@
 {
   "format": "agentmemory.module/v1alpha1",
   "id": "io.agentmemory.packs.codemap",
-  "version": "0.1.0-preview.1",
+  "version": "0.1.1",
   "sdk": "[0.1,0.2)",
+  "requires": {
+    "modules": {
+      "io.agentmemory.packs.intent": "[0.1.1,0.2)"
+    }
+  },
   "display": {
     "title": "Code map",
     "description": "This repository's projects, files, types and tests at a commit, read by the compiler. It lets memory find what governs the code in hand.",
@@ -159,6 +164,13 @@
         "from": "CodemapSymbol",
         "to": "CodemapSymbol",
         "max": 16
+      },
+      {
+        "name": "CODEMAP_VALIDATES",
+        "from": "CodemapTest",
+        "to": "io.agentmemory.packs.intent:IntentRequirement",
+        "max": 16,
+        "description": "A requirement the test names in its own attributes"
       }
     ]
   },
@@ -199,6 +211,18 @@
         "name": "CODEMAP_DECLARED_IN",
         "direction": "in",
         "weightMicro": 850000,
+        "fanOut": 6
+      },
+      {
+        "name": "CODEMAP_VALIDATES",
+        "direction": "out",
+        "weightMicro": 800000,
+        "fanOut": 4
+      },
+      {
+        "name": "CODEMAP_VALIDATES",
+        "direction": "in",
+        "weightMicro": 700000,
         "fanOut": 6
       }
     ],

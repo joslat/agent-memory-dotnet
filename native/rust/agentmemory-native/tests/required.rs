@@ -6,7 +6,7 @@
 //!
 //! R-PACKAGE is not here: this crate carries no library until NATIVE-RELEASE, so there is no manifest to check yet.
 //! B15 and the raw half of R-FREE-NULL are in agentmemory-native-sys/tests/abi.rs: they pass null pointers, which this
-//! crate's API never does.
+//! crate's API never does. R-NEVER-UNLOAD is in agentmemory-native-sys/tests/never_unload.rs: it needs libloading.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, PoisonError};

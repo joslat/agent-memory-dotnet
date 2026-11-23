@@ -107,6 +107,26 @@ internal static class IdentityDecisionQueries
         CREATE (d)-[:HAS_IDENTITY_REVISION]->(r)
         """;
 
+    /// <summary>
+    /// IDENTITY-CONFIRMED-ALIAS: a decision confirmed as a person keeps the names its observation was seen under (its name
+    /// and the short forms the writer's reference gave it) among that person's kept names (identity_surfaces), as Bind keeps
+    /// a bound fact's: only on a target the decision's owner owns, starting, when none are kept yet, from the person's own
+    /// bindings, and append-only. The observation of a confirmed decision is not stored as an entity, so without this a
+    /// later turn that says the short form alone finds nobody. Kept names are no aliases: identity does not match on them.
+    /// </summary>
+    internal const string KeepSeenNames = """
+        MATCH (t:Entity {id: $targetId})
+        WHERE $ownerId IS NOT NULL AND t.owner_id = $ownerId AND t.invalidated_at IS NULL AND t.merged_into IS NULL
+        WITH t, CASE WHEN t.identity_surfaces IS NULL
+            THEN [(t)<-[:RESOLVES_TO]-(o:IdentityFactBinding) WHERE o.owner_id = t.owner_id AND o.identity_observed_surface IS NOT NULL
+                  | o.identity_observed_surface]
+            ELSE t.identity_surfaces END AS have
+        WITH t, have, [s IN $names WHERE NOT s IN have] AS added
+        FOREACH (_ IN CASE WHEN size(added) > 0 OR t.identity_surfaces IS NULL THEN [1] ELSE [] END |
+            SET t.identity_surfaces = reduce(names = [], s IN have + added | CASE WHEN s IN names THEN names ELSE names + s END))
+        RETURN size(added) AS kept
+        """;
+
     internal const string Proposals = """
         MATCH (d:IdentityDecision {id: $decisionId, owner_scope: $ownerScope})
         UNWIND $ids AS id

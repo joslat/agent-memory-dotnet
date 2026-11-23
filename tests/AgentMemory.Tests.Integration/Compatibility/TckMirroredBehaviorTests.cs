@@ -36,7 +36,8 @@ public sealed class TckMirroredBehaviorTests : IAsyncLifetime
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddNeo4jAgentMemory(
-            configureMemory: _ => { },
+            // DRT-5b: as the conformance bridge, pinned to the waited-for read note.
+            configureMemory: o => o.UseAccessTrackingQueue = false,
             configureNeo4j: o =>
             {
                 o.Uri = _fixture.ConnectionString;

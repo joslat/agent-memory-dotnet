@@ -59,7 +59,8 @@ internal sealed class CodingReview(string root)
         // Each accepted record must be one the pack takes, as its import will check.
         var admitted = new ModuleSnapshot
         {
-            Module = manifest(), Dependencies = [], Source = "review",
+            // A pack's own dependencies (CO-2b: decisions link into intent), so the check is of the records, not of a missing manifest.
+            Module = manifest(), Dependencies = [.. manifest().Modules.Keys.Select(id => Manifests.Values.Select(m => m()).Single(m => m.Id == id))], Source = "review",
             Records = [.. set.Items.Where(i => i.Admitted).Select(i => new ModuleProposal { Type = i.Type, Key = i.Key, Properties = i.Properties, Source = new ProposalSource { Excerpt = "review" } })],
         };
         if (admitted.Problems().FirstOrDefault(p => !p.Contains("link", StringComparison.OrdinalIgnoreCase)) is { } problem)

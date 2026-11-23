@@ -165,7 +165,13 @@ internal sealed class MemoryService : IMemoryService
             // rather than two writers racing over the same stamps.
             if (_options.UseAccessTrackingQueue && _accessTracker is not null)
             {
-                _accessTracker.Track(CollectAccessedNodes(context));
+                // DRT-5b (T-3): the read time is the context's, as on the awaited path. T-10: the recall reports what it
+                // handed over in the span the awaited write has, so telemetry and the perf gate see each recall's reads.
+                using var tracking = AgentMemoryDiagnostics.Source.StartActivity("memory.recall.access_tracking");
+                var nodes = CollectAccessedNodes(context);
+                tracking?.SetTag("memory.access_tracking.items", nodes.Count);
+                tracking?.SetTag("memory.access_tracking.mode", "queued");
+                _accessTracker.Track(nodes, context.AssembledAtUtc);
             }
             else if (_options.DeferAccessTracking)
             {
@@ -883,8 +889,13 @@ internal sealed class MemoryService : IMemoryService
             var nodes = CollectAccessedNodes(context);
 
             activity?.SetTag("memory.access_tracking.items", nodes.Count);
+            activity?.SetTag("memory.access_tracking.mode", "awaited");
 
-            if (nodes.Count > 0)
+            // DRT-5b (T-2, T-3): a store that records reads with their time is given the context's, so the awaited write
+            // stores what the queue would: read_at is the recall's AssembledAtUtc, not the moment of the write.
+            if (nodes.Count > 0 && _decayService is IMemoryReadRecorder recorder)
+                await recorder.RecordReadsAsync([new MemoryRead(nodes, context.AssembledAtUtc)], cancellationToken).ConfigureAwait(false);
+            else if (nodes.Count > 0)
                 await _decayService!.UpdateAccessTimestampsAsync(nodes, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)

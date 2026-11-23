@@ -96,7 +96,7 @@ public static partial class GitHubWorkReader
             }, "github"));
         }
         records.AddRange(WorkLedgerReader.Releases(releases, shipped));
-        return new ModuleSnapshot { Module = WorkPack.Manifest, Dependencies = [CodeMapPack.Manifest], Source = source, Records = records.AsReadOnly() };
+        return new ModuleSnapshot { Module = WorkPack.Manifest, Dependencies = WorkLedgerReader.Dependencies, Source = source, Records = records.AsReadOnly() };
     }
 
     [GeneratedRegex(@"#(?<n>\d+)\b")]

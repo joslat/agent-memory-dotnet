@@ -112,7 +112,10 @@ internal sealed class MemoryAccessTrackingChannel : IMemoryAccessTracker, IAsync
     private const int MaxSpanLinks = 32;
 
     /// <inheritdoc/>
-    public void Track(IReadOnlyList<(string NodeId, MemoryNodeKind Kind)> nodes)
+    public void Track(IReadOnlyList<(string NodeId, MemoryNodeKind Kind)> nodes) => Track(nodes, _clock.GetUtcNow());
+
+    /// <inheritdoc/>
+    public void Track(IReadOnlyList<(string NodeId, MemoryNodeKind Kind)> nodes, DateTimeOffset readAtUtc)
     {
         if (nodes is null || nodes.Count == 0) return;
 
@@ -121,7 +124,7 @@ internal sealed class MemoryAccessTrackingChannel : IMemoryAccessTracker, IAsync
         // itemDropped callback above, not here -- see the comment on the channel construction.
         // DRT-5: the time of the read travels with the record, so a record that waited is not stamped late.
         var batch = new TrackedBatch(nodes, Activity.Current?.Context ?? default, StoreContext?.ApplicationId,
-            Interlocked.Increment(ref _sequence), _clock.GetUtcNow());
+            Interlocked.Increment(ref _sequence), readAtUtc);
         if (!_channel.Writer.TryWrite(batch)) OnDropped();
     }
 

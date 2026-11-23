@@ -29,6 +29,11 @@ public sealed class WorkPack : IAgentMemoryModule
     public const string BlockedBy = "WORK_BLOCKED_BY";
     /// <summary>Item first shipped in a release.</summary>
     public const string ReleasedIn = "WORK_RELEASED_IN";
+    /// <summary>
+    /// A work item implements a requirement (CO-2b; OSLC CM <c>implementsRequirement</c>): read from the requirement ids the
+    /// item's ledger row names, and stored on the item.
+    /// </summary>
+    public const string Implements = "WORK_IMPLEMENTS";
 
     private static readonly Lazy<ModuleManifest> Metadata = new(() => ModuleManifest.Load(typeof(WorkPack).Assembly));
 

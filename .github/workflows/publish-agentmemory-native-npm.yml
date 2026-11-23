@@ -1,0 +1,138 @@
+# NATIVE-RELEASE (npm): agentmemory-native and its four platform packages, built and gated by the four-platform workflow,
+# published by npm's Trusted Publishing (no token stored anywhere: the job's short-lived identity is what npm checks, and it
+# adds provenance). Run by hand on main after a version bump; the publish job waits for the owner's approval of the `npm`
+# environment. Each package is set up on npmjs.com once (Settings > Trusted Publisher > GitHub Actions: joslat /
+# agent-memory-dotnet / publish-agentmemory-native-npm.yml / environment npm), with "npm publish" allowed, not only
+# staged publishing. Reported by other projects (late 2026), not in npm's docs as read here: a new setting that has not
+# published within 2 days of its creation lapses and must be deleted and made again; a lapsed one fails as ENEEDAUTH
+# or 404. So set the five up, or remake them, shortly before the first run of this workflow.
+name: Publish agentmemory-native (npm)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-agentmemory-native-npm
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: The version is new on npm
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Stop now if this version of the main package is already on npm
+        run: |
+          version="$(python3 -c 'import json; print(json.load(open("native/typescript/package.json"))["version"])')"
+          code="$(curl -s -o /dev/null -w '%{http_code}' "https://registry.npmjs.org/agentmemory-native/${version}")"
+          echo "agentmemory-native ${version}: npm answers ${code}"
+          if [ "$code" = "200" ]; then
+            echo "::error::agentmemory-native ${version} is already on npm, which never accepts a version twice. Raise the version in native/typescript/package.json (and native/python/agentmemory_native/__init__.py), merge it to main, then run this again."
+            exit 1
+          fi
+          if [ "$code" != "404" ]; then echo "::error::npm answered ${code} for agentmemory-native ${version}; try again later."; exit 1; fi
+
+  platforms:
+    name: Build and gate
+    needs: version
+    uses: ./.github/workflows/native-platforms.yml
+
+  packages:
+    name: Collect and check the five packages
+    needs: platforms
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Fetch the platforms' files
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: agentmemory-native-*
+          path: platforms/
+
+      - name: Exactly five packages of the source's version, none private
+        run: |
+          mkdir -p npm
+          python3 - <<'EOF'
+          import json, pathlib, re, shutil, sys, tarfile
+          version = json.load(open("native/typescript/package.json"))["version"]
+          print("version in the source:", version)
+          suffixes = ["linux-x64-gnu", "linux-arm64-gnu", "darwin-arm64", "win32-x64"]
+          found = {}
+          for tgz in sorted(pathlib.Path("platforms").glob("*/npm/*.tgz")):
+              found.setdefault(tgz.name, tgz)  # the main package is built on every platform: the first (linux-arm64, linux-x64, ...) is kept
+          wanted = [f"agentmemory-native-{s}-{version}.tgz" for s in suffixes] + [f"agentmemory-native-{version}.tgz"]
+          problems = [f"missing {name}" for name in wanted if name not in found]
+          for name in wanted:
+              if name not in found: continue
+              with tarfile.open(found[name]) as t:
+                  package = json.load(t.extractfile("package/package.json"))
+              if package.get("version") != version: problems.append(f"{name}: version {package.get('version')}, the source says {version}")
+              if package.get("private"): problems.append(f"{name}: marked private, npm would refuse it")
+              if name == f"agentmemory-native-{version}.tgz":
+                  deps = package.get("optionalDependencies", {})
+                  for s in suffixes:
+                      if deps.get(f"agentmemory-native-{s}") != version: problems.append(f"{name}: optional dependency on {s} is {deps.get(f'agentmemory-native-{s}')}")
+              shutil.copy(found[name], pathlib.Path("npm") / name)
+              print("  ", name)
+          if problems:
+              print("\n".join("PROBLEM: " + p for p in problems)); sys.exit(1)
+          EOF
+
+      - name: Keep the packages for the upload job
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agentmemory-native-npm-packages
+          path: npm/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish to npm
+    needs: packages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/agentmemory-native
+    permissions:
+      contents: read
+      id-token: write     # the short-lived identity npm's Trusted Publishing checks; nothing else
+    steps:
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Fetch the checked packages
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: agentmemory-native-npm-packages
+          path: npm/
+
+      - name: Publish, the four platform packages first and the main package last
+        working-directory: npm
+        run: |
+          npm --version
+          # Trusted Publishing needs npm 11.5.1 or newer.
+          node -e 'const [a,b,c]=process.argv[1].split(".").map(Number); if (a<11||(a===11&&(b<5||(b===5&&c<1)))) { console.error("::error::npm "+process.argv[1]+" is older than 11.5.1"); process.exit(1) }' "$(npm --version)"
+          version="$(ls agentmemory-native-[0-9]*.tgz | sed -E 's/^agentmemory-native-(.*)\.tgz$/\1/')"
+          for name in agentmemory-native-linux-x64-gnu agentmemory-native-linux-arm64-gnu agentmemory-native-darwin-arm64 agentmemory-native-win32-x64 agentmemory-native; do
+            if [ "$(curl -s -o /dev/null -w '%{http_code}' "https://registry.npmjs.org/${name}/${version}")" = "200" ]; then
+              echo "${name} ${version} is already on npm; skipped (a rerun after a partial publish)."
+              continue
+            fi
+            npm publish "./${name}-${version}.tgz" --access public --provenance
+          done
+          { echo "### agentmemory-native ${version} on npm"; echo; for n in linux-x64-gnu linux-arm64-gnu darwin-arm64 win32-x64; do echo "- agentmemory-native-${n}"; done; echo "- agentmemory-native"; } >> "$GITHUB_STEP_SUMMARY"

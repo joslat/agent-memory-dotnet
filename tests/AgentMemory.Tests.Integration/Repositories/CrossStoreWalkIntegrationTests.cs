@@ -51,7 +51,7 @@ public sealed partial class ModuleRecordWriteIntegrationTests
             var snapshot = CrossStoreSnapshot();
             await store.ImportAsync(snapshot, at);
             using var services = Policies();
-            var neo4j = new Neo4jModuleTraversalReader(fixture.TransactionRunner, KnowledgePack.ResolutionOf(CodeMapPack.Manifest),
+            var neo4j = new Neo4jModuleTraversalReader(fixture.TransactionRunner, CodingResolutions.CodeMap,
                 services.GetRequiredService<IMemoryIsolationPolicy>());
             var memory = PackMemory.From([], [snapshot]);
 
@@ -71,7 +71,7 @@ public sealed partial class ModuleRecordWriteIntegrationTests
                 {
                     SessionId = "s", Owner = "lea", Query = "remove close state", Anchors = [.. anchors.Select(a => new ContextAnchor(ContextAnchorKind.Path, a))],
                 };
-                var fromNeo4j = await TraversalWalk.RunAsync(KnowledgePack.ResolutionOf(CodeMapPack.Manifest), neo4j, request, CancellationToken.None);
+                var fromNeo4j = await TraversalWalk.RunAsync(CodingResolutions.CodeMap, neo4j, request, CancellationToken.None);
                 var fromMemory = await TraversalWalk.RunAsync(memory.Resolution, memory, request, CancellationToken.None);
 
                 fromNeo4j.Problems.Should().BeEmpty(string.Join(" | ", anchors));

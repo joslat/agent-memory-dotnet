@@ -45,7 +45,7 @@ public sealed partial class ModuleRecordWriteIntegrationTests
         try
         {
             using var services = Policies();
-            var resolution = KnowledgePack.ResolutionOf(CodeMapPack.Manifest);
+            var resolution = CodingResolutions.CodeMap;
             var reader = new Neo4jModuleTraversalReader(fixture.TransactionRunner, resolution, services.GetRequiredService<IMemoryIsolationPolicy>());
             var request = new ContextRequest { SessionId = "s", Owner = "lea", Query = "", Anchors = [new ContextAnchor(ContextAnchorKind.Path, "src/LinkState/StateStore.cs")] };
             static IEnumerable<(string, string, long, long, int, int, int, string)> Offers(TraversalResult walk) =>
@@ -137,10 +137,10 @@ public sealed partial class ModuleRecordWriteIntegrationTests
             {
                 Traversal = WorkPack.Manifest.Traversal! with
                 {
-                    Relations = [.. WorkPack.Manifest.Traversal.Relations.Select(r => r with { Direction = ModuleTraversalDirection.Out })],
+                    Relations = [.. WorkPack.Manifest.Traversal.Relations.Where(r => r.Name == WorkPack.Changed).Select(r => r with { Direction = ModuleTraversalDirection.Out })],
                 },
             };
-            var resolution = ModuleResolver.Resolve([CodeMapPack.Manifest, outward], ModuleSet.SdkVersion, ModuleHostFeatures.Known);
+            var resolution = ModuleResolver.Resolve([AgentMemory.Packs.Intent.IntentPack.Manifest, CodeMapPack.Manifest, outward], ModuleSet.SdkVersion, ModuleHostFeatures.Known);
             resolution.Succeeded.Should().BeTrue(string.Join("; ", resolution.Errors));
             using var services = Policies();
             var reader = new Neo4jModuleTraversalReader(fixture.TransactionRunner, resolution, services.GetRequiredService<IMemoryIsolationPolicy>());

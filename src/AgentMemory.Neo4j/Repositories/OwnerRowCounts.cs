@@ -93,6 +93,8 @@ internal sealed class OwnerRowCounts
         if (!_refreshing.TryAdd(scoped, started.Task)) return;
         _ = Task.Run(async () =>
         {
+            // PERF-R07-ORDER: its own span, so its reads are seen as background work, not as the waited recall's.
+            using var span = AgentMemory.Abstractions.Diagnostics.AgentMemoryDiagnostics.Source.StartActivity("memory.background.owner_counts");
             try
             {
                 Remember(scoped, await count().ConfigureAwait(false), _time.GetUtcNow());

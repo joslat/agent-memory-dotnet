@@ -37,6 +37,10 @@ public sealed class TurnRecord
     /// <summary>Wall-clock duration of the whole iteration.</summary>
     public double DurationMs { get; internal set; }
 
+    /// <summary>The collector that began this turn: only its listener counts spans into it (another collector's listener,
+    /// alive at the same time in the same process, hears the same spans).</summary>
+    internal object? Collector { get; init; }
+
     /// <summary>Adds to a structural counter.</summary>
     public void Add(string name, long value = 1)
     {

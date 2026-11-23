@@ -77,7 +77,8 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
         var saidAt = said.Select(m => m.TimestampUtc).Where(t => t != default).DefaultIfEmpty(now).Max();
         var owner = await OwnerNameAsync(scope, cancellationToken).ConfigureAwait(false);
         var text = string.Join("\n", said.Select(m => m.Content));
-        var stored = await StoredAsync(text, owner, scope, now, cancellationToken).ConfigureAwait(false);
+        var stored = await StoredAsync(text, owner, scope, now, cancellationToken,
+            _options.MemoryWriterEventIdentities == true ? request.Window.Context.Select(m => m.Content ?? "").ToList() : null).ConfigureAwait(false);
         activity?.SetTag("memory.write.candidates", stored.Count);
 
         var system = MemoryWriterPrompt.System(owner, _options.MemoryWriterMaxOperations, _options.MemoryWriterEventIdentities == true);
@@ -92,8 +93,14 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
         var (ops, drops) = Locate(answered, dropped, message);
         IReadOnlyList<IngestionItemOutcome> rejected = [];
         if (_operationFormat is not null)
-            (ops, drops, rejected) = await EnforceAsync(system, context, reply, ops, drops, stored, owner, message, activity, cancellationToken)
+        {
+            // The window's earlier user turns, latest first: a person named in the last message may have been given a relation
+            // in the turn before ("My niece Valentina ..." then "Valentina lost her first tooth").
+            var earlier = request.Window.Context.Where(m => MemoryWriterPrompt.IsUser(m.Role) && !string.IsNullOrWhiteSpace(m.Content))
+                .Select(m => m.Content!).Reverse().ToList();
+            (ops, drops, rejected) = await EnforceAsync(system, context, reply, ops, drops, stored, owner, message, earlier, activity, cancellationToken)
                 .ConfigureAwait(false);
+        }
 
         if (drops.Count > 0)
         {
@@ -195,13 +202,13 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
     /// </summary>
     private async Task<(List<MemoryWriterOps.Op> Ops, List<MemoryWriterOps.DroppedOp> Drops, IReadOnlyList<IngestionItemOutcome> Rejected)> EnforceAsync(
         string system, string context, string reply, List<MemoryWriterOps.Op> ops, List<MemoryWriterOps.DroppedOp> drops,
-        IReadOnlyList<MemoryWriterOps.Stored> stored, string? owner, string message, System.Diagnostics.Activity? activity,
-        CancellationToken cancellationToken)
+        IReadOnlyList<MemoryWriterOps.Stored> stored, string? owner, string message, IReadOnlyList<string> earlier,
+        System.Diagnostics.Activity? activity, CancellationToken cancellationToken)
     {
-        var issues = MemoryWriterContract.Check(ops, drops, stored, owner);
+        var persons = await PersonsAsync(ops, stored, message, earlier, cancellationToken).ConfigureAwait(false);
+        var issues = MemoryWriterContract.Check(ops, drops, stored, owner, persons);
         if (issues.Count == 0) return (ops, [], []);
-        var correctable = issues.Where(issue => issue.Reason is not (MemoryWriterOps.DropReason.OverLimit or
-            MemoryWriterOps.DropReason.ConnectionEndEmpty)).ToList();
+        var correctable = issues.Where(issue => !MemoryWriterContract.ReportedOnly(issue.Reason)).ToList();
         IReadOnlyList<MemoryWriterOps.Op> corrected = [];
         if (correctable.Count > 0)
         {
@@ -230,6 +237,43 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
                 string.Join(" ; ", unfixed.Select(issue => $"#{issue.Index} {issue.Reason}{(issue.Text is null ? "" : ": " + issue.Text)}")));
         }
         return (merged, [], [.. unfixed.Select(MemoryWriterContract.Outcome)]);
+    }
+
+    /// <summary>
+    /// IDENTITY-PERSON-REF-GUARD: what the stored people a reply refers to, or names by a short form, are known as, read as
+    /// identity's relation guard reads a candidate (<see cref="AgentMemory.Core.Resolution.IdentityRelationCue"/>): their
+    /// description, subtype and aliases, the shown facts that say what they are, and the message they were first said in.
+    /// One message read for each such person; none when the reply names no stored person.
+    /// </summary>
+    private async Task<MemoryWriterContract.Persons> PersonsAsync(List<MemoryWriterOps.Op> ops, IReadOnlyList<MemoryWriterOps.Stored> stored,
+        string message, IReadOnlyList<string> earlier, CancellationToken cancellationToken)
+    {
+        var known = new Dictionary<string, IReadOnlySet<string>>(StringComparer.OrdinalIgnoreCase);
+        var read = MemoryWriterContract.PersonsToRead(ops, stored, message);
+        if (read.Count == 0) return new(message, earlier, known);
+        var facts = stored.Where(item => item.Triple is not null).Select(item => item.Triple!.Value).ToList();
+        var messages = _services.GetService<IMessageRepository>();
+        foreach (var item in read)
+        {
+            if (item.Entity is not { } entity) continue;
+            var said = new List<string>();
+            if (messages is not null && item.SourceMessageId is { } id)
+            {
+                try
+                {
+                    if (await messages.GetByIdAsync(id, cancellationToken).ConfigureAwait(false) is { Content: { Length: > 0 } content })
+                        said.Add(content);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Memory writer: could not read the message {Label} was first said in; its facts alone say what it is.", item.Label);
+                }
+            }
+            known[item.Label] = AgentMemory.Core.Resolution.IdentityRelationCue.Known(entity,
+                AgentMemory.Core.Resolution.IdentityRelationCue.FromFactsAndSources(entity, facts, said));
+        }
+        return new(message, earlier, known);
     }
 
     /// <summary>
@@ -266,8 +310,13 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
     /// <summary>How many memories a name from the closest memories may lead to before it counts as too common to follow.</summary>
     private const int AroundPerName = 6;
 
+    /// <param name="conversation">
+    /// Event-identity mode only (else null): the window's earlier turns, read for the full name of a person the last message
+    /// calls by a short form (step 1b).
+    /// </param>
     private async Task<IReadOnlyList<MemoryWriterOps.Stored>> StoredAsync(
-        string text, string? owner, MemoryScope scope, DateTimeOffset now, CancellationToken cancellationToken)
+        string text, string? owner, MemoryScope scope, DateTimeOffset now, CancellationToken cancellationToken,
+        IReadOnlyList<string>? conversation = null)
     {
         var facts = _services.GetRequiredService<IFactRepository>();
         var preferences = _services.GetRequiredService<IPreferenceRepository>();
@@ -276,13 +325,52 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
         var embeddings = _services.GetRequiredService<IEmbeddingOrchestrator>();
         var limit = Math.Max(1, _options.MemoryWriterCandidates);
         bool Live(Fact f) => f.InvalidatedAtUtc is null && (f.ValidUntil is null || f.ValidUntil > now);
+        // IDENTITY-NICKNAME-SPLIT: in event-identity mode an entity is shown with the other names it is called by.
+        var alsoCalled = conversation is not null;
+        // IDENTITY-CONFIRMED-ALIAS: a person found by a name identity has seen them under is shown with that name too.
+        var seenAs = new Dictionary<string, string>(StringComparer.Ordinal);
+        MemoryWriterOps.Stored OfEntity(Entity e) => seenAs.TryGetValue(e.EntityId, out var seen)
+            ? MemoryWriterOps.Stored.Of(e with { Aliases = [.. e.Aliases, seen] }, alsoCalled)
+            : MemoryWriterOps.Stored.Of(e, alsoCalled);
 
         // 1. The people and things the turn names, found by their stored names (merged and closed ones left out).
         var named = new List<Entity>();
+        var unknown = new List<string>();
         foreach (var name in MemoryWriterPrompt.Names(text))
-            if (await entities.FindLiveByNameAsync(name, type: null, scope, cancellationToken).ConfigureAwait(false) is { } entity
-                && named.All(e => e.EntityId != entity.EntityId))
-                named.Add(entity);
+            if (await entities.FindLiveByNameAsync(name, type: null, scope, cancellationToken).ConfigureAwait(false) is { } entity)
+            {
+                if (named.All(e => e.EntityId != entity.EntityId)) named.Add(entity);
+            }
+            else unknown.Add(name);
+
+        // 1a. IDENTITY-CONFIRMED-ALIAS (event-identity mode): a name the store does not know may be one identity has seen a
+        // person under: the short form a confirmed reference gave them ("Vale" for Valentina Ríos, the fourth paid check's
+        // statement 53), kept on the person, not as an alias identity matches on. At most three people a name.
+        if (alsoCalled && unknown.Count > 0)
+            foreach (var name in unknown.ToList())
+            {
+                var seen = await entities.FindLiveBySeenNameAsync(name, scope, 3, cancellationToken).ConfigureAwait(false);
+                foreach (var entity in seen.Where(e => named.All(n => n.EntityId != e.EntityId)))
+                {
+                    named.Add(entity);
+                    seenAs[entity.EntityId] = name;
+                }
+                if (seen.Count > 0) unknown.Remove(name);
+            }
+
+        // 1b. IDENTITY-NICKNAME-SPLIT (event-identity mode): a name the store does not know ("Bea") may be a short form of a
+        // person the conversation named in full a few turns before ("Beatriz Molina"). In two of six tier 2 runs that person
+        // was not shown when the nickname first came, so the writer had no label to refer to. The conversation's names the
+        // unknown one is a short form of are looked up too, at most four: a turn whose names are all known reads nothing more.
+        if (conversation is { Count: > 0 } && unknown.Count > 0)
+        {
+            var fullNames = MemoryWriterPrompt.Names(string.Join("\n", conversation))
+                .Where(full => unknown.Any(name => MemoryWriterContract.IsShortFormOf(name, full))).Take(4).ToList();
+            foreach (var full in fullNames)
+                if (await entities.FindLiveByNameAsync(full, type: null, scope, cancellationToken).ConfigureAwait(false) is { } entity
+                    && named.All(e => e.EntityId != entity.EntityId))
+                    named.Add(entity);
+        }
 
         // 2. The live memories that mention them, by their full names.
         var byName = new List<MemoryWriterOps.Stored>();
@@ -306,7 +394,7 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
         foreach (var (preference, score) in await preferences.SearchByVectorAsync(vector, limit * 2, 0.0, scope, cancellationToken).ConfigureAwait(false))
             if (preference.InvalidatedAtUtc is null) similar.Add((score, MemoryWriterOps.Stored.Of(preference)));
         foreach (var (entity, score) in await entities.SearchByVectorAsync(vector, limit, 0.0, scope, cancellationToken).ConfigureAwait(false))
-            similar.Add((score, MemoryWriterOps.Stored.Of(entity)));
+            similar.Add((score, OfEntity(entity)));
         var byMeaning = similar.OrderByDescending(s => s.Score).Select(s => s.Item).DistinctBy(item => item.Id).Take(limit).ToList();
 
         // 4. The live connections of the people found by meaning, not by their exact name ("Simone and I got married" finds
@@ -334,9 +422,34 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
             if (mentioning.Count <= AroundPerName) nearby.AddRange(mentioning.Select(MemoryWriterOps.Stored.Of));
         }
 
-        return MemoryWriterOps.Stored.Number(
-            [.. named.Select(MemoryWriterOps.Stored.Of).Concat(byName).Concat(byMeaning).Concat(theirs).Concat(nearby)
+        var shown = MemoryWriterOps.Stored.Number(
+            [.. named.Select(OfEntity).Concat(byName).Concat(byMeaning).Concat(theirs).Concat(nearby)
                 .DistinctBy(item => item.Id).Take(limit + 6)]);
+        return alsoCalled ? await WithFirstSaidAsync(shown, cancellationToken).ConfigureAwait(false) : shown;
+    }
+
+    /// <summary>
+    /// IDENTITY-WRITER-COVERAGE: stored entities shown under the same name and type carry the words each was first said
+    /// in, so the writer can tell them apart. One message read for each such entity, none when every name shown is unique.
+    /// </summary>
+    private async Task<IReadOnlyList<MemoryWriterOps.Stored>> WithFirstSaidAsync(IReadOnlyList<MemoryWriterOps.Stored> shown,
+        CancellationToken cancellationToken)
+    {
+        var repeated = shown.Where(item => item.Letter == 'E' && item.SourceMessageId is not null)
+            .GroupBy(item => item.Text, StringComparer.OrdinalIgnoreCase).Where(group => group.Count() > 1)
+            .SelectMany(group => group).ToList();
+        if (repeated.Count == 0 || _services.GetService<IMessageRepository>() is not { } messages) return shown;
+        var firstSaid = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var item in repeated)
+            if (await messages.GetByIdAsync(item.SourceMessageId!, cancellationToken).ConfigureAwait(false) is { Content: { Length: > 0 } content })
+                firstSaid[item.Id] = OneLine(content, 160);
+        return [.. shown.Select(item => firstSaid.TryGetValue(item.Id, out var words) ? item with { FirstSaid = words } : item)];
+    }
+
+    private static string OneLine(string text, int max)
+    {
+        var line = string.Join(' ', text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)).Trim();
+        return line.Length <= max ? line : line[..(max - 1)] + "…";
     }
 }
 
@@ -394,7 +507,8 @@ internal static class MemoryWriterPrompt
         """;
 
     private const string EventEntityWhat =
-        "a named entity or a connection explicitly stated in the message; do not infer connections. "
+        "someone or something named in the message (a person, pet, place, organisation, group, brand, product, vehicle, book, "
+        + "film, document, project or event), or a connection explicitly stated in the message; do not infer connections. "
         + "Emit a current EVENT observation with each new fact about its date, place or participation, even for an already stored event. "
         + "A person's own event participation is still a fact about that event. Other already stored entity mentions need no duplicate.";
 
@@ -430,15 +544,36 @@ internal static class MemoryWriterPrompt
           If context cannot resolve the event reference unambiguously, preserve uncertainty instead of guessing a link.
         - Every emitted item must remain supported by the current message. Keep its source quote rules and operation cap.
 
+        Named things:
+        - A thing the last message names by a name or a title is also an entity, even when it appears only
+          inside a fact or a preference. Add its entity beside the fact or preference that names it: a city, region,
+          country or venue is PLACE; a company, brand, team or group is ORGANIZATION; a product, device, vehicle, book,
+          film, album, document, report or project is THING.
+        - Only names and titles count. A role or a common noun ("the dentist", "my laptop", "the office") is not a name and
+          gets no entity of its own. People and pets keep the rules above.
+        - A thing or place already listed in STORED as an E item needs no new entity: its facts use the stored name. Two
+          stored things of one name are shown with the words each was first said in: a qualifier that says which one is
+          meant ("the one in the old town") picks that one and adds nothing new. Only a message that brings in another
+          thing of a stored name ("another", "a second", "a different") adds a new entity, with "ref" null, named with the
+          words that tell it apart; never store a second thing under exactly the name of a stored one.
+
         Stored entity references:
         - Every operation has a "ref" field; on facts, preferences and connections it is always null. An entity's "text" is
           exactly "Name (TYPE)", nothing before or after. When an entity operation is about a person, organisation, place, thing or event
           already listed in STORED as an E item, and the current statement and visible context unambiguously refer to that
           stored entity, set "ref" to its E label and use that stored entity's exact name and kind in "text". Its quote is
           the words of the last message that refer to it, even when they name it differently.
+        - A person the last message calls by a short form or nickname of a stored person's name, one that starts like a
+          word of that name but is not one ("Bea" for a stored "Beatriz Molina"), is that stored person when the visible
+          context makes it clear. Set "ref" to their E label and write the name the message uses in "text"
+          ("Bea (PERSON)"), quoting the words that hold it: the person is then also called by it, and STORED shows such
+          names after "also called". Facts about them still use the stored exact name as their subject. A first name or a
+          surname alone is part of the stored name, not another name: write the stored exact name.
         - Otherwise set "ref" to null: for a similar name, the same date, a shared person or place alone, or when two stored
-          entities could match. A "ref" only says which stored entity this mention is about; it never replaces or corrects
-          a stored memory, and facts about that entity use the same exact name as their subject.
+          entities could match. A first name or a short form that STORED or the conversation also gives someone else (another
+          E item, or facts about another person called so) could be either: set "ref" to null. A "ref" only says which
+          stored entity this mention is about; it never replaces or corrects a stored memory, and facts about that entity
+          use the same exact name as their subject.
         """;
 
     private static readonly (string Kind, string What, string Format)[] Kinds =
@@ -488,7 +623,9 @@ internal static class MemoryWriterPrompt
             lines.Add($"{(IsUser(m.Role) ? speaker : "Assistant")}: {m.Content}");
         foreach (var m in window.Targets.Where(m => IsUser(m.Role)))
             lines.Add($"{speaker} (LAST MESSAGE): {m.Content}");
-        var list = stored.Count == 0 ? "(nothing)" : string.Join("\n", stored.Select(item => $"{item.Label}: {item.Text}"));
+        var list = stored.Count == 0 ? "(nothing)" : string.Join("\n", stored.Select(item =>
+            $"{item.Label}: {item.Text}{(item.AlsoCalled is null ? "" : ", also called " + item.AlsoCalled)}"
+            + (item.FirstSaid is null ? "" : $", first said in \"{item.FirstSaid}\"")));
         return $"TODAY: {Today(now)}\n\nCONVERSATION:\n{string.Join("\n", lines)}\n\nSTORED (live, most relevant):\n{list}";
     }
 
@@ -592,6 +729,28 @@ internal static class MemoryWriterOps
 
         /// <summary>A connection with an end that holds no word ("Ana -[LIKES]-> ..."): it names nothing.</summary>
         ConnectionEndEmpty,
+
+        /// <summary>
+        /// An entity add without "ref" named and typed exactly as a shown stored entity that is not an event
+        /// (IDENTITY-WRITER-COVERAGE): the same thing needs its ref, a different one a name that tells it apart. Asked
+        /// once; when neither comes, the entity is kept as written.
+        /// </summary>
+        StoredNameRepeated,
+
+        /// <summary>
+        /// IDENTITY-PERSON-REF-GUARD: a person reference whose message, or the latest earlier turn naming the person, gives
+        /// a relation the stored person is not known by while they are known by another ("my niece Valentina" against the
+        /// stored designer). Refused before anything is stored: the entity, and every fact, preference and connection of the
+        /// reply that named the stored person, keep the message's own name. Reported, never sent for a correction.
+        /// </summary>
+        ReferenceRelationConflict,
+
+        /// <summary>
+        /// IDENTITY-PERSON-REF-GUARD: a new person, without "ref", named by a short form of a shown stored person's name or by
+        /// a name the stored person is already also called ("Vale" with "Valentina Ríos" shown). Asked once: the same person
+        /// takes the ref; someone else keeps the name without one.
+        /// </summary>
+        StoredPersonShortForm,
     }
 
     /// <summary>An operation the writer did not keep, where it was in the reply, why, and its text when it had one.</summary>
@@ -606,9 +765,47 @@ internal static class MemoryWriterOps
     {
         public string Label { get; init; } = "";
 
-        internal static Stored Of(Fact f) => new(f.FactId, 'F', $"{f.Subject} | {f.Predicate} | {f.Object}" + Validity(f));
+        /// <summary>
+        /// IDENTITY-NICKNAME-SPLIT: the other names a stored entity is called by (its aliases), shown after its text as
+        /// ", also called ..."; display only, never parsed. Set in event-identity mode only: the default writer is shown
+        /// what it was measured with.
+        /// </summary>
+        public string? AlsoCalled { get; init; }
+
+        /// <summary>
+        /// IDENTITY-WRITER-COVERAGE: the words a stored entity was first said in, shown after its text as ", first said in
+        /// ..." only when another shown entity has the same name and type, so the writer can tell them apart (ikb-cover-1
+        /// statement 22: two "Café Tortoni (LOCATION)" lines, and a third was added). Event-identity mode only.
+        /// </summary>
+        public string? FirstSaid { get; init; }
+
+        /// <summary>The entity's first source message, which <see cref="FirstSaid"/> quotes; data, never shown.</summary>
+        public string? SourceMessageId { get; init; }
+
+        /// <summary>
+        /// IDENTITY-PERSON-REF-GUARD: the stored entity itself (its description, subtype and aliases), read for what it is
+        /// known as when a reply refers to it; data, never shown.
+        /// </summary>
+        public Entity? Entity { get; init; }
+
+        /// <summary>A stored fact's subject, predicate and object, read for what the people it names are known as; data, never shown.</summary>
+        public (string? Subject, string? Predicate, string? Object)? Triple { get; init; }
+
+        internal static Stored Of(Fact f) => new(f.FactId, 'F', $"{f.Subject} | {f.Predicate} | {f.Object}" + Validity(f))
+        { Triple = (f.Subject, f.Predicate, f.Object) };
         internal static Stored Of(Preference p) => new(p.PreferenceId, 'P', p.PreferenceText);
-        internal static Stored Of(Entity e) => new(e.EntityId, 'E', $"{e.Name} ({e.Type})");
+        internal static Stored Of(Entity e) => new(e.EntityId, 'E', $"{e.Name} ({e.Type})") { SourceMessageId = e.SourceMessageIds.FirstOrDefault(), Entity = e };
+
+        /// <summary><see cref="Of(Entity)"/> with up to three of its aliases that are plain names (they reach the prompt).</summary>
+        internal static Stored Of(Entity e, bool alsoCalled)
+        {
+            var names = alsoCalled
+                ? e.Aliases.Select(MemoryWriterPrompt.PlainName).OfType<string>()
+                    .Where(a => !string.Equals(a, e.Name, StringComparison.OrdinalIgnoreCase))
+                    .Distinct(StringComparer.OrdinalIgnoreCase).Take(3).ToList()
+                : [];
+            return Of(e) with { AlsoCalled = names.Count == 0 ? null : string.Join(", ", names) };
+        }
         internal static Stored Of(RecalledRelationship r) =>
             new(r.Relationship.RelationshipId, 'R', $"{r.SourceName} -[{r.Relationship.RelationshipType}]-> {r.TargetName}");
 
@@ -803,12 +1000,19 @@ internal static class MemoryWriterOps
                     break;
                 case "entity":
                     var entity = Named.Match(op.Text);
+                    // Event-identity mode only (the message is passed): a checked label shown in this call, never a guess.
+                    var reference = referenceMessage is null ? null : MemoryWriterContract.Reference(op, byLabel, referenceMessage);
+                    // IDENTITY-NICKNAME-SPLIT: a stored person referred to under a short form of their name is that person,
+                    // also called so: the stored name, which tells namesakes apart, and the short form as an alias.
+                    var referred = reference is not null && byLabel.TryGetValue(op.Ref!, out var shown) ? shown : null;
+                    var alsoCalled = referred is null ? null : MemoryWriterContract.AlsoCalled(op, referred);
                     entities.Add(new ExtractedEntity
                     {
-                        Name = entity.Success ? entity.Groups["n"].Value : op.Text.Trim(),
+                        Name = alsoCalled is not null ? MemoryWriterContract.EntityName(referred!.Text)
+                            : entity.Success ? entity.Groups["n"].Value : op.Text.Trim(),
                         Type = entity.Success ? EntityType(entity.Groups["t"].Value) : "OBJECT",
-                        // Event-identity mode only (the message is passed): a checked label shown in this call, never a guess.
-                        Reference = referenceMessage is null ? null : MemoryWriterContract.Reference(op, byLabel, referenceMessage),
+                        Aliases = alsoCalled is null ? [] : [alsoCalled],
+                        Reference = reference,
                     });
                     break;
                 case "relationship":
@@ -1000,7 +1204,7 @@ internal static class MemoryWriterOps
             : null;
 
     /// <summary>The prompt's PLACE and THING in the library's entity vocabulary (LOCATION, OBJECT).</summary>
-    private static string EntityType(string type) => type.Trim().ToUpperInvariant() switch
+    internal static string EntityType(string type) => type.Trim().ToUpperInvariant() switch
     {
         "PLACE" => "LOCATION",
         "THING" => "OBJECT",

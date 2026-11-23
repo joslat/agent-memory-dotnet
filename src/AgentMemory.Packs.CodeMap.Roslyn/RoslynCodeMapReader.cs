@@ -13,7 +13,9 @@ namespace AgentMemory.Packs.CodeMap.Roslyn;
 /// Reads a C# repository into the code map (coding packs CMP-2a) with the Roslyn compiler, without MSBuild or a build: one
 /// compilation per project (its own files, the projects it references, the runtime's reference assemblies), so in-repo types
 /// resolve exactly while external packages simply stay unresolved. Records projects, files, types and test methods, and links
-/// each test to the in-repo types it touches most, outside its own project.
+/// each test to the in-repo types it touches most, outside its own project, and to the requirements its own attributes or its
+/// class's name (CO-2b): <c>[Trait("Requirement", "REQ-12")]</c> (xUnit), <c>[Property("Requirement", "REQ-12")]</c> (NUnit),
+/// <c>[TestProperty("Requirement", "REQ-12")]</c> (MSTest); the name is matched without case, and a value may list several ids.
 /// </summary>
 /// <remarks>Deterministic: the same files give the same records. Keys are SCIP symbols (<c>scip-dotnet nuget Assembly . Ns/Type#</c>)
 /// with the version slot empty, so they survive releases.</remarks>
@@ -45,8 +47,17 @@ public static class RoslynCodeMapReader
         Read(root, TrackedFiles(root), cancellationToken);
 
     /// <summary>Reads the given repository-relative files (.csproj and .cs) under <paramref name="root"/>.</summary>
-    public static CodeMapBuilder Read(string root, IReadOnlyList<string> files, CancellationToken cancellationToken = default)
+    public static CodeMapBuilder Read(string root, IReadOnlyList<string> files, CancellationToken cancellationToken = default) =>
+        Read(root, files, new RoslynCodeMapOptions(), cancellationToken);
+
+    /// <summary>Reads the repository at <paramref name="root"/> with <paramref name="options"/>.</summary>
+    public static CodeMapBuilder Read(string root, RoslynCodeMapOptions options, CancellationToken cancellationToken = default) =>
+        Read(root, TrackedFiles(root), options, cancellationToken);
+
+    /// <summary>Reads the given repository-relative files (.csproj and .cs) under <paramref name="root"/> with <paramref name="options"/>.</summary>
+    public static CodeMapBuilder Read(string root, IReadOnlyList<string> files, RoslynCodeMapOptions options, CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(options);
         ArgumentException.ThrowIfNullOrWhiteSpace(root); ArgumentNullException.ThrowIfNull(files);
         var builder = new CodeMapBuilder();
         var paths = files.Select(Normalize).Where(f => f.Length > 0).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
@@ -79,6 +90,8 @@ public static class RoslynCodeMapReader
         var compilations = new Dictionary<string, CSharpCompilation>(StringComparer.Ordinal);
         // Keyed by assembly and documentation id: a type seen through a project reference is not always the same symbol object.
         var declared = new Dictionary<string, (string Scip, string Project)>(StringComparer.Ordinal);
+        // CMP-2g: the types declared under each simple name, for a test class named after one (NamedTestLinks).
+        var byName = new Dictionary<string, List<(string Scip, string Project)>>(StringComparer.Ordinal);
         foreach (var project in Order(projects))
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -115,6 +128,7 @@ public static class RoslynCodeMapReader
                     }
                     var scip = Scip(project.Name, type);
                     declared[Identity(type)] = (scip, project.Path);
+                    (byName.TryGetValue(type.Name, out var named) ? named : byName[type.Name] = []).Add((scip, project.Path));
                     builder.AddSymbol(scip, type.Name, type.ToDisplayString(), Kind(type), project.Name, tree.FilePath,
                         node.GetLocation().GetLineSpan().StartLinePosition.Line + 1,
                         type.GetMembers().Where(m => m.DeclaredAccessibility == Accessibility.Public && !m.IsImplicitlyDeclared && m.CanBeReferencedByName)
@@ -141,10 +155,13 @@ public static class RoslynCodeMapReader
                     if (touched.Count == 0 && method.Parent is TypeDeclarationSyntax owner) touched = [.. Touched(model, owner, declared, path, cancellationToken)];
                     var tested = touched.GroupBy(s => s.Scip).Select(g => (g.Key, Weight: g.Sum(x => x.Weight)))
                         .OrderByDescending(g => g.Weight).ThenBy(g => g.Key, StringComparer.Ordinal).Select(g => g.Key);
+                    if (options.NamedTestLinks && NamedSubject(symbol.ContainingType.Name, path, byName) is { } subject)
+                        tested = tested.Contains(subject, StringComparer.Ordinal) ? tested : tested.Append(subject);
                     testProjects.Add(path);
-                    builder.AddTest(Scip(compilation.AssemblyName!, symbol.ContainingType) + symbol.Name + "().",
-                        symbol.ContainingType.Name + "." + symbol.Name, tree.FilePath, method.GetLocation().GetLineSpan().StartLinePosition.Line + 1,
+                    var test = Scip(compilation.AssemblyName!, symbol.ContainingType) + symbol.Name + "().";
+                    builder.AddTest(test, symbol.ContainingType.Name + "." + symbol.Name, tree.FilePath, method.GetLocation().GetLineSpan().StartLinePosition.Line + 1,
                         Framework(attribute), tested);
+                    builder.AddValidates(test, Requirements(model, method, cancellationToken));
                 }
             }
 
@@ -170,6 +187,20 @@ public static class RoslynCodeMapReader
                 builder.AddUses(scip, counts.OrderByDescending(c => c.Value).ThenBy(c => c.Key, StringComparer.Ordinal).Select(c => c.Key));
         }
         return builder;
+    }
+
+    private static readonly string[] TestClassSuffixes = ["Tests", "Test", "Should"];
+
+    /// <summary>
+    /// CMP-2g: the type a test class is named after (<c>FooTests</c>, <c>FooTest</c>, <c>FooShould</c> to <c>Foo</c>), when
+    /// exactly one type of that name is declared outside the test's own project; else null.
+    /// </summary>
+    private static string? NamedSubject(string testClass, string testProject, IReadOnlyDictionary<string, List<(string Scip, string Project)>> byName)
+    {
+        var suffix = TestClassSuffixes.FirstOrDefault(s => testClass.Length > s.Length && testClass.EndsWith(s, StringComparison.Ordinal));
+        if (suffix is null || !byName.TryGetValue(testClass[..^suffix.Length], out var types)) return null;
+        var outside = types.Where(t => t.Project != testProject).Select(t => t.Scip).Distinct(StringComparer.Ordinal).ToList();
+        return outside.Count == 1 ? outside[0] : null;
     }
 
     /// <summary>How many calls deep a test's own-class helpers are followed.</summary>
@@ -269,6 +300,29 @@ public static class RoslynCodeMapReader
         var text = name switch { QualifiedNameSyntax q => q.Right.Identifier.Text, AliasQualifiedNameSyntax a => a.Name.Identifier.Text, SimpleNameSyntax s => s.Identifier.Text, _ => name.ToString() };
         return text.EndsWith("Attribute", StringComparison.Ordinal) ? text[..^"Attribute".Length] : text;
     }
+
+    private static readonly HashSet<string> PropertyAttributes = new(StringComparer.Ordinal) { "Trait", "Property", "TestProperty" };
+
+    // The requirements a test names (CO-2b): its own attributes first, then its class's and the classes around it, each a
+    // name-value attribute whose name is "Requirement"; constants count as their value.
+    private static IEnumerable<string> Requirements(SemanticModel model, MethodDeclarationSyntax method, CancellationToken cancellationToken)
+    {
+        IEnumerable<AttributeSyntax> attributes = method.AttributeLists.SelectMany(l => l.Attributes);
+        foreach (var type in method.Ancestors().OfType<TypeDeclarationSyntax>())
+            attributes = attributes.Concat(type.AttributeLists.SelectMany(l => l.Attributes));
+        foreach (var attribute in attributes)
+        {
+            if (!PropertyAttributes.Contains(AttributeName(attribute.Name)) || attribute.ArgumentList?.Arguments is not { Count: 2 } arguments) continue;
+            if (Constant(model, arguments[0].Expression, cancellationToken) is not { } name || !string.Equals(name.Trim(), "Requirement", StringComparison.OrdinalIgnoreCase)) continue;
+            if (Constant(model, arguments[1].Expression, cancellationToken) is not { } value) continue;
+            foreach (var id in value.Split([',', ';', ' ', '	'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                yield return id;
+        }
+    }
+
+    private static string? Constant(SemanticModel model, ExpressionSyntax expression, CancellationToken cancellationToken) =>
+        expression is LiteralExpressionSyntax { RawKind: (int)SyntaxKind.StringLiteralExpression } literal ? literal.Token.ValueText
+        : model.GetConstantValue(expression, cancellationToken) is { HasValue: true, Value: string text } ? text : null;
 
     private static string Framework(string attribute) => attribute switch
     {

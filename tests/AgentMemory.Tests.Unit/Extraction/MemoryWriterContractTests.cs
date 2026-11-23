@@ -26,6 +26,7 @@ public sealed class MemoryWriterContractTests : IDisposable
     private readonly Queue<string> _replies = new();
     private readonly List<(List<ChatMessage> Messages, ChatOptions? Options)> _calls = [];
     private readonly IEntityRepository _entities = Substitute.For<IEntityRepository>();
+    private readonly IMessageRepository _messages = Substitute.For<IMessageRepository>();
     private readonly ServiceProvider _services;
 
     private const string GoLiveId = "identity-observation-golive";
@@ -46,12 +47,13 @@ public sealed class MemoryWriterContractTests : IDisposable
         preferences.SearchByVectorAsync(default!, default, default, default, default).ReturnsForAnyArgs([]);
         _entities.FindLiveByNameAsync(default!, default, default!, default).ReturnsForAnyArgs((Entity?)null);
         _entities.SearchByVectorAsync(default!, default, default, default, default).ReturnsForAnyArgs([]);
+        _entities.FindLiveBySeenNameAsync(default!, default!, default, default).ReturnsForAnyArgs([]);
         var relationships = Substitute.For<IRelationshipRepository>();
         relationships.GetLiveAroundAsync(default!, default!, default, default, default, default).ReturnsForAnyArgs([]);
         var embeddings = Substitute.For<IEmbeddingOrchestrator>();
         embeddings.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new float[4]);
         _services = new ServiceCollection().AddSingleton(facts).AddSingleton(preferences).AddSingleton(_entities)
-            .AddSingleton(relationships).AddSingleton(embeddings).BuildServiceProvider();
+            .AddSingleton(relationships).AddSingleton(embeddings).AddSingleton(_messages).BuildServiceProvider();
         _chat.GetResponseAsync(Arg.Any<IEnumerable<ChatMessage>>(), Arg.Any<ChatOptions?>(), Arg.Any<CancellationToken>()).Returns(call =>
         {
             _calls.Add((call.Arg<IEnumerable<ChatMessage>>().ToList(), call.Arg<ChatOptions?>()));
@@ -64,12 +66,46 @@ public sealed class MemoryWriterContractTests : IDisposable
     private void ShowStoredGoLive() =>
         _entities.SearchByVectorAsync(default!, default, default, default, default).ReturnsForAnyArgs([(GoLive, 0.9)]);
 
-    private Task<UnifiedExtractionResult> Write(string text, bool eventIdentities = true)
+    private const string PersonId = "identity-observation-beatriz";
+
+    private void ShowStored(string id, string name, string type) =>
+        _entities.SearchByVectorAsync(default!, default, default, default, default).ReturnsForAnyArgs([(new Entity
+        {
+            EntityId = id, Name = name, Type = type, OwnerId = "bruna", Confidence = 1, SourceMessageIds = ["prior"],
+            CreatedAtUtc = DateTimeOffset.UnixEpoch,
+        }, 0.9)]);
+
+    private void ShowStoredPerson() => ShowStored(PersonId, "Beatriz Molina", "PERSON");
+
+    private Task<UnifiedExtractionResult> Write(string text, bool eventIdentities = true, params string[] before)
     {
         var writer = new LlmMemoryWriter(_chat, Options.Create(new LlmExtractionOptions
         { UseMemoryWriter = true, MemoryWriterEventIdentities = eventIdentities }), _services, NullLogger<LlmMemoryWriter>.Instance);
-        return writer.WriteAsync(new(ExtractionWindow.ForTargets([new() { MessageId = "current", ConversationId = "c",
-            SessionId = "s", Role = "user", Content = text, TimestampUtc = DateTimeOffset.UnixEpoch }]), MemoryScope.For("bruna", false)));
+        static Message Turn(string id, string content) => new() { MessageId = id, ConversationId = "c", SessionId = "s", Role = "user",
+            Content = content, TimestampUtc = DateTimeOffset.UnixEpoch };
+        return writer.WriteAsync(new(ExtractionWindow.ForTargets([Turn("current", text)]) with
+        {
+            Context = [.. before.Select((content, i) => Turn($"before-{i}", content))],
+        }, MemoryScope.For("bruna", false)));
+    }
+
+    private const string DesignerId = "identity-observation-designer";
+
+    /// <summary>The stored designer as whos-who-v1 statement 8 said her ("Valentina Ríos is the designer on Atlas."), and others shown beside her.</summary>
+    private void ShowStoredDesigner(params Entity[] others)
+    {
+        var designer = new Entity
+        {
+            EntityId = DesignerId, Name = "Valentina Ríos", Type = "PERSON", OwnerId = "bruna", Confidence = 1,
+            SourceMessageIds = ["m-designer"], CreatedAtUtc = DateTimeOffset.UnixEpoch,
+        };
+        _messages.GetByIdAsync("m-designer", Arg.Any<CancellationToken>()).Returns(new Message
+        {
+            MessageId = "m-designer", ConversationId = "c", SessionId = "s", Role = "user",
+            Content = "Valentina Ríos is the designer on Atlas.", TimestampUtc = DateTimeOffset.UnixEpoch,
+        });
+        _entities.SearchByVectorAsync(default!, default, default, default, default)
+            .ReturnsForAnyArgs([(designer, 0.9), .. others.Select(e => (e, 0.8))]);
     }
 
     [Fact]
@@ -219,6 +255,84 @@ public sealed class MemoryWriterContractTests : IDisposable
         result.Outcomes.Should().ContainSingle();
     }
 
+    // ── IDENTITY-NICKNAME-SPLIT (whos-who-v1 tier 2: "Vale" for the stored "Valentina Ríos" stayed a person of its own) ──
+
+    /// <summary>
+    /// Six tier 2 runs: shown the stored person, the writer wrote the nickname as a new person with "ref" null; with a "ref",
+    /// this contract demanded the stored name, so the nickname could only be lost. A short form of the stored person's name
+    /// that the message uses is another name of that person: the mention takes the stored name (which tells namesakes apart),
+    /// keeps the short form as an alias and keeps the reference, in one call.
+    /// </summary>
+    [Fact]
+    public async Task A_person_called_by_a_short_form_of_their_stored_name_is_that_person_also_called_so()
+    {
+        ShowStoredPerson();
+        _replies.Enqueue("""
+            {"ops":[
+              {"op":"add","kind":"entity","text":"Bea (PERSON)","quote":"Bea finished the floor plans today","ref":"E1"},
+              {"op":"add","kind":"fact","text":"Beatriz Molina | finished | the floor plans","quote":"Bea finished the floor plans today"}
+            ]}
+            """);
+
+        var result = await Write("Bea finished the floor plans today.");
+
+        _calls.Should().ContainSingle("a short form of the stored name is no name mismatch to correct");
+        var entity = result.Entities.Should().ContainSingle().Which;
+        entity.Name.Should().Be("Beatriz Molina");
+        entity.Type.Should().Be("PERSON");
+        entity.Aliases.Should().Equal("Bea");
+        entity.Reference!.EntityId.Should().Be(PersonId);
+        result.Facts.Should().ContainSingle().Which.Subject.Should().Be("Beatriz Molina");
+        result.Outcomes.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("Beatriz", "Beatriz finished the floor plans today")]   // a first name alone is part of the stored name
+    [InlineData("Jonas", "Jonas finished the floor plans today")]       // another name altogether
+    public async Task A_reference_under_any_other_name_still_needs_the_stored_name(string said, string message)
+    {
+        ShowStoredPerson();
+        _replies.Enqueue($$"""{"ops":[{"op":"add","kind":"entity","text":"{{said}} (PERSON)","quote":"{{message}}","ref":"E1"}]}""");
+        _replies.Enqueue("""{"ops":[]}""");
+
+        var result = await Write(message + ".");
+
+        _calls.Should().HaveCount(2, "the name mismatch is corrected as before");
+        var entity = result.Entities.Should().ContainSingle().Which;
+        entity.Name.Should().Be(said);
+        entity.Reference.Should().BeNull();
+        entity.Aliases.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_short_form_its_quote_does_not_hold_is_not_taken()
+    {
+        ShowStoredPerson();
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Bea (PERSON)","quote":"finished the floor plans today","ref":"E1"}]}""");
+        _replies.Enqueue("""{"ops":[]}""");
+
+        var result = await Write("Beatriz finished the floor plans today.");
+
+        _calls.Should().HaveCount(2);
+        result.Entities.Should().ContainSingle().Which.Reference.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("ORGANIZATION", "Northwind Analytics", "Northy (ORGANIZATION)", "Northy shipped the release")]
+    [InlineData("EVENT", "Harvest festival", "Harvy (EVENT)", "Harvy starts at noon")]
+    public async Task Only_a_person_is_referred_to_by_a_short_form(string type, string stored, string text, string message)
+    {
+        // An organisation, a place, a thing or an event keeps the exact stored-name rule (ILC-10).
+        ShowStored("stored-thing", stored, type);
+        _replies.Enqueue($$"""{"ops":[{"op":"add","kind":"entity","text":"{{text}}","quote":"{{message}}","ref":"E1"}]}""");
+        _replies.Enqueue("""{"ops":[]}""");
+
+        var result = await Write(message + ".");
+
+        _calls.Should().HaveCount(2);
+        result.Entities.Should().ContainSingle().Which.Reference.Should().BeNull();
+    }
+
     [Fact]
     public async Task A_reference_on_a_fact_is_ignored_without_a_correction_call_or_a_rejection()
     {
@@ -242,6 +356,97 @@ public sealed class MemoryWriterContractTests : IDisposable
         _calls.Should().HaveCount(2);
         result.Entities.Should().ContainSingle().Which.Should().Match<ExtractedEntity>(e => e.Name == "Nexo" && e.Type == "ORGANIZATION");
         result.Outcomes.Should().BeEmpty();
+    }
+
+    /// <summary>
+    /// IDENTITY-WRITER-COVERAGE guard: a thing named inside a fact or a preference, written beside it as its own entity,
+    /// passes the contract in one call and keeps its kind; nothing between the writer and identity drops these kinds.
+    /// </summary>
+    [Fact]
+    public async Task Named_things_beside_a_fact_and_a_preference_pass_the_contract_with_their_kinds()
+    {
+        _replies.Enqueue("""
+            {"ops":[
+              {"op":"add","kind":"fact","text":"user | is reading | Field Notes on Rivers","quote":"I'm reading Field Notes on Rivers"},
+              {"op":"add","kind":"entity","text":"Field Notes on Rivers (THING)","quote":"Field Notes on Rivers","ref":null},
+              {"op":"add","kind":"preference","text":"Only buys boots from Northwind Outfitters","quote":"I only buy boots from Northwind Outfitters"},
+              {"op":"add","kind":"entity","text":"Northwind Outfitters (ORGANIZATION)","quote":"Northwind Outfitters","ref":null},
+              {"op":"add","kind":"entity","text":"finance team (ORGANIZATION)","quote":"the finance team","ref":null}
+            ]}
+            """);
+        var result = await Write("I'm reading Field Notes on Rivers, I only buy boots from Northwind Outfitters, and the finance team wants the summary.");
+        _calls.Should().ContainSingle();
+        result.Entities.Should().Contain(e => e.Name == "Field Notes on Rivers" && e.Type == "OBJECT");
+        result.Entities.Should().Contain(e => e.Name == "Northwind Outfitters" && e.Type == "ORGANIZATION");
+        result.Entities.Should().Contain(e => e.Name == "finance team" && e.Type == "ORGANIZATION");
+        result.Facts.Should().ContainSingle();
+        result.Preferences.Should().ContainSingle();
+        result.Outcomes.Should().BeEmpty();
+    }
+
+    /// <summary>
+    /// IDENTITY-WRITER-COVERAGE, the paid check of 23 Nov (ikb-cover-1): the writer stored a second café under exactly the
+    /// stored one's name, so the next turn was shown two stored "Café ... (LOCATION)" it could not tell apart, and added a
+    /// third. A new entity named and typed exactly as a shown stored one (not an event) is asked once which it is.
+    /// </summary>
+    [Fact]
+    public async Task A_stored_places_name_said_again_is_asked_once_and_left_out_when_it_is_the_same_place()
+    {
+        // The second paid check (ikb-cover2-1, statement 41): a writer's ref cannot confirm a place or a thing (only a
+        // person, an organisation or an event), so a re-mention given its ref stayed pending: another identity of it.
+        ShowStored("place-lumen", "Café Lumen", "LOCATION");
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Café Lumen (PLACE)","quote":"Café Lumen","ref":null},{"op":"add","kind":"fact","text":"Café Lumen | has | live jazz on Fridays","quote":"Café Lumen has live jazz on Fridays","ref":null}]}""");
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Café Lumen (PLACE)","quote":"Café Lumen","ref":"E1"}]}""");
+
+        var result = await Write("Café Lumen has live jazz on Fridays.");
+
+        _calls.Should().HaveCount(2);
+        _calls[1].Messages.Last().Text.Should().Contain("E1").And.Contain("leave it out").And.Contain("tell it apart");
+        result.Entities.Should().BeEmpty("the same stored place needs no new observation: its fact carries it");
+        result.Facts.Should().ContainSingle().Which.Subject.Should().Be("Café Lumen");
+        result.Outcomes.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_stored_organisations_name_said_again_is_asked_once_and_its_reference_kept()
+    {
+        ShowStored("org-nexo", "Nexo Studio", "ORGANIZATION");
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Nexo Studio (ORGANIZATION)","quote":"Nexo Studio","ref":null}]}""");
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Nexo Studio (ORGANIZATION)","quote":"Nexo Studio","ref":"E1"}]}""");
+
+        var result = await Write("Nexo Studio hired two designers.");
+
+        _calls.Should().HaveCount(2);
+        _calls[1].Messages.Last().Text.Should().Contain("give its \"ref\"");
+        result.Entities.Should().ContainSingle().Which.Reference!.EntityId.Should().Be("org-nexo");
+        result.Outcomes.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_different_thing_of_a_stored_name_is_kept_under_the_name_that_tells_it_apart()
+    {
+        ShowStored("place-lumen", "Café Lumen", "LOCATION");
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Café Lumen (PLACE)","quote":"Café Lumen","ref":null}]}""");
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Café Lumen in Porto (PLACE)","quote":"Café Lumen in Porto","ref":null}]}""");
+
+        var result = await Write("There is another Café Lumen in Porto, open only at night.");
+
+        _calls.Should().HaveCount(2);
+        var entity = result.Entities.Should().ContainSingle().Which;
+        entity.Name.Should().Be("Café Lumen in Porto");
+        entity.Reference.Should().BeNull();
+        result.Outcomes.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_stored_events_name_observed_again_is_not_asked()
+    {
+        ShowStoredGoLive();
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Acme Logistics billing system go-live (EVENT)","quote":"Acme Logistics billing system go-live","ref":null},{"op":"add","kind":"fact","text":"Acme Logistics billing system go-live | is scheduled for | Friday","quote":"Friday"}]}""");
+
+        await Write("The Acme Logistics billing system go-live is on Friday.");
+
+        _calls.Should().ContainSingle();
     }
 
     [Fact]
@@ -377,5 +582,339 @@ public sealed class MemoryWriterContractTests : IDisposable
         _calls.Should().ContainSingle();
         result.Entities.Should().ContainSingle().Which.Reference.Should().BeNull();
         result.Outcomes.Should().BeEmpty();
+    }
+
+    // ── IDENTITY-PERSON-REF-GUARD (the third paid check, cover3-2 statement 13: "My niece Valentina started school this year,
+    // she is six." was referred to the stored designer Valentina Ríos and her facts written under the designer's name.
+    // Identity's relation guard refused the merge, but the facts had already been stored under the wrong person.) ──
+
+    /// <summary>
+    /// The message calls the person "my niece Valentina"; the stored Valentina Ríos is known as the designer. Identity's
+    /// own relation words say these are two people, so the writer's reference is refused before anything is stored: the
+    /// entity keeps the message's own name, and every fact, preference and connection of the reply that named the stored
+    /// person names the message's person instead. No correction call: nothing is left for the model to decide.
+    /// </summary>
+    [Fact]
+    public async Task A_person_reference_the_messages_relation_contradicts_is_refused_and_its_facts_keep_the_messages_name()
+    {
+        ShowStoredDesigner();
+        _replies.Enqueue("""
+            {"ops":[
+              {"op":"add","kind":"entity","text":"Valentina Ríos (PERSON)","quote":"My niece Valentina","ref":"E1"},
+              {"op":"add","kind":"fact","text":"Valentina Ríos | started school | this year","quote":"started school this year","ref":null},
+              {"op":"add","kind":"fact","text":"Valentina Ríos | is | six years old","quote":"she is six","ref":null},
+              {"op":"add","kind":"preference","text":"Valentina Ríos loves her new school","quote":"started school this year","ref":null}
+            ]}
+            """);
+
+        var result = await Write("My niece Valentina started school this year, she is six.");
+
+        _calls.Should().ContainSingle("the refusal is deterministic: no correction call");
+        var entity = result.Entities.Should().ContainSingle().Which;
+        entity.Name.Should().Be("Valentina");
+        entity.Type.Should().Be("PERSON");
+        entity.Reference.Should().BeNull();
+        entity.Aliases.Should().BeEmpty();
+        result.Facts.Select(f => f.Subject).Should().Equal("Valentina", "Valentina");
+        result.Preferences.Should().ContainSingle().Which.PreferenceText.Should().Be("Valentina loves her new school");
+        result.Outcomes.Should().ContainSingle().Which.ErrorMessage.Should()
+            .Contain(nameof(MemoryWriterOps.DropReason.ReferenceRelationConflict)).And.Contain("niece").And.Contain("designer");
+    }
+
+    /// <summary>
+    /// cover3, statement 14: "Valentina lost her first tooth yesterday." names no relation itself; the turn before said
+    /// "My niece Valentina". The latest earlier turn of the window that names her is read for the relation.
+    /// </summary>
+    [Fact]
+    public async Task A_person_reference_the_turn_before_contradicts_is_refused_too()
+    {
+        ShowStoredDesigner();
+        _replies.Enqueue("""
+            {"ops":[
+              {"op":"add","kind":"entity","text":"Valentina Ríos (PERSON)","quote":"Valentina lost her first tooth","ref":"E1"},
+              {"op":"add","kind":"fact","text":"Valentina Ríos | lost | her first tooth","quote":"Valentina lost her first tooth yesterday","ref":null}
+            ]}
+            """);
+
+        var result = await Write("Valentina lost her first tooth yesterday.", true,
+            "My dog Luna is a border collie.", "My niece Valentina started school this year, she is six.");
+
+        _calls.Should().ContainSingle();
+        result.Entities.Should().ContainSingle().Which.Should().Match<ExtractedEntity>(e => e.Name == "Valentina" && e.Reference == null);
+        result.Facts.Should().ContainSingle().Which.Subject.Should().Be("Valentina");
+    }
+
+    /// <summary>Only the latest earlier turn that names her counts: a later one that says nothing of a niece settles it.</summary>
+    [Fact]
+    public async Task Only_the_latest_earlier_turn_that_names_the_person_is_read_for_a_relation()
+    {
+        ShowStoredDesigner();
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Valentina Ríos (PERSON)","quote":"Valentina moved","ref":"E1"}]}""");
+
+        var result = await Write("Valentina moved to the Madrid office.", true,
+            "My niece Valentina started school this year.", "Valentina Ríos sent the Atlas mock-ups.");
+
+        result.Entities.Should().ContainSingle().Which.Reference!.EntityId.Should().Be(DesignerId);
+        result.Outcomes.Should().BeEmpty();
+    }
+
+    /// <summary>A relation is read for the name the message calls the person by, not for every word of the stored name.</summary>
+    [Fact]
+    public async Task A_relation_given_to_someone_else_of_a_like_name_does_not_refuse_the_reference()
+    {
+        ShowStoredDesigner();
+        _replies.Enqueue("""
+            {"ops":[
+              {"op":"add","kind":"entity","text":"Valentina (PERSON)","quote":"My niece Valentina","ref":null},
+              {"op":"add","kind":"entity","text":"Vale (PERSON)","quote":"draw like Vale","ref":"E1"}
+            ]}
+            """);
+
+        var result = await Write("My niece Valentina wants to draw like Vale.");
+
+        _calls.Should().ContainSingle();
+        var vale = result.Entities.Should().ContainSingle(e => e.Reference != null).Which;
+        vale.Name.Should().Be("Valentina Ríos");
+        vale.Aliases.Should().Equal("Vale");
+        result.Outcomes.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("Valentina sent over the new mock-ups.", "Valentina sent over the new mock-ups")]          // no relation said
+    [InlineData("Valentina, our designer, sent over the new mock-ups.", "Valentina, our designer")]       // the relation she is known by
+    public async Task A_person_reference_no_relation_contradicts_is_kept(string message, string quote)
+    {
+        ShowStoredDesigner();
+        _replies.Enqueue($$"""{"ops":[{"op":"add","kind":"entity","text":"Valentina Ríos (PERSON)","quote":"{{quote}}","ref":"E1"}]}""");
+
+        var result = await Write(message);
+
+        _calls.Should().ContainSingle();
+        var entity = result.Entities.Should().ContainSingle().Which;
+        entity.Name.Should().Be("Valentina Ríos");
+        entity.Reference!.EntityId.Should().Be(DesignerId);
+        result.Outcomes.Should().BeEmpty();
+    }
+
+    /// <summary>
+    /// A message that holds the stored full name names the stored person itself, beside whoever else it names: the guard is
+    /// for a reference that put the stored name where the message used a shorter one. Identity's own guard still reads it.
+    /// </summary>
+    [Fact]
+    public async Task A_message_that_holds_the_stored_full_name_keeps_its_reference_for_identity_to_judge()
+    {
+        ShowStoredDesigner();
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Valentina Ríos (PERSON)","quote":"Valentina Ríos","ref":"E1"}]}""");
+
+        var result = await Write("My niece Valentina met Valentina Ríos at the studio.");
+
+        _calls.Should().ContainSingle();
+        result.Entities.Should().ContainSingle().Which.Reference!.EntityId.Should().Be(DesignerId);
+        result.Outcomes.Should().BeEmpty();
+    }
+
+    /// <summary>
+    /// The third check, all four runs: shown "Valentina Ríos", the writer wrote "Vale" as a new person with "ref" null. A new
+    /// person named by a short form of a shown stored person's name is asked once which it is.
+    /// </summary>
+    [Fact]
+    public async Task A_new_person_named_by_a_short_form_of_a_shown_stored_person_is_asked_once()
+    {
+        ShowStoredDesigner();
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Vale (PERSON)","quote":"Vale finished the new checkout mock-ups","ref":null}]}""");
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Vale (PERSON)","quote":"Vale finished the new checkout mock-ups","ref":"E1"}]}""");
+
+        var result = await Write("Vale finished the new checkout mock-ups today.");
+
+        _calls.Should().HaveCount(2);
+        _calls[1].Messages[^1].Text.Should().Contain("E1").And.Contain("Valentina Ríos").And.Contain("short form");
+        var entity = result.Entities.Should().ContainSingle().Which;
+        entity.Name.Should().Be("Valentina Ríos");
+        entity.Aliases.Should().Equal("Vale");
+        entity.Reference!.EntityId.Should().Be(DesignerId);
+        result.Outcomes.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_short_form_answered_as_someone_else_is_kept_as_written_without_a_rejection()
+    {
+        ShowStoredDesigner();
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Vale (PERSON)","quote":"Vale finished the new checkout mock-ups","ref":null}]}""");
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Vale (PERSON)","quote":"Vale finished the new checkout mock-ups","ref":null}]}""");
+
+        var result = await Write("Vale finished the new checkout mock-ups today.");
+
+        _calls.Should().HaveCount(2);
+        result.Entities.Should().ContainSingle().Which.Should().Match<ExtractedEntity>(e => e.Name == "Vale" && e.Reference == null);
+        result.Outcomes.Should().BeEmpty("the writer said who it is: someone else");
+    }
+
+    [Theory]
+    [InlineData("My niece Vale lost her first tooth.", "Vale", "My niece Vale")]       // the relation contradicts the stored designer
+    [InlineData("Valentina lost her first tooth.", "Valentina", "Valentina lost")]     // a first name alone is part of the name, not a short form
+    public async Task A_person_who_cannot_be_the_stored_one_by_a_short_form_is_not_asked(string message, string name, string quote)
+    {
+        ShowStoredDesigner();
+        _replies.Enqueue($$"""{"ops":[{"op":"add","kind":"entity","text":"{{name}} (PERSON)","quote":"{{quote}}","ref":null}]}""");
+
+        await Write(message);
+
+        _calls.Should().ContainSingle();
+    }
+
+    /// <summary>A name the stored person is already also called is asked too, though it is no short form of the stored name ("Pepe" for José).</summary>
+    [Fact]
+    public async Task A_new_person_named_as_a_stored_persons_other_name_is_asked_once_and_referred()
+    {
+        _entities.SearchByVectorAsync(default!, default, default, default, default).ReturnsForAnyArgs([(new Entity
+        {
+            EntityId = "identity-observation-jose", Name = "José García", Type = "PERSON", OwnerId = "bruna", Confidence = 1,
+            Aliases = ["Pepe"], SourceMessageIds = ["prior"], CreatedAtUtc = DateTimeOffset.UnixEpoch,
+        }, 0.9)]);
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Pepe (PERSON)","quote":"Pepe called","ref":null}]}""");
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Pepe (PERSON)","quote":"Pepe called","ref":"E1"}]}""");
+
+        var result = await Write("Pepe called about the boat.");
+
+        _calls.Should().HaveCount(2);
+        var entity = result.Entities.Should().ContainSingle().Which;
+        entity.Name.Should().Be("José García");
+        entity.Aliases.Should().Equal("Pepe");
+        entity.Reference!.EntityId.Should().Be("identity-observation-jose");
+    }
+
+    /// <summary>
+    /// IDENTITY-CONFIRMED-ALIAS, the fourth paid check, statement 53: "Vale and I presented Atlas to the client." The designer
+    /// was confirmed as "Vale" at statement 11, but a name lookup reads names and aliases only, so she was not shown and the
+    /// writer wrote a new person. A name the store does not know is looked up among the names identity has seen people
+    /// under; the person found is shown with it ("also called Vale"), so the writer can refer to her.
+    /// </summary>
+    [Fact]
+    public async Task A_person_seen_under_a_short_form_is_shown_when_a_turn_says_it_alone()
+    {
+        var designer = new Entity
+        {
+            EntityId = DesignerId, Name = "Valentina Ríos", Type = "PERSON", OwnerId = "bruna", Confidence = 1,
+            SourceMessageIds = ["m-designer"], CreatedAtUtc = DateTimeOffset.UnixEpoch,
+        };
+        _entities.FindLiveBySeenNameAsync("Vale", Arg.Any<MemoryScope>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns([designer]);
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Vale (PERSON)","quote":"Vale and I","ref":"E1"}]}""");
+
+        var result = await Write("Vale and I presented Atlas to the client.");
+
+        _calls.Should().ContainSingle();
+        _calls[0].Messages[1].Text.Should().Contain("E1: Valentina Ríos (PERSON), also called Vale");
+        var entity = result.Entities.Should().ContainSingle().Which;
+        entity.Name.Should().Be("Valentina Ríos");
+        entity.Aliases.Should().Equal("Vale");
+        entity.Reference!.EntityId.Should().Be(DesignerId);
+    }
+
+    [Fact]
+    public async Task The_default_writer_does_not_look_names_up_among_the_names_identity_has_seen()
+    {
+        await Write("Vale and I presented Atlas to the client.", eventIdentities: false);
+
+        await _entities.DidNotReceiveWithAnyArgs().FindLiveBySeenNameAsync(default!, default!, default, default);
+    }
+
+    // ── IDENTITY-FACT-NAME-GUARD (the fifth paid check, cover5-2 and cover5-4 statement 13: the writer answered only facts,
+    // "Valentina Ríos | started school | 2026" and "Valentina Ríos | is | six years old", with no entity operation, so there
+    // was no reference for the guard above to refuse and the niece's facts went under the designer's name.) ──
+
+    [Fact]
+    public async Task Facts_that_name_a_stored_person_the_messages_relation_contradicts_keep_the_messages_name()
+    {
+        ShowStoredDesigner();
+        _replies.Enqueue("""
+            {"ops":[
+              {"op":"add","kind":"fact","text":"Valentina Ríos | started school | this year","quote":"started school this year","ref":null},
+              {"op":"add","kind":"fact","text":"Valentina Ríos | is | six years old","quote":"she is six","ref":null}
+            ]}
+            """);
+
+        var result = await Write("My niece Valentina started school this year, she is six.");
+
+        _calls.Should().ContainSingle("the refusal is deterministic: no correction call");
+        result.Facts.Select(f => f.Subject).Should().Equal("Valentina", "Valentina");
+        result.Outcomes.Should().ContainSingle().Which.ErrorMessage.Should()
+            .Contain(nameof(MemoryWriterOps.DropReason.ReferenceRelationConflict)).And.Contain("niece").And.Contain("designer");
+    }
+
+    [Fact]
+    public async Task Facts_that_name_a_stored_person_the_turn_before_contradicts_keep_the_messages_name()
+    {
+        // cover5-4 statement 14.
+        ShowStoredDesigner();
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"fact","text":"Valentina Ríos | lost | her first tooth","quote":"Valentina lost her first tooth yesterday","ref":null}]}""");
+
+        var result = await Write("Valentina lost her first tooth yesterday.", true, "My niece Valentina started school this year, she is six.");
+
+        result.Facts.Should().ContainSingle().Which.Subject.Should().Be("Valentina");
+    }
+
+    [Theory]
+    [InlineData("Valentina sent over the new mock-ups.")]                     // no relation said
+    [InlineData("Valentina Ríos sent over the new mock-ups for my niece.")]   // the message names the stored person in full
+    public async Task Facts_that_name_a_stored_person_no_relation_contradicts_keep_the_stored_name(string message)
+    {
+        ShowStoredDesigner();
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"fact","text":"Valentina Ríos | sent over | the new mock-ups","quote":"sent over the new mock-ups","ref":null}]}""");
+
+        var result = await Write(message);
+
+        result.Facts.Should().ContainSingle().Which.Subject.Should().Be("Valentina Ríos");
+        result.Outcomes.Should().BeEmpty();
+    }
+
+    // ── IDENTITY-THING-REF-LEFT-OUT (the sixth paid check, cover6-1 statement 40: shown "E1 Atlas (OBJECT)", the writer
+    // answered "ref": "E1" for "Atlas (OBJECT)". A writer's reference cannot confirm a thing or a place, so the re-mention
+    // stayed a pending observation, another identity: the work project "Atlas" made 7 of the check's 23 extra identities.) ──
+
+    [Theory]
+    [InlineData("thing-atlas", "Atlas", "OBJECT", "Atlas (OBJECT)", "Atlas is two weeks late.", "Atlas")]
+    [InlineData("place-lumen", "Café Lumen", "LOCATION", "Café Lumen (PLACE)", "Café Lumen has live jazz on Fridays.", "Café Lumen")]
+    public async Task A_stored_thing_or_place_referred_to_again_is_left_out_and_its_facts_keep_the_stored_name(
+        string id, string name, string type, string entity, string message, string quote)
+    {
+        ShowStored(id, name, type);
+        _replies.Enqueue($$"""
+            {"ops":[
+              {"op":"add","kind":"entity","text":"{{entity}}","quote":"{{quote}}","ref":"E1"},
+              {"op":"add","kind":"fact","text":"{{name}} | is | busy","quote":"{{quote}}","ref":null}
+            ]}
+            """);
+
+        var result = await Write(message);
+
+        _calls.Should().ContainSingle("nothing is left to ask");
+        result.Entities.Should().BeEmpty("the same stored thing needs no new observation: its fact carries it");
+        result.Facts.Should().ContainSingle().Which.Subject.Should().Be(name);
+        result.Outcomes.Should().BeEmpty();
+    }
+
+    /// <summary>
+    /// IDENTITY-REF-SHORT-FORM-KEPT (the seventh paid check, cover7-2 statement 11): the writer referred "Vale finished the new
+    /// checkout mock-ups" to the stored designer under her full name. The reference was right, but "Vale" was never kept,
+    /// so at statement 53 a lookup by "Vale" found nobody. A person referred to under the full stored name keeps, as its
+    /// other name, a short form of that name its quote uses; a first name alone is part of the name and is not kept.
+    /// </summary>
+    [Theory]
+    [InlineData("Vale finished the new checkout mock-ups today.", "Vale finished the new checkout mock-ups", "Vale")]
+    [InlineData("Valentina finished the new checkout mock-ups today.", "Valentina finished the new checkout mock-ups", null)]
+    public async Task A_person_referred_to_under_the_full_name_keeps_the_short_form_the_message_used(string message, string quote, string? kept)
+    {
+        ShowStoredDesigner();
+        _replies.Enqueue($$"""{"ops":[{"op":"add","kind":"entity","text":"Valentina Ríos (PERSON)","quote":"{{quote}}","ref":"E1"}]}""");
+
+        var result = await Write(message);
+
+        _calls.Should().ContainSingle();
+        var entity = result.Entities.Should().ContainSingle().Which;
+        entity.Name.Should().Be("Valentina Ríos");
+        entity.Reference!.EntityId.Should().Be(DesignerId);
+        if (kept is null) entity.Aliases.Should().BeEmpty();
+        else entity.Aliases.Should().Equal(kept);
     }
 }

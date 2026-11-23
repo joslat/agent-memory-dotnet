@@ -46,7 +46,7 @@ internal static class IdentityKindsScorer
             texts.SelectMany(text => text is not null && index.TryGetValue(text, out var at) ? at : []).Distinct().Order().ToArray();
 
         var owner = Words(scenario.OwnerName ?? "");
-        var names = gold.Things.ToDictionary(t => t.Id, t => IdentityKindsGold.NamesOf(t).SelectMany(Words).Where(w => !owner.Contains(w)).ToHashSet(StringComparer.Ordinal), StringComparer.Ordinal);
+        var names = gold.Things.ToDictionary(t => t.Id, t => IdentityKindsGold.NamesOf(t).SelectMany(NameWords).Where(w => !owner.Contains(w)).ToHashSet(StringComparer.Ordinal), StringComparer.Ordinal);
         var things = gold.Things.ToDictionary(t => t.Id, StringComparer.Ordinal);
         var inStatement = gold.Mentions.GroupBy(m => m.Statement).ToDictionary(g => g.Key, g => g.Select(m => m.Thing).Distinct(StringComparer.Ordinal).ToList());
 
@@ -142,7 +142,7 @@ internal static class IdentityKindsScorer
         IReadOnlyDictionary<string, IdentityKindsGold.Thing> things, IReadOnlyDictionary<string, HashSet<string>> names)
     {
         if (candidates.Count == 0) return (null, "the key mentions nothing in this statement");
-        var words = Words(o.Words);
+        var words = MentionWords(o.Words);
         var kind = Kind(o.Type);
         var named = candidates.Where(c => names[c].Overlaps(words)).ToList();
         var namedAndTyped = named.Where(c => things[c].Type == kind).ToList();
@@ -150,9 +150,64 @@ internal static class IdentityKindsScorer
         if (namedAndTyped.Count > 1) return (null, "two things of this name and type in the statement");
         if (named.Count == 1) return (named[0], "name, another type");
         if (named.Count > 1) return (null, "two things of this name in the statement");
+        // A proper name that names none of the statement's things is a thing the key does not hold (the city a venue is
+        // in, the town a house is in), not the one thing of its type. Only a role noun ("the vet") is labelled by type.
+        if (IsProperName(o.Words)) return (null, "a name the key does not hold in this statement");
         var typed = candidates.Where(c => things[c].Type == kind).ToList();
         if (typed.Count == 1) return (typed[0], "the one thing of this type in the statement");
         return (null, typed.Count == 0 ? "no thing of this name or type in the statement" : "two things of this type, neither named");
+    }
+
+    /// <summary>
+    /// A thing's name words without a possessive's owner: "her mother's Kindle" is "kindle", so a mention of the mother is
+    /// not taken for the Kindle. The owner is a thing of its own when the key holds it.
+    /// </summary>
+    internal static IEnumerable<string> NameWords(string name)
+    {
+        // The place a thing is in names that place, not the thing: "Café Tortoni in Buenos Aires" is "café tortoni".
+        name = PlaceItIsIn.Replace(name, "");
+        var possessive = Possessive.Match(name);
+        return possessive.Success ? Words(name).Except(Words(possessive.Value), StringComparer.Ordinal) : Words(name);
+    }
+
+    /// <summary>
+    /// A stored mention's words without a possessive's owner: "Clara's cat Luna" names the cat, not Clara (the second paid
+    /// check of 23 Nov counted it as a split of Clara). A mention that is only a possessive keeps its words.
+    /// </summary>
+    internal static HashSet<string> MentionWords(string words)
+    {
+        // IKB-SCORER-PLACE-MENTION: a common-noun head with the place it is in names the head, not the place: "the mosque in
+        // Córdoba" is the mosque (the fourth paid check, cover4-1). A head that holds a capitalised word keeps its place,
+        // which tells namesakes apart ("Córdoba in Spain", "another Café Tortoni in Rosario").
+        var place = PlaceItIsIn.Match(words);
+        if (place.Success && !words[..place.Index].Split(' ', StringSplitOptions.RemoveEmptyEntries).Any(w => char.IsUpper(w[0])))
+            words = words[..place.Index];
+        var all = Words(words);
+        var possessive = Possessive.Match(words);
+        if (!possessive.Success) return all;
+        var owned = new HashSet<string>(all, StringComparer.Ordinal);
+        owned.ExceptWith(Words(possessive.Value));
+        return owned.Count > 0 ? owned : all;
+    }
+
+    // The owner is one word, with the word that points at it ("her mother's", "Clara's"): "Luna, Clara's cat" keeps "Luna"
+    // (the third paid check, where a match from the start of the words took the cat's own name with its owner).
+    private static readonly System.Text.RegularExpressions.Regex Possessive =
+        new(@"(?:\b(?:her|his|my|our|their|your|the)\s+)?[\p{L}\p{M}]+['’]s(?=\s)",
+            System.Text.RegularExpressions.RegexOptions.CultureInvariant | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+    private static readonly System.Text.RegularExpressions.Regex PlaceItIsIn =
+        new(@"\s+in\s+\p{Lu}.*$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// Words that name something, as a writer stores a name: every word but the small ones starts with a capital or a
+    /// digit ("Buenos Aires", "Q3"). "the vet" and "the lake house" are role nouns, which may be labelled by type.
+    /// </summary>
+    internal static bool IsProperName(string words)
+    {
+        var tokens = words.Split([' ', ',', '.', '(', ')', '\'', '’', '"'], StringSplitOptions.RemoveEmptyEntries)
+            .Where(t => !SmallWords.Contains(t.ToLowerInvariant()) && !(t.Length == 1 && char.IsLower(t[0]))).ToList();
+        return tokens.Count > 0 && tokens.All(t => char.IsUpper(t[0]) || char.IsDigit(t[0]));
     }
 
     /// <summary>The words of a name: lower case, without accents or punctuation, without small words.</summary>

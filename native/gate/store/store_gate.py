@@ -32,6 +32,7 @@ import secrets
 import shutil
 import signal
 import socket
+import ssl
 import subprocess
 import sys
 import tarfile
@@ -238,6 +239,30 @@ class Neo4j:
         except OSError:
             return False
 
+    def answers_tls(self, authority: Path) -> bool:
+        """True once a TLS handshake for localhost completes on the store's port, verified against the gate's own
+        throw-away certificate authority. Bolt accepts plain and TLS connections on the one port."""
+        context = ssl.create_default_context(cafile=str(authority))
+        # TLS 1.2 at least, as the library itself negotiates (CodeQL py/insecure-protocol on #274).
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+        try:
+            with socket.create_connection(("127.0.0.1", self.port), timeout=2) as raw, \
+                    context.wrap_socket(raw, server_hostname="localhost"):
+                return True
+        except (OSError, ssl.SSLError):
+            return False
+
+    def wait_for_tls(self, authority: Path, timeout_s: float = 60) -> None:
+        """NATIVE-TLS-WIN-READY: on Windows the two TLS cases once failed to open right after a slow start while plain
+        bolt already answered. The TLS cases wait for a handshake (bounded); if none comes they run anyway and report why."""
+        started = time.monotonic()
+        while time.monotonic() - started < timeout_s:
+            if self.answers_tls(authority):
+                log(f"Neo4j ({self.name}) completes a TLS handshake after {time.monotonic() - started:.1f} s")
+                return
+            time.sleep(1)
+        log(f"Neo4j ({self.name}) completed no TLS handshake in {timeout_s:.0f} s; the TLS cases run anyway and say why")
+
     def stop(self) -> None:
         if self.process is None or self.process.poll() is not None:
             return
@@ -365,6 +390,7 @@ def tier_b(archive: Path, runtime: Runtime, work: Path, report: Path, tls: Path 
         before, rows = store.fingerprint(work)
         env = gate_env(runtime, store) | {"GATE_TIER": "B"}
         if tls is not None:
+            store.wait_for_tls(tls / "ca.crt")
             env |= {"AMP_TLS_URI": f"bolt+s://localhost:{store.port}", "AMP_TLS_OTHER_NAME_URI": f"bolt+s://127.0.0.1:{store.port}"}
         code, summary = unittest_run(runtime, GATE / "tests", "test_gate.py", env, report / f"tier-b-{runtime.mode}.log")
         ts_code, ts_summary = typescript_run("B", env, report, runtime)

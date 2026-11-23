@@ -44,7 +44,7 @@ public sealed class IdentityWriterReferenceTests
 
     private async Task<IdentityDecision> Plan(ExtractedEntityReference? reference, IdentityCandidate[] found,
         bool allowContextualConfirmation = true, bool withModel = true, string type = "EVENT", string text = CurrentText,
-        IIdentityDecisionRepository? store = null, string name = EventName)
+        IIdentityDecisionRepository? store = null, string name = EventName, string[]? aliases = null)
     {
         var candidates = Substitute.For<IIdentityCandidateProvider>();
         candidates.Capabilities.Returns(new IdentityCandidateCapabilities { BoundedReads = true, CalendarValueLookup = true, VerifiedKeyLookup = true });
@@ -61,7 +61,7 @@ public sealed class IdentityWriterReferenceTests
         options.Policies[type] = new() { AllowContextualConfirmation = allowContextualConfirmation };
         var ingestion = new IdentityIngestion(IdentityConfiguration.Capture(options), TimeProvider.System,
             candidates, store, embeddings, ids, adjudicator: withModel ? _model : null);
-        var plan = await ingestion.PlanAsync(new() { Name = name, Type = type, Confidence = 1, Reference = reference },
+        var plan = await ingestion.PlanAsync(new() { Name = name, Type = type, Confidence = 1, Reference = reference, Aliases = aliases ?? [] },
             new() { Targets = [new() { MessageId = "current", Content = text, Role = "user", SessionId = "s",
                 ConversationId = "c", TimestampUtc = DateTimeOffset.UnixEpoch }] },
             MemoryScope.For("bruna", false), default);
@@ -269,6 +269,36 @@ public sealed class IdentityWriterReferenceTests
 
         decision.Status.Should().NotBe(IdentityDecisionKind.Confirmed);
         decision.Diagnostics.Should().Contain("writer_reference_relation_conflict");
+    }
+
+    // ── IDENTITY-NICKNAME-SPLIT: the writer refers a short form ("Bea") to the stored person, under the stored name ──
+
+    /// <summary>
+    /// The writer now sends a person called by a short form under the stored name, with the short form as an alias. The turn
+    /// names the short form, not the stored name, so the relation guard must read the alias too: otherwise "my niece Bea"
+    /// referred to a stored architect would be confirmed, the relation unseen.
+    /// </summary>
+    [Fact]
+    public async Task A_reference_under_a_short_form_the_turn_ties_to_another_relation_is_not_confirmed()
+    {
+        var decision = await Plan(new() { EntityId = "architect", Quote = "My niece Bea" },
+            [Candidate("architect", "Beatriz Molina", "PERSON", "The architect on the new library")], withModel: false, type: "PERSON",
+            text: "My niece Bea lost her first tooth yesterday.", name: "Beatriz Molina", aliases: ["Bea"]);
+
+        decision.Status.Should().NotBe(IdentityDecisionKind.Confirmed);
+        decision.Diagnostics.Should().Contain("writer_reference_relation_conflict").And.NotContain("writer_reference_confirmed");
+    }
+
+    [Fact]
+    public async Task A_reference_under_a_short_form_with_no_relation_in_the_turn_confirms()
+    {
+        var decision = await Plan(new() { EntityId = "architect", Quote = "Bea finished the floor plans" },
+            [Candidate("architect", "Beatriz Molina", "PERSON", "The architect on the new library")], withModel: false, type: "PERSON",
+            text: "Bea finished the floor plans today.", name: "Beatriz Molina", aliases: ["Bea"]);
+
+        decision.Status.Should().Be(IdentityDecisionKind.Confirmed);
+        decision.ConfirmedEntityId.Should().Be("architect");
+        decision.Observation.Aliases.Should().Equal("Bea");
     }
 
     [Fact]

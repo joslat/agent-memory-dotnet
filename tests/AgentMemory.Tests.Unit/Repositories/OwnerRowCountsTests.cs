@@ -60,6 +60,35 @@ public sealed class OwnerRowCountsTests
         (await counts.GetAsync("alice", Count, refreshInBackground: true)).Should().Be(20);
     }
 
+    /// <summary>
+    /// PERF-R07-ORDER: the background refresh runs under its own span, memory.background.owner_counts, so its reads are
+    /// seen as background work and not charged to the recall that happened to start it (PERF-R-07 counted four reads too
+    /// many in the turn that crossed the 30-second mark).
+    /// </summary>
+    [Fact]
+    public async Task The_background_refresh_runs_under_its_own_background_span()
+    {
+        var time = new ManualTime();
+        var counts = new OwnerRowCounts(time);
+        string? spanOfTheCount = null;
+        Task<int> Count() { spanOfTheCount = System.Diagnostics.Activity.Current?.OperationName; return Task.FromResult(10); }
+        using var listener = new System.Diagnostics.ActivityListener
+        {
+            ShouldListenTo = source => source.Name == AgentMemory.Abstractions.Diagnostics.AgentMemoryDiagnostics.SourceName,
+            Sample = (ref System.Diagnostics.ActivityCreationOptions<System.Diagnostics.ActivityContext> _) =>
+                System.Diagnostics.ActivitySamplingResult.AllDataAndRecorded,
+        };
+        System.Diagnostics.ActivitySource.AddActivityListener(listener);
+
+        await counts.GetAsync("alice", Count, refreshInBackground: true);
+        spanOfTheCount.Should().NotBe("memory.background.owner_counts", "a first count is waited for, in the recall");
+        time.Now += OwnerRowCounts.Ttl + TimeSpan.FromSeconds(5);
+        await counts.GetAsync("alice", Count, refreshInBackground: true);
+        await counts.Refreshing("alice");
+
+        spanOfTheCount.Should().Be("memory.background.owner_counts");
+    }
+
     [Fact]
     public async Task Past_max_stale_or_inside_a_write_unit_it_is_counted_first_as_before()
     {

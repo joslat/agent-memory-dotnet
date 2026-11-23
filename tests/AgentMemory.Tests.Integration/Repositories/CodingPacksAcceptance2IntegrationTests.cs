@@ -63,7 +63,7 @@ public sealed partial class ModuleRecordWriteIntegrationTests
             (await lessonReader.FindAsync(lessonQuery, new ModuleReadContext { Scope = MemoryScope.For("alex") })).Records.Should().ContainSingle();
             (await lessonReader.FindAsync(lessonQuery, new ModuleReadContext { Scope = MemoryScope.For("sam") })).Records.Should().BeEmpty("a lesson is its owner's alone");
 
-            var decisions = KnowledgePack.ResolutionOf(DecisionsPack.Manifest);
+            var decisions = CodingResolutions.Decisions;
             var decisionReader = new Neo4jModuleReader(fixture.TransactionRunner, decisions, DecisionsPack.Id, policy);
             var everyone = new ModuleReadContext { Scope = MemoryScope.For("sam") };
             (await decisionReader.FindAsync(new ModuleQuery { ModuleId = DecisionsPack.Id, Type = DecisionsPack.Type, Limit = 10 }, everyone))

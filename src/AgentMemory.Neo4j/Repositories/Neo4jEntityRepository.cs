@@ -435,6 +435,30 @@ internal sealed partial class Neo4jEntityRepository : IEntityRepository, IUpsert
         }, cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<IReadOnlyList<Entity>> FindLiveBySeenNameAsync(string name, MemoryScope scope, int limit = 3,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentNullException.ThrowIfNull(scope);
+        if (!scope.HasOwnerFilter || limit < 1) return [];
+        var parameters = new Dictionary<string, object?>
+        {
+            ["ownerId"] = scope.OwnerId,
+            ["nameLower"] = name.Trim().ToLowerInvariant(),
+            ["limit"] = Math.Min(limit, 16),
+        };
+        return await _tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(EntityQueries.FindLiveBySeenName, parameters).ConfigureAwait(false);
+            var records = await cursor.ToListAsync().ConfigureAwait(false);
+            return (IReadOnlyList<Entity>)records.Select(r =>
+            {
+                var node = r["e"].As<INode>();
+                return MapToEntity(node, ReadEmbedding(node));
+            }).ToList();
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<Entity?> FindLiveByNameAsync(string name, string? type, MemoryScope scope, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);

@@ -20,11 +20,13 @@
     <PackageTags>agent-memory;memory-pack;coding;code-map;scip</PackageTags>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <!-- The module's own version: the embedded manifest names the same, and ModuleManifest.Load refuses a mismatch. -->
-    <Version>0.1.0-preview.1</Version>
+    <Version>0.1.1</Version>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\AgentMemory.Extensibility\AgentMemory.Extensibility.csproj" />
+    <!-- A test validates a requirement (CO-2b): the link reaches the intent pack's records. -->
+    <ProjectReference Include="..\AgentMemory.Packs.Intent\AgentMemory.Packs.Intent.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -23,6 +23,11 @@ public sealed class DecisionsPack : IAgentMemoryModule
     public const string RelevantView = "relevant";
     /// <summary>A decision replaces another (CP-acceptance: read from "Supersedes" and "Superseded by" in ADRs).</summary>
     public const string Supersedes = "DECISIONS_SUPERSEDES";
+    /// <summary>
+    /// A decision addresses a requirement (CO-2b): read from its "Addresses:" line or the requirement ids its decision drivers
+    /// name, and stored on the decision, whose file says it.
+    /// </summary>
+    public const string Addresses = "DECISIONS_ADDRESSES";
 
     private static readonly Lazy<ModuleManifest> Metadata = new(() => ModuleManifest.Load(typeof(DecisionsPack).Assembly));
 

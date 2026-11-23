@@ -481,6 +481,56 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
         (await facts.GetPersonDetailsAsync([valentina.EntityId], [], 8, Scope)).Should().BeEmpty();
     }
 
+    /// <summary>
+    /// IDENTITY-CONFIRMED-ALIAS (the fourth paid check, statement 53 in 4 of 4 runs): the writer referred "Vale" to the
+    /// stored designer, identity confirmed it, and the short form stayed on the decision's observation only, which is not
+    /// stored as an entity. A later "Vale" alone found nobody, so the writer wrote a new person. A confirmed person keeps
+    /// the names it was seen under, a short form included; a lookup by such a name finds them, for their owner only. It is
+    /// no name identity matches on by itself: the person's own aliases do not change, nor does the decision's target.
+    /// </summary>
+    [Fact]
+    public async Task A_short_form_a_confirmed_reference_gave_a_person_finds_that_person_later()
+    {
+        // whos-who-v1 statements 8 and 11, under the Conversational preset's policies, as the paid runs had them.
+        using var host = Host(conversationalPolicies: true); using var scope = host.CreateScope(); var services = scope.ServiceProvider;
+        const string designerTurn = "Valentina Ríos is the designer on Atlas.";
+        const string valeTurn = "Vale finished the new checkout mock-ups today.";
+        await fixture.TransactionRunner.WriteAsync(async runner => { await runner.RunAsync(
+            "MATCH (c:Conversation {id:'conversation'}) " +
+            "CREATE (a:Message {id:'turn-8', conversation_id:'conversation', content:$a, session_id:'scenario'}), (c)-[:HAS_MESSAGE]->(a) " +
+            "CREATE (b:Message {id:'turn-11', conversation_id:'conversation', content:$b, session_id:'scenario'}), (c)-[:HAS_MESSAGE]->(b)",
+            new { a = designerTurn, b = valeTurn }); });
+        await Ingest(services, new UnifiedExtractionResult
+        {
+            Entities = [new() { Name = "Valentina Ríos", Type = "PERSON", Confidence = 1 }],
+            Facts = [new() { Subject = "Valentina Ríos", Predicate = "is", Object = "the designer on Atlas", Confidence = 1 }]
+        }, messageId: "turn-8", content: designerTurn);
+        var facts = services.GetRequiredService<IFactRepository>();
+        var designer = (await facts.GetPersonIdentitiesAsync(1000, Scope)).Should().ContainSingle().Subject.EntityId;
+        var input = new UnifiedExtractionResult
+        {
+            // The writer's reference under the short form: the mention keeps the stored name and the short form as its alias.
+            Entities = [new() { Name = "Valentina Ríos", Type = "PERSON", Confidence = 1, Aliases = ["Vale"],
+                Reference = new() { EntityId = designer, Quote = "Vale" } }],
+            Facts = [new() { Subject = "Valentina Ríos", Predicate = "finished", Object = "the new checkout mock-ups", Confidence = 1 }]
+        };
+        await Ingest(services, input, messageId: "turn-11", content: valeTurn);
+        (await facts.GetPersonIdentitiesAsync(1000, Scope)).Should().ContainSingle("precondition: the reference was confirmed");
+        var entities = services.GetRequiredService<IEntityRepository>();
+
+        (await entities.FindLiveBySeenNameAsync("vale", Scope)).Should().ContainSingle().Which.EntityId.Should().Be(designer);
+        (await facts.GetPersonNamesAsync(10_000, Scope)).Should().Contain("Vale");
+        (await entities.GetByIdAsync(designer))!.Aliases.Should().NotContain("Vale", "a seen name is not an alias identity matches on");
+        (await entities.FindLiveBySeenNameAsync("Vale", MemoryScope.For("other-owner", false))).Should().BeEmpty();
+        (await entities.FindLiveBySeenNameAsync("Valeria", Scope)).Should().BeEmpty();
+
+        // The same write again (a retried journal entry) replays its decision: the kept name does not change its target.
+        var decisions = await Count("(d:IdentityDecision)");
+        await Ingest(services, input, messageId: "turn-11", content: valeTurn);
+        (await Count("(d:IdentityDecision)")).Should().Be(decisions);
+        (await entities.FindLiveBySeenNameAsync("Vale", Scope)).Should().ContainSingle();
+    }
+
     [Fact]
     public async Task Every_live_person_makes_a_name_ambiguous_but_a_reviewed_proposal_s_observation_does_not()
     {
@@ -2439,5 +2489,176 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
         (await decay.PruneExpiredMemoriesAsync(Scope)).Should().BeGreaterThan(0);
         (await Count(orphans)).Should().Be(0, "a pruned fact's binding goes with it");
         (await Count("(b:IdentityFactBinding) WHERE NOT EXISTS { MATCH (b)-[:RESOLVES_TO]->(:Entity) }")).Should().Be(0, "a pruned person's bindings go with them");
+    }
+
+    /// <summary>
+    /// P231-A part 4, the people read on a large store: each per-person check (is this person confirmed, is this observation
+    /// another person's) must start from that person. Planned as a scan of every binding or decision in the store joined
+    /// back to the person, it cost the owner's people times the whole store: 1,000 people against 20,000 bindings took
+    /// about 300 million database hits and 94 seconds.
+    /// </summary>
+    [Fact]
+    public async Task The_people_reads_do_not_grow_with_other_owners_people()
+    {
+        using var host = Host(); using var scope = host.CreateScope(); var services = scope.ServiceProvider;
+        await Ingest(services, People("Pablito", 12));
+        var withShared = MemoryScope.For("pablito", true);
+        var before = await PeopleReadHitsAsync(withShared);
+
+        for (var owner = 0; owner < 60; owner++)
+        {
+            // Each owner's people come from that owner's own conversation (identity refuses a source in another's).
+            var parameters = new Dictionary<string, object?> { ["owner"] = $"other-{owner}" };
+            await fixture.TransactionRunner.WriteAsync(async runner => { await runner.RunAsync(
+                "CREATE (c:Conversation {id: $owner + '-conversation', user_id: $owner}), " +
+                "(m:Message {id: $owner + '-source', conversation_id: $owner + '-conversation', content: 'Who works where', session_id: 'scenario'}), " +
+                "(c)-[:HAS_MESSAGE]->(m)", parameters); });
+            var staged = await services.GetRequiredService<IExtractionStage>().ProcessUnifiedAsync(
+                [new Message { MessageId = $"other-{owner}-source", ConversationId = $"other-{owner}-conversation", SessionId = "scenario",
+                    Role = "user", Content = "Who works where", TimestampUtc = DateTimeOffset.Parse("2026-11-09T12:00:00Z") }],
+                People($"Other{owner}", 6), ExtractionTypes.All, MemoryScope.For($"other-{owner}", false));
+            await services.GetRequiredService<IPersistenceStage>().PersistAsync(staged, $"other-{owner}");
+        }
+        // A large store at the cost of a few writes: those 360 people, exactly as identity wrote them, copied 55 times under
+        // owners of their own (about 20,000 people, decisions, bindings and facts; the plan that failed needed that size).
+        for (var copy = 1; copy <= 55; copy++)
+            await fixture.TransactionRunner.WriteAsync(async runner => { await runner.RunAsync("""
+                MATCH (f:Fact)-[:HAS_IDENTITY_BINDING]->(b:IdentityFactBinding)-[:DECIDED_BY]->(d:IdentityDecision), (b)-[:RESOLVES_TO]->(p:Entity)
+                WHERE f.owner_id STARTS WITH 'other-' AND NOT f.owner_id CONTAINS '-copy'
+                WITH f, b, d, p, '-copy' + toString($copy) AS suffix, f.owner_id + '-copy' + toString($copy) AS owner
+                CREATE (p2:Entity) SET p2 = p {.*, id: p.id + suffix, owner_id: owner, owner_key: owner,
+                    identity_observation_key: p.identity_observation_key + suffix}
+                CREATE (d2:IdentityDecision) SET d2 = d {.*, id: d.id + suffix, owner_id: owner, owner_scope: 'owned:' + owner,
+                    identity_observation_key: d.identity_observation_key + suffix}
+                CREATE (f2:Fact) SET f2 = f {.*, id: f.id + suffix, owner_id: owner, owner_key: owner}
+                CREATE (b2:IdentityFactBinding) SET b2 = b {.*, id: b.id + suffix, owner_id: owner, owner_scope: 'owned:' + owner,
+                    identity_decision_id: d.id + suffix}
+                CREATE (f2)-[:HAS_IDENTITY_BINDING]->(b2), (b2)-[:DECIDED_BY]->(d2), (b2)-[:RESOLVES_TO]->(p2)
+                """, new Dictionary<string, object?> { ["copy"] = copy }); });
+        var after = await PeopleReadHitsAsync(withShared);
+
+        using var all = new FluentAssertions.Execution.AssertionScope();
+        foreach (var (read, (hits, costliest)) in after)
+            hits.Should().BeLessThan(before[read].Hits * 2 + 50,
+                $"the {read} read of an owner's 12 people took {before[read].Hits} database hits, and {hits} once other owners held " +
+                $"about 20,000 people (costliest steps: {costliest})");
+
+        // A large owner in that store: its 12 people copied 125 times under the same owner (1,512 people). The second read
+        // takes 1,000 of them, and its checks per person (is this person confirmed) must start from the person: planned as a
+        // scan of every binding in the store joined back to the person, each one costs the whole store.
+        await fixture.TransactionRunner.WriteAsync(async runner => { await runner.RunAsync("""
+            MATCH (f:Fact {owner_id: 'pablito'})-[:HAS_IDENTITY_BINDING]->(b:IdentityFactBinding)-[:DECIDED_BY]->(d:IdentityDecision),
+                  (b)-[:RESOLVES_TO]->(p:Entity)
+            WHERE NOT f.id CONTAINS '-many'
+            UNWIND range(1, 125) AS copy
+            WITH f, b, d, p, '-many' + toString(copy) AS suffix
+            CREATE (p2:Entity) SET p2 = p {.*, id: p.id + suffix, name: p.name + suffix, identity_surfaces: [p.name + suffix],
+                identity_observation_key: p.identity_observation_key + suffix}
+            CREATE (d2:IdentityDecision) SET d2 = d {.*, id: d.id + suffix, identity_observation_key: d.identity_observation_key + suffix}
+            CREATE (f2:Fact) SET f2 = f {.*, id: f.id + suffix, subject: f.subject + suffix}
+            CREATE (b2:IdentityFactBinding) SET b2 = b {.*, id: b.id + suffix, identity_decision_id: d.id + suffix}
+            CREATE (f2)-[:HAS_IDENTITY_BINDING]->(b2), (b2)-[:DECIDED_BY]->(d2), (b2)-[:RESOLVES_TO]->(p2)
+            """); });
+        var large = await PeopleReadHitsAsync(withShared);
+        large["identities"].Hits.Should().BeLessThan(100 * 1000,
+            $"the identities read of a large owner reads 1,000 people, and took {large["identities"].Hits} database hits " +
+            $"(costliest steps: {large["identities"].Costliest})");
+    }
+
+    /// <summary>
+    /// P231-A part 4, the people read of one large owner (a store of one person's memory, as most hosts run): each check per
+    /// person (is this person confirmed) must start from the person. With every binding the owner's, the planner chose a
+    /// scan of all of them joined back to each person: 1,000 people read against 20,000 bindings ran for minutes.
+    /// </summary>
+    [Fact]
+    public async Task The_people_read_of_one_large_owner_checks_each_person_from_that_person()
+    {
+        using var host = Host(); using var scope = host.CreateScope(); var services = scope.ServiceProvider;
+        await Ingest(services, People("Pablito", 12));
+        // The identity indexes as a store has them right after many people are written quickly (an import, a pack): sampled
+        // while the store was small. Neo4j plans with those samples until it samples again, and keeps the plan it made.
+        foreach (var statement in new[]
+        {
+            "DROP INDEX identity_binding_decision IF EXISTS",
+            "CREATE INDEX identity_binding_decision IF NOT EXISTS FOR (b:IdentityFactBinding) ON (b.owner_scope, b.identity_decision_id)",
+            "DROP CONSTRAINT identity_decision_observation IF EXISTS",
+            "CREATE CONSTRAINT identity_decision_observation IF NOT EXISTS FOR (d:IdentityDecision) REQUIRE (d.owner_scope, d.identity_observation_key) IS UNIQUE",
+            "CALL db.awaitIndexes(60)",
+        })
+        {
+            await using var session = fixture.Driver.AsyncSession();
+            await (await session.RunAsync(statement)).ConsumeAsync();
+        }
+        // 12 people as identity wrote them, copied under the same owner to 19,980 people.
+        for (var batch = 0; batch < 8; batch++)
+            await fixture.TransactionRunner.WriteAsync(async runner => { await runner.RunAsync("""
+                MATCH (f:Fact {owner_id: 'pablito'})-[:HAS_IDENTITY_BINDING]->(b:IdentityFactBinding)-[:DECIDED_BY]->(d:IdentityDecision),
+                      (b)-[:RESOLVES_TO]->(p:Entity)
+                WHERE NOT f.id CONTAINS '-many'
+                UNWIND range($batch * 208 + 1, $batch * 208 + 208) AS copy
+                WITH f, b, d, p, '-many' + toString(copy) AS suffix
+                CREATE (p2:Entity) SET p2 = p {.*, id: p.id + suffix, name: p.name + suffix, identity_surfaces: [p.name + suffix],
+                    identity_observation_key: p.identity_observation_key + suffix}
+                CREATE (d2:IdentityDecision) SET d2 = d {.*, id: d.id + suffix, identity_observation_key: d.identity_observation_key + suffix}
+                CREATE (f2:Fact) SET f2 = f {.*, id: f.id + suffix, subject: f.subject + suffix}
+                CREATE (b2:IdentityFactBinding) SET b2 = b {.*, id: b.id + suffix, identity_decision_id: d.id + suffix}
+                CREATE (f2)-[:HAS_IDENTITY_BINDING]->(b2), (b2)-[:DECIDED_BY]->(d2), (b2)-[:RESOLVES_TO]->(p2)
+                """, new Dictionary<string, object?> { ["batch"] = batch }); });
+        (await Count("(p:Entity {owner_id: 'pablito'})")).Should().BeGreaterThan(19_000, "precondition: one large owner");
+
+        var hits = await PeopleReadHitsAsync(MemoryScope.For("pablito", true));
+        using var all = new FluentAssertions.Execution.AssertionScope();
+        hits["identities"].Hits.Should().BeLessThan(100 * 1000,
+            $"the identities read takes 1,000 people, and took {hits["identities"].Hits} database hits " +
+            $"(costliest steps: {hits["identities"].Costliest})");
+        hits["names"].Hits.Should().BeLessThan(100 * 1000,
+            $"the names read takes 1,000 people, and took {hits["names"].Hits} database hits (costliest steps: {hits["names"].Costliest})");
+        hits["details"].Hits.Should().BeLessThan(1000,
+            $"the details read takes one person's facts, and took {hits["details"].Hits} database hits " +
+            $"(costliest steps: {hits["details"].Costliest})");
+    }
+
+    private static UnifiedExtractionResult People(string prefix, int count) => new()
+    {
+        Entities = [.. Enumerable.Range(0, count).Select(i => new ExtractedEntity { Name = $"{prefix} Person{i}", Type = "PERSON", Confidence = 1 })],
+        Facts = [.. Enumerable.Range(0, count).Select(i => new ExtractedFact
+            { Subject = $"{prefix} Person{i}", Predicate = "works at", Object = $"Company {prefix} {i}", Confidence = 1 })],
+    };
+
+    // The database hits of the three people reads, as the repository sends them (PersonDetailQueries, its parameters).
+    private async Task<Dictionary<string, (long Hits, string Costliest)>> PeopleReadHitsAsync(MemoryScope scope)
+    {
+        var owner = new Dictionary<string, object?> { ["hasOwner"] = true, ["ownerId"] = scope.OwnerId, ["includeShared"] = scope.IncludeShared };
+        var person = await fixture.TransactionRunner.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(
+                "MATCH (p:Entity {owner_id: $ownerId}) WHERE toUpper(p.type) = 'PERSON' AND p.name ENDS WITH 'Person3' RETURN p.id AS id", owner);
+            return ValueExtensions.As<string>((await cursor.SingleAsync())["id"]);
+        });
+        return new()
+        {
+            ["names"] = await HitsAsync(AgentMemory.Neo4j.Queries.PersonDetailQueries.Names, new(owner) { ["limit"] = 10_000, ["people"] = 1000 }),
+            ["identities"] = await HitsAsync(AgentMemory.Neo4j.Queries.PersonDetailQueries.Identities, new(owner) { ["limit"] = 1000 }),
+            ["details"] = await HitsAsync(AgentMemory.Neo4j.Queries.PersonDetailQueries.Read, new(owner)
+            {
+                ["personIds"] = new[] { person }, ["excludeIds"] = Array.Empty<string>(), ["limit"] = 8,
+                ["now"] = DateTimeOffset.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
+            }),
+        };
+    }
+
+    private async Task<(long Hits, string Costliest)> HitsAsync(string query, Dictionary<string, object?> parameters)
+    {
+        await using var session = fixture.Driver.AsyncSession();
+        var cursor = await session.RunAsync("PROFILE " + query, parameters);
+        var summary = await cursor.ConsumeAsync();
+        static IEnumerable<IProfiledPlan> All(IProfiledPlan plan) => plan.Children.SelectMany(All).Prepend(plan);
+        var steps = All(summary.Profile).ToArray();
+        // The three costliest steps and where the plan started (its leaves), to say where the hits went when a bound fails.
+        static string Show(IProfiledPlan step) =>
+            $"{step.OperatorType} {(step.Arguments.TryGetValue("Details", out var details) ? details : "")} = {step.DbHits}";
+        var costliest = string.Join("; ", steps.OrderByDescending(step => step.DbHits).Take(3).Select(Show))
+            + " | started from: " + string.Join("; ", steps.Where(step => step.Children.Count == 0).Select(Show));
+        return (steps.Sum(step => step.DbHits), costliest);
     }
 }

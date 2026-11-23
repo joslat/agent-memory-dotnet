@@ -6,6 +6,82 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- The coding packs link across layers (CO-2b, the coding ontology's slice 1, from the design the owner approved on 22 Nov
+  2026). A link is stored by the pack whose source says it: a requirement that names its parent decomposes it
+  (`INTENT_DECOMPOSES`, read from `(parent: REQ-1)` on the child's line); a test validates the requirement its own
+  attributes name (`CODEMAP_VALIDATES`, from `[Trait("Requirement", "REQ-12")]`, NUnit `[Property]` or MSTest
+  `[TestProperty]`, on the method or its class); a decision addresses the requirements its `Addresses:` line or its
+  decision drivers name (`DECISIONS_ADDRESSES`); a work item implements the requirements given as
+  `WorkLedgerOptions.Requirements` that its own id, its title or its `implements` field name (`WORK_IMPLEMENTS`). A link to
+  a requirement the intent pack does not hold is left out and counted, as before.
+  - **Composition change.** The code map (0.1.1), decisions (0.1.1) and work (0.1.2) packs now depend on the intent pack
+    (0.1.1), which lists them in `containableBy`: a host that composes one of them on its own adds `IntentPack` too, and a
+    snapshot of one names `IntentPack.Manifest` in `Dependencies` (`CodeMapBuilder`, `DecisionsReader` and the work readers
+    do; `LoadedPack.ToSnapshot` callers pass it). The code map's declarations changed, so a host that requires a trial of it
+    switches it off until it is trialled again.
+  - The Coding composite (0.1.1) adds intent (priority 50, after the members a host had) and architecture (starts off until
+    it has links of its own); decisions, work and the code map contain intent. Its layer order, from why to what (intent,
+    decisions, architecture, work, code), is declared in code with the new `CompositeMembers.Layers(...)` (`CodingPack.Layers`)
+    until the pack format carries it; a host has one.
+  - A walk labels each hop between two layers: `ContextItemProvenance.ViaMeaning` is `TraversalMeaning.Why` (to an earlier
+    layer) or `What` (to a later one), null within a layer. It is data beside the reason: reason paths, scores, ranks and order
+    do not change (R-WALK-066). The new relations are walked both ways, so a walk from a file reaches the requirement its test
+    validates (`Store.cs → StoreTests.Remove declared in it → validates REQ-12`); with no requirement links in the store it
+    reaches nothing new and spends at most one more read a hop. Latency not measured.
+  - Additive: `WorkLedgerReader.Read(..., WorkLedgerOptions)`, `WorkLedgerOptions`, `WorkCommitIds` (a commit may name its
+    ledger ids anywhere in its subject, as whole tokens), `CodeMapBuilder.AddValidates`, the relation constants.
+  - The CLI reads a task ledger as intent (CO-2d, the owner's test bed choice (b)): `intent scan|import --ledger <tasks.json>`
+    makes each row a requirement whose statement is its task and the owner's words about it (its progress stays on its work
+    item), and `work scan|import --ledger <tasks.json> --root <repo> --ledger-as-intent` makes each item implement its own
+    row. The ledger-specific reading stays in the tool.
+
+- Code map (Roslyn reader): `RoslynCodeMapOptions.NamedTestLinks` (CMP-2g), off by default until its trial: a test class
+  named after a type (`FooTests`, `FooTest`, `FooShould`) also tests that type when exactly one type of that name is
+  declared outside the test's own project, after the types the test touches (`IdentityHostContextTests` reaches
+  `IdentityHostContext` only through `IdentityIngestion`). `RoslynCodeMapReader.Read(root, options)` and
+  `agentmemory codemap scan|import|pack --named-test-links`.
+
+- The event-identity writer (`LlmExtractionOptions.MemoryWriterEventIdentities`, opt-in) keeps people and things apart
+  better, from the who's-who benchmark's paid checks of 23 Nov 2026 (14 runs: right 18 to 23 of 27 things, against 9 to
+  14 before; no wrong merge in the last four):
+  - It stores named things inside facts and preferences (brands, products, documents, works, places, groups), each beside
+    the fact that names it.
+  - A thing or place said again under exactly its stored name, or referred to again, is left out (its facts use the stored
+    name; a writer's reference cannot confirm a thing or a place, so it would only stay pending); a person or an
+    organisation is asked once for its reference; a different thing of a stored name is named with the words that tell it
+    apart. Stored things of one name are shown with the words each was first said in.
+  - A person called by a short form of a stored person's name ("Vale" for Valentina Ríos) may be referred to under it,
+    keeping the stored name and the short form as its alias (also when the writer refers to them under the full name
+    and the message used the short form); a new person named so is asked once which it is.
+  - A person reference the conversation's own relation words contradict ("my niece Valentina" against the stored designer,
+    in the message or the turn before) is refused before anything is stored, and the facts it carried keep the message's
+    own name. Facts that name the stored person in full with no entity at all, where the message calls them by part of
+    the name, are judged the same way. Reported in the write's outcomes (`ReferenceRelationConflict`).
+  - A person confirmed under a short form keeps it among the names identity saw them under (`identity_surfaces`, which
+    recall for people reads); it is no alias identity matches on. A later turn that says the short form alone finds them:
+    `IEntityRepository.FindLiveBySeenNameAsync` (new, additive; the default finds none, the Neo4j store reads the kept
+    names, owned only).
+
+- A pack that comes back under a new id can take the names its removed old id owns, when an operator says so:
+  `KnowledgePackImporter.TransferAsync(fromPackId, newPack, actor)` (PACK-NAME-TAKEOVER, decision D-06). A removal keeps
+  a pack's schema names by design, so the packs that moved from `io.agentmemory.*` to new ids were refused with
+  `Namespace is owned by another module`, and still are until the transfer is asked for. It is refused, with nothing
+  changed, unless the old id has no live record and the new id holds nothing yet, and the new pack declares every name
+  and schema step the old id owns as it was. One transaction then attributes the old records, every version and all
+  closed, to the new id (each keeps the old id in `source_pack_transferred_from`; ids, provenance and links stay),
+  moves the old id's erasure tombstones so an erased record stays erased, checks that the records' counts and walk
+  are the same, moves the names and the applied schema steps, records who and when in the SDK ledger, and runs the new
+  pack's own migration plan; any difference undoes all of it. The history is kept, not purged. Additive:
+  `IKnowledgePackStore.TransferAsync` has a default that says the store does not transfer; `Neo4jKnowledgePackStore`
+  implements it; `PackOperations.Transfer` and `KnowledgePackTransferResult` are new.
+
+- A pack whose bundle is gone, or no longer opens, can still be removed: `KnowledgePackImporter.RemoveByIdAsync(packId)`
+  reads what the store holds of the id (the labels it owns in the SDK namespace ledger and the live records it wrote) and
+  closes them in one transaction with the checks a removal by manifest makes; history and schema stay, as before. A host
+  could only remove a pack by its manifest, so a pack whose stored archive was lost stayed open for good
+  (PACK-REMOVE-MISSING-ARCHIVE). Additive: `IKnowledgePackStore.RemoveByIdAsync` has a default that says the store removes
+  by manifest only; `Neo4jKnowledgePackStore` implements it.
+
 - Pack operations say what failed. An import, removal, erasure, local-copy mount or detach that fails carries a
   `PackFailure` on the exception it throws, whose type does not change: the pack id, version and digest, the
   operation, the step (`schema`, `records`, `meaning_index`, ...) and a stable code such as
@@ -130,6 +206,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Upgrading
 
+- **Recall no longer waits for its read notes (`MemoryOptions.UseAccessTrackingQueue` is on by default; the owner's
+  decision D-10).** The note of what a recall read (its access count and time, which decay and retention use) is written
+  by the root-owned queue a few milliseconds after recall returns, everything waiting in one transaction per store: with
+  the defaults a recall waits for four round trips fewer. Its stored time is the recall's `AssembledAtUtc`, on the queue
+  and on the waited-for path alike. A host that must read those counts right after a recall calls
+  `IMemoryAccessTracker.FlushAsync` (the history service and the decay prune already do); a host that ends or freezes
+  between requests (a function, a command-line tool) calls it before it returns, or sets the option to `false` for the
+  2.3 behaviour. A killed process loses what was still queued. The recall's `memory.recall.access_tracking` span is
+  there on both paths, with the items it handed over and `memory.access_tracking.mode` (`queued` or `awaited`); the
+  queued write has its own span, `memory.background.access_tracking`.
+
+- **`source_pack_transferred_from` is now a reserved record property.** A module or pack that declares a property of
+  that name is refused by validation, as for the other `source_*` names; rename it. A store where a pack under a new id
+  is refused with `Namespace is owned by another module (<old id>)` can now take the names with
+  `KnowledgePackImporter.TransferAsync` once the old id is removed; nothing happens to a store until that is asked for.
+
 - **The embedding cache is on unless you set it.** A host that serves several people from one container without
   strict multi-tenant isolation now caches embeddings by text across them. To keep the 2.3 behaviour, set
   `EmbeddingCacheCapacity = 0`.
@@ -150,6 +242,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The coming doctor command (`TOOL-doctor`) reports stores that still hold such text dates.
 
 ### Fixed
+
+- Recall for people stays quick on a large store. With identity on, a question that names someone reads the names the
+  owner's people are known by, then those people. Both reads sought every person in the store, of every owner, and
+  threw away all but the owner's. With index statistics from when the store was smaller (right after an import, or a
+  store that grew quickly), each person's checks could also scan every identity decision, binding or entity in the
+  store: on one owner of 20,000 people, 160 million database hits for one recall. Each check now starts from the person,
+  whatever the statistics say: the names of 1,000 people cost about 20,000 database hits, however large the store is.
+  Event details get the same change.
+
+- A detail no longer replaces the value it narrows. "The go-live takes place at a war room at Acme" closed "... takes
+  place at Acme's office in Córdoba", and the city was lost: the update judges count a more precise value as a
+  replacement, and this one keeps a name the stored value has (Acme), drops another (Córdoba) and adds none. Such a
+  value is now stored beside the old one without being judged. A value that names something new still replaces it
+  ("Acme's office in Rosario", "Madrid" for "Lisbon"), and so does a correction the writer flags.
 
 - Native library, TypeScript binding: a Node process could crash (SIGSEGV) as it exited, after all its work had
   succeeded. It was rare, and seen on Linux ARM. As Node shut down, koffi unloaded the library while threads of its
@@ -261,6 +367,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   glibc 2.34, macOS on Apple silicon, Windows x64) instead of Linux x86-64 alone. The publish workflow calls the
   four-platform workflow, so the wheels uploaded are the ones that passed every platform's gate, installed; it then checks
   that there are exactly four, one per platform, all of the source's version, before the reviewer's approval.
+- Traces name the shared-knowledge check's three reads: a `memory.db.query` span's `db.query.fingerprint` is now
+  `SharedCorpusProbe.Entity`, `SharedCorpusProbe.Fact` or `SharedCorpusProbe.Preference`, where it was an
+  `unregistered:<label>:<hash>` name. The check asks once per kind and store when its cached answer runs out (30 seconds
+  after "none", 10 minutes after "some"); the queries are unchanged.
 
 ### Added
 

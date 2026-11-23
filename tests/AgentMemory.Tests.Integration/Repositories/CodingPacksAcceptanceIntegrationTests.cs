@@ -15,7 +15,7 @@ namespace AgentMemory.Tests.Integration.Repositories;
 /// </summary>
 public sealed partial class ModuleRecordWriteIntegrationTests
 {
-    private static ModuleSnapshot NoDecisions(string source) => new() { Module = DecisionsPack.Manifest, Source = source, Records = [] };
+    private static ModuleSnapshot NoDecisions(string source) => new() { Module = DecisionsPack.Manifest, Dependencies = [IntentPack.Manifest], Source = source, Records = [] };
 
     private static string Adr(string title, string status, string decision, string extra = "") =>
         $"# {title}\n\n## Status\n\n{status}\n\n## Context\n\nWhy it matters.\n\n## Decision\n\n{decision}{extra}\n";

@@ -27,6 +27,11 @@ internal sealed record TraversalItem(ModuleRecord Record, long Score, string Via
     /// order or reason. False for an anchor's own record, and always false from a store that holds one version per key.
     /// </summary>
     internal bool ChangedSinceLinked { get; init; }
+    /// <summary>
+    /// Which way the hop that reached it went through its family's layers (CO-2b): to an earlier layer, why; to a later one, what;
+    /// null within a layer, for an anchor's own record, or without a layer order. Data only, as <see cref="ChangedSinceLinked"/>.
+    /// </summary>
+    internal TraversalMeaning? Toward { get; init; }
 
     /// <summary>A declared relation as a part of a pack (feature 11, R3): its name and direction.</summary>
     internal static string PartOf(ModuleTraversalRelation declared) => declared.Name + (declared.Direction == ModuleTraversalDirection.Out ? ":out" : ":in");
@@ -118,7 +123,8 @@ internal static class TraversalWalk
     // live definition's module, so they seeded and steered, and were hidden only after the walk).
     internal static async Task<TraversalResult> RunAsync(ModuleResolution resolution, IModuleTraversalReader reader, ContextRequest request,
         CancellationToken cancellationToken, TimeSpan? timeBudget = null, Func<string, bool>? live = null, Func<ModuleRecord, bool>? liveRecord = null,
-        TimeProvider? time = null, int? minimumConfidence = null, Func<string, string?, bool>? admitted = null)
+        TimeProvider? time = null, int? minimumConfidence = null, Func<string, string?, bool>? admitted = null,
+        IReadOnlyDictionary<string, int>? layers = null)
     {
         var anchors = Anchors(request.Anchors);
         if (anchors.Count == 0) return TraversalResult.Empty;
@@ -287,6 +293,7 @@ internal static class TraversalWalk
                         {
                             Part = hop == 1 ? TraversalItem.PartOf(declared) : parent.Part, PartModule = hop == 1 ? module.Id : parent.PartModule,
                             ChangedSinceLinked = edge.State == ModuleLinkState.Suspect,
+                            Toward = Meaning(layers, parent.Record.ModuleId, edge.To.ModuleId),
                         }, parent.Record));
                     }
                     // The walk makes the fan-out cut, by the format's order: most matches, then most specific, then the format's order
@@ -316,6 +323,15 @@ internal static class TraversalWalk
         return new([.. best.Values.Where(i => admitted is null || admitted(i.PartModule ?? i.Record.ModuleId, i.Part)).OrderByDescending(i => i.Rank).ThenBy(i => i.SharedBy).ThenBy(i => i.Hops)
             .ThenBy(i => i.Record, TraversalOrder.Records)], problems.AsReadOnly(), spent);
     }
+
+    /// <summary>
+    /// Which way a hop from a record of <paramref name="from"/> to one of <paramref name="to"/> goes through the family's layers
+    /// (CO-2b): to an earlier layer, why; to a later one, what; null within a layer or when either module has none. Whichever way
+    /// the link it followed is stored.
+    /// </summary>
+    internal static TraversalMeaning? Meaning(IReadOnlyDictionary<string, int>? layers, string from, string to) =>
+        layers is not null && layers.TryGetValue(from, out var a) && layers.TryGetValue(to, out var b) && a != b
+            ? (b < a ? TraversalMeaning.Why : TraversalMeaning.What) : null;
 
     /// <summary>
     /// Why a walk may not follow <paramref name="relation"/>, or null when it may: a link into another module needs that
@@ -404,7 +420,8 @@ internal static class TraversalOrder
 /// <summary>One walk per request, shared by every module's traversal contributor in it (CMP-1).</summary>
 [Experimental("AMEXT001")]
 internal sealed class TraversalService(ModuleResolution resolution, IModuleTraversalReader? reader, Func<string, bool>? live = null, TimeProvider? time = null,
-    Func<ModuleRecord, bool>? liveRecord = null, int? minimumConfidence = null, Func<string, string?, bool>? admitted = null)
+    Func<ModuleRecord, bool>? liveRecord = null, int? minimumConfidence = null, Func<string, string?, bool>? admitted = null,
+    IReadOnlyDictionary<string, int>? layers = null)
 {
     private readonly ConditionalWeakTable<ContextRequest, Task<TraversalResult>> _walks = new();
 
@@ -415,7 +432,7 @@ internal sealed class TraversalService(ModuleResolution resolution, IModuleTrave
         reader is null || request.Anchors.Count == 0
             ? Task.FromResult(TraversalResult.Empty)
             : _walks.GetValue(request, r => TraversalWalk.RunAsync(resolution, reader, r, cancellationToken, live: live, liveRecord: liveRecord, time: time,
-                minimumConfidence: minimumConfidence, admitted: admitted));
+                minimumConfidence: minimumConfidence, admitted: admitted, layers: layers));
 }
 
 /// <summary>

@@ -108,7 +108,31 @@ internal static class Arms
                 o.AdjudicatorMaxOutputTokens=1024; o.AdjudicationTimeout=TimeSpan.FromSeconds(45);
                 o.ApplyConversationalPolicies();
             }),
+        // IBP-1b: the freed entity places given back (RecallOptions.FillFoldedEntityPlaces), recalled from the same store as
+        // the arm before it, so the setting is compared on the same memories. Never in a default run (opt-in by name).
+        new(
+            "graph-conversational-filled", "conversational",
+            "Conversational's store and recall, with the entity places the fold frees given to the next entities (IBP-1b)",
+            () => Filled(MemoryOptions.CreateConversational()),
+            o => o.ApplyConversational(),
+            o => o.ApplyConversational(),
+            Gate: null),
+        new(
+            "graph-identity-writer-filled", "identity-writer",
+            "The identity writer's store and recall, with the entity places the fold frees given to the next entities (IBP-1b)",
+            () => Filled(IdentityMemoryOptions()),
+            o => { o.ApplyRecommended(); o.MaxRetries=0; o.CaptureIdentityAliases=true; o.MemoryWriterEventIdentities=true; },
+            o => o.ApplyRecommended(),
+            Gate: null,
+            Identity: o =>
+            {
+                o.Enabled=true; o.MaxCandidates=4; o.MaxAdjudicationsPerIngestion=2;
+                o.AdjudicatorMaxOutputTokens=1024; o.AdjudicationTimeout=TimeSpan.FromSeconds(45);
+                o.ApplyConversationalPolicies();
+            }),
     ];
+
+    private static MemoryOptions Filled(MemoryOptions options) => options with { Recall = options.Recall with { FillFoldedEntityPlaces = true } };
 
     public static IReadOnlyList<string> All => [.. Baselines, .. Graph.Select(arm => arm.Name)];
 

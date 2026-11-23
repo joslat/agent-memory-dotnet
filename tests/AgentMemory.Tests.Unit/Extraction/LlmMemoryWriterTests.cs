@@ -26,6 +26,7 @@ public sealed class LlmMemoryWriterTests
     private readonly IEntityRepository _entities = Substitute.For<IEntityRepository>();
     private readonly IRelationshipRepository _relationships = Substitute.For<IRelationshipRepository>();
     private readonly IEmbeddingOrchestrator _embeddings = Substitute.For<IEmbeddingOrchestrator>();
+    private readonly IMessageRepository _messages = Substitute.For<IMessageRepository>();
     private readonly TimeProvider _clock = Substitute.For<TimeProvider>();
     private readonly IChatClient _chat = Substitute.For<IChatClient>();
     private readonly List<(string System, string User, int? Room)> _asked = [];
@@ -58,7 +59,7 @@ public sealed class LlmMemoryWriterTests
     {
         var services = new ServiceCollection()
             .AddSingleton(_facts).AddSingleton(_preferences).AddSingleton(_entities).AddSingleton(_relationships)
-            .AddSingleton(_embeddings).AddSingleton(_clock)
+            .AddSingleton(_embeddings).AddSingleton(_clock).AddSingleton(_messages)
             .BuildServiceProvider();
         return new LlmMemoryWriter(_chat, Options.Create(new LlmExtractionOptions { UseMemoryWriter = true, MemoryWriterEventIdentities = eventIdentities }), services,
             NullLogger<LlmMemoryWriter>.Instance);
@@ -109,6 +110,170 @@ public sealed class LlmMemoryWriterTests
         MemoryWriterPrompt.EventIdentityInstructions.Should().NotContain("Acme")
             .And.NotContain("Córdoba").And.NotContain("December 11").And.NotContain("2026");
     }
+
+    /// <summary>
+    /// IDENTITY-WRITER-COVERAGE: in six tier 2 runs the writer stored the brand, the documents, the works and the products
+    /// of whos-who only as facts or preferences ("user | is reading | ..."), never as entities, so identity had nothing to
+    /// decide on. The event-identity prompt asked only for "a named entity".
+    /// </summary>
+    [Fact]
+    public void Event_identity_prompt_asks_for_named_things_inside_facts_and_preferences()
+    {
+        var prompt = EventIdentityPrompt();
+        foreach (var kind in new[] { "region", "brand", "team", "product", "book", "film", "document" })
+            prompt.Should().Contain(kind, $"a {kind} named in a fact is an entity too");
+        prompt.Should().Contain("inside a fact or a preference");
+        prompt.Should().Contain("is not a name", "a role or a common noun must not become an entity");
+        prompt.Should().Contain("needs no new entity", "a thing already stored is not added again");
+    }
+
+    [Fact]
+    public void The_event_identity_prompt_does_not_embed_the_identity_benchmarks_answers()
+    {
+        var prompt = EventIdentityPrompt();
+        foreach (var answer in new[] { "Kindle", "Dune", "Patagonia", "Q3", "Tortoni", "Corolla", "Atlas", "Luna", "Valentina",
+                     "platform team", "Bariloche", "Carlos Paz", "Brisa", "Sosa", "Inés", "Marta", "Vale", "Ríos", "Clara", "Marco",
+                     "niece", "designer", "mock-up" })
+            prompt.Should().NotContain(answer);
+    }
+
+    /// <summary>
+    /// IDENTITY-NICKNAME-SPLIT: in six tier 2 runs the writer, shown the stored person, wrote her nickname as a new person
+    /// with "ref" null: the prompt said a similar name alone is no reference, and a reference had to carry the stored name.
+    /// A short form or nickname of a stored person's name, with the context making it clear, is that person; a first name
+    /// alone is part of the stored name; a first name two stored people could share is neither.
+    /// </summary>
+    [Fact]
+    public void Event_identity_prompt_lets_a_reference_call_a_stored_person_by_a_short_form()
+    {
+        var prompt = EventIdentityPrompt();
+        prompt.Should().Contain("short form or nickname");
+        prompt.Should().Contain("\"Bea (PERSON)\"", "the name the message uses goes into the text, with the ref");
+        prompt.Should().Contain("part of the stored name", "a first name or a surname alone keeps the stored exact name");
+        prompt.Should().Contain("could be either", "a first name another stored person shares gets no reference");
+        prompt.Should().Contain("also called", "a stored person's other names are shown and read");
+    }
+
+    [Fact]
+    public async Task In_event_identity_mode_a_stored_person_is_shown_with_the_other_names_they_are_called()
+    {
+        _entities.FindLiveByNameAsync("Bea", null, Arg.Any<MemoryScope>(), Arg.Any<CancellationToken>()).Returns(Beatriz(["Bea"]));
+
+        await Writer(true).WriteAsync(Turn("Bea and I presented the plans to the planning committee.", MemoryScope.For("lukas")));
+
+        Stored(_asked.Single().User)[0].Should().Be("E1: Beatriz Molina (PERSON), also called Bea");
+    }
+
+    [Fact]
+    public async Task The_default_writer_shows_a_stored_person_as_measured()
+    {
+        _entities.FindLiveByNameAsync("Bea", null, Arg.Any<MemoryScope>(), Arg.Any<CancellationToken>()).Returns(Beatriz(["Bea"]));
+
+        await Writer().WriteAsync(Turn("Bea and I presented the plans to the planning committee.", MemoryScope.For("lukas")));
+
+        Stored(_asked.Single().User)[0].Should().Be("E1: Beatriz Molina (PERSON)");
+    }
+
+    /// <summary>
+    /// IDENTITY-NICKNAME-SPLIT: in two of the six tier 2 runs the stored person was not shown when her nickname first came, so
+    /// the writer had no label to refer to, though the conversation it was shown named her in full a few turns earlier.
+    /// </summary>
+    [Fact]
+    public async Task In_event_identity_mode_a_person_the_conversation_named_is_shown_for_a_short_form_of_their_name()
+    {
+        _entities.FindLiveByNameAsync("Beatriz Molina", null, Arg.Any<MemoryScope>(), Arg.Any<CancellationToken>()).Returns(Beatriz([]));
+
+        await Writer(true).WriteAsync(WithContext("Beatriz Molina is the architect on the new library.", "Bea finished the floor plans today.",
+            MemoryScope.For("lukas")));
+
+        Stored(_asked.Single().User).Should().Contain("E1: Beatriz Molina (PERSON)");
+    }
+
+    [Fact]
+    public async Task The_default_writer_looks_up_only_the_names_of_the_last_message()
+    {
+        _entities.FindLiveByNameAsync("Beatriz Molina", null, Arg.Any<MemoryScope>(), Arg.Any<CancellationToken>()).Returns(Beatriz([]));
+
+        await Writer().WriteAsync(WithContext("Beatriz Molina is the architect on the new library.", "Bea finished the floor plans today.",
+            MemoryScope.For("lukas")));
+
+        await _entities.DidNotReceive().FindLiveByNameAsync("Beatriz Molina", Arg.Any<string?>(), Arg.Any<MemoryScope>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task A_name_the_store_knows_needs_no_look_into_the_conversation()
+    {
+        var bea = new Entity { EntityId = "e-bea", Name = "Bea", Type = "PERSON", Confidence = 1, CreatedAtUtc = Now };
+        _entities.FindLiveByNameAsync("Bea", null, Arg.Any<MemoryScope>(), Arg.Any<CancellationToken>()).Returns(bea);
+
+        await Writer(true).WriteAsync(WithContext("Beatriz Molina is the architect on the new library.", "Bea finished the floor plans today.",
+            MemoryScope.For("lukas")));
+
+        await _entities.DidNotReceive().FindLiveByNameAsync("Beatriz Molina", Arg.Any<string?>(), Arg.Any<MemoryScope>(), Arg.Any<CancellationToken>());
+    }
+
+    private static Entity Beatriz(string[] aliases) =>
+        new() { EntityId = "e-beatriz", Name = "Beatriz Molina", Type = "PERSON", Aliases = aliases, Confidence = 1, CreatedAtUtc = Now };
+
+    private static string[] Stored(string context) => context.Split("STORED (live, most relevant):\n")[1].Split('\n');
+
+    private static Entity Cafe(string id, string source) => new()
+    {
+        EntityId = id, Name = "Café Lumen", Type = "LOCATION", SourceMessageIds = [source], Confidence = 1, CreatedAtUtc = Now,
+    };
+
+    private static Message Said(string id, string text) => new()
+    {
+        MessageId = id, ConversationId = "c", SessionId = "s", Role = "user", Content = text, TimestampUtc = Now.AddDays(-3),
+    };
+
+    private void ShowTwoStoredCafes()
+    {
+        _entities.SearchByVectorAsync(default!, default, default, default, default)
+            .ReturnsForAnyArgs([(Cafe("e-lisbon", "m-lisbon"), 0.9), (Cafe("e-porto", "m-porto"), 0.8)]);
+        _messages.GetByIdAsync("m-lisbon", Arg.Any<CancellationToken>()).Returns(Said("m-lisbon", "We had dinner at Café Lumen in Lisbon."));
+        _messages.GetByIdAsync("m-porto", Arg.Any<CancellationToken>()).Returns(Said("m-porto", "There is another Café Lumen in Porto, open only at night."));
+    }
+
+    /// <summary>
+    /// IDENTITY-WRITER-COVERAGE, the paid check of 23 Nov (ikb-cover-1, statement 22): the writer was shown two stored
+    /// "Café ... (LOCATION)" lines it could not tell apart, and added a third. Same-named stored things are shown with
+    /// the words each was first said in.
+    /// </summary>
+    [Fact]
+    public async Task In_event_identity_mode_stored_things_of_one_name_are_shown_with_the_words_each_was_first_said_in()
+    {
+        ShowTwoStoredCafes();
+
+        await Writer(true).WriteAsync(Turn("The Lumen in Lisbon has live jazz on Fridays.", MemoryScope.For("lukas")));
+
+        var shown = Stored(_asked.Single().User);
+        shown.Should().Contain("E1: Café Lumen (LOCATION), first said in \"We had dinner at Café Lumen in Lisbon.\"");
+        shown.Should().Contain("E2: Café Lumen (LOCATION), first said in \"There is another Café Lumen in Porto, open only at night.\"");
+    }
+
+    [Fact]
+    public async Task The_default_writer_and_a_unique_name_read_no_source_message()
+    {
+        ShowTwoStoredCafes();
+        await Writer().WriteAsync(Turn("The Lumen in Lisbon has live jazz on Fridays.", MemoryScope.For("lukas")));
+        Stored(_asked.Single().User).Should().NotContain(line => line.Contains("first said", StringComparison.Ordinal));
+
+        _entities.SearchByVectorAsync(default!, default, default, default, default).ReturnsForAnyArgs([(Cafe("e-lisbon", "m-lisbon"), 0.9)]);
+        await Writer(true).WriteAsync(Turn("The Lumen has live jazz on Fridays.", MemoryScope.For("lukas")));
+        await _messages.DidNotReceiveWithAnyArgs().GetByIdAsync(default!, default);
+    }
+
+    private static MemoryWriteRequest WithContext(string earlier, string last, MemoryScope? scope) =>
+        new(new ExtractionWindow
+        {
+            Context = [new Message { MessageId = "m0", ConversationId = "c", SessionId = "s", Role = "user", Content = earlier, TimestampUtc = Now.AddMinutes(-2) }],
+            Targets = [new Message { MessageId = "m", ConversationId = "c", SessionId = "s", Role = "user", Content = last, TimestampUtc = Now }],
+        }, scope);
+
+    private static string EventIdentityPrompt() =>
+        MemoryWriterPrompt.System(null, new LlmExtractionOptions().MemoryWriterMaxOperations, eventIdentities: true)
+        + MemoryWriterPrompt.EventIdentityInstructions;
 
     private static MemoryWriteRequest Turn(string text, MemoryScope? scope) =>
         new(new ExtractionWindow { Targets = [new Message { MessageId = "m", ConversationId = "c", SessionId = "s", Role = "user", Content = text, TimestampUtc = Now }] }, scope);

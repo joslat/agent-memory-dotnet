@@ -171,6 +171,87 @@ public sealed class CodeMapTests : IDisposable
     }
 
     /// <summary>
+    /// CMP-2g (found by CMP-2c's third trial): IdentityHostContextTests is named after IdentityHostContext but reaches it only
+    /// through IdentityIngestion, so the map had no test link to it and counted it untested. With
+    /// <see cref="RoslynCodeMapOptions.NamedTestLinks"/>, a test class named after exactly one type outside its own project also
+    /// tests that type, after what it touches; two types of that name, or the switch off, add nothing.
+    /// </summary>
+    [Theory]
+    [InlineData(true, "HostContextTests", true)]
+    [InlineData(true, "HostContextShould", true)]
+    [InlineData(false, "HostContextTests", false)]
+    [InlineData(true, "IngestionFlowTests", false)]
+    public void A_test_class_named_after_a_type_it_reaches_through_another_tests_that_type(bool on, string testClass, bool linked)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "codemap-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            foreach (var (path, text) in new[]
+            {
+                ("src/Core/Core.csproj", """<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><InternalsVisibleTo Include="Core.Tests" /></ItemGroup></Project>"""),
+                ("src/Core/HostContext.cs", "namespace Core; internal static class HostContext { internal static int Apply() => 1; }"),
+                ("src/Core/Ingestion.cs", "namespace Core; public sealed class Ingestion { public int Run() => HostContext.Apply(); }"),
+                ("tests/Core.Tests/Core.Tests.csproj", """
+                    <Project Sdk="Microsoft.NET.Sdk"><ItemGroup><ProjectReference Include="../../src/Core/Core.csproj" /></ItemGroup></Project>
+                    """),
+                ("tests/Core.Tests/Tests.cs", "namespace Core.Tests; public sealed class " + testClass + " { [Fact] public void Applies() { new Core.Ingestion().Run(); } }"),
+            })
+            {
+                var full = Path.Combine(root, path);
+                Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+                File.WriteAllText(full, text);
+            }
+
+            var links = RoslynCodeMapReader.Read(root, RoslynCodeMapReader.TrackedFiles(root), new RoslynCodeMapOptions { NamedTestLinks = on })
+                .Build("git:one").Records.Single(r => r.Type == CodeMapPack.TestType)
+                .Links.Where(l => l.Relation == "CODEMAP_TESTS").Select(l => l.Target).ToList();
+
+            links[0].Should().Be("scip-dotnet nuget Core . Core/Ingestion#", "what the test touches comes first");
+            if (linked) links.Should().Equal("scip-dotnet nuget Core . Core/Ingestion#", "scip-dotnet nuget Core . Core/HostContext#");
+            else links.Should().Equal("scip-dotnet nuget Core . Core/Ingestion#");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void A_test_class_named_after_two_types_of_that_name_tests_neither_by_its_name()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "codemap-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            foreach (var (path, text) in new[]
+            {
+                ("src/Core/Core.csproj", """<Project Sdk="Microsoft.NET.Sdk"></Project>"""),
+                ("src/Core/Ingestion.cs", "namespace Core; public sealed class Ingestion { public int Run() => 1; }"),
+                ("src/Core/HostContext.cs", "namespace Core; public static class HostContext { }"),
+                ("src/Other/Other.csproj", """<Project Sdk="Microsoft.NET.Sdk"></Project>"""),
+                ("src/Other/HostContext.cs", "namespace Other; public static class HostContext { }"),
+                ("tests/Core.Tests/Core.Tests.csproj", """
+                    <Project Sdk="Microsoft.NET.Sdk"><ItemGroup><ProjectReference Include="../../src/Core/Core.csproj" /></ItemGroup></Project>
+                    """),
+                ("tests/Core.Tests/Tests.cs", "namespace Core.Tests; public sealed class HostContextTests { [Fact] public void Runs() { new Core.Ingestion().Run(); } }"),
+            })
+            {
+                var full = Path.Combine(root, path);
+                Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+                File.WriteAllText(full, text);
+            }
+
+            RoslynCodeMapReader.Read(root, RoslynCodeMapReader.TrackedFiles(root), new RoslynCodeMapOptions { NamedTestLinks = true })
+                .Build("git:one").Records.Single(r => r.Type == CodeMapPack.TestType)
+                .Links.Where(l => l.Relation == "CODEMAP_TESTS").Select(l => l.Target)
+                .Should().Equal("scip-dotnet nuget Core . Core/Ingestion#");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
     /// CMP-2f: a test project that compiles another project's files itself (<c>&lt;Compile Include="../../tools/..."&gt;</c>, as
     /// AgentMemory.Tests.Unit does with the scenario tool's scorer) links to those files' types, under the project they live in.
     /// The reader gave each file to its folder's project only, so the test's calls bound to nothing.

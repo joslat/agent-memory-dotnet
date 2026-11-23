@@ -99,6 +99,7 @@ internal sealed partial class Neo4jIdentityDecisionRepository
             if((await targetCursor.ToListAsync().ConfigureAwait(false)).Count!=1)
                 throw new InvalidOperationException("The reviewed target cannot be linked safely in the requested scope.");
             await RewireReviewBindings(runner,next,targetId,ownerId,includeShared,cancellationToken).ConfigureAwait(false);
+            await KeepSeenNames(runner,next,ownerId).ConfigureAwait(false);
             var proposals=await runner.RunAsync(IdentityReviewQueries.ClearProposals,
                 new { decisionId=next.DecisionId,ownerScope=Scope(ownerId) }).ConfigureAwait(false);
             await proposals.ConsumeAsync().ConfigureAwait(false);

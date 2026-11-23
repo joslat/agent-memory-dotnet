@@ -175,10 +175,11 @@ public sealed class MemoryAccessTrackingChannelTests
     // ── the option and the registration ───────────────────────────────
 
     [Fact]
-    public void TheQueueIsOffByDefault()
+    public void TheQueueIsOnByDefault()
     {
-        // Every archived latency measurement was taken on the inline path.
-        new MemoryOptions().UseAccessTrackingQueue.Should().BeFalse();
+        // DRT-5b (the owner's decision D-10): on by default from 2.4. The archived latency measurements were taken on the
+        // inline path, which UseAccessTrackingQueue = false still gives.
+        new MemoryOptions().UseAccessTrackingQueue.Should().BeTrue();
     }
 
     [Fact]

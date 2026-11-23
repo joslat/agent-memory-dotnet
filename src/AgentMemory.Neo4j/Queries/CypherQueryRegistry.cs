@@ -29,6 +29,9 @@ internal static class CypherQueryRegistry
             return UnknownFingerprint;
         if (FingerprintsByCypher.TryGetValue(cypher, out var fingerprint))
             return fingerprint;
+        // 37.1b: the shared-corpus probe's existence checks, asked again per kind when a cached answer expires.
+        if (AgentMemory.Neo4j.Services.Neo4jSharedCorpusProbe.FingerprintOf(cypher) is { } probe)
+            return probe;
 
         bool Has(string marker) => cypher.Contains(marker, StringComparison.Ordinal);
 

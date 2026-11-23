@@ -26,6 +26,13 @@ controls and a finite synthetic 32-pack target study with no answer regressions,
 lower textual-turn p95. This is not production-workload or universal coverage evidence. Default recall remains
 exhaustive and activates no local-copy schema or writes.
 
+**Pack removal by id and pack name transfer — BUILT / MEASURED on real Neo4j (integration tests); removal by id WIRED
+in DemoBrain, transfer not wired.** A pack whose bundle is lost is removed from what the store holds of its id. A
+removed pack id's schema names, closed records and tombstones move to a pack's new id only when an operator asks
+(`KnowledgePackImporter.TransferAsync`), in one transaction checked by counts, walk and the new pack's own migration
+plan; history is kept. No host offers the transfer yet, and its concurrency with a running import is the operator's
+to avoid. [Contract](extensions/modules.md#pack-operation-telemetry-and-failures).
+
 **Calendar identity integrity — BUILT; focused verification passed.** Recognised calendar literals
 are kept out of approximate name matching. Complete supported dates compare by calendar components;
 incomplete or invalid values remain separate, and canonical entity names cannot replace their fact
