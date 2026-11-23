@@ -243,6 +243,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Recall for people stays quick on a large store. With identity on, a question that names someone reads the names the
+  owner's people are known by, then those people. Both reads sought every person in the store, of every owner, and
+  threw away all but the owner's. With index statistics from when the store was smaller (right after an import, or a
+  store that grew quickly), each person's checks could also scan every identity decision, binding or entity in the
+  store: on one owner of 20,000 people, 160 million database hits for one recall. Each check now starts from the person,
+  whatever the statistics say: the names of 1,000 people cost about 20,000 database hits, however large the store is.
+  Event details get the same change.
+
 - A detail no longer replaces the value it narrows. "The go-live takes place at a war room at Acme" closed "... takes
   place at Acme's office in Córdoba", and the city was lost: the update judges count a more precise value as a
   replacement, and this one keeps a name the stored value has (Acme), drops another (Córdoba) and adds none. Such a

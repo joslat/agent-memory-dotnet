@@ -15,18 +15,28 @@ internal static class PersonDetailQueries
         CALL {
           // REV1-M4, REV2-2b: each scope is its own index seek on (owner, type), so the read reaches the owner's people
           // directly, never every entity the owner has. Types are written in upper case; these three spellings are read.
-          MATCH (p:Entity) WHERE $hasOwner AND p.owner_id=$ownerId AND p.type IN ['PERSON', 'Person', 'person'] RETURN p
+          // P231A-PART4: a scope's condition decides which spellings it seeks, none when it does not apply. Written beside
+          // the seek, a parameter test runs after it: the unowned scope sought every person in the store for every owner's
+          // read, and threw them away.
+          UNWIND CASE WHEN $hasOwner THEN ['PERSON', 'Person', 'person'] ELSE [] END AS type
+          MATCH (p:Entity {owner_id: $ownerId, type: type}) RETURN p
           UNION
-          MATCH (p:Entity) WHERE $hasOwner AND $includeShared AND p.owner_key='*' AND p.type IN ['PERSON', 'Person', 'person'] RETURN p
+          UNWIND CASE WHEN $hasOwner AND $includeShared THEN ['PERSON', 'Person', 'person'] ELSE [] END AS type
+          MATCH (p:Entity {owner_key: '*', type: type}) RETURN p
           UNION
-          MATCH (p:Entity) WHERE NOT $hasOwner AND p.type IN ['PERSON', 'Person', 'person'] RETURN p
+          UNWIND CASE WHEN $hasOwner THEN [] ELSE ['PERSON', 'Person', 'person'] END AS type
+          MATCH (p:Entity {type: type}) RETURN p
         }
         WITH p WHERE p.invalidated_at IS NULL AND p.merged_into IS NULL
           AND NOT EXISTS {
             MATCH (o:IdentityDecision)-[:RESOLVES_TO]->(t:Entity)
+            // P231A-PART4: the decision of this person's observation, sought by its unique key, and the entity it resolves to
+            // compared as a node (by id, the entities' index was scanned instead). Left to the planner, index samples from a
+            // smaller store made it scan every decision, or every entity, in the store for each person (160 million hits).
+            USING INDEX o:IdentityDecision(owner_scope, identity_observation_key)
             WHERE p.identity_observation_key IS NOT NULL AND o.identity_observation_key=p.identity_observation_key
               AND o.owner_scope=CASE WHEN p.owner_id IS NULL THEN 'shared' ELSE 'owned:'+p.owner_id END
-              AND t.id<>p.id AND NOT EXISTS { (o)-[:POSSIBLE_SAME_AS]->() } }
+              AND t<>p AND NOT EXISTS { (o)-[:POSSIBLE_SAME_AS]->() } }
         """;
 
     /// <summary>
@@ -58,7 +68,10 @@ internal static class PersonDetailQueries
         """ + "\n" + BoundNames + "\n" + """
         WITH p, bound, EXISTS {
           MATCH (p)<-[:RESOLVES_TO]-(b:IdentityFactBinding)-[:DECIDED_BY]->(d:IdentityDecision)
-          WHERE b.identity_decision_id=d.id AND b.owner_scope=d.owner_scope
+          // P231A-PART4: compared as lists, the binding's decision cannot be looked up in the bindings' index, so the check
+          // starts from this person. As two equalities it let the planner scan every binding in the store and join them
+          // back, for each person (with index samples from a smaller store: minutes for 1,000 people).
+          WHERE [b.identity_decision_id, b.owner_scope]=[d.id, d.owner_scope]
             AND (NOT $hasOwner OR b.owner_id=$ownerId OR ($includeShared AND b.owner_id IS NULL))
             AND NOT EXISTS { (d)-[:POSSIBLE_SAME_AS]->() } } AS confirmed
         WITH p, confirmed, [spelling IN [p.name] + coalesce(p.aliases, []) + bound WHERE spelling IS NOT NULL] AS spellings
@@ -96,7 +109,8 @@ internal static class PersonDetailQueries
         WHERE NOT f.id IN $excludeIds AND f.invalidated_at IS NULL
           AND (f.valid_until IS NULL OR f.valid_until >= datetime($now))
           AND (NOT $hasOwner OR f.owner_id=$ownerId OR ($includeShared AND f.owner_id IS NULL))
-          AND b.identity_decision_id=d.id AND b.owner_scope=d.owner_scope
+          // P231A-PART4: as lists, so the binding is reached from the person, never from the bindings' index.
+          AND [b.identity_decision_id, b.owner_scope]=[d.id, d.owner_scope]
           AND b.owner_scope=CASE WHEN f.owner_id IS NULL THEN 'shared' ELSE 'owned:'+f.owner_id END
           AND ((f.owner_id IS NULL AND b.owner_id IS NULL AND d.owner_id IS NULL) OR
                (f.owner_id=b.owner_id AND f.owner_id=d.owner_id))
