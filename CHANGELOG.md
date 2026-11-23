@@ -252,6 +252,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   names exactly one stored entity it was shown and the reply does not mention it otherwise; identity checks that
   reference as it checks the writer's own. Two stored entities of the name, or words that do not name it, refer to
   nobody, as before. Connections already kept as claims are not re-linked.
+- Fewer wrong merges of namesakes with evidence-based identity, each measured on a held-out conversation where it merged
+  two different things (IDENTITY-HARD-CASES):
+  - A person met as someone's parent ("Tomás's parents, Iker and Marta") is no longer confirmed as the owner's boss of
+    that name: identity's relation check now reads "parent(s)", a relation given before a list or an apposition ("my
+    mum, Marta") or after a pronoun, and a mother or a father agrees with a parent.
+  - A second pet or thing of a stored name that the writer tells apart in brackets when asked ("Luna (the neighbours'
+    kitten)") is kept as "Luna, the neighbours' kitten"; it was kept under the bare stored name and merged.
+  - Stored things of one name but two types (an event and a project) are shown to the writer with the words each was
+    first said in, as things of one name and one type already were.
+  - A name the message corrects or changes ("it's Ms. Vidal, not Ortega", "renamed Brightline") is the stored person,
+    organisation or event, also called by the new name, when the writer refers to it and quotes both names: it was a
+    second entity.
 - Recall for people stays quick on a large store. With identity on, a question that names someone reads the names the
   owner's people are known by, then those people. Both reads sought every person in the store, of every owner, and
   threw away all but the owner's. With index statistics from when the store was smaller (right after an import, or a
@@ -359,6 +371,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- With evidence-based identity, the writer stores a common noun anchored to an owner or a name as a thing of its own
+  (the owner's decision, 23 Nov 2026): someone's particular thing ("my laptop", "Ana's flat", "Dad's chess club") or one
+  a proper name pins down ("the house on Elm Street"), named with its anchor, the speaker's own as "user's laptop" (or
+  the owner's name). A bare common noun ("the office", "the meeting") still gets no entity, nor the same noun said
+  later without its anchor. Things without a proper name were the largest block of identity failures in both held-out
+  who's-who conversations; anchored, one owner's thing and another's ("my car", "Dad's car") are two. A store gets more
+  entities of kind THING, PLACE and ORGANIZATION; recall and facts are unchanged.
 - The embedding cache is on by default: `MemoryOptions.EmbeddingCacheCapacity`, left unset, is 512 texts (about 2 MB).
   An embedding model is a pure function of its text, so a hit changes nothing but the round trip; a live turn embedded
   the user's message twice. Under strict multi-tenant isolation (`MemoryIsolationMode.StrictMultiTenant`) it stays off
