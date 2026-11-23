@@ -35,6 +35,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     item), and `work scan|import --ledger <tasks.json> --root <repo> --ledger-as-intent` makes each item implement its own
     row. The ledger-specific reading stays in the tool.
 
+- Code map (Roslyn reader): `RoslynCodeMapOptions.NamedTestLinks` (CMP-2g), off by default until its trial: a test class
+  named after a type (`FooTests`, `FooTest`, `FooShould`) also tests that type when exactly one type of that name is
+  declared outside the test's own project, after the types the test touches (`IdentityHostContextTests` reaches
+  `IdentityHostContext` only through `IdentityIngestion`). `RoslynCodeMapReader.Read(root, options)` and
+  `agentmemory codemap scan|import|pack --named-test-links`.
+
 - The event-identity writer (`LlmExtractionOptions.MemoryWriterEventIdentities`, opt-in) keeps people and things apart
   better, from the who's-who benchmark's paid checks of 23 Nov 2026 (14 runs: right 18 to 23 of 27 things, against 9 to
   14 before; no wrong merge in the last four):

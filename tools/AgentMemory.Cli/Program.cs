@@ -40,14 +40,14 @@ if (string.Equals(cli.Command, "routing-score", StringComparison.OrdinalIgnoreCa
 if (string.Equals(cli.Command, "codemap", StringComparison.OrdinalIgnoreCase) && !string.Equals(cli.Subcommand, "import", StringComparison.OrdinalIgnoreCase))
 {
     if (string.Equals(cli.Subcommand, "pack", StringComparison.OrdinalIgnoreCase))
-        return new AgentMemory.Cli.Commands.CodeMapCommand(Console.Out)
+        return new AgentMemory.Cli.Commands.CodeMapCommand(Console.Out, cli.HasFlag("named-test-links"))
             .Pack(cli.Get("root"), cli.Get("scip"), cli.Get("id"), cli.Get("version"), cli.Get("key"), cli.Get("out"), cli.Get("repository"));
     if (!string.Equals(cli.Subcommand, "scan", StringComparison.OrdinalIgnoreCase))
     {
         Console.Error.WriteLine("error: codemap needs scan, pack or import.");
         return 2;
     }
-    return new AgentMemory.Cli.Commands.CodeMapCommand(Console.Out).Scan(cli.Get("root"), cli.Get("output"), cli.Get("scip"));
+    return new AgentMemory.Cli.Commands.CodeMapCommand(Console.Out, cli.HasFlag("named-test-links")).Scan(cli.Get("root"), cli.Get("output"), cli.Get("scip"));
 }
 
 // project writes a pack's records as Markdown projections (and an AGENTS.md section), offline (CMP-7).
@@ -325,7 +325,7 @@ try
         "work" => await new AgentMemory.Cli.Commands.WorkCommand(output)
             .ImportAsync(sp.GetRequiredService<INeo4jTransactionRunner>(), cli.Get("ledger"), cli.Get("root"), cli.Get("source"), cli.Get("github-issues"), cli.Get("github-milestones"),
                 cli.HasFlag("ledger-as-intent")),
-        "codemap" => await new AgentMemory.Cli.Commands.CodeMapCommand(output)
+        "codemap" => await new AgentMemory.Cli.Commands.CodeMapCommand(output, cli.HasFlag("named-test-links"))
             .ImportAsync(sp.GetRequiredService<INeo4jTransactionRunner>(), cli.Get("root"), cli.Get("source"), cli.Get("scip"), cli.Get("pack"), cli.Get("trust"),
                 cli.HasFlag("rebuild-if-stale")),
         "modules" => await new ModulesCommand(
