@@ -249,7 +249,7 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
         string message, IReadOnlyList<string> earlier, CancellationToken cancellationToken)
     {
         var known = new Dictionary<string, IReadOnlySet<string>>(StringComparer.OrdinalIgnoreCase);
-        var read = MemoryWriterContract.PersonsToRead(ops, stored);
+        var read = MemoryWriterContract.PersonsToRead(ops, stored, message);
         if (read.Count == 0) return new(message, earlier, known);
         var facts = stored.Where(item => item.Triple is not null).Select(item => item.Triple!.Value).ToList();
         var messages = _services.GetService<IMessageRepository>();

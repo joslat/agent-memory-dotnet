@@ -154,6 +154,33 @@ internal static class MemoryWriterContract
                 + $"and the conversation calls this person {string.Join(", ", conflict.Said.Order(StringComparer.Ordinal))}: two people, so the reference "
                 + (conflict.Own is null ? "was refused" : $"was refused and the entity and {moved} other operation(s) keep the message's name \"{conflict.Own}\"")));
         }
+        // IDENTITY-FACT-NAME-GUARD: the same rule when the reply names a stored person only in its facts, preferences or
+        // connections, with no entity: the fifth paid check, cover5-2 and cover5-4 statement 13, answered only "Valentina Ríos |
+        // started school | 2026" and "Valentina Ríos | is | six years old" for "My niece Valentina started school this year,
+        // she is six.", so there was no reference to refuse. A message that holds the stored full name names that person.
+        for (var p = 0; persons is not null && p < stored.Count; p++)
+        {
+            var person = stored[p];
+            if (person.Letter != 'E' || StoredType(person.Text) != "PERSON" || !persons.Known.TryGetValue(person.Label, out var known)) continue;
+            var storedName = EntityName(person.Text);
+            if (!NamedInFactsOnly(ops, storedName, persons.Message) || OwnName(storedName, storedName, persons.Message) is not { } own) continue;
+            var said = RelationsSaid(own, persons);
+            if (!IdentityRelationCue.Disagree(said, known)) continue;
+            var first = -1;
+            string? written = null;
+            var moved = 0;
+            for (var j = 0; j < ops.Count; j++)
+            {
+                if (!NamesInText(ops[j]) || !HoldsName(ops[j].Text, storedName)) continue;
+                if (first < 0) (first, written) = (j, ops[j].Text);
+                ops[j] = ops[j] with { Text = Rename(ops[j].Text, storedName, own) };
+                moved++;
+            }
+            issues.Add(new(MemoryWriterOps.DropReason.ReferenceRelationConflict, ops[first].Index, ops[first].Kind, written,
+                $"it names stored {person.Label} \"{storedName}\", known as {string.Join(", ", known.Order(StringComparer.Ordinal))}, and the "
+                + $"conversation calls this person {string.Join(", ", said.Order(StringComparer.Ordinal))}: two people, so {moved} operation(s) keep the "
+                + $"message's name \"{own}\""));
+        }
         // IDENTITY-WRITER-COVERAGE: an entity add without a ref, named and typed exactly as a shown stored entity, is asked
         // once which it is (ikb-cover-1: a second café was stored under the first one's name, so the next turn saw two it
         // could not tell apart, and added a third). Events are observed again on purpose, so they are never asked.
@@ -378,10 +405,14 @@ internal static class MemoryWriterContract
     /// IDENTITY-PERSON-REF-GUARD: the stored people a reply's person entities refer to or name by another name, whose
     /// description <see cref="Check"/> reads; none when the reply names no stored person.
     /// </summary>
-    internal static IReadOnlyList<MemoryWriterOps.Stored> PersonsToRead(IReadOnlyList<MemoryWriterOps.Op> ops, IReadOnlyList<MemoryWriterOps.Stored> stored)
+    internal static IReadOnlyList<MemoryWriterOps.Stored> PersonsToRead(IReadOnlyList<MemoryWriterOps.Op> ops, IReadOnlyList<MemoryWriterOps.Stored> stored,
+        string? message = null)
     {
         var people = stored.Where(item => item.Letter == 'E' && StoredType(item.Text) == "PERSON").ToList();
         var read = new List<MemoryWriterOps.Stored>();
+        // IDENTITY-FACT-NAME-GUARD: a stored person a reply's facts name in full, where the message does not.
+        if (message is not null)
+            read.AddRange(people.Where(item => NamedInFactsOnly(ops, EntityName(item.Text), message)));
         foreach (var op in ops)
         {
             if (op.Kind != "entity" || op.Action != "add" || EntityText.Match(op.Text) is not { Success: true } said ||
@@ -393,6 +424,11 @@ internal static class MemoryWriterContract
         }
         return [.. read.DistinctBy(item => item.Label)];
     }
+
+    private static bool NamedInFactsOnly(IReadOnlyList<MemoryWriterOps.Op> ops, string storedName, string message) =>
+        !HoldsName(message, storedName) && ops.Any(op => NamesInText(op) && HoldsName(op.Text, storedName));
+
+    private static bool NamesInText(MemoryWriterOps.Op op) => op.Kind is "fact" or "preference" or "relationship" && op.Action != "confirm";
 
     private sealed record Conflict(MemoryWriterOps.Stored Item, string? Own, IReadOnlySet<string> Said, IReadOnlySet<string> Known);
 

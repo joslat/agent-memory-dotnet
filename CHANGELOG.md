@@ -53,7 +53,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     keeping the stored name and the short form as its alias; a new person named so is asked once which it is.
   - A person reference the conversation's own relation words contradict ("my niece Valentina" against the stored designer,
     in the message or the turn before) is refused before anything is stored, and the facts it carried keep the message's
-    own name. Reported in the write's outcomes (`ReferenceRelationConflict`).
+    own name. Facts that name the stored person in full with no entity at all, where the message calls them by part of
+    the name, are judged the same way. Reported in the write's outcomes (`ReferenceRelationConflict`).
   - A person confirmed under a short form keeps it among the names identity saw them under (`identity_surfaces`, which
     recall for people reads); it is no alias identity matches on. A later turn that says the short form alone finds them:
     `IEntityRepository.FindLiveBySeenNameAsync` (new, additive; the default finds none, the Neo4j store reads the kept

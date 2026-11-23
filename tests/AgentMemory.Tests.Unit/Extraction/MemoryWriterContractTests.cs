@@ -818,4 +818,53 @@ public sealed class MemoryWriterContractTests : IDisposable
 
         await _entities.DidNotReceiveWithAnyArgs().FindLiveBySeenNameAsync(default!, default!, default, default);
     }
+
+    // ── IDENTITY-FACT-NAME-GUARD (the fifth paid check, cover5-2 and cover5-4 statement 13: the writer answered only facts,
+    // "Valentina Ríos | started school | 2026" and "Valentina Ríos | is | six years old", with no entity operation, so there
+    // was no reference for the guard above to refuse and the niece's facts went under the designer's name.) ──
+
+    [Fact]
+    public async Task Facts_that_name_a_stored_person_the_messages_relation_contradicts_keep_the_messages_name()
+    {
+        ShowStoredDesigner();
+        _replies.Enqueue("""
+            {"ops":[
+              {"op":"add","kind":"fact","text":"Valentina Ríos | started school | this year","quote":"started school this year","ref":null},
+              {"op":"add","kind":"fact","text":"Valentina Ríos | is | six years old","quote":"she is six","ref":null}
+            ]}
+            """);
+
+        var result = await Write("My niece Valentina started school this year, she is six.");
+
+        _calls.Should().ContainSingle("the refusal is deterministic: no correction call");
+        result.Facts.Select(f => f.Subject).Should().Equal("Valentina", "Valentina");
+        result.Outcomes.Should().ContainSingle().Which.ErrorMessage.Should()
+            .Contain(nameof(MemoryWriterOps.DropReason.ReferenceRelationConflict)).And.Contain("niece").And.Contain("designer");
+    }
+
+    [Fact]
+    public async Task Facts_that_name_a_stored_person_the_turn_before_contradicts_keep_the_messages_name()
+    {
+        // cover5-4 statement 14.
+        ShowStoredDesigner();
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"fact","text":"Valentina Ríos | lost | her first tooth","quote":"Valentina lost her first tooth yesterday","ref":null}]}""");
+
+        var result = await Write("Valentina lost her first tooth yesterday.", true, "My niece Valentina started school this year, she is six.");
+
+        result.Facts.Should().ContainSingle().Which.Subject.Should().Be("Valentina");
+    }
+
+    [Theory]
+    [InlineData("Valentina sent over the new mock-ups.")]                     // no relation said
+    [InlineData("Valentina Ríos sent over the new mock-ups for my niece.")]   // the message names the stored person in full
+    public async Task Facts_that_name_a_stored_person_no_relation_contradicts_keep_the_stored_name(string message)
+    {
+        ShowStoredDesigner();
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"fact","text":"Valentina Ríos | sent over | the new mock-ups","quote":"sent over the new mock-ups","ref":null}]}""");
+
+        var result = await Write(message);
+
+        result.Facts.Should().ContainSingle().Which.Subject.Should().Be("Valentina Ríos");
+        result.Outcomes.Should().BeEmpty();
+    }
 }
