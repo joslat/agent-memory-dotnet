@@ -148,6 +148,11 @@ internal static class IdentityKindsScorer
         var namedAndTyped = named.Where(c => things[c].Type == kind).ToList();
         if (namedAndTyped.Count == 1) return (namedAndTyped[0], "name and type");
         if (namedAndTyped.Count > 1) return (null, "two things of this name and type in the statement");
+        // IHC-SCORER (the owner's call, 23 Nov): an event named after a thing ("Rebecca Thornton's wedding", where the key
+        // names only the friend) is not that thing, nor a thing named after an event. The thing's bare name under the other
+        // type still is: a model may type a project an event.
+        if (named.Count == 1 && (kind == "EVENT") != (things[named[0]].Type == "EVENT") && words.Except(names[named[0]]).Any())
+            return (null, "an event named after a thing, or a thing after an event");
         if (named.Count == 1) return (named[0], "name, another type");
         if (named.Count > 1) return (null, "two things of this name in the statement");
         // A proper name that names none of the statement's things is a thing the key does not hold (the city a venue is

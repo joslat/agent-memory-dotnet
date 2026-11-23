@@ -210,6 +210,28 @@ public sealed class IdentityKindsTier2Tests
         IdentityKindsScorer.MentionWords("Córdoba in Spain").Should().Contain("spain");
     }
 
+    /// <summary>
+    /// IHC-SCORER (the owner's call, 23 Nov): whos-who-v2's baseline counted two wrong merges that were the scorer's. The
+    /// writer stored "Rebecca Thornton's wedding" as an event where the friend's engagement was told (statement 16, where
+    /// the key names only the friend) and found it again where the wedding is named; the scorer, finding no event in
+    /// statement 16, labelled the event as the friend by its name words. An event named after a thing is not that thing;
+    /// the thing's bare name stored under the wrong type still is (a model may type a project an event).
+    /// </summary>
+    [Fact]
+    public void An_event_named_after_a_thing_is_not_that_thing()
+    {
+        // A two-word name keeps its first word when the possessive is stripped, as "Rebecca Thornton's" kept "Rebecca".
+        var score = IdentityKindsScorer.Score(Key, WhosWho, Store([.. PerfectEntities(),
+                Entity("e-lunch", "Valentina Ríos's leaving lunch", "EVENT", [11]),
+                Entity("e-typed-event", "Vale", "EVENT", [42])]),
+            IdentityGoldScorer.EntitiesView);
+
+        score.Mentions.Single(m => m.Identity == "e-lunch").Thing.Should().BeNull();
+        score.Mentions.Single(m => m.Identity == "e-typed-event").Thing.Should().Be("T01");
+        score.SplitThings.Keys.Should().Equal("T01");
+        score.WrongMerges.Should().Be(0);
+    }
+
     [Fact]
     public void A_role_noun_still_finds_the_one_thing_of_its_type()
     {
