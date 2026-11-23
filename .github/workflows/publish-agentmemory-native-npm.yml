@@ -2,7 +2,10 @@
 # published by npm's Trusted Publishing (no token stored anywhere: the job's short-lived identity is what npm checks, and it
 # adds provenance). Run by hand on main after a version bump; the publish job waits for the owner's approval of the `npm`
 # environment. Each package is set up on npmjs.com once (Settings > Trusted Publisher > GitHub Actions: joslat /
-# agent-memory-dotnet / publish-agentmemory-native-npm.yml / environment npm).
+# agent-memory-dotnet / publish-agentmemory-native-npm.yml / environment npm), with "npm publish" allowed, not only
+# staged publishing. Reported by other projects (late 2026), not in npm's docs as read here: a new setting that has not
+# published within 2 days of its creation lapses and must be deleted and made again; a lapsed one fails as ENEEDAUTH
+# or 404. So set the five up, or remake them, shortly before the first run of this workflow.
 name: Publish agentmemory-native (npm)
 
 on:
