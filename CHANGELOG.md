@@ -359,6 +359,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   glibc 2.34, macOS on Apple silicon, Windows x64) instead of Linux x86-64 alone. The publish workflow calls the
   four-platform workflow, so the wheels uploaded are the ones that passed every platform's gate, installed; it then checks
   that there are exactly four, one per platform, all of the source's version, before the reviewer's approval.
+- Traces name the shared-knowledge check's three reads: a `memory.db.query` span's `db.query.fingerprint` is now
+  `SharedCorpusProbe.Entity`, `SharedCorpusProbe.Fact` or `SharedCorpusProbe.Preference`, where it was an
+  `unregistered:<label>:<hash>` name. The check asks once per kind and store when its cached answer runs out (30 seconds
+  after "none", 10 minutes after "some"); the queries are unchanged.
 
 ### Added
 

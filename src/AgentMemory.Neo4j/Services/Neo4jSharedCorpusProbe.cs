@@ -23,9 +23,9 @@ internal sealed class Neo4jSharedCorpusProbe : ISharedCorpusProbe
     internal static readonly TimeSpan NoneFor = TimeSpan.FromSeconds(30);
     internal static readonly TimeSpan SomeFor = TimeSpan.FromMinutes(10);
 
-    private const string EntityQuery = "RETURN EXISTS { MATCH (e:Entity {owner_key: '*'}) } AS shared";
-    private const string FactQuery = "RETURN EXISTS { MATCH (f:Fact {owner_key: '*'}) } AS shared";
-    private const string PreferenceQuery = "RETURN EXISTS { MATCH (p:Preference) WHERE p.owner_id IS NULL } AS shared";
+    internal const string EntityQuery = "RETURN EXISTS { MATCH (e:Entity {owner_key: '*'}) } AS shared";
+    internal const string FactQuery = "RETURN EXISTS { MATCH (f:Fact {owner_key: '*'}) } AS shared";
+    internal const string PreferenceQuery = "RETURN EXISTS { MATCH (p:Preference) WHERE p.owner_id IS NULL } AS shared";
 
     private readonly INeo4jTransactionRunner _tx;
     private readonly IMemoryStoreContext? _store;
@@ -62,4 +62,16 @@ internal sealed class Neo4jSharedCorpusProbe : ISharedCorpusProbe
     }
 
     public void Saw(SharedKind kind) => _answers[(_store?.ApplicationId, kind)] = (true, _time.GetUtcNow() + SomeFor);
+
+    /// <summary>
+    /// PERF-R07-ORDER: the telemetry name of one of the probe's queries, else null. The probe's text is its own, not a
+    /// <c>*Queries</c> constant, so without this its reads would be three anonymous structural names.
+    /// </summary>
+    internal static string? FingerprintOf(string cypher) => cypher switch
+    {
+        EntityQuery => "SharedCorpusProbe.Entity",
+        FactQuery => "SharedCorpusProbe.Fact",
+        PreferenceQuery => "SharedCorpusProbe.Preference",
+        _ => null,
+    };
 }

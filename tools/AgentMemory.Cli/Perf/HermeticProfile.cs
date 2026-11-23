@@ -491,8 +491,8 @@ public sealed class HermeticProfile : IAsyncDisposable
             if (delay <= TimeSpan.Zero) return;
 
             await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
-            PerfCollector.Current?.Add("injected.database_delay.calls");
-            PerfCollector.Current?.Add(
+            PerfCollector.ChargeToTurn("injected.database_delay.calls");
+            PerfCollector.ChargeToTurn(
                 "injected.database_delay.ms",
                 checked((long)delay.TotalMilliseconds));
         }

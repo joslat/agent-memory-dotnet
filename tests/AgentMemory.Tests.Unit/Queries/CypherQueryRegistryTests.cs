@@ -214,6 +214,17 @@ public sealed class CypherQueryRegistryTests
         CypherQueryRegistry.FingerprintFor(NodeDistanceQueries.DistanceToCandidates)
             .Should().NotBe("FactQueries.GetFactsSharingAliasedEntities");
 
+    /// <summary>
+    /// PERF-R07-ORDER: the shared-corpus probe asks again, once per kind, when its cached answer expires. Named, a
+    /// measured turn can tell those timed reads from the recall's own; anonymous, they read as three unknown queries.
+    /// </summary>
+    [Theory]
+    [InlineData(AgentMemory.Neo4j.Services.Neo4jSharedCorpusProbe.EntityQuery, "SharedCorpusProbe.Entity")]
+    [InlineData(AgentMemory.Neo4j.Services.Neo4jSharedCorpusProbe.FactQuery, "SharedCorpusProbe.Fact")]
+    [InlineData(AgentMemory.Neo4j.Services.Neo4jSharedCorpusProbe.PreferenceQuery, "SharedCorpusProbe.Preference")]
+    public void FingerprintFor_NamesTheSharedCorpusProbe(string cypher, string expected) =>
+        CypherQueryRegistry.FingerprintFor(cypher).Should().Be(expected);
+
     // ── No duplicate names ──
 
     [Fact]

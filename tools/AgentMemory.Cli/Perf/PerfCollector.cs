@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using AgentMemory.Abstractions.Diagnostics;
 
@@ -45,6 +46,7 @@ public sealed class PerfCollector : IDisposable
             ShouldListenTo = source => source.Name == AgentMemoryDiagnostics.SourceName,
             // AllDataAndRecorded: we need tags (db.mode) and durations, not just the fact of a span.
             Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStarted = OnActivityStarted,
             ActivityStopped = OnActivityStopped,
         };
         ActivitySource.AddActivityListener(_listener);
@@ -93,6 +95,17 @@ public sealed class PerfCollector : IDisposable
         public void Dispose() => Volatile.Write(ref owner._backgroundTarget, null);
     }
 
+    /// <summary>
+    /// Adds to the current turn's counter <paramref name="name"/>, for harness counters that no span carries (the
+    /// injected database delay). PERF-R07-ORDER: not under a <c>memory.background.*</c> span, whose work runs in the
+    /// turn's async context without being the turn's, the same rule its spans follow.
+    /// </summary>
+    public static void ChargeToTurn(string name, long value = 1)
+    {
+        if (Activity.Current is { } activity && UnderBackgroundSpan(activity)) return;
+        Current?.Add(name, value);
+    }
+
     // Any memory.background.* span: the queued read notes, and (PERF-R07-ORDER) the owner counts refreshed after 30 s.
     private static bool UnderBackgroundSpan(Activity activity)
     {
@@ -100,6 +113,20 @@ public sealed class PerfCollector : IDisposable
             if (current.OperationName.StartsWith("memory.background.", StringComparison.Ordinal)) return true;
         return false;
     }
+
+    // PERF-R07-ORDER: a query span is started with its transaction's context as the parent, not the transaction
+    // Activity, so its Parent chain ends at itself. Background work's span ids are kept from their start, and a span
+    // whose parent id is one of them is background too; each id is dropped when its span stops.
+    private readonly ConcurrentDictionary<ActivitySpanId, byte> _backgroundSpanIds = new();
+
+    private void OnActivityStarted(Activity activity)
+    {
+        if (UnderBackgroundSpan(activity) || _backgroundSpanIds.ContainsKey(activity.ParentSpanId))
+            _backgroundSpanIds.TryAdd(activity.SpanId, 0);
+    }
+
+    private bool IsBackground(Activity activity) =>
+        _backgroundSpanIds.TryRemove(activity.SpanId, out _) || UnderBackgroundSpan(activity);
 
     private void OnBackgroundActivityStopped(Activity activity)
     {
@@ -125,7 +152,7 @@ public sealed class PerfCollector : IDisposable
 
     private void OnActivityStopped(Activity activity)
     {
-        if (UnderBackgroundSpan(activity))
+        if (IsBackground(activity))
         {
             OnBackgroundActivityStopped(activity);
             return;
