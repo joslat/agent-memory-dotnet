@@ -22,6 +22,8 @@ internal static class IdentityRelationCue
         ["mother"] = "mother", ["mom"] = "mother", ["mum"] = "mother", ["mama"] = "mother", ["mommy"] = "mother",
         ["father"] = "father", ["dad"] = "father", ["papa"] = "father", ["daddy"] = "father",
         ["sister"] = "sister", ["sis"] = "sister", ["brother"] = "brother", ["bro"] = "brother",
+        // IDENTITY-HARD-CASES A2: "X's parents, A and B" (whos-who-v2: a partner's mother read as known as nothing).
+        ["parent"] = "parent", ["parents"] = "parent",
         ["son"] = "son", ["daughter"] = "daughter", ["niece"] = "niece", ["nephew"] = "nephew",
         ["aunt"] = "aunt", ["auntie"] = "aunt", ["uncle"] = "uncle", ["cousin"] = "cousin",
         ["grandmother"] = "grandmother", ["grandma"] = "grandmother", ["granny"] = "grandmother", ["nana"] = "grandmother",
@@ -93,12 +95,16 @@ internal static class IdentityRelationCue
             // Up to two words after "my": the relation may follow one other word ("my little niece"), so both are looked up.
             // Before the name, only the word next to it is the relation: "my brother and Valentina" says nothing about her.
             const string two = @"(?<a>[\p{L}-]+)(?:\s+(?<b>[\p{L}-]+))?";
+            // One other name before this one in a list ("Iker and Marta").
+            const string listed = @"(?:[\p{L}\p{M}]+\s+(?:and|&)\s+)?";
             var patterns = new List<string>
             {
                 $@"\b(?:my|our)\s+(?:[\p{{L}}-]+\s+)?(?<a>[\p{{L}}-]+)\s+{n}\b",
                 $@"\b{n}\s*,\s*(?:my|our)\s+{two}",
                 $@"\b{n}\s+(?:is|was)\s+(?:my|our)\s+{two}",
                 $@"\b{n}\s*\(\s*(?:my|our)\s+{two}",
+                // IDENTITY-HARD-CASES A2: an apposition or a list after the relation ("my mum, Marta", "my parents, Iker and Marta").
+                $@"\b(?:my|our)\s+(?<a>[\p{{L}}-]+)\s*,\s*{listed}{n}\b",
             };
             if (describes)
                 patterns.AddRange(
@@ -106,6 +112,10 @@ internal static class IdentityRelationCue
                     $@"\b[\p{{L}}]+['’]s\s+(?:[\p{{L}}-]+\s+)?(?<a>[\p{{L}}-]+)\s+{n}\b",
                     $@"\b(?<a>[\p{{L}}-]+)\s+(?:is\s+)?(?:also\s+)?(?:called|named)\s+{n}\b",
                     $@"\b{n}\s+(?:is|was)\s+(?:the|a|an)\s+{two}",
+                    // IDENTITY-HARD-CASES A2: someone else's relation given before a list or an apposition ("Tomás's
+                    // parents, Iker and Marta", "her sister, Marta"), and after a pronoun ("her sister Marta").
+                    $@"\b(?:[\p{{L}}]+['’]s|his|her|their)\s+(?<a>[\p{{L}}-]+)\s*,\s*{listed}{n}\b",
+                    $@"\b(?:his|her|their)\s+(?:[\p{{L}}-]+\s+)?(?<a>[\p{{L}}-]+)\s+{n}\b",
                 ]);
             foreach (var pattern in patterns)
                 foreach (Match m in Regex.Matches(text, pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(50)))
@@ -183,5 +193,14 @@ internal static class IdentityRelationCue
     /// another: the two do not describe one person. Nothing known on either side is no disagreement.
     /// </summary>
     public static bool Disagree(IReadOnlySet<string> turn, IReadOnlySet<string> known) =>
-        turn.Count > 0 && known.Count > 0 && !turn.Overlaps(known);
+        turn.Count > 0 && known.Count > 0 && !turn.Any(said => known.Any(was => Compatible(said, was)));
+
+    /// <summary>A relation and the broader one it is a case of: a mother is a parent ("Tomás's parents" may include "my mum").</summary>
+    private static readonly Dictionary<string, string> Broader = new(StringComparer.Ordinal)
+    {
+        ["mother"] = "parent", ["father"] = "parent",
+    };
+
+    private static bool Compatible(string a, string b) =>
+        a == b || Broader.GetValueOrDefault(a) == b || Broader.GetValueOrDefault(b) == a;
 }

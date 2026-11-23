@@ -222,6 +222,52 @@ public sealed class IdentityWriterReferenceTests
         decision.Diagnostics.Should().Contain("writer_reference_confirmed");
     }
 
+    /// <summary>
+    /// IDENTITY-HARD-CASES A2: in whos-who-v2 every run merged two people of one first name, one met as a partner's parent
+    /// ("X's parents, A and B"), the other as the owner's boss: the writer referred the boss to the stored parent and the
+    /// guard read the parent as known as nothing (no "parent" in its words, no reading of the list form). A person met as
+    /// someone's parent, then called "my boss", is two descriptions; the reference stays for review.
+    /// </summary>
+    [Fact]
+    public async Task A_person_met_as_someone_s_parent_is_not_the_owner_s_boss_of_that_name()
+    {
+        var parent = Candidate("parent", "Marta", "PERSON",
+            knownAs: [.. IdentityRelationCue.FromFactsAndSources(new Entity { EntityId = "parent", Name = "Marta", Type = "PERSON",
+                Confidence = 1, CreatedAtUtc = DateTimeOffset.UnixEpoch }, [], ["Tomás's parents, Iker and Marta, live in Bilbao."])]);
+
+        var decision = await Plan(new() { EntityId = "parent", Quote = "Marta" }, [parent], withModel: false, type: "PERSON",
+            text: "My boss Marta put my name forward for the project.", name: "Marta");
+
+        decision.Status.Should().NotBe(IdentityDecisionKind.Confirmed);
+        decision.Diagnostics.Should().Contain("writer_reference_relation_conflict");
+    }
+
+    [Theory]
+    [InlineData("My mum Marta called me today.")]
+    [InlineData("My mother, Marta, called me today.")]
+    public async Task A_person_met_as_a_parent_may_still_be_the_owner_s_mother(string text)
+    {
+        var parent = Candidate("parent", "Marta", "PERSON", knownAs: ["parent"]);
+
+        var decision = await Plan(new() { EntityId = "parent", Quote = "Marta" }, [parent], withModel: false, type: "PERSON",
+            text: text, name: "Marta");
+
+        decision.Status.Should().Be(IdentityDecisionKind.Confirmed, "a mother is a parent: no disagreement");
+    }
+
+    [Theory]
+    [InlineData("Tomás's parents, Iker and Marta, live in Bilbao.", "Marta", "parent")]
+    [InlineData("Tomás's parents, Iker and Marta, live in Bilbao.", "Iker", "parent")]
+    [InlineData("Her sister, Marta, lives in Bilbao.", "Marta", "sister")]
+    public void A_relation_given_to_a_list_or_an_apposition_is_read(string text, string name, string relation) =>
+        IdentityRelationCue.InText(text, [name]).Should().Contain(relation);
+
+    [Theory]
+    [InlineData("My parents, Iker and Marta, came over.", "Marta", "parent")]
+    [InlineData("My mum, Marta, came over.", "Marta", "mother")]
+    public void The_owner_s_relation_given_as_an_apposition_is_read(string text, string name, string relation) =>
+        IdentityRelationCue.InTurn(text, [name]).Should().Contain(relation);
+
     [Theory]
     [InlineData(null)]
     [InlineData("Lives in Rosario and likes tango")]
