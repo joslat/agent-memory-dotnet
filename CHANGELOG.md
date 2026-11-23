@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A pack whose bundle is gone, or no longer opens, can still be removed: `KnowledgePackImporter.RemoveByIdAsync(packId)`
+  reads what the store holds of the id (the labels it owns in the SDK namespace ledger and the live records it wrote) and
+  closes them in one transaction with the checks a removal by manifest makes; history and schema stay, as before. A host
+  could only remove a pack by its manifest, so a pack whose stored archive was lost stayed open for good
+  (PACK-REMOVE-MISSING-ARCHIVE). Additive: `IKnowledgePackStore.RemoveByIdAsync` has a default that says the store removes
+  by manifest only; `Neo4jKnowledgePackStore` implements it.
+
 - Pack operations say what failed. An import, removal, erasure, local-copy mount or detach that fails carries a
   `PackFailure` on the exception it throws, whose type does not change: the pack id, version and digest, the
   operation, the step (`schema`, `records`, `meaning_index`, ...) and a stable code such as

@@ -161,6 +161,17 @@ public sealed class KnowledgePackTests
         store.Imports.Should().Be(1);
     }
 
+    [Fact]
+    public async Task TheImporterRemovesByAValidIdOnlyAndAStoreThatCannotSaysSoAtItsStep()
+    {
+        var importer = new KnowledgePackImporter(new Store { State = new() { PackId = "io.example.packs.lost" } });
+        await FluentActions.Awaiting(() => importer.RemoveByIdAsync("not a pack id")).Should().ThrowAsync<ArgumentException>();
+
+        // A store that removes by manifest only says so; the failure names the pack, the operation and the step.
+        var refused = await FluentActions.Awaiting(() => importer.RemoveByIdAsync("io.example.packs.lost")).Should().ThrowAsync<NotSupportedException>();
+        PackFailure.Of(refused.Which).Should().BeEquivalentTo(new { Code = "pack.remove.store.failed", PackId = "io.example.packs.lost", Version = (string?)null });
+    }
+
     private sealed class Store : IKnowledgePackStore
     {
         public required KnowledgePackState State { get; init; }

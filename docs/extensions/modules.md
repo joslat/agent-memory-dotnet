@@ -795,6 +795,15 @@ A pack's schema names belong to the pack id that first claimed them, and a remov
 another id that declares the same names is refused at `schema`, and the refusal names the owner:
 `Namespace is owned by another module (io.agentmemory.packs.martialarts): MartialArtsKata`.
 
+A host whose copy of a pack is gone, or no longer opens, removes it by its id:
+`KnowledgePackImporter.RemoveByIdAsync(packId)` (and `IKnowledgePackStore.RemoveByIdAsync`, which a store other than
+`Neo4jKnowledgePackStore` may leave unsupported) reads what the store itself holds of the id, the labels it owns in the
+SDK namespace ledger and the live records it wrote under them, and closes them in one transaction with the checks a
+removal by manifest makes: each key locked in key order and checked against its record. The end state is a removal's:
+history and schema stay, and the closed records' vectors go. An id with schema steps still `applying` is refused at
+`records` (`pack.remove.records.refused`), as a removal by manifest refuses it; an id the store holds nothing of closes
+nothing and writes nothing.
+
 ## Admission before module selection
 
 Derived Agent Framework adapters can use `AdmitMemoryItem(category, text)` to evaluate an

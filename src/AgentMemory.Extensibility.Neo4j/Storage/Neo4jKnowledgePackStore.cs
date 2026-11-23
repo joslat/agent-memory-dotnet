@@ -98,6 +98,26 @@ public sealed class Neo4jKnowledgePackStore : IKnowledgePackStore
         return removed;
     }
 
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Reads the labels the id owns in the SDK namespace ledger and the live records it wrote under them, and closes them in one
+    /// transaction with the checks a removal by manifest makes. Pending or unfinished schema steps of the id are refused, as a
+    /// removal by manifest refuses them. An id that owns no name here closes nothing and writes nothing.
+    /// </remarks>
+    public async Task<KnowledgePackImportResult> RemoveByIdAsync(string packId, DateTimeOffset atUtc, CancellationToken cancellationToken = default)
+    {
+        if (!ModuleIdentity.IsValidModuleId(packId)) throw new ArgumentException("Expected a pack id.", nameof(packId));
+        Task<T> Step<T>(string step, Func<Task<T>> work) =>
+            PackOperationTrace.StepAsync(PackOperations.Remove, step, packId, null, null, work, cancellationToken, RefusalKind);
+        var closed = await Step(PackSteps.Records, () => PackOwnership.RemoveByIdAsync(_runner, packId, atUtc.ToUniversalTime(), cancellationToken))
+            .ConfigureAwait(false);
+        if (closed is null) return new KnowledgePackImportResult { PackId = packId };
+        // Closed records keep no vector (feature 19), however they were closed.
+        await Step(PackSteps.MeaningForget, async () => { await PackMeaning.ForgetClosedAsync(_runner, cancellationToken).ConfigureAwait(false); return true; })
+            .ConfigureAwait(false);
+        return closed;
+    }
+
     /// <summary>Applies the pack's derived schema; a problem the migrator finds is a refusal, not a database failure.</summary>
     private async Task<bool> ApplySchemaAsync(ModuleResolution resolution, string packId, CancellationToken cancellationToken)
     {

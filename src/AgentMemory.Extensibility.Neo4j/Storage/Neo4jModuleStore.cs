@@ -503,7 +503,7 @@ public sealed class Neo4jModuleStore : IModuleStore
         JsonValueKind.Number when value.TryGetInt64(out var integer) => integer,
         JsonValueKind.Number => value.GetDouble(), _ => throw new ModuleRecordRefusal("Unsupported stored scalar.")
     };
-    private static string KeyId(string module, string type, string? owner, string key) => "module:" +
+    internal static string KeyId(string module, string type, string? owner, string key) => "module:" +
         Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new[] { module, type, owner, key }))).ToLowerInvariant();
     private static ProposalOutcome Outcome(int index, ProposalWriteStatus status, string? id) => new() { Index = index, Status = status, RecordId = id };
     private static IReadOnlyList<ProposalOutcome> Refused(IReadOnlyList<AdmittedModuleProposal> proposals, string error) =>

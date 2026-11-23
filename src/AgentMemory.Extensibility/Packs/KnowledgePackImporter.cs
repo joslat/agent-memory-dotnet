@@ -25,6 +25,14 @@ public interface IKnowledgePackStore
     Task<KnowledgePackImportResult> RemoveAsync(ModuleManifest pack, DateTimeOffset atUtc, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Closes every live record of a pack read from what the store itself holds of its id, without its manifest: for a pack whose
+    /// bundle is gone or cannot be opened (PACK-REMOVE-MISSING-ARCHIVE). The end state is the one <see cref="RemoveAsync"/>
+    /// leaves: history and schema stay, and an id the store holds nothing of closes nothing.
+    /// </summary>
+    Task<KnowledgePackImportResult> RemoveByIdAsync(string packId, DateTimeOffset atUtc, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("This store removes a pack by its manifest only.");
+
+    /// <summary>
     /// Applies verified erasures (feature 08, R-CORE-133) in one transaction: every version of each erased record is removed, and a
     /// tombstone of it is kept (the pack, the type, the salt and the key's hash, never the key), so no later import writes it again.
     /// </summary>
@@ -170,6 +178,27 @@ public sealed class KnowledgePackImporter
         {
             var result = await _store.RemoveAsync(pack, _clock.GetUtcNow(), cancellationToken).ConfigureAwait(false);
             trace.Completed($"{result.Closed} closed");
+            return result;
+        }
+        catch (Exception error)
+        {
+            trace.Failed(error, cancellationToken);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Closes every live record of a pack from what the store holds of its id, for a pack whose bundle is gone or cannot be opened
+    /// (see <see cref="IKnowledgePackStore.RemoveByIdAsync"/>). A host that still has the verified pack removes it by its manifest.
+    /// </summary>
+    public async Task<KnowledgePackImportResult> RemoveByIdAsync(string packId, CancellationToken cancellationToken = default)
+    {
+        if (!ModuleIdentity.IsValidModuleId(packId)) throw new ArgumentException("Expected a pack id.", nameof(packId));
+        using var trace = PackOperationTrace.Start(PackOperations.Remove, packId, version: null, digest: null, _logger);
+        try
+        {
+            var result = await _store.RemoveByIdAsync(packId, _clock.GetUtcNow(), cancellationToken).ConfigureAwait(false);
+            trace.Completed($"{result.Closed} closed, by id");
             return result;
         }
         catch (Exception error)
