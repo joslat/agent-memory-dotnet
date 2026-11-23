@@ -228,4 +228,22 @@ public sealed class IdentityKindsTier2Tests
         Checks.Forbidden(dog, "Known facts: Luna is four; Clara's cat is a grey Persian").Should().Contain(f => f.Found);
         Checks.Forbidden(dog, "Known facts: Luna is four; Luna had knee surgery").Should().OnlyContain(f => !f.Found);
     }
+
+    /// <summary>
+    /// IKB-SCORER-MUSTNOT-SCOPE (found by IKB-TIER2-RERUN): gold v1's niece question forbids "Madrid" anywhere, so the
+    /// company's own fact ("Brisa Labs opened an office in Madrid") counted as the designer's namesake fact. A forbidden
+    /// fact is already every group of its mentions in one prompt item, so a gold v2 scopes it to the namesake by adding
+    /// her names as a second group; no scorer change is needed, and v1 stays frozen as it is.
+    /// </summary>
+    [Fact]
+    public void A_forbidden_fact_scoped_to_the_namesake_ignores_the_same_word_in_another_thing_s_fact()
+    {
+        var niece = WhosWho.Questions.Single(q => q.Id == "niece");
+        var scoped = niece with { MustNot = [new([["Madrid"], ["Valentina", "Vale"]])] };
+        const string company = "Known facts: Valentina started school; Brisa Labs opened an office in Madrid";
+
+        Checks.Forbidden(niece, company).Should().Contain(f => f.Found, "v1 counts the word anywhere, as frozen");
+        Checks.Forbidden(scoped, company).Should().OnlyContain(f => !f.Found);
+        Checks.Forbidden(scoped, "Known facts: Valentina moved to the Madrid office").Should().Contain(f => f.Found);
+    }
 }
