@@ -804,6 +804,26 @@ history and schema stay, and the closed records' vectors go. An id with schema s
 `records` (`pack.remove.records.refused`), as a removal by manifest refuses it; an id the store holds nothing of closes
 nothing and writes nothing.
 
+A removal keeps the names by design, so a pack that comes back under a new id stays refused until an operator moves
+them (decision D-06: transfer, never automatic). `KnowledgePackImporter.TransferAsync(fromPackId, newPack, actor)` moves
+what the store holds of the removed id to the verified pack's id, as the `transfer` operation. It checks first, reading
+only, and is refused at `validate` (`pack.transfer.validate.refused`), every problem named, unless the old id has no
+live record, its labels hold only shared records it wrote, its names are owned and its schema steps applied, the new id
+holds no name, schema step, live record or tombstone here, and the new pack declares every name the old id owns and
+every step it applied as the same statement. Then one transaction takes the SDK migration lock, checks again, reads the
+old id's records and their walk (every relationship of every record: its type, its direction and the node at the other
+end), attributes every version to the new id (ids, keys, provenance and relationships stay; each record keeps the id
+that wrote it in `source_pack_transferred_from`), moves the old id's erasure tombstones so an erased record is not
+written again under the new id, and reads the counts and the walk again. Only when they are the same do the namespace
+claims and the applied schema steps move to the new id, with the transfer's own ledger row (see
+[module-bookkeeping](module-bookkeeping.md#semantics)). Last, the new pack's own migration plan runs in the same
+transaction. A count or a walk that differs, or any problem the plan finds, undoes all of it, refused at `records`
+(`pack.transfer.records.refused`). The log line names the old id, the actor and what moved. Nothing is purged: the old
+versions stay closed with their ids and links, and a read of a key's history returns them with the new pack's. Their
+version keys (`ModuleKey`) stay under the old id, so the new pack's records get keys of their own; owner-scoped data,
+such as a brain's local copy of the old pack, is not touched. Run it while no host imports either pack: an import that
+read the ledger before the transfer committed still writes under the id it read.
+
 ## Admission before module selection
 
 Derived Agent Framework adapters can use `AdmitMemoryItem(category, text)` to evaluate an

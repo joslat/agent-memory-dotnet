@@ -107,6 +107,8 @@ public static class PackOperations
     public const string Mount = "mount";
     /// <summary>Detaching a pack's local copy from one brain and owner.</summary>
     public const string Detach = "detach";
+    /// <summary>Transferring a removed pack id's schema names, records and tombstones to a new pack id.</summary>
+    public const string Transfer = "transfer";
 }
 
 /// <summary>The steps inside a pack operation a <see cref="PackFailure"/> names.</summary>

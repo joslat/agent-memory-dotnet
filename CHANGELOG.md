@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A pack that comes back under a new id can take the names its removed old id owns, when an operator says so:
+  `KnowledgePackImporter.TransferAsync(fromPackId, newPack, actor)` (PACK-NAME-TAKEOVER, decision D-06). A removal keeps
+  a pack's schema names by design, so the packs that moved from `io.agentmemory.*` to new ids were refused with
+  `Namespace is owned by another module`, and still are until the transfer is asked for. It is refused, with nothing
+  changed, unless the old id has no live record and the new id holds nothing yet, and the new pack declares every name
+  and schema step the old id owns as it was. One transaction then attributes the old records, every version and all
+  closed, to the new id (each keeps the old id in `source_pack_transferred_from`; ids, provenance and links stay),
+  moves the old id's erasure tombstones so an erased record stays erased, checks that the records' counts and walk
+  are the same, moves the names and the applied schema steps, records who and when in the SDK ledger, and runs the new
+  pack's own migration plan; any difference undoes all of it. The history is kept, not purged. Additive:
+  `IKnowledgePackStore.TransferAsync` has a default that says the store does not transfer; `Neo4jKnowledgePackStore`
+  implements it; `PackOperations.Transfer` and `KnowledgePackTransferResult` are new.
+
 - A pack whose bundle is gone, or no longer opens, can still be removed: `KnowledgePackImporter.RemoveByIdAsync(packId)`
   reads what the store holds of the id (the labels it owns in the SDK namespace ledger and the live records it wrote) and
   closes them in one transaction with the checks a removal by manifest makes; history and schema stay, as before. A host
@@ -136,6 +149,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   does not keeps its own `ReadAsync`.
 
 ### Upgrading
+
+- **`source_pack_transferred_from` is now a reserved record property.** A module or pack that declares a property of
+  that name is refused by validation, as for the other `source_*` names; rename it. A store where a pack under a new id
+  is refused with `Namespace is owned by another module (<old id>)` can now take the names with
+  `KnowledgePackImporter.TransferAsync` once the old id is removed; nothing happens to a store until that is asked for.
 
 - **The embedding cache is on unless you set it.** A host that serves several people from one container without
   strict multi-tenant isolation now caches embeddings by text across them. To keep the 2.3 behaviour, set

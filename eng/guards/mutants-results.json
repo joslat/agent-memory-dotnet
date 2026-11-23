@@ -1,6 +1,6 @@
 {
  "format": "agentmemory.guards.mutants-results/2",
- "commit": "cb037635",
+ "commit": "39a23bc2",
  "results": [
   {
    "id": "archive-ratio",
@@ -1257,7 +1257,7 @@
    "door": "install",
    "mutant_sha256": "616629a22d14757a9bf05131276f7e26dd974587d93d3bbe10f92c1d15695f3a",
    "killed": true,
-   "file_sha256": "5ce9da197e3ee16187e05e332083a5a26954e0c1842a7d56353557c585455c37",
+   "file_sha256": "a6a01a8c22da74a7e8e4bb01e573bf3f3c2bcd49260901077489db3a7c336455",
    "failed": [
     "ErasureTests.A_loaded_packs_import_applies_the_erasures_it_carries_first",
     "ErasureTests.An_import_applies_the_erasures_that_name_its_pack_before_it_writes"
@@ -2228,11 +2228,11 @@
    "door": "definition",
    "mutant_sha256": "74e8d611a8db9758639fa4d24e2936690c27d03cacb7a4098c561d0b04fa7b31",
    "killed": true,
-   "file_sha256": "fe296d5bdff661de2448bdb6e1257e5a4648622da7b3400123d2c76102cebe2c",
+   "file_sha256": "47ad60d7761318cd960bffaad6a0537e03e489feb07f16820da36cba700ba638",
    "failed": [
     "ConfidenceTests.Nothing_but_the_importer_writes_a_confidence_and_a_module_cannot_declare_its_stored_name"
    ],
-   "seconds": 10
+   "seconds": 9
   },
   {
    "id": "derivation-confidence-unbounded",
@@ -2504,7 +2504,7 @@
    "door": "install",
    "mutant_sha256": "65da3da3aee6feaf198d7160dec381057524854fdb608b51544b26103c5b8936",
    "killed": true,
-   "file_sha256": "dfaf7b58e03ea00dd1b566a0e592fa6db11288a8273e79d4e3e8722b237830fd",
+   "file_sha256": "0170c6120f6f2adda030799e911a8d866a232a63eec06cac99f7e78e5b2be8ee",
    "failed": [
     "ModuleRecordWriteIntegrationTests.APackSearchedByMeaningFindsAReworded_question_LeavesItsRecordsAsTheyWere_AndClosedRecordsKeepNoVector"
    ],

@@ -45,6 +45,13 @@ handwritten progress is refused because replay could repeat a non-idempotent upd
 extension neither authorizes module code nor runs migrations. Empty default extension configuration
 retains the existing effective base schema; no module label or query is introduced to that path.
 
+An explicit pack name transfer (`KnowledgePackImporter.TransferAsync`, see
+[modules](modules.md#pack-operation-telemetry-and-failures)) changes ledger rows in one transaction under the same SDK
+lock: the namespace claims a removed pack id owns get the new `owner_module_id`, its applied script rows get the new
+`module_id`, and one row under the SDK identity records the transfer: key `transfer/{from}/{to}/{time}`, state
+`transferred`, `owner_module_id` the new owner, `actor` and `applied_actor` who asked, `started_at` and `applied_at` when.
+No migration plan reads that row as a script or a claim.
+
 For schema-owner reporting, request `module-bookkeeping` through `Neo4jOptions.Extensions` or the
 CLI's existing extension selection. This selects declared schema metadata, not a background writer.
 

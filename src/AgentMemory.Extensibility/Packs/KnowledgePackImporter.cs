@@ -33,6 +33,19 @@ public interface IKnowledgePackStore
         throw new NotSupportedException("This store removes a pack by its manifest only.");
 
     /// <summary>
+    /// Transfers what the store holds of a removed pack id to a new pack id (PACK-NAME-TAKEOVER, decision D-06): the schema names
+    /// the old id owns, its records (every version, all closed: history is kept, each record keeps the id that wrote it in
+    /// <c>source_pack_transferred_from</c>) and its erasures' tombstones. One explicit operator action, never automatic: it is
+    /// refused, with nothing changed, unless the old id has no live record, the new id holds nothing yet and the new pack declares
+    /// every name the old id owns with the same schema; and it is undone, with nothing changed, unless the records' counts and
+    /// walk are the same after the move and the new pack's schema owns the names without a problem. A record of the store marks
+    /// who transferred what and when.
+    /// </summary>
+    Task<KnowledgePackTransferResult> TransferAsync(string fromPackId, ModuleManifest to, string actor, DateTimeOffset atUtc,
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("This store does not transfer pack names.");
+
+    /// <summary>
     /// Applies verified erasures (feature 08, R-CORE-133) in one transaction: every version of each erased record is removed, and a
     /// tombstone of it is kept (the pack, the type, the salt and the key's hash, never the key), so no later import writes it again.
     /// </summary>
@@ -70,6 +83,30 @@ public sealed record KnowledgePackImportResult
     public int Unchanged { get; init; }
     /// <summary>Live records closed: gone from this version, or removed with the pack.</summary>
     public int Closed { get; init; }
+}
+
+/// <summary>What a transfer of a removed pack id's names to a new id moved (see <see cref="IKnowledgePackStore.TransferAsync"/>).</summary>
+[Experimental("AMEXT001")]
+public sealed record KnowledgePackTransferResult
+{
+    /// <summary>The removed pack id the names came from.</summary>
+    public required string FromPackId { get; init; }
+    /// <summary>The pack id that owns them now.</summary>
+    public required string ToPackId { get; init; }
+    /// <summary>Who asked for the transfer, as the store records it.</summary>
+    public required string Actor { get; init; }
+    /// <summary>When the store recorded it.</summary>
+    public required DateTimeOffset AtUtc { get; init; }
+    /// <summary>Schema names (the label prefix, labels, relationship types and schema objects) whose owner is now the new id.</summary>
+    public int Names { get; init; }
+    /// <summary>Applied schema steps now recorded under the new id.</summary>
+    public int SchemaSteps { get; init; }
+    /// <summary>Records, every version and all closed, now attributed to the new id.</summary>
+    public int Records { get; init; }
+    /// <summary>Relationships of those records, the same before and after the move.</summary>
+    public int Relationships { get; init; }
+    /// <summary>Tombstones of erased records that now block the new id's imports too.</summary>
+    public int Tombstones { get; init; }
 }
 
 /// <summary>
@@ -199,6 +236,32 @@ public sealed class KnowledgePackImporter
         {
             var result = await _store.RemoveByIdAsync(packId, _clock.GetUtcNow(), cancellationToken).ConfigureAwait(false);
             trace.Completed($"{result.Closed} closed, by id");
+            return result;
+        }
+        catch (Exception error)
+        {
+            trace.Failed(error, cancellationToken);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Transfers the schema names, records and tombstones a removed pack id holds to a verified pack under a new id, so that pack
+    /// can be imported (PACK-NAME-TAKEOVER, decision D-06; see <see cref="IKnowledgePackStore.TransferAsync"/>). An explicit
+    /// operator action, never automatic: <paramref name="actor"/> names who asked, and the store and the log line keep it.
+    /// </summary>
+    public async Task<KnowledgePackTransferResult> TransferAsync(string fromPackId, KnowledgePack to, string actor, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(to);
+        if (!ModuleIdentity.IsValidModuleId(fromPackId)) throw new ArgumentException("Expected a pack id.", nameof(fromPackId));
+        if (fromPackId == to.Id) throw new ArgumentException("A pack's names are transferred to another pack id.", nameof(fromPackId));
+        if (string.IsNullOrWhiteSpace(actor)) throw new ArgumentException("An explicit actor is required.", nameof(actor));
+        using var trace = PackOperationTrace.Start(PackOperations.Transfer, to.Id, to.Version, to.Digest, _logger);
+        try
+        {
+            var result = await _store.TransferAsync(fromPackId, to.Manifest, actor, _clock.GetUtcNow(), cancellationToken).ConfigureAwait(false);
+            trace.Completed($"the names of {result.FromPackId} transferred by {result.Actor}: {result.Names} names, {result.SchemaSteps} schema steps, "
+                + $"{result.Records} records, {result.Relationships} relationships, {result.Tombstones} tombstones");
             return result;
         }
         catch (Exception error)

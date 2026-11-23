@@ -118,6 +118,29 @@ public sealed class Neo4jKnowledgePackStore : IKnowledgePackStore
         return closed;
     }
 
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Checked first, reading only (a refusal at <c>validate</c> names every problem), then moved in one transaction under the SDK
+    /// migration lock that checks again, reads the old id's records and their walk, attributes them to the new id, moves its
+    /// tombstones, reads the counts and the walk again, switches the names and the applied schema steps, records the transfer in
+    /// the SDK ledger and runs the new pack's own migration plan; any difference or problem undoes all of it (a refusal at
+    /// <c>records</c>). Run it while no host imports either pack: an import that read the ledger before the transfer committed
+    /// still writes under the id it read.
+    /// </remarks>
+    public async Task<KnowledgePackTransferResult> TransferAsync(string fromPackId, ModuleManifest to, string actor, DateTimeOffset atUtc,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(to);
+        if (!ModuleIdentity.IsValidModuleId(fromPackId)) throw new ArgumentException("Expected a pack id.", nameof(fromPackId));
+        if (fromPackId == to.Id) throw new ArgumentException("A pack's names are transferred to another pack id.", nameof(fromPackId));
+        if (string.IsNullOrWhiteSpace(actor)) throw new ArgumentException("An explicit actor is required.", nameof(actor));
+        var transfer = new PackNameTransfer(_runner, fromPackId, KnowledgePack.ResolutionOf(to), actor, atUtc.ToUniversalTime(), _clock);
+        Task<T> Step<T>(string step, Func<Task<T>> work) =>
+            PackOperationTrace.StepAsync(PackOperations.Transfer, step, to.Id, to.Version.Value, null, work, cancellationToken, RefusalKind);
+        await Step(PackSteps.Validate, () => transfer.CheckAsync(cancellationToken)).ConfigureAwait(false);
+        return await Step(PackSteps.Records, () => transfer.MoveAsync(cancellationToken)).ConfigureAwait(false);
+    }
+
     /// <summary>Applies the pack's derived schema; a problem the migrator finds is a refusal, not a database failure.</summary>
     private async Task<bool> ApplySchemaAsync(ModuleResolution resolution, string packId, CancellationToken cancellationToken)
     {
