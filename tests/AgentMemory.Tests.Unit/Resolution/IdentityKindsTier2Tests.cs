@@ -161,6 +161,22 @@ public sealed class IdentityKindsTier2Tests
         score.Right.Should().Be(27);
     }
 
+    /// <summary>
+    /// The second paid check of 23 Nov (ikb-cover2-1, 2): the writer stored Clara's cat as "Clara's cat Luna" (PERSON, as it
+    /// types pets), and the scorer counted it as a split of Clara (T25) through the possessive's owner. A stored mention's
+    /// possessive owner is not what it names, as a key name's owner is not (A_mention_of_a_possessives_owner...).
+    /// </summary>
+    [Fact]
+    public void A_stored_mention_named_with_its_owners_possessive_is_the_owned_thing()
+    {
+        var withoutTheCat = PerfectEntities().Where(e => !e.ToString()!.Contains("e-T06", StringComparison.Ordinal)).ToArray();
+        var score = IdentityKindsScorer.Score(Key, WhosWho, Store([.. withoutTheCat, Entity("e-cat", "Clara's cat Luna", "PERSON", StatementsOf("T06"))]),
+            IdentityGoldScorer.EntitiesView);
+
+        score.Mentions.Where(m => m.Identity == "e-cat").Should().OnlyContain(m => m.Thing == "T06");
+        score.SplitThings.Should().NotContainKey("T25");
+    }
+
     [Fact]
     public void A_role_noun_still_finds_the_one_thing_of_its_type()
     {

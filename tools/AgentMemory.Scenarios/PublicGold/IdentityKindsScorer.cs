@@ -142,7 +142,7 @@ internal static class IdentityKindsScorer
         IReadOnlyDictionary<string, IdentityKindsGold.Thing> things, IReadOnlyDictionary<string, HashSet<string>> names)
     {
         if (candidates.Count == 0) return (null, "the key mentions nothing in this statement");
-        var words = Words(o.Words);
+        var words = MentionWords(o.Words);
         var kind = Kind(o.Type);
         var named = candidates.Where(c => names[c].Overlaps(words)).ToList();
         var namedAndTyped = named.Where(c => things[c].Type == kind).ToList();
@@ -168,6 +168,20 @@ internal static class IdentityKindsScorer
         name = PlaceItIsIn.Replace(name, "");
         var possessive = Possessive.Match(name);
         return possessive.Success ? Words(name).Except(Words(possessive.Value), StringComparer.Ordinal) : Words(name);
+    }
+
+    /// <summary>
+    /// A stored mention's words without a possessive's owner: "Clara's cat Luna" names the cat, not Clara (the second paid
+    /// check of 23 Nov counted it as a split of Clara). A mention that is only a possessive keeps its words.
+    /// </summary>
+    internal static HashSet<string> MentionWords(string words)
+    {
+        var all = Words(words);
+        var possessive = Possessive.Match(words);
+        if (!possessive.Success) return all;
+        var owned = new HashSet<string>(all, StringComparer.Ordinal);
+        owned.ExceptWith(Words(possessive.Value));
+        return owned.Count > 0 ? owned : all;
     }
 
     private static readonly System.Text.RegularExpressions.Regex Possessive =
