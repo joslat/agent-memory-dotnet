@@ -898,6 +898,68 @@ public sealed class MemoryWriterContractTests : IDisposable
     // "Valentina Ríos | started school | 2026" and "Valentina Ríos | is | six years old", with no entity operation, so there
     // was no reference for the guard above to refuse and the niece's facts went under the designer's name.) ──
 
+    /// <summary>
+    /// IDENTITY-HARD-CASES A4, the paid check of 24 Nov (ihc1-v2-glm-1, statement 18): a person stored by a first name only,
+    /// met as someone's parent; "My boss X, ..." answered with facts about "X" and no entity. The message holds the stored
+    /// name itself, so the guard above left it, the boss's facts went under the parent's name, and a later "the boss" was
+    /// confirmed as the parent. Such facts take the name with the message's relation, and the namesake gets an entity.
+    /// </summary>
+    [Fact]
+    public async Task Facts_about_a_namesake_the_message_names_exactly_as_the_stored_person_take_the_name_with_its_relation()
+    {
+        var parent = new Entity
+        {
+            EntityId = "identity-observation-marta", Name = "Marta", Type = "PERSON", OwnerId = "bruna", Confidence = 1,
+            SourceMessageIds = ["m-parents"], CreatedAtUtc = DateTimeOffset.UnixEpoch,
+        };
+        _messages.GetByIdAsync("m-parents", Arg.Any<CancellationToken>()).Returns(new Message
+        {
+            MessageId = "m-parents", ConversationId = "c", SessionId = "s", Role = "user",
+            Content = "Tomás's parents, Iker and Marta, live in Bilbao.", TimestampUtc = DateTimeOffset.UnixEpoch,
+        });
+        ShowStoredEntities(parent);
+        _replies.Enqueue("""
+            {"ops":[
+              {"op":"add","kind":"fact","text":"Marta | is | user's boss","quote":"My boss Marta","ref":null},
+              {"op":"add","kind":"fact","text":"Marta | put forward | user's name","quote":"put my name forward","ref":null}
+            ]}
+            """);
+
+        var result = await Write("My boss Marta put my name forward.");
+
+        _calls.Should().ContainSingle("the refusal is deterministic: no correction call");
+        result.Facts.Select(f => f.Subject).Should().Equal("Marta, user's boss", "Marta, user's boss");
+        var entity = result.Entities.Should().ContainSingle().Which;
+        entity.Name.Should().Be("Marta, user's boss");
+        entity.Type.Should().Be("PERSON");
+        entity.Reference.Should().BeNull();
+        result.Outcomes.Should().ContainSingle().Which.ErrorMessage.Should()
+            .Contain(nameof(MemoryWriterOps.DropReason.ReferenceRelationConflict)).And.Contain("boss").And.Contain("parent");
+    }
+
+    [Fact]
+    public async Task Facts_about_the_stored_person_the_message_names_with_their_own_relation_are_left_as_written()
+    {
+        var parent = new Entity
+        {
+            EntityId = "identity-observation-marta", Name = "Marta", Type = "PERSON", OwnerId = "bruna", Confidence = 1,
+            SourceMessageIds = ["m-parents"], CreatedAtUtc = DateTimeOffset.UnixEpoch,
+        };
+        _messages.GetByIdAsync("m-parents", Arg.Any<CancellationToken>()).Returns(new Message
+        {
+            MessageId = "m-parents", ConversationId = "c", SessionId = "s", Role = "user",
+            Content = "My mum, Marta, lives in Bilbao.", TimestampUtc = DateTimeOffset.UnixEpoch,
+        });
+        ShowStoredEntities(parent);
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"fact","text":"Marta | called | user","quote":"My mum Marta called","ref":null}]}""");
+
+        var result = await Write("My mum Marta called me today.");
+
+        result.Facts.Should().ContainSingle().Which.Subject.Should().Be("Marta");
+        result.Entities.Should().BeEmpty();
+        result.Outcomes.Should().BeEmpty();
+    }
+
     [Fact]
     public async Task Facts_that_name_a_stored_person_the_messages_relation_contradicts_keep_the_messages_name()
     {
