@@ -68,7 +68,7 @@ public sealed class PerfCollector : IDisposable
     /// </summary>
     public TurnScope BeginTurn(string scenario, int iteration, string phase)
     {
-        var record = new TurnRecord(scenario, iteration, phase);
+        var record = new TurnRecord(scenario, iteration, phase) { Collector = this };
         CurrentTurn.Value = record;
         _trace?.TurnStart(record);
         return new TurnScope(this, record);
@@ -107,39 +107,44 @@ public sealed class PerfCollector : IDisposable
     }
 
     // Any memory.background.* span: the queued read notes, and (PERF-R07-ORDER) the owner counts refreshed after 30 s.
-    private static bool UnderBackgroundSpan(Activity activity)
+    private static bool UnderBackgroundSpan(Activity activity) => BackgroundRoot(activity) is not null;
+
+    // The memory.background.* span a span runs under, through its Parent chain, or null.
+    private static string? BackgroundRoot(Activity activity)
     {
         for (var current = activity; current is not null; current = current.Parent)
-            if (current.OperationName.StartsWith("memory.background.", StringComparison.Ordinal)) return true;
-        return false;
+            if (current.OperationName.StartsWith("memory.background.", StringComparison.Ordinal)) return current.OperationName;
+        return null;
     }
 
     // PERF-R07-ORDER: a query span is started with its transaction's context as the parent, not the transaction
-    // Activity, so its Parent chain ends at itself. Background work's span ids are kept from their start, and a span
-    // whose parent id is one of them is background too; each id is dropped when its span stops.
-    private readonly ConcurrentDictionary<ActivitySpanId, byte> _backgroundSpanIds = new();
+    // Activity, so its Parent chain ends at itself. Background work's span ids are kept from their start with the
+    // background span they run under, and a span whose parent id is one of them inherits it; each id is dropped when its
+    // span stops.
+    private readonly ConcurrentDictionary<ActivitySpanId, string> _backgroundSpanIds = new();
 
     private void OnActivityStarted(Activity activity)
     {
-        if (UnderBackgroundSpan(activity) || _backgroundSpanIds.ContainsKey(activity.ParentSpanId))
-            _backgroundSpanIds.TryAdd(activity.SpanId, 0);
+        var root = BackgroundRoot(activity) ?? (_backgroundSpanIds.TryGetValue(activity.ParentSpanId, out var parentRoot) ? parentRoot : null);
+        if (root is not null) _backgroundSpanIds.TryAdd(activity.SpanId, root);
     }
 
-    private bool IsBackground(Activity activity) =>
-        _backgroundSpanIds.TryRemove(activity.SpanId, out _) || UnderBackgroundSpan(activity);
+    // The background span a span runs under, or null for a turn's own work.
+    private string? BackgroundOf(Activity activity) =>
+        _backgroundSpanIds.TryRemove(activity.SpanId, out var root) ? root : BackgroundRoot(activity);
 
-    private void OnBackgroundActivityStopped(Activity activity)
+    // Only the read notes are a turn's background work, counted while its notes are flushed. Other background work (the
+    // owner counts, refreshed once 30 s have passed) belongs to no turn: counted wherever a flush happened to be open, it
+    // made the gate's background counters differ from run to run (PR #274's CI).
+    private void OnBackgroundActivityStopped(Activity activity, string root)
     {
-        if (Volatile.Read(ref _backgroundTarget) is not { } target) return;
+        if (root != BackgroundSpan || Volatile.Read(ref _backgroundTarget) is not { } target) return;
         switch (activity.OperationName)
         {
             case BackgroundSpan:
                 target.Add("background.access_tracking.writes");
                 if (activity.GetTagItem("memory.background.items") is int items) target.Add("background.access_tracking.items", items);
                 if (activity.GetTagItem("memory.background.recalls") is int recalls) target.Add("background.access_tracking.recalls", recalls);
-                break;
-            case "memory.background.owner_counts":
-                target.Add("background.owner_counts.refreshes");
                 break;
             case "memory.db.tx":
                 target.Add(activity.GetTagItem("db.mode") as string == "write" ? "background.neo4j.tx.write" : "background.neo4j.tx.read");
@@ -152,13 +157,13 @@ public sealed class PerfCollector : IDisposable
 
     private void OnActivityStopped(Activity activity)
     {
-        if (IsBackground(activity))
+        if (BackgroundOf(activity) is { } root)
         {
-            OnBackgroundActivityStopped(activity);
+            OnBackgroundActivityStopped(activity, root);
             return;
         }
         var turn = CurrentTurn.Value;
-        if (turn is null) return;
+        if (turn is null || !ReferenceEquals(turn.Collector, this)) return;
 
         turn.RecordSpan(activity.OperationName, activity.Duration.TotalMilliseconds);
 

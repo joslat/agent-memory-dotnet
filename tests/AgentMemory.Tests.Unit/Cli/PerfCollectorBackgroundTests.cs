@@ -45,4 +45,31 @@ public sealed class PerfCollectorBackgroundTests
         turn.Record.Counter("neo4j.queries").Should().Be(1, "the background count's query is not the turn's");
         turn.Record.Counter("neo4j.tx.read").Should().Be(1);
     }
+
+    /// <summary>
+    /// Only the read notes a turn queued are its background work (counted while its notes are flushed). The owner counts
+    /// refreshed once 30 s have passed belong to no turn: counted wherever a flush happened to be open, they made the
+    /// perf gate's background counters change from run to run (PR #274's CI: background.neo4j.queries 1 to 3).
+    /// </summary>
+    [Fact]
+    public void A_timed_background_refresh_is_not_counted_with_the_read_notes_being_flushed()
+    {
+        using var collector = new PerfCollector();
+        TurnRecord record;
+        using (var turn = collector.BeginTurn("test", 0, "measure")) record = turn.Record;
+
+        using (collector.BackgroundFor(record))
+        {
+            using (AgentMemoryDiagnostics.Source.StartActivity("memory.background.access_tracking"))
+            using (var tx = AgentMemoryDiagnostics.Source.StartActivity("memory.db.tx"))
+            using (AgentMemoryDiagnostics.Source.StartActivity("memory.db.query", ActivityKind.Client, tx!.Context)) { }
+            using (AgentMemoryDiagnostics.Source.StartActivity("memory.background.owner_counts"))
+            using (var tx = AgentMemoryDiagnostics.Source.StartActivity("memory.db.tx"))
+            using (AgentMemoryDiagnostics.Source.StartActivity("memory.db.query", ActivityKind.Client, tx!.Context)) { }
+        }
+
+        record.Counter("background.neo4j.queries").Should().Be(1, "only the read notes' query is the turn's background work");
+        record.Counter("background.neo4j.tx.read").Should().Be(1);
+        record.Counter("background.access_tracking.writes").Should().Be(1);
+    }
 }
