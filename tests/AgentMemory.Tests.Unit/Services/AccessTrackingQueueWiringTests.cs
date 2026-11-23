@@ -76,12 +76,59 @@ public sealed class AccessTrackingQueueWiringTests
     [Fact]
     public async Task WithTheQueueOffTheDecayServiceIsWrittenInline()
     {
-        // The historical path, unchanged: awaited before the caller gets its context.
-        await Sut().RecallAsync(Request());
+        // The historical path, unchanged: awaited before the caller gets its context. Off by choice since 2.4 (DRT-5b).
+        await Sut(o => o.UseAccessTrackingQueue = false).RecallAsync(Request());
 
         await _decay.Received(1).UpdateAccessTimestampsAsync(
             Arg.Any<IReadOnlyList<(string, MemoryNodeKind)>>(), Arg.Any<CancellationToken>());
         _tracker.DidNotReceive().Track(Arg.Any<IReadOnlyList<(string, MemoryNodeKind)>>());
+        _tracker.DidNotReceive().Track(Arg.Any<IReadOnlyList<(string, MemoryNodeKind)>>(), Arg.Any<DateTimeOffset>());
+    }
+
+    // ── DRT-5b: the default, and the read time the same on both paths (T-3: read_at is the context's AssembledAtUtc) ──
+
+    private sealed class RecordingTracker : IMemoryAccessTracker
+    {
+        public List<(IReadOnlyList<(string NodeId, MemoryNodeKind Kind)> Nodes, DateTimeOffset? ReadAt)> Tracked { get; } = [];
+        public void Track(IReadOnlyList<(string NodeId, MemoryNodeKind Kind)> nodes) => Tracked.Add((nodes, null));
+        public void Track(IReadOnlyList<(string NodeId, MemoryNodeKind Kind)> nodes, DateTimeOffset readAtUtc) => Tracked.Add((nodes, readAtUtc));
+    }
+
+    private MemoryService Sut(IMemoryDecayService decay, IMemoryAccessTracker? tracker, bool queue)
+    {
+        _assembler.AssembleContextAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>()).Returns(ContextWithThreeItems());
+        return new MemoryService(
+            Substitute.For<IShortTermMemoryService>(), _assembler, Substitute.For<IMemoryExtractionPipeline>(),
+            Substitute.For<IEntityRepository>(), Substitute.For<IFactRepository>(), Substitute.For<IPreferenceRepository>(),
+            Substitute.For<IEmbeddingOrchestrator>(), Microsoft.Extensions.Options.Options.Create(new MemoryOptions { UseAccessTrackingQueue = queue }),
+            Substitute.For<TimeProvider>(), Substitute.For<IIdGenerator>(), NullLogger<MemoryService>.Instance,
+            decayService: decay, accessTracker: tracker);
+    }
+
+    [Fact]
+    public async Task The_queued_read_carries_the_contexts_assembly_time()
+    {
+        var tracker = new RecordingTracker();
+
+        await Sut(_decay, tracker, queue: true).RecallAsync(Request());
+
+        tracker.Tracked.Should().ContainSingle().Which.ReadAt.Should().Be(Stamp, "the read time is the context's, not the queue's clock");
+    }
+
+    [Fact]
+    public async Task The_awaited_read_is_recorded_with_the_contexts_assembly_time()
+    {
+        // T-2/T-3: a store that records reads with their time stores what the queue would: read_at is AssembledAtUtc.
+        var decay = Substitute.For<IMemoryDecayService, IMemoryReadRecorder>();
+        var reads = new List<MemoryRead>();
+        ((IMemoryReadRecorder)decay).RecordReadsAsync(Arg.Do<IReadOnlyList<MemoryRead>>(r => reads.AddRange(r)), Arg.Any<CancellationToken>())
+            .Returns(1);
+
+        await Sut(decay, tracker: null, queue: false).RecallAsync(Request());
+
+        reads.Should().ContainSingle().Which.ReadAtUtc.Should().Be(Stamp);
+        reads[0].Nodes.Should().HaveCount(3);
+        await decay.DidNotReceive().UpdateAccessTimestampsAsync(Arg.Any<IReadOnlyList<(string, MemoryNodeKind)>>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -89,7 +136,7 @@ public sealed class AccessTrackingQueueWiringTests
     {
         await Sut(o => o.UseAccessTrackingQueue = true).RecallAsync(Request());
 
-        _tracker.Received(1).Track(Arg.Any<IReadOnlyList<(string, MemoryNodeKind)>>());
+        _tracker.Received(1).Track(Arg.Any<IReadOnlyList<(string, MemoryNodeKind)>>(), Arg.Any<DateTimeOffset>());
         await _decay.DidNotReceive().UpdateAccessTimestampsAsync(
             Arg.Any<IReadOnlyList<(string, MemoryNodeKind)>>(), Arg.Any<CancellationToken>());
     }
@@ -106,7 +153,7 @@ public sealed class AccessTrackingQueueWiringTests
             nodes.Count == 3
             && nodes.Any(n => n.NodeId == "e1" && n.Kind == MemoryNodeKind.Entity)
             && nodes.Any(n => n.NodeId == "f1" && n.Kind == MemoryNodeKind.Fact)
-            && nodes.Any(n => n.NodeId == "p1" && n.Kind == MemoryNodeKind.Preference)));
+            && nodes.Any(n => n.NodeId == "p1" && n.Kind == MemoryNodeKind.Preference)), Arg.Any<DateTimeOffset>());
     }
 
     [Fact]
@@ -121,7 +168,7 @@ public sealed class AccessTrackingQueueWiringTests
             o.DeferAccessTracking = true;
         }).RecallAsync(Request());
 
-        _tracker.Received(1).Track(Arg.Any<IReadOnlyList<(string, MemoryNodeKind)>>());
+        _tracker.Received(1).Track(Arg.Any<IReadOnlyList<(string, MemoryNodeKind)>>(), Arg.Any<DateTimeOffset>());
     }
 
     [Fact]
