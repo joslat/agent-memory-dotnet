@@ -394,6 +394,7 @@ internal static class MemoryWriterContract
     /// </summary>
     internal static string? AlsoCalled(MemoryWriterOps.Op op, MemoryWriterOps.Stored item)
     {
+        if (Renamed(op, item) is { } renamed) return renamed;
         if (op.Kind != "entity" || op.Action != "add" || item.Letter != 'E' || op.Quote is not { } quote ||
             EntityText.Match(op.Text) is not { Success: true } said ||
             !string.Equals(said.Groups["t"].Value.Trim(), "PERSON", StringComparison.OrdinalIgnoreCase) || StoredType(item.Text) != "PERSON")
@@ -416,6 +417,36 @@ internal static class MemoryWriterContract
     /// Whether a person may be called <paramref name="name"/> as another name of a stored person: a short form of the stored
     /// name (<see cref="IsShortFormOf"/>), or a name the stored person is already shown as also called ("Pepe" for José).
     /// </summary>
+    /// <summary>Words that say a name is corrected or changed: "it's Okafor, not Okoro", "renamed it MedPath", "has a new name".</summary>
+    private static readonly Regex RenameCue = new(
+        @"\b(?:not|renamed|rebranded|new\s+name|now\s+called|now\s+named|is\s+now|spell(?:ed|ing|t)?|misspel\w*|actually|correction)\b",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// IDENTITY-HARD-CASES E (whos-who-v2, every run): "it's Ms. Okafor, not Okoro". The writer referred the corrected name to
+    /// the stored person and the contract refused a reference under another name, so the correction became a second person.
+    /// A reference under a new name is that stored entity, also called by it, when the quote says the new name, a word of
+    /// the stored one and a correction or a rename, for the kinds a reference may confirm (a person, an organisation, an
+    /// event); a place or a thing keeps the exact-name rule. Null otherwise.
+    /// </summary>
+    private static string? Renamed(MemoryWriterOps.Op op, MemoryWriterOps.Stored item)
+    {
+        if (op.Kind != "entity" || op.Action != "add" || item.Letter != 'E' || op.Quote is not { } quote ||
+            EntityText.Match(op.Text) is not { Success: true } said) return null;
+        var type = MemoryWriterOps.EntityType(said.Groups["t"].Value);
+        if (type != StoredType(item.Text) || type is not ("PERSON" or "ORGANIZATION" or "EVENT")) return null;
+        var name = said.Groups["n"].Value.Trim();
+        var stored = EntityName(item.Text);
+        if (Canonical(name) == Canonical(stored) || !RenameCue.IsMatch(quote) || !Says(quote, name)) return null;
+        var newWords = NameWord.Matches(name).Select(m => Canonical(m.Value)).ToHashSet(StringComparer.Ordinal);
+        return NameWord.Matches(stored).Select(m => m.Value)
+            .Any(word => word.Length >= 3 && !newWords.Contains(Canonical(word)) && Says(quote, word)) ? name : null;
+
+        static bool Says(string text, string words) => Regex.IsMatch(text,
+            $@"(?<![\p{{L}}\p{{M}}]){Regex.Escape(words)}(?![\p{{L}}\p{{M}}])",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(50));
+    }
+
     private static bool MayBeCalled(string name, MemoryWriterOps.Stored item) =>
         Canonical(name) != Canonical(EntityName(item.Text)) &&
         (IsShortFormOf(name, EntityName(item.Text)) || OtherNames(item).Contains(name, StringComparer.OrdinalIgnoreCase));

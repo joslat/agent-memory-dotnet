@@ -461,6 +461,46 @@ public sealed class MemoryWriterContractTests : IDisposable
         result.Outcomes.Should().BeEmpty();
     }
 
+    /// <summary>
+    /// IDENTITY-HARD-CASES E (whos-who-v2, every run): "it's Ms. Okafor, not Okoro". The writer referred the corrected name
+    /// to the stored Ms. Okoro, rightly, and the contract refused a reference under another name, so the correction became
+    /// a second person. A name the message gives in place of a stored one, saying both with a correction or a rename, is
+    /// that stored entity, also called by the new name.
+    /// </summary>
+    [Theory]
+    [InlineData("Ms. Ortega", "PERSON", "Ms. Vidal", "I've been getting her name wrong: it's Ms. Vidal, not Ortega.", "it's Ms. Vidal, not Ortega")]
+    [InlineData("Nexo Studio", "ORGANIZATION", "Brightline", "Nexo Studio has a new name: it's Brightline now.", "Nexo Studio has a new name: it's Brightline now")]
+    [InlineData("Nexo Studio", "ORGANIZATION", "Brightline", "Nexo Studio was renamed Brightline last week.", "Nexo Studio was renamed Brightline")]
+    public async Task A_stored_name_corrected_or_renamed_in_the_message_is_that_entity_also_called_by_the_new_name(
+        string stored, string type, string renamed, string message, string quote)
+    {
+        ShowStored("stored-1", stored, type);
+        _replies.Enqueue($$"""{"ops":[{"op":"add","kind":"entity","text":"{{renamed}} ({{type}})","quote":"{{quote}}","ref":"E1"}]}""");
+
+        var result = await Write(message);
+
+        _calls.Should().ContainSingle("a correction or a rename is no name mismatch to correct");
+        var entity = result.Entities.Should().ContainSingle().Which;
+        entity.Name.Should().Be(stored);
+        entity.Aliases.Should().Equal(renamed);
+        entity.Reference!.EntityId.Should().Be("stored-1");
+        result.Outcomes.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("Ms. Vidal called about the will.", "Ms. Vidal called")]                       // the stored name is not said
+    [InlineData("Ms. Vidal and Ms. Ortega both called.", "Ms. Vidal and Ms. Ortega both called")] // both said, no correction
+    public async Task Another_name_without_a_correction_or_a_rename_still_needs_the_stored_name(string message, string quote)
+    {
+        ShowStored("stored-1", "Ms. Ortega", "PERSON");
+        _replies.Enqueue($$"""{"ops":[{"op":"add","kind":"entity","text":"Ms. Vidal (PERSON)","quote":"{{quote}}","ref":"E1"}]}""");
+        _replies.Enqueue("""{"ops":[]}""");
+
+        await Write(message);
+
+        _calls.Should().HaveCount(2, "the name mismatch is corrected as before");
+    }
+
     [Fact]
     public async Task A_first_answer_with_a_description_in_brackets_is_still_asked_to_fix_its_form()
     {
