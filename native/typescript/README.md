@@ -4,8 +4,13 @@ AgentMemory's native library for Node.js (22 and later) over its C ABI (`native/
 journaled writes against Neo4j, with no .NET on the machine. The same library as the Python package `agentmemory-native`,
 through [koffi](https://koffi.dev).
 
-Not published yet: the npm names and account are the owner's decision (NATIVE-TS-PUBLISH). `"private": true` keeps
-`npm publish` from running until then.
+```bash
+npm install agentmemory-native
+```
+
+npm installs only the platform package that matches the machine: Linux x64 or ARM64 with glibc 2.34 or newer, macOS on
+Apple silicon, or Windows x64. npm 11 may say it held back koffi's install script; koffi ships prebuilt binaries, so
+nothing needs approving.
 
 ```ts
 import { MemoryClient } from "agentmemory-native";
