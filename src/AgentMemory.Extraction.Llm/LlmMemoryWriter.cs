@@ -1068,11 +1068,18 @@ internal static class MemoryWriterOps
     {
         var added = new List<ExtractedEntity>();
         foreach (var (connection, op) in connections)
+        {
+            // The paid check of 24 Nov (ihc1-v2-glm-1, statement 34): "Our landlord is also called Arun, no relation" gave
+            // "user's landlord Arun -[no relation]-> Arun". A connection that says there is none joins nobody.
+            if (Negated.IsMatch(connection.RelationshipType.Replace('_', ' '))) continue;
             foreach (var end in new[] { connection.SourceEntity, connection.TargetEntity })
             {
                 var name = MemoryWriterContract.Canonical(end);
                 if (name.Length == 0 || MemoryUserNames.IsSelf(end) ||
                     mentioned.Concat(added).Any(e => MemoryWriterContract.Canonical(e.Name) == name)) continue;
+                // A namesake this reply names apart ("user's landlord Arun" beside a stored "Arun"): which one a bare end
+                // means is not the writer's word.
+                if (mentioned.Any(e => HoldsWord(e.Name, end.Trim()))) continue;
                 var shown = stored.Where(s => s.Letter == 'E' && s.Entity is { } e && MemoryWriterContract.Canonical(e.Name) == name).ToList();
                 if (shown is not [{ Entity: { } entity } only] || op.QuoteStart is not int start || op.QuoteEnd is not int stop ||
                     start < 0 || stop > message.Length || start >= stop) continue;
@@ -1085,8 +1092,16 @@ internal static class MemoryWriterOps
                     Reference = new() { EntityId = only.Id, Quote = words.Value },
                 });
             }
+        }
         return added;
+
+        static bool HoldsWord(string text, string words) => Regex.IsMatch(text,
+            $@"(?<![\p{{L}}\p{{M}}]){Regex.Escape(words)}(?![\p{{L}}\p{{M}}])",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(50));
     }
+
+    private static readonly Regex Negated = new(@"\b(?:no|not|none|unrelated|non)\b",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     private enum EndKind { Name, KnownThenMore, Phrase, Empty }
 

@@ -1079,6 +1079,46 @@ public sealed class MemoryWriterContractTests : IDisposable
         result.Entities.Should().NotContain(e => e.Name == "Tomás");
     }
 
+    /// <summary>
+    /// The paid check of 24 Nov (ihc1-v2-glm-1, statement 34): "Our landlord is also called X, no relation" gave the new
+    /// landlord and "user's landlord X -[no relation]-> X"; the bare end was referred to the stored brother X, which the
+    /// key read as the landlord merged with him. A connection that says there is none, and a bare end beside a namesake the
+    /// reply names apart, refer to nobody.
+    /// </summary>
+    [Theory]
+    [InlineData("user's landlord Tomás -[no relation]-> Tomás")]
+    [InlineData("user's landlord Tomás -[knows]-> Tomás")]
+    public async Task A_bare_end_beside_a_namesake_the_reply_names_apart_refers_to_nobody(string connection)
+    {
+        ShowStoredEntities(StoredPerson(SonId, "Tomás"));
+        _replies.Enqueue($$"""
+            {"ops":[
+              {"op":"add","kind":"entity","text":"user's landlord Tomás (PERSON)","quote":"Our landlord is also called Tomás","ref":null},
+              {"op":"add","kind":"relationship","text":"{{connection}}","quote":"Our landlord is also called Tomás, no relation","ref":null}
+            ]}
+            """);
+
+        var result = await Write("Our landlord is also called Tomás, no relation, and he fixed the boiler.");
+
+        result.Entities.Should().ContainSingle().Which.Name.Should().Be("user's landlord Tomás");
+    }
+
+    [Fact]
+    public async Task A_connection_that_says_there_is_none_refers_to_nobody()
+    {
+        ShowStoredEntities(StoredPerson(SonId, "Tomás"));
+        _replies.Enqueue("""
+            {"ops":[
+              {"op":"add","kind":"entity","text":"Iker (PERSON)","quote":"Iker","ref":null},
+              {"op":"add","kind":"relationship","text":"Iker -[not related to]-> Tomás","quote":"Iker is not related to Tomás","ref":null}
+            ]}
+            """);
+
+        var result = await Write("Iker is not related to Tomás at all.");
+
+        result.Entities.Should().NotContain(e => e.Name == "Tomás");
+    }
+
     [Fact]
     public async Task The_default_writer_adds_no_reference_to_a_connections_end()
     {
