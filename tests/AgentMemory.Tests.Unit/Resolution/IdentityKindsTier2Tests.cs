@@ -127,6 +127,21 @@ public sealed class IdentityKindsTier2Tests
         score.Right.Should().Be(27);
     }
 
+    /// <summary>
+    /// The tier 2 runs of 22 Nov counted the product T16 ("her mother's Kindle") as right when the writer stored only
+    /// "user's mother" as a person: the possessive's owner made "mother" a name word of the Kindle.
+    /// </summary>
+    [Fact]
+    public void A_mention_of_a_possessives_owner_is_not_the_thing_it_owns()
+    {
+        var withoutTheKindle = PerfectEntities().Where(e => !e.ToString()!.Contains("e-T16", StringComparison.Ordinal)).ToArray();
+        var score = IdentityKindsScorer.Score(Key, WhosWho, Store([.. withoutTheKindle, Entity("e-mother", "user's mother", "PERSON", StatementsOf("T16"))]),
+            IdentityGoldScorer.EntitiesView);
+
+        score.Mentions.Single(m => m.Identity == "e-mother").Thing.Should().NotBe("T16");
+        score.ByKind["product"].Missed.Should().Be(1);
+    }
+
     [Fact]
     public void A_namesakes_fact_in_the_prompt_is_found_and_its_absence_passes()
     {

@@ -46,7 +46,7 @@ internal static class IdentityKindsScorer
             texts.SelectMany(text => text is not null && index.TryGetValue(text, out var at) ? at : []).Distinct().Order().ToArray();
 
         var owner = Words(scenario.OwnerName ?? "");
-        var names = gold.Things.ToDictionary(t => t.Id, t => IdentityKindsGold.NamesOf(t).SelectMany(Words).Where(w => !owner.Contains(w)).ToHashSet(StringComparer.Ordinal), StringComparer.Ordinal);
+        var names = gold.Things.ToDictionary(t => t.Id, t => IdentityKindsGold.NamesOf(t).SelectMany(NameWords).Where(w => !owner.Contains(w)).ToHashSet(StringComparer.Ordinal), StringComparer.Ordinal);
         var things = gold.Things.ToDictionary(t => t.Id, StringComparer.Ordinal);
         var inStatement = gold.Mentions.GroupBy(m => m.Statement).ToDictionary(g => g.Key, g => g.Select(m => m.Thing).Distinct(StringComparer.Ordinal).ToList());
 
@@ -154,6 +154,19 @@ internal static class IdentityKindsScorer
         if (typed.Count == 1) return (typed[0], "the one thing of this type in the statement");
         return (null, typed.Count == 0 ? "no thing of this name or type in the statement" : "two things of this type, neither named");
     }
+
+    /// <summary>
+    /// A thing's name words without a possessive's owner: "her mother's Kindle" is "kindle", so a mention of the mother is
+    /// not taken for the Kindle. The owner is a thing of its own when the key holds it.
+    /// </summary>
+    internal static IEnumerable<string> NameWords(string name)
+    {
+        var possessive = Possessive.Match(name);
+        return possessive.Success ? Words(name).Except(Words(possessive.Value), StringComparer.Ordinal) : Words(name);
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex Possessive =
+        new(@"^.*?\p{L}['’]s(?=\s)", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
     /// <summary>The words of a name: lower case, without accents or punctuation, without small words.</summary>
     internal static HashSet<string> Words(string text)
