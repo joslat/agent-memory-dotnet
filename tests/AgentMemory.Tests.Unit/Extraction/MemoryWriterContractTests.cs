@@ -893,4 +893,28 @@ public sealed class MemoryWriterContractTests : IDisposable
         result.Facts.Should().ContainSingle().Which.Subject.Should().Be(name);
         result.Outcomes.Should().BeEmpty();
     }
+
+    /// <summary>
+    /// IDENTITY-REF-SHORT-FORM-KEPT (the seventh paid check, cover7-2 statement 11): the writer referred "Vale finished the new
+    /// checkout mock-ups" to the stored designer under her full name. The reference was right, but "Vale" was never kept,
+    /// so at statement 53 a lookup by "Vale" found nobody. A person referred to under the full stored name keeps, as its
+    /// other name, a short form of that name its quote uses; a first name alone is part of the name and is not kept.
+    /// </summary>
+    [Theory]
+    [InlineData("Vale finished the new checkout mock-ups today.", "Vale finished the new checkout mock-ups", "Vale")]
+    [InlineData("Valentina finished the new checkout mock-ups today.", "Valentina finished the new checkout mock-ups", null)]
+    public async Task A_person_referred_to_under_the_full_name_keeps_the_short_form_the_message_used(string message, string quote, string? kept)
+    {
+        ShowStoredDesigner();
+        _replies.Enqueue($$"""{"ops":[{"op":"add","kind":"entity","text":"Valentina Ríos (PERSON)","quote":"{{quote}}","ref":"E1"}]}""");
+
+        var result = await Write(message);
+
+        _calls.Should().ContainSingle();
+        var entity = result.Entities.Should().ContainSingle().Which;
+        entity.Name.Should().Be("Valentina Ríos");
+        entity.Reference!.EntityId.Should().Be(DesignerId);
+        if (kept is null) entity.Aliases.Should().BeEmpty();
+        else entity.Aliases.Should().Equal(kept);
+    }
 }

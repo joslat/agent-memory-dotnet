@@ -388,6 +388,11 @@ internal static class MemoryWriterContract
             !string.Equals(said.Groups["t"].Value.Trim(), "PERSON", StringComparison.OrdinalIgnoreCase) || StoredType(item.Text) != "PERSON")
             return null;
         var name = said.Groups["n"].Value.Trim();
+        // IDENTITY-REF-SHORT-FORM-KEPT (the seventh paid check, cover7-2 statement 11): referred to under the full stored
+        // name while the quote calls the person by a short form of it ("Vale finished ..."), the short form is kept too,
+        // so a later turn that says it alone finds them. A first name alone is part of the name, not a short form.
+        if (Canonical(name) == Canonical(EntityName(item.Text)))
+            return NameWord.Matches(quote).Select(m => m.Value).FirstOrDefault(word => IsShortFormOf(word, name));
         return MayBeCalled(name, item) &&
                Regex.IsMatch(quote, $@"(?<![\p{{L}}\p{{M}}]){Regex.Escape(name)}(?![\p{{L}}\p{{M}}])",
                    RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(50))

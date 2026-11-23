@@ -51,7 +51,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     organisation is asked once for its reference; a different thing of a stored name is named with the words that tell it
     apart. Stored things of one name are shown with the words each was first said in.
   - A person called by a short form of a stored person's name ("Vale" for Valentina Ríos) may be referred to under it,
-    keeping the stored name and the short form as its alias; a new person named so is asked once which it is.
+    keeping the stored name and the short form as its alias (also when the writer refers to them under the full name
+    and the message used the short form); a new person named so is asked once which it is.
   - A person reference the conversation's own relation words contradict ("my niece Valentina" against the stored designer,
     in the message or the turn before) is refused before anything is stored, and the facts it carried keep the message's
     own name. Facts that name the stored person in full with no entity at all, where the message calls them by part of
