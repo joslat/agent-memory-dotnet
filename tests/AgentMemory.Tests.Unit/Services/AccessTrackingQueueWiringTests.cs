@@ -137,6 +137,35 @@ public sealed class AccessTrackingQueueWiringTests
         await decay.DidNotReceive().UpdateAccessTimestampsAsync(Arg.Any<IReadOnlyList<(string, MemoryNodeKind)>>(), Arg.Any<CancellationToken>());
     }
 
+    /// <summary>
+    /// DRT-5b, T-10: the recall reports what it handed over on either path, as the span the awaited write always had
+    /// (memory.recall.access_tracking, with the items), so a host's telemetry and the perf gate still see each recall's reads
+    /// when the queue writes them. The mode tag tells the two apart.
+    /// </summary>
+    [Theory]
+    [InlineData(true, "queued")]
+    [InlineData(false, "awaited")]
+    public async Task The_recall_reports_its_read_notes_on_either_path(bool queue, string mode)
+    {
+        using var parent = new System.Diagnostics.Activity("access-tracking-span-test").Start();
+        var stopped = new List<System.Diagnostics.Activity>();
+        using var listener = new System.Diagnostics.ActivityListener
+        {
+            ShouldListenTo = source => source.Name == AgentMemory.Abstractions.Diagnostics.AgentMemoryDiagnostics.SourceName,
+            Sample = (ref System.Diagnostics.ActivityCreationOptions<System.Diagnostics.ActivityContext> _) =>
+                System.Diagnostics.ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStopped = activity => { if (activity.TraceId == parent.TraceId) lock (stopped) stopped.Add(activity); },
+        };
+        System.Diagnostics.ActivitySource.AddActivityListener(listener);
+
+        await Sut(_decay, new RecordingTracker(), queue).RecallAsync(Request());
+
+        System.Diagnostics.Activity span;
+        lock (stopped) span = stopped.Should().ContainSingle(a => a.OperationName == "memory.recall.access_tracking").Subject;
+        span.GetTagItem("memory.access_tracking.items").Should().Be(3);
+        span.GetTagItem("memory.access_tracking.mode").Should().Be(mode);
+    }
+
     [Fact]
     public async Task WithTheQueueOnTheRecallPathOnlyEnqueues()
     {

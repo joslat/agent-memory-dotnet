@@ -72,8 +72,64 @@ public sealed class PerfCollector : IDisposable
         return new TurnScope(this, record);
     }
 
+    // DRT-5b, T-10: the read notes a recall queues are written by the queue's own task, under this span. That task's
+    // async context is whatever was current when the queue started, so its work is never charged to the current turn:
+    // it goes to the turn whose notes are being flushed (BackgroundFor), as background.*, or nowhere.
+    private const string BackgroundSpan = "memory.background.access_tracking";
+    private TurnRecord? _backgroundTarget;
+
+    /// <summary>
+    /// DRT-5b, T-10: while the returned scope is open, the queued background writes (the read notes) count into
+    /// <paramref name="record"/> as <c>background.*</c>, never into a measured turn's own counters.
+    /// </summary>
+    public IDisposable BackgroundFor(TurnRecord record)
+    {
+        Volatile.Write(ref _backgroundTarget, record);
+        return new BackgroundScope(this);
+    }
+
+    private sealed class BackgroundScope(PerfCollector owner) : IDisposable
+    {
+        public void Dispose() => Volatile.Write(ref owner._backgroundTarget, null);
+    }
+
+    // Any memory.background.* span: the queued read notes, and (PERF-R07-ORDER) the owner counts refreshed after 30 s.
+    private static bool UnderBackgroundSpan(Activity activity)
+    {
+        for (var current = activity; current is not null; current = current.Parent)
+            if (current.OperationName.StartsWith("memory.background.", StringComparison.Ordinal)) return true;
+        return false;
+    }
+
+    private void OnBackgroundActivityStopped(Activity activity)
+    {
+        if (Volatile.Read(ref _backgroundTarget) is not { } target) return;
+        switch (activity.OperationName)
+        {
+            case BackgroundSpan:
+                target.Add("background.access_tracking.writes");
+                if (activity.GetTagItem("memory.background.items") is int items) target.Add("background.access_tracking.items", items);
+                if (activity.GetTagItem("memory.background.recalls") is int recalls) target.Add("background.access_tracking.recalls", recalls);
+                break;
+            case "memory.background.owner_counts":
+                target.Add("background.owner_counts.refreshes");
+                break;
+            case "memory.db.tx":
+                target.Add(activity.GetTagItem("db.mode") as string == "write" ? "background.neo4j.tx.write" : "background.neo4j.tx.read");
+                break;
+            case "memory.db.query":
+                target.Add("background.neo4j.queries");
+                break;
+        }
+    }
+
     private void OnActivityStopped(Activity activity)
     {
+        if (UnderBackgroundSpan(activity))
+        {
+            OnBackgroundActivityStopped(activity);
+            return;
+        }
         var turn = CurrentTurn.Value;
         if (turn is null) return;
 

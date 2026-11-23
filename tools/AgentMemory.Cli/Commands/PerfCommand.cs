@@ -369,6 +369,10 @@ public sealed class PerfCommand
             }
         }
 
+        // DRT-5b, T-10: the read notes the turn queued are written now, after its clock stopped: what the caller waited for
+        // excludes them, and the background write is reported beside the turn (background.*).
+        await FlushReadNotesAsync(profile, collector, record, cancellationToken).ConfigureAwait(false);
+
         // What the turn left running (a queued write, slower with the delay) must end before the next turn starts, or it
         // is counted there: PERF-R-07 saw four transactions too many after delayed recalls. The product has no flush for
         // it yet (DRT W1.5), so the run waits until the product's connections have been quiet for a moment.
@@ -407,9 +411,23 @@ public sealed class PerfCommand
                 profile, provider, record, 0, "measure", null,
                 AgentMemory.Abstractions.Options.RecallOptions.Default, cancellationToken)).ConfigureAwait(false);
         }
+        await FlushReadNotesAsync(profile, collector, record, cancellationToken).ConfigureAwait(false);
 
         await scenario.ValidateAsync(new ScenarioVerificationContext(
             profile, record, 0, "measure", null, cancellationToken)).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// DRT-5b, T-10: writes the read notes the turn queued (the access-tracking queue is on by default), outside the
+    /// measured time, and counts that write into the turn as <c>background.*</c>. Nothing when the queue is off.
+    /// </summary>
+    internal static async Task FlushReadNotesAsync(HermeticProfile profile, PerfCollector collector, TurnRecord record,
+        CancellationToken cancellationToken)
+    {
+        if (profile.Services.GetService(typeof(AgentMemory.Abstractions.Services.IMemoryAccessTracker))
+            is not AgentMemory.Abstractions.Services.IMemoryAccessTracker tracker) return;
+        using (collector.BackgroundFor(record))
+            await tracker.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>

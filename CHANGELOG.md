@@ -212,7 +212,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and on the waited-for path alike. A host that must read those counts right after a recall calls
   `IMemoryAccessTracker.FlushAsync` (the history service and the decay prune already do); a host that ends or freezes
   between requests (a function, a command-line tool) calls it before it returns, or sets the option to `false` for the
-  2.3 behaviour. A killed process loses what was still queued.
+  2.3 behaviour. A killed process loses what was still queued. The recall's `memory.recall.access_tracking` span is
+  there on both paths, with the items it handed over and `memory.access_tracking.mode` (`queued` or `awaited`); the
+  queued write has its own span, `memory.background.access_tracking`.
 
 - **`source_pack_transferred_from` is now a reserved record property.** A module or pack that declares a property of
   that name is refused by validation, as for the other `source_*` names; rename it. A store where a pack under a new id

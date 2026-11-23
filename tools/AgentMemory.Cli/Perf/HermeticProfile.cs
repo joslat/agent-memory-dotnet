@@ -206,6 +206,9 @@ public sealed class HermeticProfile : IAsyncDisposable
         _provider = _register(null).BuildServiceProvider();
         _scope = _provider.CreateAsyncScope();
         _scopeCreated = true;
+        // DRT-5b, T-10: the access-tracking queue starts its task here, outside any measured turn, so nothing it writes
+        // inherits a turn's async context; the collector charges its writes only to the turn being flushed.
+        _provider.GetService<AgentMemory.Abstractions.Services.IMemoryAccessTracker>();
 
         log.WriteLine("perf: bootstrapping schema…");
         await Services.GetRequiredService<ISchemaBootstrapper>()

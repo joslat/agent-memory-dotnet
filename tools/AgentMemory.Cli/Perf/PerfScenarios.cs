@@ -462,6 +462,9 @@ public static partial class PerfScenarios
     private static async Task DegradedRecallAsync(ScenarioContext ctx)
     {
         await RunDefaultRecallAsync(ctx, "PERF-R-07").ConfigureAwait(false);
+        // PERF-R07-ORDER: a warm-up turn absorbs one-time costs (the process's first recall counts the owner's rows in
+        // line); the exact shape is checked on the measured turns, which are what the report and the gate read.
+        if (ctx.Phase == "warmup") return;
 
         var preset = PerfDependencyLatencyPreset.Degraded;
         var embeddingCalls = ctx.Turn.Counter("injected.embedding_delay.calls");
@@ -485,8 +488,12 @@ public static partial class PerfScenarios
         // formatter hides reasoning traces (the MAF default): the provider no longer searches what it would
         // not render, one transaction and one query fewer.
         var tracesShown = ctx.Profile.Services.GetService<IOptions<ContextFormatOptions>>()?.Value.IncludeReasoningTraces ?? false;
-        long expectedDatabaseCalls = tracesShown ? 8 : 7;
-        var expectedQueries = tracesShown ? 10 : 9;
+        // DRT-5b (on by default from 2.4): with the access-tracking queue the read notes leave the recall, one write
+        // transaction and its three statements (one per kind recalled) fewer on the measured path; the harness writes them
+        // after the turn and reports them as background.*.
+        var queued = ctx.Profile.Services.GetService<IOptions<MemoryOptions>>()?.Value.UseAccessTrackingQueue ?? false;
+        long expectedDatabaseCalls = (tracesShown ? 8 : 7) - (queued ? 1 : 0);
+        var expectedQueries = (tracesShown ? 10 : 9) - (queued ? 3 : 0);
         var expectedDatabaseMs = checked(
             expectedDatabaseCalls * (long)preset.DatabaseDelay.TotalMilliseconds);
         if (embeddingCalls != 1 || embeddingMs != expectedEmbeddingMs ||

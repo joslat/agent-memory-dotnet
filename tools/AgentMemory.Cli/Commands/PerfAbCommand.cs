@@ -314,6 +314,7 @@ public sealed class PerfAbCommand
                 configuration.Recall,
                 cancellationToken)).ConfigureAwait(false);
         }
+        await PerfCommand.FlushReadNotesAsync(profile, collector, record, cancellationToken).ConfigureAwait(false);
 
         await scenario.ValidateAsync(new ScenarioVerificationContext(
             profile, record, iteration, phase, datasetVariant, cancellationToken)).ConfigureAwait(false);
