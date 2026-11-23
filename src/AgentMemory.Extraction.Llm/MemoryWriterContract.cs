@@ -28,7 +28,17 @@ internal static class MemoryWriterContract
 
         /// <summary>For an entity named exactly as a stored one: that name, which a renamed fix must tell apart.</summary>
         public string? RepeatedName { get; init; }
+
+        /// <summary>
+        /// For a repeated name: whether a writer's ref can confirm the stored entity's type (a person or an organisation).
+        /// When it cannot (a place, a thing), the same thing is left out: its facts carry it under the stored name, and a
+        /// ref'd re-mention would only stay pending as another identity of it (ikb-cover2-1, statement 41).
+        /// </summary>
+        public bool Confirmable { get; init; }
     }
+
+    /// <summary>The stored types a writer's ref can confirm (IdentityResolutionOptions' conversational set, events aside).</summary>
+    private static readonly HashSet<string> RefConfirmable = new(["PERSON", "ORGANIZATION"], StringComparer.Ordinal);
 
     private static readonly string[] EventPredicates = ["is scheduled for", "takes place at", "participation"];
 
@@ -114,10 +124,14 @@ internal static class MemoryWriterContract
             var name = said.Groups["n"].Value.Trim();
             var type = MemoryWriterOps.EntityType(said.Groups["t"].Value);
             if (type == "EVENT" || !storedNames.TryGetValue((Canonical(name), type), out var labels)) continue;
+            var confirmable = RefConfirmable.Contains(type);
+            var same = confirmable
+                ? "if it is that same thing, give its \"ref\""
+                : $"if it is that same thing, leave it out: its facts already name it \"{name}\"";
             issues.Add(new(MemoryWriterOps.DropReason.StoredNameRepeated, op.Index, op.Kind, op.Text,
-                $"it has exactly the name of stored {string.Join(" or ", labels)}: if it is that same thing, give its \"ref\"; "
+                $"it has exactly the name of stored {string.Join(" or ", labels)}: {same}; "
                 + $"if it is a different thing, name it with the words of the last message that tell it apart from \"{name}\"")
-            { Kept = op, RepeatedName = name });
+            { Kept = op, RepeatedName = name, Confirmable = confirmable });
         }
         var observed = ops.Where(op => op.Kind == "entity" && op.Action == "add")
             .Select(op => Canonical(EntityName(op.Text))).ToHashSet(StringComparer.Ordinal);
@@ -175,6 +189,15 @@ internal static class MemoryWriterContract
             var fix = issue.Reason is MemoryWriterOps.DropReason.OverLimit or MemoryWriterOps.DropReason.ConnectionEndEmpty
                 ? null : corrected.FirstOrDefault(op => !used.Contains(op) && Fixes(issue, op));
             if (fix is not null && fix.Ref is not null && ReferenceProblem(fix, byLabel).Reason is not null) fix = fix with { Ref = null };
+            // A place or a thing said again under exactly its stored name, with no name that tells it apart, is left out: its
+            // facts carry it, and a ref'd observation of it would only stay pending (only a person's or an organisation's ref
+            // can confirm one).
+            if (issue.RepeatedName is { } again && !issue.Confirmable && (fix is null || Canonical(EntityName(fix.Text)) == Canonical(again)))
+            {
+                if (fix is not null) used.Add(fix);
+                result.Remove(issue.Kept!);
+                continue;
+            }
             // A repeated name is resolved by a ref, or by a name that tells the thing apart (Fixes checks it holds the old one).
             var resolvesReference = issue.Kept is null || fix?.Ref is not null ||
                 (issue.RepeatedName is { } repeated && fix is not null && Canonical(EntityName(fix.Text)) != Canonical(repeated));

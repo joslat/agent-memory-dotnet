@@ -365,17 +365,35 @@ public sealed class MemoryWriterContractTests : IDisposable
     /// third. A new entity named and typed exactly as a shown stored one (not an event) is asked once which it is.
     /// </summary>
     [Fact]
-    public async Task A_new_entity_named_exactly_as_a_stored_one_is_asked_once_and_its_reference_kept()
+    public async Task A_stored_places_name_said_again_is_asked_once_and_left_out_when_it_is_the_same_place()
     {
+        // The second paid check (ikb-cover2-1, statement 41): a writer's ref cannot confirm a place or a thing (only a
+        // person, an organisation or an event), so a re-mention given its ref stayed pending: another identity of it.
         ShowStored("place-lumen", "Café Lumen", "LOCATION");
-        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Café Lumen (PLACE)","quote":"Café Lumen","ref":null}]}""");
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Café Lumen (PLACE)","quote":"Café Lumen","ref":null},{"op":"add","kind":"fact","text":"Café Lumen | has | live jazz on Fridays","quote":"Café Lumen has live jazz on Fridays","ref":null}]}""");
         _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Café Lumen (PLACE)","quote":"Café Lumen","ref":"E1"}]}""");
 
         var result = await Write("Café Lumen has live jazz on Fridays.");
 
         _calls.Should().HaveCount(2);
-        _calls[1].Messages.Last().Text.Should().Contain("E1").And.Contain("tell it apart");
-        result.Entities.Should().ContainSingle().Which.Reference!.EntityId.Should().Be("place-lumen");
+        _calls[1].Messages.Last().Text.Should().Contain("E1").And.Contain("leave it out").And.Contain("tell it apart");
+        result.Entities.Should().BeEmpty("the same stored place needs no new observation: its fact carries it");
+        result.Facts.Should().ContainSingle().Which.Subject.Should().Be("Café Lumen");
+        result.Outcomes.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_stored_organisations_name_said_again_is_asked_once_and_its_reference_kept()
+    {
+        ShowStored("org-nexo", "Nexo Studio", "ORGANIZATION");
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Nexo Studio (ORGANIZATION)","quote":"Nexo Studio","ref":null}]}""");
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Nexo Studio (ORGANIZATION)","quote":"Nexo Studio","ref":"E1"}]}""");
+
+        var result = await Write("Nexo Studio hired two designers.");
+
+        _calls.Should().HaveCount(2);
+        _calls[1].Messages.Last().Text.Should().Contain("give its \"ref\"");
+        result.Entities.Should().ContainSingle().Which.Reference!.EntityId.Should().Be("org-nexo");
         result.Outcomes.Should().BeEmpty();
     }
 

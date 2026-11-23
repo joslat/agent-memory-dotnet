@@ -489,7 +489,7 @@ internal static class MemoryWriterPrompt
           film, album, document, report or project is THING.
         - Only names and titles count. A role or a common noun ("the dentist", "my laptop", "the office") is not a name and
           gets no entity of its own. People and pets keep the rules above.
-        - A thing already listed in STORED as an E item needs no new entity; if you write one for it, give its "ref". Two
+        - A thing or place already listed in STORED as an E item needs no new entity: its facts use the stored name. Two
           stored things of one name are shown with the words each was first said in: a qualifier that says which one is
           meant ("the one in the old town") picks that one and adds nothing new. Only a message that brings in another
           thing of a stored name ("another", "a second", "a different") adds a new entity, with "ref" null, named with the
