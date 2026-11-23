@@ -204,6 +204,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Upgrading
 
+- **Recall gives the entity places a fold frees to the next entities (`RecallOptions.FillFoldedEntityPlaces` is on by
+  default; IBP-1b, by the owner's rule: measured, then on if answers do not get worse).** Entities that render alike
+  (one thing stored as several) fold into one prompt line; with this on, the entity search asks for up to twice
+  `MaxEntities` and keeps that many distinct entities. In the four measured runs no question did worse, and no prompt
+  changed (the searches held no further entity). Set it to `false` for the 2.3 entity list.
+
 - **`source_pack_transferred_from` is now a reserved record property.** A module or pack that declares a property of
   that name is refused by validation, as for the other `source_*` names; rename it. A store where a pack under a new id
   is refused with `Namespace is owned by another module (<old id>)` can now take the names with

@@ -78,9 +78,10 @@ public sealed class FilledEntityPlacesTests
             }, CancellationToken.None);
 
     [Fact]
-    public async Task Off_by_default_recall_returns_what_it_returns_today()
+    public async Task Off_recall_returns_what_it_returned_before()
     {
-        var context = await AskAsync(RecallOptions.Default with { MaxEntities = 3 });
+        // On by default since 2.4 (IBP-1b, the owner's rule); off gives the 2.3 entity list.
+        var context = await AskAsync(RecallOptions.Default with { MaxEntities = 3, FillFoldedEntityPlaces = false });
 
         _asked.Should().Equal(3);
         context.RelevantEntities.Items.Select(e => e.EntityId).Should().Equal("luna-1", "luna-2", "bruno");
@@ -99,7 +100,8 @@ public sealed class FilledEntityPlacesTests
     [Fact]
     public void The_search_asks_for_twice_the_limit_and_at_most_16_more()
     {
-        MemoryContextAssembler.EntitySearchLimit(RecallOptions.Default with { MaxEntities = 5 }).Should().Be(5);
+        MemoryContextAssembler.EntitySearchLimit(RecallOptions.Default with { MaxEntities = 5, FillFoldedEntityPlaces = false }).Should().Be(5);
+        RecallOptions.Default.FillFoldedEntityPlaces.Should().BeTrue("on by default from 2.4 (IBP-1b)");
         MemoryContextAssembler.EntitySearchLimit(RecallOptions.Default with { MaxEntities = 5, FillFoldedEntityPlaces = true }).Should().Be(10);
         MemoryContextAssembler.EntitySearchLimit(RecallOptions.Default with { MaxEntities = 40, FillFoldedEntityPlaces = true }).Should().Be(56);
         MemoryContextAssembler.EntitySearchLimit(RecallOptions.Default with { MaxEntities = 0, FillFoldedEntityPlaces = true }).Should().Be(0);

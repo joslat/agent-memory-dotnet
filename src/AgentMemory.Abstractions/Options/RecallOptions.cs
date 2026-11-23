@@ -343,9 +343,11 @@ public sealed record RecallOptions
     /// that render alike (one thing stored as several, same name, type and description) fold into one line, and without
     /// this the folded places stay empty. On: the entity search asks for up to twice <see cref="MaxEntities"/> (at most 16
     /// more), folds the alike ones keeping the most relevant, and keeps <see cref="MaxEntities"/> distinct entities, so
-    /// recall returns more different things for the same limit. Off (default): recall returns what it returns today.
+    /// recall returns more different things for the same limit. On by default from 2.4 (the owner's rule D-15: measured,
+    /// then on if answers do not get worse; strategy IBP-1b, four runs, no question worse). Off: recall returns what it
+    /// returned before.
     /// </summary>
-    public bool FillFoldedEntityPlaces { get; init; }
+    public bool FillFoldedEntityPlaces { get; init; } = true;
 
     /// <summary>
     /// Reports aged-out memory as a stated absence when a fact section comes back thin. Default off,
