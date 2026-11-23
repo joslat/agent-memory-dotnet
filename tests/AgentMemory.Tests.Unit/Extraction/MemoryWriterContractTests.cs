@@ -867,4 +867,30 @@ public sealed class MemoryWriterContractTests : IDisposable
         result.Facts.Should().ContainSingle().Which.Subject.Should().Be("Valentina Ríos");
         result.Outcomes.Should().BeEmpty();
     }
+
+    // ── IDENTITY-THING-REF-LEFT-OUT (the sixth paid check, cover6-1 statement 40: shown "E1 Atlas (OBJECT)", the writer
+    // answered "ref": "E1" for "Atlas (OBJECT)". A writer's reference cannot confirm a thing or a place, so the re-mention
+    // stayed a pending observation, another identity: the work project "Atlas" made 7 of the check's 23 extra identities.) ──
+
+    [Theory]
+    [InlineData("thing-atlas", "Atlas", "OBJECT", "Atlas (OBJECT)", "Atlas is two weeks late.", "Atlas")]
+    [InlineData("place-lumen", "Café Lumen", "LOCATION", "Café Lumen (PLACE)", "Café Lumen has live jazz on Fridays.", "Café Lumen")]
+    public async Task A_stored_thing_or_place_referred_to_again_is_left_out_and_its_facts_keep_the_stored_name(
+        string id, string name, string type, string entity, string message, string quote)
+    {
+        ShowStored(id, name, type);
+        _replies.Enqueue($$"""
+            {"ops":[
+              {"op":"add","kind":"entity","text":"{{entity}}","quote":"{{quote}}","ref":"E1"},
+              {"op":"add","kind":"fact","text":"{{name}} | is | busy","quote":"{{quote}}","ref":null}
+            ]}
+            """);
+
+        var result = await Write(message);
+
+        _calls.Should().ContainSingle("nothing is left to ask");
+        result.Entities.Should().BeEmpty("the same stored thing needs no new observation: its fact carries it");
+        result.Facts.Should().ContainSingle().Which.Subject.Should().Be(name);
+        result.Outcomes.Should().BeEmpty();
+    }
 }

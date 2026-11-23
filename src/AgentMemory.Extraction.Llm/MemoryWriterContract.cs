@@ -127,6 +127,13 @@ internal static class MemoryWriterContract
             issues.Add(new(reason.Value, ops[i].Index, ops[i].Kind, ops[i].Text, problem!) { Kept = kept });
             ops[i] = kept;
         }
+        // IDENTITY-THING-REF-LEFT-OUT: a stored thing or place referred to again is left out, as one said again without a ref
+        // is (below). A writer's reference confirms only a person, an organisation or an event, so the re-mention would stay
+        // a pending observation, another identity of it (the sixth paid check, cover6-1 statement 40: "Atlas (OBJECT)" with
+        // "ref": "E1"). Its facts already carry the stored name. A valid ref here names the stored entity's exact name.
+        ops.RemoveAll(op => op.Kind == "entity" && op.Action == "add" && op.Ref is { } label &&
+            byLabel.TryGetValue(label, out var item) && item.Letter == 'E' && StoredType(item.Text) is { } type &&
+            type != "EVENT" && !RefConfirmable.Contains(type));
         // IDENTITY-PERSON-REF-GUARD: a person reference the conversation's own relation words contradict is refused before
         // anything is stored, and the facts it carried keep the message's name. The third paid check, cover3-2 statement 13:
         // "My niece Valentina started school this year, she is six." was referred to the stored designer Valentina Ríos and
