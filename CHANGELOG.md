@@ -205,12 +205,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Upgrading
 
-- **Recall gives the entity places a fold frees to the next entities (`RecallOptions.FillFoldedEntityPlaces` is on by
-  default; IBP-1b, by the owner's rule: measured, then on if answers do not get worse).** Entities that render alike
-  (one thing stored as several) fold into one prompt line; with this on, the entity search asks for up to twice
-  `MaxEntities` and keeps that many distinct entities. In the four measured runs no question did worse, and no prompt
-  changed (the searches held no further entity). Set it to `false` for the 2.3 entity list.
-
 - **Recall no longer waits for its read notes (`MemoryOptions.UseAccessTrackingQueue` is on by default; the owner's
   decision D-10).** The note of what a recall read (its access count and time, which decay and retention use) is written
   by the root-owned queue a few milliseconds after recall returns, everything waiting in one transaction per store: with
