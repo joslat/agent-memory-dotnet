@@ -170,7 +170,7 @@ var identityPlan=goldName is not null || kindsGold is not null?IdentityValidatio
 // The old model under the same metered campaign, models and answer key as the identity arm (head-to-head).
 var legacyComparison = args.Contains("--legacy-comparison");
 var validationArm = legacyComparison ? "graph-legacy-writer" : identityWriter ? "graph-identity-writer" : "graph-identity-unified";
-var armNames = (Argument("--arms") ?? (identityValidation ? validationArm : string.Join(',', Arms.All.Where(name => !name.StartsWith("graph-identity-",StringComparison.Ordinal) && name != "graph-legacy-writer")))).Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+var armNames = (Argument("--arms") ?? (identityValidation ? validationArm : string.Join(',', Arms.All.Where(name => !name.StartsWith("graph-identity-",StringComparison.Ordinal) && name != "graph-legacy-writer" && !name.EndsWith("-filled", StringComparison.Ordinal))))).Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
 var unknown = armNames.Except(Arms.All).ToList();
 if (unknown.Count > 0)
 {
