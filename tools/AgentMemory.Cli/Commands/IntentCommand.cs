@@ -11,15 +11,18 @@ namespace AgentMemory.Cli.Commands;
 /// The product intent pack (coding packs CMP-6). <c>intent scan --root &lt;repo&gt;</c> reads the repository's requirement
 /// documents, Gherkin features, OpenSLO objectives and ideas and reports what it found, offline. <c>intent import --root
 /// &lt;repo&gt; [--source git:&lt;sha&gt;]</c> writes them into the configured store: only what changed, closing what is gone.
+/// With <c>--ledger &lt;tasks.json&gt;</c> instead of <c>--root</c>, a task ledger is read as intent (CO-2d), each row a
+/// requirement; import the code map, then this, then <c>work import --ledger ... --ledger-as-intent</c>.
 /// </summary>
 internal sealed class IntentCommand(TextWriter output)
 {
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
-    public int Scan(string? root)
+    public int Scan(string? root, string? ledger = null)
     {
-        if (root is null) return Usage("intent scan needs --root <repository>.");
-        var snapshot = Read(Path.GetFullPath(root), null, out var files, out var skipped);
+        if (root is null && ledger is null) return Usage("intent scan needs --root <repository> (or --ledger <tasks.json>, the ledger read as intent).");
+        IReadOnlyList<string> files = [], skipped = [];
+        var snapshot = ledger is not null ? FromLedger(ledger, null) : Read(Path.GetFullPath(root!), null, out files, out skipped);
         var problems = snapshot.Problems();
         output.WriteLine(JsonSerializer.Serialize(new
         {
@@ -30,16 +33,25 @@ internal sealed class IntentCommand(TextWriter output)
         return problems.Count == 0 ? 0 : 1;
     }
 
-    public async Task<int> ImportAsync(INeo4jTransactionRunner runner, string? root, string? source)
+    public async Task<int> ImportAsync(INeo4jTransactionRunner runner, string? root, string? source, string? ledger = null)
     {
-        if (root is null) return Usage("intent import needs --root <repository>.");
-        var snapshot = Read(Path.GetFullPath(root), source, out _, out var skipped);
+        if (root is null && ledger is null) return Usage("intent import needs --root <repository> (or --ledger <tasks.json>, the ledger read as intent).");
+        IReadOnlyList<string> skipped = [];
+        var snapshot = ledger is not null ? FromLedger(ledger, source) : Read(Path.GetFullPath(root!), source, out _, out skipped);
         var result = await new Neo4jModuleSnapshotStore(runner).ImportAsync(snapshot, DateTimeOffset.UtcNow).ConfigureAwait(false);
         output.WriteLine(JsonSerializer.Serialize(new
         {
             result.ModuleId, result.Source, result.Created, result.Changed, result.Unchanged, result.Closed, records = snapshot.Records.Count, skipped,
         }, Json));
         return 0;
+    }
+
+    // CO-2d: a task ledger read as intent, each row a requirement (LedgerIntent); the source names the ledger's content.
+    internal static Extensibility.Packs.ModuleSnapshot FromLedger(string ledger, string? source)
+    {
+        var json = File.ReadAllText(Path.GetFullPath(ledger));
+        var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(json)))[..12].ToLowerInvariant();
+        return LedgerIntent.Read(json, Path.GetFileName(ledger), source ?? "ledger:" + hash);
     }
 
     internal static Extensibility.Packs.ModuleSnapshot Read(string root, string? source, out IReadOnlyList<string> files, out IReadOnlyList<string> skipped, bool reviewed = true)

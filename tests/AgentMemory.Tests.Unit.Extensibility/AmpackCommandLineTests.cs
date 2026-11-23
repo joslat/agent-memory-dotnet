@@ -155,7 +155,7 @@ public sealed class AmpackCommandLineTests : IDisposable
         Done("build", "martialarts", "--out", "martialarts.ampack", "--key", keyPath);
         Done("verify", "martialarts.ampack", "--policy", "trust.json").Should().Contain("kind    knowledge");
         var members = new List<string>();
-        foreach (var folder in new[] { "Decisions", "Repository", "CodeMap", "Work" })
+        foreach (var folder in new[] { "Decisions", "Repository", "CodeMap", "Work", "Intent", "Architecture" })
         {
             var name = folder.ToLowerInvariant();
             Done("migrate", Path.Combine(Packs, folder, "manifest.json"), "--out", name);
@@ -167,15 +167,15 @@ public sealed class AmpackCommandLineTests : IDisposable
         // The Coding composite, locked to exactly those four, built and verified.
         Done("migrate", Path.Combine(Packs, "Coding", "composite.json"), "--out", "coding");
         Refused("build", "coding", "--out", "unlocked.ampack", "--key", keyPath).Should().Contain("META/lock.json");
-        Done(["lock", "coding", .. members, "--policy", "trust.json"]).Should().Contain("Locked 4 members");
+        Done(["lock", "coding", .. members, "--policy", "trust.json"]).Should().Contain("Locked 6 members");
         Done("build", "coding", "--out", "coding.ampack", "--key", keyPath);
         Done("verify", "coding.ampack", "--policy", "trust.json").Should().Contain("kind    composite");
 
         // One set carries the family and the knowledge pack; it verifies member by member.
         Done(["set", "family.ampack", "coding.ampack", .. members, "martialarts.ampack", "--id", "io.example.coding-family", "--version", "1.0.0", "--key", keyPath, "--policy", "trust.json"]);
         var verified = Done("verify", "family.ampack", "--policy", "trust.json", "--ledger", "ledger.json", "--record");
-        verified.Should().Contain("Verified set io.example.coding-family 1.0.0").And.Contain("recorded the set and 6 members");
-        verified.Split('\n').Count(l => l.TrimStart().StartsWith("member", StringComparison.Ordinal)).Should().Be(6);
+        verified.Should().Contain("Verified set io.example.coding-family 1.0.0").And.Contain("recorded the set and 8 members");
+        verified.Split('\n').Count(l => l.TrimStart().StartsWith("member", StringComparison.Ordinal)).Should().Be(8);
 
         // The host loads what the tool built: the family composes as the compiled Coding composite, the knowledge pack beside it.
         var set = PackFamilies.LoadSet(At("family.ampack"), PackTrust.Load(At("trust.json")));

@@ -1,11 +1,12 @@
 {
   "format": "agentmemory.module/v1alpha1",
   "id": "io.agentmemory.packs.work",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "sdk": "[0.1,0.2)",
   "requires": {
     "modules": {
-      "io.agentmemory.packs.codemap": "[0.1.0-preview.1,0.2)"
+      "io.agentmemory.packs.codemap": "[0.1.0-preview.1,0.2)",
+      "io.agentmemory.packs.intent": "[0.1.1,0.2)"
     }
   },
   "display": {
@@ -191,6 +192,13 @@
         "to": "WorkRelease",
         "max": 1,
         "description": "The first release that shipped a commit of the item"
+      },
+      {
+        "name": "WORK_IMPLEMENTS",
+        "from": "WorkItem",
+        "to": "io.agentmemory.packs.intent:IntentRequirement",
+        "max": 16,
+        "description": "A requirement the item implements, as its ledger row names it"
       }
     ]
   },
@@ -201,9 +209,21 @@
         "direction": "in",
         "weightMicro": 600000,
         "fanOut": 3
+      },
+      {
+        "name": "WORK_IMPLEMENTS",
+        "direction": "out",
+        "weightMicro": 800000,
+        "fanOut": 4
+      },
+      {
+        "name": "WORK_IMPLEMENTS",
+        "direction": "in",
+        "weightMicro": 600000,
+        "fanOut": 3
       }
     ],
     "maxItems": 2,
-    "hops": 1
+    "hops": 2
   }
 }

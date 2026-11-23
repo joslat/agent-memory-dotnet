@@ -159,7 +159,13 @@ internal sealed partial class PackGateCommand(Action<Neo4jOptions> configureNeo4
         var manifest = variant switch { "weak" => Weaken(declared, 1, _ => 1), "mediocre" => Weaken(declared, 2, f => Math.Max(1, f / 2)), _ => declared };
         // The pack itself is composed as a pack, and its decision binds to its digest (PACK-bind); a weakened variant is not that pack.
         var asPack = variant is null ? pack : null;
-        ModuleSetBuilder Compose(ModuleSetBuilder m) => asPack is not null ? m.AddPack(asPack) : m.Add(manifest, new CodeMapPack().Configure);
+        ModuleSetBuilder Compose(ModuleSetBuilder m)
+        {
+            var composed = asPack is not null ? m.AddPack(asPack) : m.Add(manifest, new CodeMapPack().Configure);
+            // A code map that links its tests into the intent pack's requirements (CO-2b) is composed with that pack's declarations,
+            // and none of its views: the trial measures the code map's own contribution, not intent's searches.
+            return manifest.Modules.ContainsKey(AgentMemory.Packs.Intent.IntentPack.Id) ? composed.Add(AgentMemory.Packs.Intent.IntentPack.Manifest, _ => { }) : composed;
+        }
         var trial = manifest.Trial!;
         if (history is not ("parent" or "head"))
         {

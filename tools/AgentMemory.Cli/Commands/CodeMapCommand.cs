@@ -113,7 +113,8 @@ internal sealed class CodeMapCommand(TextWriter output)
         try
         {
             pack = PackLoader.Load(packPath, PackTrust.Load(trustPath));
-            snapshot = pack.ToSnapshot(CodeMapPack.Manifest);
+            // The code map links its tests into the intent pack's requirements (CO-2b): its snapshot names that dependency.
+            snapshot = pack.ToSnapshot(CodeMapPack.Manifest, [AgentMemory.Packs.Intent.IntentPack.Manifest]);
         }
         catch (PackLoadException e)
         {

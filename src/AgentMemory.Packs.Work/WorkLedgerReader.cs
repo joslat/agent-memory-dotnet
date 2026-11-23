@@ -4,6 +4,7 @@ using System.Text.Json;
 using AgentMemory.Extensibility.Ingestion;
 using AgentMemory.Extensibility.Packs;
 using AgentMemory.Packs.CodeMap;
+using AgentMemory.Packs.Intent;
 
 namespace AgentMemory.Packs.Work;
 
@@ -15,9 +16,37 @@ public sealed record WorkCommit(string Sha, string Subject, IReadOnlyList<string
 [Experimental("AMEXT001")]
 public sealed record WorkRelease(string Name, string? Date, string Commit, IReadOnlyList<string> Shipped);
 
+/// <summary>Where a commit subject names the ledger ids it belongs to.</summary>
+[Experimental("AMEXT001")]
+public enum WorkCommitIds
+{
+    /// <summary>Before its first colon: "CMP-2a, CMP-3: ...". The default.</summary>
+    BeforeColon = 0,
+    /// <summary>Anywhere, as a whole token: "... (CMP-2a)" as well (CO-2d; this repository's later commits name rows so).</summary>
+    Anywhere = 1,
+}
+
+/// <summary>What a ledger read takes besides the ledger and the commits (CO-2b); every member is optional.</summary>
+[Experimental("AMEXT001")]
+public sealed record WorkLedgerOptions
+{
+    /// <summary>When given, links only to these source paths are kept.</summary>
+    public IReadOnlySet<string>? SourceFiles { get; init; }
+    /// <summary>The releases, from git tags.</summary>
+    public IReadOnlyList<WorkRelease>? Releases { get; init; }
+    /// <summary>
+    /// The ids of the requirements an item may implement (CO-2b, <see cref="WorkPack.Implements"/>): the intent pack's, or, for a
+    /// ledger read as intent, the ledger's own row ids. Null: no item implements anything.
+    /// </summary>
+    public IReadOnlySet<string>? Requirements { get; init; }
+    /// <summary>Where a commit subject names its ledger ids.</summary>
+    public WorkCommitIds CommitIds { get; init; } = WorkCommitIds.BeforeColon;
+}
+
 /// <summary>
 /// Reads a task ledger and a repository's commits into a work snapshot (CODING-hierarchy). Every ledger task is one work item;
-/// a commit belongs to the items its subject names before the first colon ("CMP-2a, CMP-3: ..."), and each item links to the
+/// a commit belongs to the items its subject names before the first colon ("CMP-2a, CMP-3: ...", or anywhere with
+/// <see cref="WorkCommitIds.Anywhere"/>), and each item links to the
 /// source files its commits changed, most often changed first, at most <see cref="MaximumFiles"/>.
 /// </summary>
 /// <remarks>
@@ -29,17 +58,36 @@ public sealed record WorkRelease(string Name, string? Date, string Commit, IRead
 /// a link to a file the code map does not hold is left out by the store and counted.
 /// </remarks>
 [Experimental("AMEXT001")]
-public static class WorkLedgerReader
+public static partial class WorkLedgerReader
 {
     /// <summary>Most files one work item links to.</summary>
     public const int MaximumFiles = 64;
     /// <summary>How much of an item's notes it keeps as its summary.</summary>
     public const int SummaryLength = 1200;
 
+    /// <summary>Most requirements one work item links to as implementing them (CO-2b).</summary>
+    public const int MaximumImplemented = 16;
+
+    /// <summary>
+    /// Builds the snapshot with <paramref name="options"/> (CO-2b): which requirements an item may implement, and where a commit
+    /// names its ids. Null options read as the plain overload does. An item implements, among
+    /// <see cref="WorkLedgerOptions.Requirements"/>: its own id (a ledger read as intent), the ids its title names, and those its
+    /// <c>implements</c> field lists (a string or an array of strings); its notes name related rows as context, not claims.
+    /// </summary>
+    public static ModuleSnapshot Read(string ledgerJson, string ledgerFile, IReadOnlyList<WorkCommit> commits, string source, WorkLedgerOptions? options) =>
+        Build(ledgerJson, ledgerFile, commits, source, options ?? new WorkLedgerOptions());
+
     /// <summary>Builds the snapshot. <paramref name="sourceFiles"/>, when given, keeps only links to those paths.</summary>
     public static ModuleSnapshot Read(string ledgerJson, string ledgerFile, IReadOnlyList<WorkCommit> commits, string source,
-        IReadOnlySet<string>? sourceFiles = null, IReadOnlyList<WorkRelease>? releases = null)
+        IReadOnlySet<string>? sourceFiles = null, IReadOnlyList<WorkRelease>? releases = null) =>
+        Build(ledgerJson, ledgerFile, commits, source, new WorkLedgerOptions { SourceFiles = sourceFiles, Releases = releases });
+
+    private static ModuleSnapshot Build(string ledgerJson, string ledgerFile, IReadOnlyList<WorkCommit> commits, string source, WorkLedgerOptions options)
     {
+        var sourceFiles = options.SourceFiles;
+        var releases = options.Releases;
+        var requirements = options.Requirements;
+        Func<string, IReadOnlySet<string>, IReadOnlyList<string>> named = options.CommitIds == WorkCommitIds.Anywhere ? IdsAnywhere : Ids;
         ArgumentNullException.ThrowIfNull(ledgerJson); ArgumentNullException.ThrowIfNull(commits);
         using var document = JsonDocument.Parse(ledgerJson);
         if (!document.RootElement.TryGetProperty("tasks", out var tasks) || tasks.ValueKind != JsonValueKind.Array)
@@ -49,7 +97,7 @@ public static class WorkLedgerReader
         var files = new Dictionary<string, Dictionary<string, int>>(StringComparer.Ordinal);
         var counts = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var commit in commits)
-            foreach (var id in Ids(commit.Subject, ids))
+            foreach (var id in named(commit.Subject, ids))
             {
                 counts[id] = counts.GetValueOrDefault(id) + 1;
                 var changed = files.TryGetValue(id, out var known) ? known : files[id] = new(StringComparer.Ordinal);
@@ -66,7 +114,7 @@ public static class WorkLedgerReader
             foreach (var dependency in dependencies.EnumerateArray())
                 if (Text(dependency, "before") is { } before && Text(dependency, "after") is { } after && ids.Contains(before) && ids.Contains(after) && before != after)
                     (blocked.TryGetValue(after, out var list) ? list : blocked[after] = []).Add(before);
-        var shipped = Shipped(commits, ids, releases);
+        var shipped = Shipped(commits, ids, releases, named);
 
         var unique = items.DistinctBy(t => Text(t, "id"), StringComparer.Ordinal).ToList();
         var records = unique.Select(task =>
@@ -88,6 +136,8 @@ public static class WorkLedgerReader
             if (wave is { } w && waves.ContainsKey(w)) links.Add(new ProposedLink { Relation = WorkPack.InWave, Target = WaveKey(w) });
             foreach (var before in blocked.GetValueOrDefault(id) ?? []) links.Add(new ProposedLink { Relation = WorkPack.BlockedBy, Target = Clip(before, 200)! });
             if (shipped.TryGetValue(id, out var release)) links.Add(new ProposedLink { Relation = WorkPack.ReleasedIn, Target = ReleaseKey(release) });
+            if (requirements is not null)
+                links.AddRange(Implemented(id, task, requirements).Select(r => new ProposedLink { Relation = WorkPack.Implements, Target = Clip(r, 600)! }));
             return Item(id, properties, links, ledgerFile);
         }).ToList();
         foreach (var (order, phase) in waves.OrderBy(w => w.Key))
@@ -100,7 +150,24 @@ public static class WorkLedgerReader
             }, ledgerFile));
         }
         records.AddRange(Releases(releases, shipped));
-        return new ModuleSnapshot { Module = WorkPack.Manifest, Dependencies = [CodeMapPack.Manifest], Source = source, Records = records.AsReadOnly() };
+        return new ModuleSnapshot { Module = WorkPack.Manifest, Dependencies = Dependencies, Source = source, Records = records.AsReadOnly() };
+    }
+
+    /// <summary>The manifests a work snapshot names: the code map its items changed, and the intent its items implement.</summary>
+    internal static IReadOnlyList<Extensibility.Modules.ModuleManifest> Dependencies => [CodeMapPack.Manifest, IntentPack.Manifest];
+
+    // What an item implements (CO-2b), among the requirements given: its own row, then what its title names, then its implements field.
+    private static IEnumerable<string> Implemented(string id, JsonElement task, IReadOnlySet<string> requirements)
+    {
+        IEnumerable<string> named = [id, .. Tokens(Text(task, "task") ?? "")];
+        if (task.TryGetProperty("implements", out var implements))
+            named = named.Concat(implements.ValueKind switch
+            {
+                JsonValueKind.String => Tokens(implements.GetString()!),
+                JsonValueKind.Array => implements.EnumerateArray().Where(e => e.ValueKind == JsonValueKind.String).SelectMany(e => Tokens(e.GetString()!)),
+                _ => [],
+            });
+        return named.Where(requirements.Contains).Distinct(StringComparer.Ordinal).Take(MaximumImplemented);
     }
 
     internal static string WaveKey(int order) => "wave:" + order.ToString(System.Globalization.CultureInfo.InvariantCulture);
@@ -157,6 +224,17 @@ public static class WorkLedgerReader
         return [.. subject[..colon].Replace(" and ", ",", StringComparison.Ordinal).Split([',', '+', '/'], StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
             .Where(ids.Contains).Distinct(StringComparer.Ordinal)];
     }
+
+    /// <summary>The ledger ids a commit subject names anywhere as a whole token (CO-2d): "... (PACK-REMOVE, D-06)".</summary>
+    internal static IReadOnlyList<string> IdsAnywhere(string subject, IReadOnlySet<string> ids) =>
+        [.. Tokens(subject).Where(ids.Contains).Distinct(StringComparer.Ordinal)];
+
+    // Whole tokens: letters, digits and '_', joined by '-' or '.' only between them ("CMP-2a", "40.28", "KP-composite"), so
+    // "CMP-2a's" holds CMP-2a, while "XCMP-3" and "CMP-3-extra" do not hold CMP-3.
+    private static IEnumerable<string> Tokens(string text) => Token().Matches(text).Select(m => m.Value);
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"[A-Za-z0-9_]+(?:[-.][A-Za-z0-9_]+)*", System.Text.RegularExpressions.RegexOptions.CultureInvariant)]
+    private static partial System.Text.RegularExpressions.Regex Token();
 
     internal static string? Text(JsonElement element, string name) =>
         element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;

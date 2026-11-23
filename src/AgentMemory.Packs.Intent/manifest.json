@@ -1,7 +1,7 @@
 {
   "format": "agentmemory.module/v1alpha1",
   "id": "io.agentmemory.packs.intent",
-  "version": "0.1.0-preview.1",
+  "version": "0.1.1",
   "sdk": "[0.1,0.2)",
   "display": {
     "title": "Product intent",
@@ -236,6 +236,13 @@
         "from": "IntentScenario",
         "to": "IntentRequirement",
         "description": "The scenario is tagged with the requirement's id"
+      },
+      {
+        "name": "INTENT_DECOMPOSES",
+        "from": "IntentRequirement",
+        "to": "IntentRequirement",
+        "max": 8,
+        "description": "This requirement refines that one: its parent, as the requirement names it"
       }
     ]
   },
@@ -319,11 +326,28 @@
         "direction": "out",
         "weightMicro": 850000,
         "fanOut": 4
+      },
+      {
+        "name": "INTENT_DECOMPOSES",
+        "direction": "out",
+        "weightMicro": 800000,
+        "fanOut": 2
+      },
+      {
+        "name": "INTENT_DECOMPOSES",
+        "direction": "in",
+        "weightMicro": 700000,
+        "fanOut": 4
       }
     ],
     "hubs": [
       "IntentFeature"
     ],
     "maxItems": 3
-  }
+  },
+  "containableBy": [
+    "io.agentmemory.packs.codemap",
+    "io.agentmemory.packs.decisions",
+    "io.agentmemory.packs.work"
+  ]
 }

@@ -13,7 +13,9 @@ namespace AgentMemory.Packs.CodeMap.Roslyn;
 /// Reads a C# repository into the code map (coding packs CMP-2a) with the Roslyn compiler, without MSBuild or a build: one
 /// compilation per project (its own files, the projects it references, the runtime's reference assemblies), so in-repo types
 /// resolve exactly while external packages simply stay unresolved. Records projects, files, types and test methods, and links
-/// each test to the in-repo types it touches most, outside its own project.
+/// each test to the in-repo types it touches most, outside its own project, and to the requirements its own attributes or its
+/// class's name (CO-2b): <c>[Trait("Requirement", "REQ-12")]</c> (xUnit), <c>[Property("Requirement", "REQ-12")]</c> (NUnit),
+/// <c>[TestProperty("Requirement", "REQ-12")]</c> (MSTest); the name is matched without case, and a value may list several ids.
 /// </summary>
 /// <remarks>Deterministic: the same files give the same records. Keys are SCIP symbols (<c>scip-dotnet nuget Assembly . Ns/Type#</c>)
 /// with the version slot empty, so they survive releases.</remarks>
@@ -142,9 +144,10 @@ public static class RoslynCodeMapReader
                     var tested = touched.GroupBy(s => s.Scip).Select(g => (g.Key, Weight: g.Sum(x => x.Weight)))
                         .OrderByDescending(g => g.Weight).ThenBy(g => g.Key, StringComparer.Ordinal).Select(g => g.Key);
                     testProjects.Add(path);
-                    builder.AddTest(Scip(compilation.AssemblyName!, symbol.ContainingType) + symbol.Name + "().",
-                        symbol.ContainingType.Name + "." + symbol.Name, tree.FilePath, method.GetLocation().GetLineSpan().StartLinePosition.Line + 1,
+                    var test = Scip(compilation.AssemblyName!, symbol.ContainingType) + symbol.Name + "().";
+                    builder.AddTest(test, symbol.ContainingType.Name + "." + symbol.Name, tree.FilePath, method.GetLocation().GetLineSpan().StartLinePosition.Line + 1,
                         Framework(attribute), tested);
+                    builder.AddValidates(test, Requirements(model, method, cancellationToken));
                 }
             }
 
@@ -269,6 +272,29 @@ public static class RoslynCodeMapReader
         var text = name switch { QualifiedNameSyntax q => q.Right.Identifier.Text, AliasQualifiedNameSyntax a => a.Name.Identifier.Text, SimpleNameSyntax s => s.Identifier.Text, _ => name.ToString() };
         return text.EndsWith("Attribute", StringComparison.Ordinal) ? text[..^"Attribute".Length] : text;
     }
+
+    private static readonly HashSet<string> PropertyAttributes = new(StringComparer.Ordinal) { "Trait", "Property", "TestProperty" };
+
+    // The requirements a test names (CO-2b): its own attributes first, then its class's and the classes around it, each a
+    // name-value attribute whose name is "Requirement"; constants count as their value.
+    private static IEnumerable<string> Requirements(SemanticModel model, MethodDeclarationSyntax method, CancellationToken cancellationToken)
+    {
+        IEnumerable<AttributeSyntax> attributes = method.AttributeLists.SelectMany(l => l.Attributes);
+        foreach (var type in method.Ancestors().OfType<TypeDeclarationSyntax>())
+            attributes = attributes.Concat(type.AttributeLists.SelectMany(l => l.Attributes));
+        foreach (var attribute in attributes)
+        {
+            if (!PropertyAttributes.Contains(AttributeName(attribute.Name)) || attribute.ArgumentList?.Arguments is not { Count: 2 } arguments) continue;
+            if (Constant(model, arguments[0].Expression, cancellationToken) is not { } name || !string.Equals(name.Trim(), "Requirement", StringComparison.OrdinalIgnoreCase)) continue;
+            if (Constant(model, arguments[1].Expression, cancellationToken) is not { } value) continue;
+            foreach (var id in value.Split([',', ';', ' ', '	'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                yield return id;
+        }
+    }
+
+    private static string? Constant(SemanticModel model, ExpressionSyntax expression, CancellationToken cancellationToken) =>
+        expression is LiteralExpressionSyntax { RawKind: (int)SyntaxKind.StringLiteralExpression } literal ? literal.Token.ValueText
+        : model.GetConstantValue(expression, cancellationToken) is { HasValue: true, Value: string text } ? text : null;
 
     private static string Framework(string attribute) => attribute switch
     {

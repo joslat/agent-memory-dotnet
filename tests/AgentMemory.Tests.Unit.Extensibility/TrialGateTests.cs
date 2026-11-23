@@ -51,7 +51,9 @@ public sealed class TrialGateTests : IDisposable
         PackTrialGate.DigestOf(AgentMemory.Packs.CodeMap.CodeMapPack.Manifest).Should().Be(GoldenCodeMapDigest,
             "the SDK's manifest serialization changed, or the code map's declarations did: see the remarks on PackTrialGate.DigestOf");
 
-    private const string GoldenCodeMapDigest = "jcs-sha256:c9446c0e46ee07b0d45a763dc8ede4960f5b71066e121f74152e5b19e73056f3";
+    // CO-2b (0.1.1): the code map's tests validate the intent pack's requirements, so its declarations, and this digest, changed;
+    // a host that requires a trial of the code map switches it off until it is trialled again.
+    private const string GoldenCodeMapDigest = "jcs-sha256:992bddb4c7b2a094daf1de34a5e7a411cd190162d1b0c28bd4040c43368bbe52";
 
     [Fact]
     public void Review6_with_a_confidence_no_regression_needs_a_tolerance_and_is_then_a_bound()

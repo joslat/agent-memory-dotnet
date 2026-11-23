@@ -1,6 +1,6 @@
 {
  "format": "agentmemory.guards.mutants-results/2",
- "commit": "39a23bc2",
+ "commit": "d933ccd0",
  "results": [
   {
    "id": "archive-ratio",
@@ -504,11 +504,11 @@
    "door": "walk",
    "mutant_sha256": "92932e25f6fdb7b35a18ff635723806be4061ae24b2681a8e7afddd032b65146",
    "killed": true,
-   "file_sha256": "928f13aba027cf31cd11ccf9f3df1f993d1a68e8213981028f8d47f120fe8a56",
+   "file_sha256": "37d8a430e040b39b6fe6ab1ef6359e0a6e8749cc81a24cd6ae102e3ca78e0086",
    "failed": [
     "TraversalBudgetTests.Review7_W2_one_module_s_failing_read_leaves_that_module_out_and_the_walk_goes_on"
    ],
-   "seconds": 21
+   "seconds": 9
   },
   {
    "id": "walk-server-deadline",
@@ -552,11 +552,11 @@
    "door": "walk",
    "mutant_sha256": "308d4f4971295a7909df861bd04f291f365e10749cc8108d284971eaf5d976fa",
    "killed": true,
-   "file_sha256": "928f13aba027cf31cd11ccf9f3df1f993d1a68e8213981028f8d47f120fe8a56",
+   "file_sha256": "37d8a430e040b39b6fe6ab1ef6359e0a6e8749cc81a24cd6ae102e3ca78e0086",
    "failed": [
     "WalkWorkBoundsTests.Review7_W7_the_walk_makes_the_fan_out_cut_whatever_a_store_returns_and_in_whatever_order"
    ],
-   "seconds": 19
+   "seconds": 9
   },
   {
    "id": "mount-plan-at-mount",
@@ -1196,11 +1196,11 @@
    "door": "serve",
    "mutant_sha256": "fa3f623bf3d296eb4921e3288c4685d579c98ceaaa0fbdb6d50c36274b3ebf0f",
    "killed": true,
-   "file_sha256": "570dcae238339ddc35bcd43b2f11e207d210208484958a2665250a8c399ce069",
+   "file_sha256": "3b4d9fc710ff44f9c212780972b6925401267cb9a04abc14c9cc72b167340807",
    "failed": [
     "RecordLifeTests.The_module_set_s_reader_keeps_the_records_true_at_its_pin_and_asks_the_store_at_it"
    ],
-   "seconds": 10
+   "seconds": 13
   },
   {
    "id": "fan-out-before-life",
@@ -1306,11 +1306,11 @@
    "door": "serve",
    "mutant_sha256": "d943d5ecbe7487afc845ac7fd6c3be25c8b3203abd829b7075f14eb4c46e299b",
    "killed": true,
-   "file_sha256": "570dcae238339ddc35bcd43b2f11e207d210208484958a2665250a8c399ce069",
+   "file_sha256": "3b4d9fc710ff44f9c212780972b6925401267cb9a04abc14c9cc72b167340807",
    "failed": [
     "ErasureTests.A_module_set_never_offers_a_record_an_erasure_it_holds_names_whatever_the_store_holds"
    ],
-   "seconds": 9
+   "seconds": 10
   },
   {
    "id": "set-erases-nothing",
@@ -1318,11 +1318,11 @@
    "door": "serve",
    "mutant_sha256": "291b8631edaf31900fb819a4b93eaa9d4c1a9ff2a0ae65764e9bb7ad73c87741",
    "killed": true,
-   "file_sha256": "570dcae238339ddc35bcd43b2f11e207d210208484958a2665250a8c399ce069",
+   "file_sha256": "3b4d9fc710ff44f9c212780972b6925401267cb9a04abc14c9cc72b167340807",
    "failed": [
     "ErasureTests.A_module_set_never_offers_a_record_an_erasure_it_holds_names_whatever_the_store_holds"
    ],
-   "seconds": 10
+   "seconds": 13
   },
   {
    "id": "erasure-by-module",
@@ -1414,11 +1414,11 @@
    "door": "serve",
    "mutant_sha256": "ac969c611cde2f9e1986d8cc5be731c27e60cdcedc418f4f649062797f80f44b",
    "killed": true,
-   "file_sha256": "928f13aba027cf31cd11ccf9f3df1f993d1a68e8213981028f8d47f120fe8a56",
+   "file_sha256": "37d8a430e040b39b6fe6ab1ef6359e0a6e8749cc81a24cd6ae102e3ca78e0086",
    "failed": [
     "PackMemoryTests.A_partly_admitted_pack_s_walk_follows_only_its_admitted_relations_and_offers_only_admitted_anchors"
    ],
-   "seconds": 16
+   "seconds": 9
   },
   {
    "id": "walk-offers-every-anchor",
@@ -1426,11 +1426,11 @@
    "door": "serve",
    "mutant_sha256": "282706dd8481d58497da3ea922df0205d21e0b96242ad0da525f616c99e40409",
    "killed": true,
-   "file_sha256": "928f13aba027cf31cd11ccf9f3df1f993d1a68e8213981028f8d47f120fe8a56",
+   "file_sha256": "37d8a430e040b39b6fe6ab1ef6359e0a6e8749cc81a24cd6ae102e3ca78e0086",
    "failed": [
     "PackMemoryTests.A_partly_admitted_pack_s_walk_follows_only_its_admitted_relations_and_offers_only_admitted_anchors"
    ],
-   "seconds": 15
+   "seconds": 12
   },
   {
    "id": "shadow-contributes",
@@ -1450,11 +1450,11 @@
    "door": "serve",
    "mutant_sha256": "8a03b480c0e3415156cee5d79f6bddaa8e39d51d05fba0bcbe039e7a3a208041",
    "killed": true,
-   "file_sha256": "570dcae238339ddc35bcd43b2f11e207d210208484958a2665250a8c399ce069",
+   "file_sha256": "3b4d9fc710ff44f9c212780972b6925401267cb9a04abc14c9cc72b167340807",
    "failed": [
     "ModuleActivationTests.A_module_that_runs_dark_records_what_it_would_offer_and_never_contributes_it"
    ],
-   "seconds": 11
+   "seconds": 9
   },
   {
    "id": "abstention-always-quiet",
@@ -1933,11 +1933,11 @@
    "door": "serve",
    "mutant_sha256": "8c844ababe7d504e92ef14ad1fda6d2ddaf504f1f9b9c45d2b4eb5e1f7959e68",
    "killed": true,
-   "file_sha256": "570dcae238339ddc35bcd43b2f11e207d210208484958a2665250a8c399ce069",
+   "file_sha256": "3b4d9fc710ff44f9c212780972b6925401267cb9a04abc14c9cc72b167340807",
    "failed": [
     "PolicyTests.A_module_set_withholds_a_pack_s_records_from_a_model_its_policy_keeps_them_from"
    ],
-   "seconds": 8
+   "seconds": 10
   },
   {
    "id": "endpoint-ignored",
@@ -1945,12 +1945,12 @@
    "door": "serve",
    "mutant_sha256": "f44a354a1e3031ba3b27b02f2df174e972c2edbb25cdc7ae5126e330edd8bc7c",
    "killed": true,
-   "file_sha256": "570dcae238339ddc35bcd43b2f11e207d210208484958a2665250a8c399ce069",
+   "file_sha256": "3b4d9fc710ff44f9c212780972b6925401267cb9a04abc14c9cc72b167340807",
    "failed": [
     "PolicyTests.A_module_set_withholds_a_pack_s_records_from_a_model_its_policy_keeps_them_from",
     "PolicyTests.Read_is_a_condition_of_every_other_verb_and_the_loader_names_the_policy_on_every_record"
    ],
-   "seconds": 13
+   "seconds": 9
   },
   {
    "id": "unheld-policy-offered",
@@ -1958,11 +1958,11 @@
    "door": "serve",
    "mutant_sha256": "ad8b28f5bfc6bdd501b5fd8da6e0cb4dc6ce647860c42daba8654c601c9dd7bd",
    "killed": true,
-   "file_sha256": "570dcae238339ddc35bcd43b2f11e207d210208484958a2665250a8c399ce069",
+   "file_sha256": "3b4d9fc710ff44f9c212780972b6925401267cb9a04abc14c9cc72b167340807",
    "failed": [
     "PolicyTests.A_module_set_withholds_a_pack_s_records_from_a_model_its_policy_keeps_them_from"
    ],
-   "seconds": 11
+   "seconds": 10
   },
   {
    "id": "read-not-standing",
@@ -1970,11 +1970,11 @@
    "door": "serve",
    "mutant_sha256": "8a6a9df0775dec7cf22d0392410a3b884e0b154cd41a8b437a7a7bfde07968a8",
    "killed": true,
-   "file_sha256": "570dcae238339ddc35bcd43b2f11e207d210208484958a2665250a8c399ce069",
+   "file_sha256": "3b4d9fc710ff44f9c212780972b6925401267cb9a04abc14c9cc72b167340807",
    "failed": [
     "PolicyTests.Read_is_a_condition_of_every_other_verb_and_the_loader_names_the_policy_on_every_record"
    ],
-   "seconds": 11
+   "seconds": 10
   },
   {
    "id": "loader-policy-unnamed",
@@ -2156,11 +2156,11 @@
    "door": "serve",
    "mutant_sha256": "dc4d3950cd18f387dfbd715350668c9920ff310cfd93eea8557843f0644e522e",
    "killed": true,
-   "file_sha256": "570dcae238339ddc35bcd43b2f11e207d210208484958a2665250a8c399ce069",
+   "file_sha256": "3b4d9fc710ff44f9c212780972b6925401267cb9a04abc14c9cc72b167340807",
    "failed": [
     "ConfidenceTests.A_store_keeps_the_floor_before_its_limit_and_the_host_s_floor_reaches_it"
    ],
-   "seconds": 11
+   "seconds": 10
   },
   {
    "id": "memory-find-below-the-floor",
@@ -2192,11 +2192,11 @@
    "door": "serve",
    "mutant_sha256": "2ed8358d41bc666e9e1ed0bcf1e0bb90ae99904e39389539565e0612896b3897",
    "killed": true,
-   "file_sha256": "928f13aba027cf31cd11ccf9f3df1f993d1a68e8213981028f8d47f120fe8a56",
+   "file_sha256": "37d8a430e040b39b6fe6ab1ef6359e0a6e8749cc81a24cd6ae102e3ca78e0086",
    "failed": [
     "ConfidenceTests.A_walk_neither_seeds_from_nor_offers_a_record_below_the_floor"
    ],
-   "seconds": 11
+   "seconds": 9
   },
   {
    "id": "snapshot-takes-trust",
@@ -2336,11 +2336,11 @@
    "door": "definition",
    "mutant_sha256": "13014790f90d49e8a2247fb4e42e6b585d09a6468b4fbb8608449a88cb6517ec",
    "killed": true,
-   "file_sha256": "928f13aba027cf31cd11ccf9f3df1f993d1a68e8213981028f8d47f120fe8a56",
+   "file_sha256": "37d8a430e040b39b6fe6ab1ef6359e0a6e8749cc81a24cd6ae102e3ca78e0086",
    "failed": [
     "WalkWorkBoundsTests.Review7_W8_a_record_that_may_not_take_part_neither_seeds_nor_steers"
    ],
-   "seconds": 15
+   "seconds": 12
   },
   {
    "id": "live-in-pack-memory",

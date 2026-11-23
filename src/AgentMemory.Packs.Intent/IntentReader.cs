@@ -15,7 +15,9 @@ namespace AgentMemory.Packs.Intent;
 /// <item>requirements: lines that say "shall" in requirement documents (<c>REQUIREMENTS.md</c>, <c>*requirements*.md</c>,
 /// <c>*.req.md</c>, <c>docs/requirements/</c>), each with an id where it starts with one (<c>REQ-12:</c>, <c>[REQ-12]</c>,
 /// <c>**REQ-12**</c>), its EARS pattern (When: event; While: state; Where: optional; If ... then: unwanted; several:
-/// complex; else ubiquitous), and a status where the line names one (<c>(accepted)</c>, <c>[implemented]</c>);</item>
+/// complex; else ubiquitous), and a status where the line names one (<c>(accepted)</c>, <c>[implemented]</c>); a line that
+/// names its parent (<c>(parent: REQ-1)</c>, <c>[parent REQ-1]</c>) decomposes it (CO-2b, <see cref="IntentPack.Decomposes"/>),
+/// stored on the child, when this read holds the parent;</item>
 /// <item>Gherkin <c>.feature</c> files (English keywords): features, rules, scenarios and outlines with their steps; a
 /// scenario tagged <c>@REQ-12</c> (or <c>@req:REQ-12</c>) verifies requirement REQ-12;</item>
 /// <item>OpenSLO documents (YAML, <c>apiVersion: openslo/…</c>, <c>kind: SLO</c>): objectives with their service, target,
@@ -106,7 +108,12 @@ public static partial class IntentReader
         {
             var id = (string)requirement.Properties["reference"]!;
             if (counts.TryGetValue(id, out var count)) requirement.Properties["scenarios"] = count;
-            records.Add(Proposal(requirement, []));
+            // The child names its parent, so the child holds the link (storage follows evidence): a parent that changes leaves its
+            // children's links on its older version, and a parent this read does not hold is not linked.
+            var parents = requirement.Parents.Where(p => !string.Equals(p, id, StringComparison.OrdinalIgnoreCase) && byId.ContainsKey(p))
+                .Select(p => byId[p].Key).Distinct(StringComparer.Ordinal)
+                .Select(key => new ProposedLink { Relation = IntentPack.Decomposes, Target = Clip(key, 600) }).ToList();
+            records.Add(Proposal(requirement, parents));
         }
         records.AddRange(features.DistinctBy(f => f.Key, StringComparer.Ordinal).Select(f => Proposal(f, [])));
         records.AddRange(others.DistinctBy(o => (o.Type, o.Key)).Select(o => Proposal(o, [])));
@@ -115,7 +122,11 @@ public static partial class IntentReader
         return new ModuleSnapshot { Module = IntentPack.Manifest, Source = source, Records = unique.AsReadOnly() };
     }
 
-    internal sealed record Record(string Type, string Key, Dictionary<string, object?> Properties);
+    internal sealed record Record(string Type, string Key, Dictionary<string, object?> Properties)
+    {
+        /// <summary>The parents a requirement names (CO-2b), in its line's order.</summary>
+        internal IReadOnlyList<string> Parents { get; init; } = [];
+    }
 
     private static ModuleProposal Proposal(Record record, IReadOnlyList<ProposedLink> links) => new()
     {
@@ -135,6 +146,10 @@ public static partial class IntentReader
     [GeneratedRegex(@"[\(\[](?<status>proposed|accepted|implemented|verified|rejected)[\)\]]", RegexOptions.IgnoreCase)]
     private static partial Regex StatusMark();
 
+    // "(parent: REQ-1)", "[parent REQ-1]": the requirement this one refines (CO-2b).
+    [GeneratedRegex(@"\s*[\(\[]\s*parent\s*:?\s*(?<id>[A-Z][A-Z0-9]*-\d+)\s*[\)\]]", RegexOptions.IgnoreCase)]
+    private static partial Regex ParentMark();
+
     // Lines that say "shall": the EARS form of a requirement, whatever its pattern.
     internal static IEnumerable<Record> Requirements(string file, string text)
     {
@@ -146,12 +161,14 @@ public static partial class IntentReader
             var match = IdLine().Match(line);
             var id = match.Success ? match.Groups["id"].Value : $"{file}:{i + 1}";
             var body = (match.Success ? match.Groups["text"].Value : line.TrimStart('-', '*', '+', ' ')).Trim();
+            var parents = ParentMark().Matches(body).Select(m => m.Groups["id"].Value).ToList();
+            body = ParentMark().Replace(body, "").Trim();
             var status = StatusMark().Match(body) is { Success: true } mark ? mark.Groups["status"].Value.ToLowerInvariant() : "proposed";
             body = StatusMark().Replace(body, "").Trim();
             yield return new(IntentPack.RequirementType, id, new()
             {
                 ["reference"] = id, ["text"] = body, ["pattern"] = Pattern(body), ["status"] = status, ["file"] = file, ["source"] = $"{file}:{i + 1}",
-            });
+            }) { Parents = parents };
         }
     }
 

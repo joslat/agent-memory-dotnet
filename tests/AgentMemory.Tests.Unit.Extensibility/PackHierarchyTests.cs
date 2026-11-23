@@ -9,6 +9,8 @@ using AgentMemory.Extensibility.Reading;
 using AgentMemory.Packs.CodeMap;
 using AgentMemory.Packs.Coding;
 using AgentMemory.Packs.Decisions;
+using AgentMemory.Packs.Intent;
+using AgentMemory.Packs.Architecture;
 using AgentMemory.Packs.Repository;
 using AgentMemory.Packs.Work;
 using FluentAssertions;
@@ -59,15 +61,20 @@ public sealed class PackHierarchyTests
         var builder = new ModuleSetBuilder();
         builder.AddComposite<CodingPack>();
 
-        builder.Modules.Select(m => m.Manifest.Id).Should().Equal(DecisionsPack.Id, RepositoryPack.Id, CodeMapPack.Id, WorkPack.Id);
+        builder.Modules.Select(m => m.Manifest.Id).Should().Equal(DecisionsPack.Id, RepositoryPack.Id, CodeMapPack.Id, WorkPack.Id, IntentPack.Id);
         builder.Priorities[WorkPack.Id].Should().Be(40, "work comes after the code map's tests in the candidate budget");
         var coding = CodingPack.Manifest;
         coding.Validate().Should().BeEmpty();
-        coding.Roots.Should().Equal(DecisionsPack.Id, RepositoryPack.Id);
-        coding.Children(DecisionsPack.Id).Should().Equal(WorkPack.Id, CodeMapPack.Id);
+        // CO-2 (the owner's choice, 22 Nov 2026): containment says who may link to whom, the way the evidence points, so intent,
+        // which every member that links into it contains, sits at the bottom of it; what the members mean is the layer order,
+        // where intent is the top.
+        coding.Roots.Should().Equal(DecisionsPack.Id, RepositoryPack.Id, ArchitecturePack.Id);
+        coding.Children(DecisionsPack.Id).Should().Equal(WorkPack.Id, CodeMapPack.Id, IntentPack.Id);
         coding.Depth(WorkPack.Id).Should().Be(1);
         coding.Depth(CodeMapPack.Id).Should().Be(2);
-        WorkPack.Manifest.Modules.Keys.Should().Equal(CodeMapPack.Id);
+        coding.Depth(IntentPack.Id).Should().Be(3);
+        CodingPack.Layers.Should().Equal(IntentPack.Id, DecisionsPack.Id, ArchitecturePack.Id, WorkPack.Id, CodeMapPack.Id);
+        WorkPack.Manifest.Modules.Keys.Should().Equal(CodeMapPack.Id, IntentPack.Id);
     }
 
     [Fact]
@@ -77,9 +84,9 @@ public sealed class PackHierarchyTests
             .Should().Throw<InvalidOperationException>().WithMessage($"*{WorkPack.Id} needs {CodeMapPack.Id}, which is switched off*");
 
         // The same members in a family that forgot to say work contains the code map: work's links would cross the hierarchy.
-        var flat = CodingPack.Manifest with { Members = [.. CodingPack.Manifest.Members.Select(m => m with { Contains = [] })] };
+        var flat = CodingPack.Manifest with { Members = [.. CodingPack.Manifest.Members.Select(m => m.Id == WorkPack.Id ? m with { Contains = [] } : m)] };
         var members = new CompositeMembers(new ModuleSetBuilder(), flat, new CompositeOptions());
-        members.Add<DecisionsPack>().Add<RepositoryPack>().Add<CodeMapPack>().Add<WorkPack>();
+        members.Add<DecisionsPack>().Add<RepositoryPack>().Add<CodeMapPack>().Add<WorkPack>().Add<IntentPack>().Add<ArchitecturePack>();
         FluentActions.Invoking(members.Complete).Should().Throw<InvalidOperationException>()
             .WithMessage($"*{WorkPack.Id} depends on {CodeMapPack.Id}, which it does not contain*");
     }
@@ -105,7 +112,7 @@ public sealed class PackHierarchyTests
         var snapshot = WorkLedgerReader.Read(Ledger, "tasks.json", Commits(), "git:abc ledger:1", new HashSet<string> { "src/Store.cs", "src/Reader.cs" });
 
         snapshot.Problems().Should().BeEmpty();
-        snapshot.Dependencies.Select(d => d.Id).Should().Equal(CodeMapPack.Id);
+        snapshot.Dependencies.Select(d => d.Id).Should().Equal(CodeMapPack.Id, IntentPack.Id);
         var items = snapshot.Records.ToDictionary(r => r.Key);
         items.Keys.Should().Equal("A-1", "B-2", "C-3");
         items["A-1"].Links.Select(l => l.Target).Should().Equal("src/Store.cs", "src/Reader.cs");
@@ -130,13 +137,13 @@ public sealed class PackHierarchyTests
     {
         var snapshot = WorkLedgerReader.Read(Ledger, "tasks.json", Commits(), "git:abc", null);
 
-        (snapshot with { Dependencies = [] }).Problems().Should().ContainSingle(p => p.Contains($"needs {CodeMapPack.Id}", StringComparison.Ordinal));
-        (snapshot with { Dependencies = [CodeMapPack.Manifest, DecisionsPack.Manifest] }).Problems()
+        (snapshot with { Dependencies = [IntentPack.Manifest] }).Problems().Should().ContainSingle(p => p.Contains($"needs {CodeMapPack.Id}", StringComparison.Ordinal));
+        (snapshot with { Dependencies = [CodeMapPack.Manifest, IntentPack.Manifest, DecisionsPack.Manifest] }).Problems()
             .Should().ContainSingle(p => p.Contains($"names {DecisionsPack.Id}, which the module does not depend on", StringComparison.Ordinal));
         // A link into the code map's records is the store's to resolve: the snapshot neither holds nor checks its target.
         snapshot.Problems().Should().BeEmpty();
         snapshot.ImportOrder(selfCycles: true).Select(r => r.Key).Should().Equal("A-1", "B-2", "C-3");
-        snapshot.Resolve().Modules.Select(m => m.Id).Should().BeEquivalentTo([CodeMapPack.Id, WorkPack.Id]);
+        snapshot.Resolve().Modules.Select(m => m.Id).Should().BeEquivalentTo([CodeMapPack.Id, WorkPack.Id, IntentPack.Id]);
     }
 
     // A two-pack family in miniature: work contains code, and a walk from a file climbs to the work that changed it.

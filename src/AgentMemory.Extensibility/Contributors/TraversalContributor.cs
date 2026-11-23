@@ -73,7 +73,8 @@ public sealed class TraversalContributor : IContextContributor
             {
                 RecordModuleId = i.Record.ModuleId, RecordType = i.Record.Type, RecordVersionId = i.Record.Id, RecordKey = i.Record.Key,
                 ConfidenceMicro = i.Record.ConfidenceMicro, CreatedAtUtc = i.Record.CreatedAtUtc, InvalidatedAtUtc = i.Record.InvalidatedAtUtc, SourceSessionId = i.Record.SourceSessionId,
-                SourceMessageIds = Array.AsReadOnly(i.Record.Source.MessageIds.ToArray()), SourcePack = i.Record.Source.Pack, Via = i.Via, ViaRelation = i.Part
+                SourceMessageIds = Array.AsReadOnly(i.Record.Source.MessageIds.ToArray()), SourcePack = i.Record.Source.Pack, Via = i.Via, ViaRelation = i.Part,
+                ViaMeaning = i.Toward,
             }
         }).ToList().AsReadOnly()) };
     }

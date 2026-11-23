@@ -54,6 +54,9 @@ public sealed class ModuleSet
 
     internal IModuleStoreAdapter? Store { get; }
 
+    /// <summary>The family's layer order a walk labels its hops by (CO-2b); null without one. Meaning only: it changes no selection.</summary>
+    internal IReadOnlyDictionary<string, int>? Layers { get; private init; }
+
     internal Func<IServiceProvider, Microsoft.Extensions.AI.IChatClient>? ChatClient { get; private init; }
 
     /// <summary>The SDK version modules are resolved against: this assembly's.</summary>
@@ -145,6 +148,7 @@ public sealed class ModuleSet
             ChatClient = builder.ChatClient, Priorities = priorities.AsReadOnly(), Erasures = [.. builder.Erasures], MinimumConfidenceMicro = builder.MinimumConfidenceMicro,
             Endpoint = builder.Endpoint, Shadows = new Dictionary<string, (IShadowRecorder, Func<ContextItem, string?>?)>(builder.Shadows, StringComparer.Ordinal), PackPolicies = builder.PackPolicies.ToDictionary(p => p.Digest, p => p.Allows, StringComparer.Ordinal),
             Slots = [.. builder.Modules.SelectMany(m => Enumerable.Repeat(m.Manifest.Id, m.Contributors.Count))],
+            Layers = builder.Layers.Count == 0 ? null : builder.Layers.ToDictionary(l => l.Key, l => l.Value, StringComparer.Ordinal).AsReadOnly(),
         };
         var log = services.GetService<ILoggerFactory>()?.CreateLogger<ModuleSet>();
         log?.LogInformation("Module set {Fingerprint} active: {Modules}.", fingerprint,
@@ -331,7 +335,7 @@ public sealed class ModuleSet
             s.GetService<TimeProvider>() ?? TimeProvider.System,
             r => !Erased(r) && !Withheld(r, (s.GetService<TimeProvider>() ?? TimeProvider.System).GetUtcNow())
                 && Packs.ModuleConfidence.Clears(r.ConfidenceMicro, MinimumConfidenceMicro),
-            MinimumConfidenceMicro, _registrations.Any(r => r.AdmittedParts is not null) ? Admitted : null);
+            MinimumConfidenceMicro, _registrations.Any(r => r.AdmittedParts is not null) ? Admitted : null, Layers);
 
     // Whether a module's decision admitted this part of it (feature 11, R3): a relation it starts a path with, or (null) an anchor's
     // own record. A module admitted whole admits every part.

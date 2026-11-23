@@ -126,7 +126,7 @@ public sealed partial class ModuleRecordWriteIntegrationTests
         set.Families.Should().BeEmpty();
         var map = set.Packs.Should().ContainSingle(p => p.Kind == "definition").Subject;
         var shared = set.Packs.Should().ContainSingle(p => p.Kind == "snapshot").Subject;
-        var fromPack = shared.ToSnapshot(map.Manifest);
+        var fromPack = shared.ToSnapshot(map.Manifest, [AgentMemory.Packs.Intent.IntentPack.Manifest]);
         fromPack.Digest.Should().Be(built.Digest);
 
         (await store.ImportAsync(fromPack, at)).Should().Be(new ModuleSnapshotResult { ModuleId = CodeMapPack.Id, Source = "git:0a1b2c3d4e5f", Created = 6 });
@@ -134,7 +134,9 @@ public sealed partial class ModuleRecordWriteIntegrationTests
         (await store.ImportAsync(built, at.AddSeconds(1))).Should().Be(new ModuleSnapshotResult { ModuleId = CodeMapPack.Id, Source = "git:local", Unchanged = 6 });
 
         using var services = Policies();
-        var reader = new Neo4jModuleTraversalReader(fixture.TransactionRunner, KnowledgePack.ResolutionOf(map.Manifest), services.GetRequiredService<IMemoryIsolationPolicy>());
+        // The definition the pack carried, with the intent pack its tests' requirement links reach (CO-2b).
+        var resolution = ModuleResolver.Resolve([AgentMemory.Packs.Intent.IntentPack.Manifest, map.Manifest], ModuleSet.SdkVersion, ModuleHostFeatures.Known);
+        var reader = new Neo4jModuleTraversalReader(fixture.TransactionRunner, resolution, services.GetRequiredService<IMemoryIsolationPolicy>());
         var context = new ModuleReadContext { Scope = MemoryScope.For("lea") };
         var file = (await reader.MatchAsync(new() { ModuleId = CodeMapPack.Id, Type = CodeMapPack.FileType, Property = "path",
             Match = ModuleAnchorMatch.Exact, Values = ["src/Map/MapStore.cs"] }, context)).Records.Should().ContainSingle().Subject;
@@ -156,7 +158,7 @@ public sealed partial class ModuleRecordWriteIntegrationTests
     [Fact]
     public async Task TheRealCodingFamilyAsACompositeInAPackSetComposesInAHostAndMigratesToExactlyTheSchemaOfTheCompiledFamily()
     {
-        var members = new[] { "Decisions", "Repository", "CodeMap", "Work" }.Select(f => PackAuthoring.Build(RealSource(f), AmpackKey.PrivateKeyPem)).ToList();
+        var members = new[] { "Decisions", "Repository", "CodeMap", "Work", "Intent", "Architecture" }.Select(f => PackAuthoring.Build(RealSource(f), AmpackKey.PrivateKeyPem)).ToList();
         var composite = PackAuthoring.BuildComposite(RealSource("Coding", "composite.json"), members, AmpackKey.PrivateKeyPem, AmpackTrust());
         var set = PackFamilies.LoadSet(PackAuthoring.BuildSet("io.example.coding-family", "1.0.0", [composite, .. members], AmpackKey.PrivateKeyPem, AmpackTrust()), AmpackTrust());
 
@@ -399,7 +401,7 @@ public sealed partial class ModuleRecordWriteIntegrationTests
         await store.ImportAsync(NoCodeMap("git:clear"), at.AddSeconds(-1));
         var map = MapSnapshot("git:same", "Close Remove", withOther: true);
         await store.ImportAsync(map, at);
-        var inStore = new Neo4jModuleTraversalReader(fixture.TransactionRunner, KnowledgePack.ResolutionOf(CodeMapPack.Manifest),
+        var inStore = new Neo4jModuleTraversalReader(fixture.TransactionRunner, CodingResolutions.CodeMap,
             services.GetRequiredService<IMemoryIsolationPolicy>());
         var inMemory = PackMemory.From([], [map]);
         async Task<(List<string> Keys, ModuleRecord First)> Match(IModuleTraversalReader reader)

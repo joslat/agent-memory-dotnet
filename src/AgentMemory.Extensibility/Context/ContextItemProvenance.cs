@@ -41,6 +41,13 @@ public sealed record ContextItemProvenance
     public string? Via { get; init; }
     /// <summary>The first relation of that path, <c>NAME:out</c> or <c>NAME:in</c> (feature 11): the part of the pack that offered it.</summary>
     public string? ViaRelation { get; init; }
+    /// <summary>
+    /// Whether the hop that reached the record led to an earlier layer of its family (<see cref="TraversalMeaning.Why"/>: nearer
+    /// intent) or a later one (<see cref="TraversalMeaning.What"/>: nearer code), by the layer order the family declares (CO-2b);
+    /// null within one layer, for an anchor's own record, for an item a view found, or without a layer order. Data beside the
+    /// reason: <see cref="Via"/> does not change.
+    /// </summary>
+    public TraversalMeaning? ViaMeaning { get; init; }
     /// <summary>The record's effective confidence in millionths (feature 09): capped by its source and signer; null when nothing caps it.</summary>
     public int? ConfidenceMicro { get; init; }
     /// <summary>The original source session.</summary>
@@ -49,4 +56,17 @@ public sealed record ContextItemProvenance
     public IReadOnlyList<string> SourceMessageIds { get; init; } = [];
     /// <summary>For a knowledge pack record, the pack, version, digest and seed line it came from; null otherwise.</summary>
     public Ingestion.PackSource? SourcePack { get; init; }
+}
+
+/// <summary>
+/// Which way a walk's hop went through a family's layers (CO-2b), for meaning only: the layer order says what a pack's records
+/// mean to the others' (intent, then decisions, architecture, work and code), never which may link to which.
+/// </summary>
+[Experimental("AMEXT001")]
+public enum TraversalMeaning
+{
+    /// <summary>To an earlier layer: a reason for what the hop started from (a requirement a test validates).</summary>
+    Why = 1,
+    /// <summary>To a later layer: what serves what the hop started from (the tests that validate a requirement).</summary>
+    What = 2,
 }

@@ -20,7 +20,7 @@ namespace AgentMemory.Tests.Unit.Extensibility;
 public sealed class PackFamilyTests : IDisposable
 {
     private static readonly string Packs = Path.Combine(AppContext.BaseDirectory, "Packs");
-    private static readonly string[] MemberFolders = ["Decisions", "Repository", "CodeMap", "Work"];
+    private static readonly string[] MemberFolders = ["Decisions", "Repository", "CodeMap", "Work", "Intent", "Architecture"];
     private readonly string _root = Directory.CreateTempSubdirectory("pack-family-").FullName;
     private readonly PackKey _key = PackKey.Create();
 
@@ -105,8 +105,9 @@ public sealed class PackFamilyTests : IDisposable
         FluentActions.Invoking(() => new ModuleSetBuilder().AddComposite(CodingPack.Manifest, members => members.Add(work, _ => { })))
             .Should().Throw<InvalidOperationException>().WithMessage($"*accepts {WorkPack.Id} *not 0.2.0*");
         new ModuleSetBuilder().AddComposite(CodingPack.Manifest, members => members.Add(DecisionsPack.Manifest, _ => { }).Add(RepositoryPack.Manifest, _ => { })
-                .Add(CodeMapPack.Manifest, _ => { }).Add(WorkPack.Manifest, _ => { }))
-            .Modules.Should().HaveCount(4, "the members as shipped are inside the range");
+                .Add(CodeMapPack.Manifest, _ => { }).Add(WorkPack.Manifest, _ => { }).Add(AgentMemory.Packs.Intent.IntentPack.Manifest, _ => { })
+                .Add(AgentMemory.Packs.Architecture.ArchitecturePack.Manifest, _ => { }))
+            .Modules.Should().HaveCount(5, "the members as shipped are inside the range (architecture starts off)");
     }
 
     [Fact]
@@ -117,7 +118,7 @@ public sealed class PackFamilyTests : IDisposable
 
         var builder = new ModuleSetBuilder().AddFamily(family, o => o.Disable(RepositoryPack.Id).Prioritize(CodeMapPack.Id, 5));
 
-        builder.Modules.Select(m => m.Manifest.Id).Should().Equal(DecisionsPack.Id, CodeMapPack.Id, WorkPack.Id);
+        builder.Modules.Select(m => m.Manifest.Id).Should().Equal(DecisionsPack.Id, CodeMapPack.Id, WorkPack.Id, AgentMemory.Packs.Intent.IntentPack.Id);
         builder.Priorities[CodeMapPack.Id].Should().Be(5);
     }
 
@@ -165,7 +166,7 @@ public sealed class PackFamilyTests : IDisposable
 
         var loaded = PackFamilies.LoadSet(PackBuilder.Pack(set), Trust());
 
-        loaded.Families.Should().ContainSingle().Which.Members.Should().HaveCount(4);
+        loaded.Families.Should().ContainSingle().Which.Members.Should().HaveCount(6);
         loaded.Packs.Should().BeEmpty();
         new ModuleSetBuilder().AddFamily(loaded.Families[0]).Modules.Select(m => m.Manifest.Id)
             .Should().Equal(new ModuleSetBuilder().AddComposite<CodingPack>().Modules.Select(m => m.Manifest.Id));

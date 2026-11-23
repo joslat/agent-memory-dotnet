@@ -6,6 +6,7 @@ using AgentMemory.Extensibility.Neo4j.Storage;
 using AgentMemory.Extensibility.Packs;
 using AgentMemory.Extensibility.Reading;
 using AgentMemory.Packs.CodeMap;
+using AgentMemory.Packs.Intent;
 using AgentMemory.Packs.Work;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
@@ -36,8 +37,8 @@ public sealed partial class ModuleRecordWriteIntegrationTests
     }
 
     // The code map tests share one database: each starts and ends with no live code map record (closed, history kept).
-    private static ModuleSnapshot NoCodeMap(string source) => new() { Module = CodeMapPack.Manifest, Source = source, Records = [] };
-    private static ModuleSnapshot NoWork(string source) => new() { Module = WorkPack.Manifest, Dependencies = [CodeMapPack.Manifest], Source = source, Records = [] };
+    private static ModuleSnapshot NoCodeMap(string source) => new() { Module = CodeMapPack.Manifest, Dependencies = [IntentPack.Manifest], Source = source, Records = [] };
+    private static ModuleSnapshot NoWork(string source) => new() { Module = WorkPack.Manifest, Dependencies = [CodeMapPack.Manifest, IntentPack.Manifest], Source = source, Records = [] };
 
     [Fact]
     public async Task Review7_W9_AWorkSnapshotImportedBeforeTheCodeMapIsRefusedNotLeftWithoutItsLinks()
@@ -108,7 +109,7 @@ public sealed partial class ModuleRecordWriteIntegrationTests
             .Should().Be(new ModuleSnapshotResult { ModuleId = CodeMapPack.Id, Source = "git:four", Unchanged = 5, Closed = 1 });
 
         using var services = Policies();
-        var reader = new Neo4jModuleTraversalReader(fixture.TransactionRunner, KnowledgePack.ResolutionOf(CodeMapPack.Manifest),
+        var reader = new Neo4jModuleTraversalReader(fixture.TransactionRunner, CodingResolutions.CodeMap,
             services.GetRequiredService<IMemoryIsolationPolicy>());
         var context = new ModuleReadContext { Scope = MemoryScope.For("lea") };
         var file = (await reader.MatchAsync(new() { ModuleId = CodeMapPack.Id, Type = CodeMapPack.FileType, Property = "path",
@@ -156,7 +157,7 @@ public sealed partial class ModuleRecordWriteIntegrationTests
         var at = DateTimeOffset.UtcNow.AddMinutes(2);
         await store.ImportAsync(NoCodeMap("git:clear"), at.AddSeconds(-1));
         using var services = Policies();
-        var reader = new Neo4jModuleTraversalReader(fixture.TransactionRunner, KnowledgePack.ResolutionOf(CodeMapPack.Manifest),
+        var reader = new Neo4jModuleTraversalReader(fixture.TransactionRunner, CodingResolutions.CodeMap,
             services.GetRequiredService<IMemoryIsolationPolicy>());
         var context = new ModuleReadContext { Scope = MemoryScope.For("lea") };
         async Task<string> Live(string scip) => (await reader.MatchAsync(new() { ModuleId = CodeMapPack.Id, Type = CodeMapPack.SymbolType,

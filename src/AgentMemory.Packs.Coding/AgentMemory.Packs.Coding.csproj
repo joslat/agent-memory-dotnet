@@ -14,10 +14,10 @@
   <PropertyGroup>
     <RootNamespace>AgentMemory.Packs.Coding</RootNamespace>
     <AssemblyName>AgentMemory.Packs.Coding</AssemblyName>
-    <Description>Experimental composite memory pack for AgentMemory for .NET: one pack made of the decisions, repository-experience, code map and work packs, with their priorities and hierarchy, so a coding host adds what governs the code in one call.</Description>
+    <Description>Experimental composite memory pack for AgentMemory for .NET: one pack made of the product intent, decisions, architecture, repository-experience, code map and work packs, with their priorities, which may link to which, and their layers from why to what, so a coding host adds what governs the code in one call.</Description>
     <PackageTags>agent-memory;memory-pack;coding;composite</PackageTags>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <Version>0.1.0-preview.1</Version>
+    <Version>0.1.1</Version>
   </PropertyGroup>
 
   <ItemGroup>
@@ -25,6 +25,8 @@
     <ProjectReference Include="..\AgentMemory.Packs.Repository\AgentMemory.Packs.Repository.csproj" />
     <ProjectReference Include="..\AgentMemory.Packs.CodeMap\AgentMemory.Packs.CodeMap.csproj" />
     <ProjectReference Include="..\AgentMemory.Packs.Work\AgentMemory.Packs.Work.csproj" />
+    <ProjectReference Include="..\AgentMemory.Packs.Intent\AgentMemory.Packs.Intent.csproj" />
+    <ProjectReference Include="..\AgentMemory.Packs.Architecture\AgentMemory.Packs.Architecture.csproj" />
   </ItemGroup>
 
   <ItemGroup>

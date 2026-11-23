@@ -47,7 +47,7 @@ public sealed partial class ModuleRecordWriteIntegrationTests
             (await store.ImportAsync(HubSnapshot(tests), at)).Created.Should().Be(tests + 4);
 
             using var services = Policies();
-            var reader = new Neo4jModuleTraversalReader(fixture.TransactionRunner, KnowledgePack.ResolutionOf(CodeMapPack.Manifest),
+            var reader = new Neo4jModuleTraversalReader(fixture.TransactionRunner, CodingResolutions.CodeMap,
                 services.GetRequiredService<IMemoryIsolationPolicy>());
             var context = new ModuleReadContext { Scope = MemoryScope.For("lea") };
             var file = (await reader.MatchAsync(new() { ModuleId = CodeMapPack.Id, Type = CodeMapPack.FileType, Property = "path",
@@ -65,7 +65,7 @@ public sealed partial class ModuleRecordWriteIntegrationTests
 
             // Past the limit a record is not expanded; the live expansion finds that from the hub's degree, not its 3,000 links
             // (review 7, W12: this checked a copy of the hub statement no store ran).
-            var text = KnowledgePack.ResolutionOf(CodeMapPack.Manifest).Modules.Single().Ontology!.Types.Single(t => t.Name == CodeMapPack.TestType).TextProperties().ToArray();
+            var text = CodingResolutions.CodeMap.Modules.Single(m => m.Id == CodeMapPack.Id).Ontology!.Types.Single(t => t.Name == CodeMapPack.TestType).TextProperties().ToArray();
             var parameters = new Dictionary<string, object?>
             {
                 ["ids"] = new[] { hub.Id }, ["maxLinks"] = 100, ["over"] = 101, ["owner"] = null, ["shared"] = true, ["fanOut"] = 6,

@@ -1,8 +1,13 @@
 {
   "format": "agentmemory.module/v1alpha1",
   "id": "io.agentmemory.packs.decisions",
-  "version": "0.1.0-preview.1",
+  "version": "0.1.1",
   "sdk": "[0.1,0.2)",
+  "requires": {
+    "modules": {
+      "io.agentmemory.packs.intent": "[0.1.1,0.2)"
+    }
+  },
   "display": {
     "title": "Decisions",
     "description": "What was decided in this project, why, and what it applies to, from ADRs, Squad's decision log and design documents.",
@@ -80,6 +85,13 @@
         "to": "DecisionsDecision",
         "max": 1,
         "description": "This decision replaces that one"
+      },
+      {
+        "name": "DECISIONS_ADDRESSES",
+        "from": "DecisionsDecision",
+        "to": "io.agentmemory.packs.intent:IntentRequirement",
+        "max": 16,
+        "description": "A requirement the decision says it addresses, on its Addresses line or among its decision drivers"
       }
     ]
   },
@@ -116,6 +128,20 @@
         "property": "mentions",
         "match": "name",
         "kind": "symbol"
+      }
+    ],
+    "relations": [
+      {
+        "name": "DECISIONS_ADDRESSES",
+        "direction": "out",
+        "weightMicro": 800000,
+        "fanOut": 4
+      },
+      {
+        "name": "DECISIONS_ADDRESSES",
+        "direction": "in",
+        "weightMicro": 700000,
+        "fanOut": 3
       }
     ],
     "maxItems": 3

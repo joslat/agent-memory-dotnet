@@ -105,7 +105,7 @@ public sealed class PackMemoryTests
         // Read the work item's links outgoing, where a dangling link would show.
         var outward = work.Module with
         {
-            Traversal = work.Module.Traversal! with { Relations = [.. work.Module.Traversal.Relations.Select(r => r with { Direction = ModuleTraversalDirection.Out })] },
+            Traversal = work.Module.Traversal! with { Relations = [.. work.Module.Traversal.Relations.Where(r => r.Name == "WORK_CHANGED").Select(r => r with { Direction = ModuleTraversalDirection.Out })] },
         };
         var memory = PackMemory.From([], [map, work with { Module = outward }]);
         var file = memory.Records.Single(r => r.Type == CodeMapPack.FileType && r.Key.EndsWith("StateStore.cs", StringComparison.Ordinal));

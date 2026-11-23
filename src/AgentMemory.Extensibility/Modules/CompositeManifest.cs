@@ -18,8 +18,12 @@ namespace AgentMemory.Extensibility.Modules;
 /// <b>A family is a hierarchy (CODING-hierarchy).</b> A member may say which other members it contains: decisions contain the
 /// work done under them and the code they govern, work contains the code it changed. Containment is many-to-many (one work
 /// item serves two decisions), never a cycle, and it is what lets packs link across: a member may depend on, and so link to
-/// the types of, only the members it contains. The composite stays the unit a host installs; the hierarchy says what the
-/// members mean to each other, and a walk that follows such a link moves down it or back up.
+/// the types of, only the members it contains. The composite stays the unit a host installs; a walk that follows such a link
+/// moves down it or back up.
+/// <b>Storage follows evidence, layers carry meaning (CO-2, the owner's choice of 22 Nov 2026).</b> A link is stored by the
+/// pack whose source says it, so containment points the way the evidence does, which need not be the way the meaning does: a
+/// test that names a requirement is stored by the code map, which contains intent. What the members mean to each other is the
+/// family's layer order, declared in code (<see cref="CompositeMembers.Layers"/>) until the pack format carries it.
 /// </remarks>
 [Experimental("AMEXT001")]
 public sealed record CompositeManifest
@@ -176,7 +180,8 @@ public sealed record CompositeMember
     public bool Enabled { get; init; } = true;
     /// <summary>
     /// The members this one contains in the family's hierarchy (CODING-hierarchy): it may depend on them and link to their
-    /// types; no other member of the composite. Empty for a member at the bottom.
+    /// types; no other member of the composite. Empty for a member at the bottom. Since CO-2 it points the way the evidence does
+    /// (a member contains what its own sources link into); meaning is the family's layer order.
     /// </summary>
     public IReadOnlyList<string> Contains { get; init; } = [];
 }
@@ -277,6 +282,28 @@ public sealed class CompositeMembers
     /// <summary>A code composite member from its assembly (PACK-nest): as <see cref="AddComposite(CompositeManifest, Action{CompositeMembers})"/>.</summary>
     public CompositeMembers AddComposite<TComposite>() where TComposite : IAgentMemoryComposite, new() =>
         AddComposite(CompositeManifest.Load(typeof(TComposite).Assembly), members => new TComposite().AddMembers(members));
+
+    /// <summary>
+    /// The family's layers, for meaning only (CO-2a, CO-2b): its members from the top (why, such as intent) to the bottom (what,
+    /// such as code). A walk labels a hop between two of them <see cref="Context.TraversalMeaning.Why"/> when it leads to an
+    /// earlier layer and <see cref="Context.TraversalMeaning.What"/> when it leads to a later one, whichever way the link is
+    /// stored; which member may link to which stays with <see cref="CompositeMember.Contains"/>. Declared in code until the pack
+    /// format carries it. One layer order a host.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">A layer is not a member, is named twice, or the host already has a layer order.</exception>
+    public CompositeMembers Layers(params string[] memberIds)
+    {
+        ArgumentNullException.ThrowIfNull(memberIds);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var id in memberIds)
+        {
+            if (_composite.Members.All(m => m.Id != id) && !_nested.Values.Any(n => n.Members.Holds(id)))
+                throw new InvalidOperationException($"Composite '{_composite.Id}' names '{id}' as a layer, which is not a member.");
+            if (!seen.Add(id)) throw new InvalidOperationException($"Composite '{_composite.Id}' names '{id}' as a layer twice.");
+        }
+        _builder.UseLayers(_composite.Id, memberIds);
+        return this;
+    }
 
     // Whether this composite, at any depth, holds the module.
     private bool Holds(string moduleId) => _added.ContainsKey(moduleId) || _nested.Values.Any(n => n.Members.Holds(moduleId));

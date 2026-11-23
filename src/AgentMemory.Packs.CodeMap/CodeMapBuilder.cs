@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using AgentMemory.Extensibility.Ingestion;
 using AgentMemory.Extensibility.Packs;
+using AgentMemory.Packs.Intent;
 
 namespace AgentMemory.Packs.CodeMap;
 
@@ -46,12 +47,15 @@ public sealed class CodeMapBuilder
     public const int MaximumTestedSymbols = 12;
     /// <summary>Most symbols one symbol links to as using them: the ones its members mention most.</summary>
     public const int MaximumUsedSymbols = 16;
+    /// <summary>Most requirements one test links to as validating them (CO-2b), in the order its attributes name them.</summary>
+    public const int MaximumValidated = 16;
 
     private readonly SortedDictionary<string, (string Name, SortedSet<string> References)> _projects = new(StringComparer.Ordinal);
     private readonly SortedDictionary<string, (string? Project, string Language)> _files = new(StringComparer.Ordinal);
     private readonly SortedDictionary<string, Symbol> _symbols = new(StringComparer.Ordinal);
     private readonly SortedDictionary<string, Test> _tests = new(StringComparer.Ordinal);
     private readonly SortedDictionary<string, IReadOnlyList<string>> _uses = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, List<string>> _validates = new(StringComparer.Ordinal);
 
     private sealed record Symbol(string Name, string FullName, CodeMapSymbolKind Kind, string Project, SortedSet<string> Files, string? File, int Line, string Members);
     private sealed record Test(string Name, string File, int Line, string Framework, IReadOnlyList<string> Tested);
@@ -96,6 +100,20 @@ public sealed class CodeMapBuilder
     public void AddTest(string scip, string name, string file, int line, string framework, IEnumerable<string> tested) =>
         _tests[scip] = new Test(name, Path(file), line, framework, [.. tested.Distinct(StringComparer.Ordinal).Where(s => s != scip)]);
 
+    /// <summary>
+    /// The requirements a test says it validates (CO-2b), by id, as its own attributes name them: each becomes a
+    /// <see cref="CodeMapPack.Validates"/> link into the intent pack's requirements, which the store leaves out, and counts, when
+    /// the intent pack holds no requirement of that id. Ignored for a test not added.
+    /// </summary>
+    public void AddValidates(string scip, IEnumerable<string> requirements)
+    {
+        ArgumentNullException.ThrowIfNull(scip);
+        ArgumentNullException.ThrowIfNull(requirements);
+        var list = _validates.TryGetValue(scip, out var known) ? known : _validates[scip] = [];
+        foreach (var requirement in requirements.Select(r => r?.Trim() ?? "").Where(r => r.Length > 0))
+            if (!list.Contains(requirement, StringComparer.Ordinal)) list.Add(requirement);
+    }
+
     /// <summary>The snapshot of everything added, taken from <paramref name="source"/> (such as <c>git:</c> and the commit).</summary>
     public ModuleSnapshot Build(string source)
     {
@@ -127,10 +145,13 @@ public sealed class CodeMapBuilder
         {
             var links = test.Tested.Where(_symbols.ContainsKey).Take(MaximumTestedSymbols).Select(s => ("CODEMAP_TESTS", Key(s))).ToList();
             if (_files.ContainsKey(test.File)) links.Add(("CODEMAP_DECLARED_IN", test.File));
+            // A requirement the test names (CO-2b): the intent pack holds it or not; the store leaves a link to nothing out, and counts it.
+            if (_validates.TryGetValue(scip, out var validated))
+                links.AddRange(validated.Take(MaximumValidated).Select(r => (CodeMapPack.Validates, Clip(r, 600))));
             records.Add(Record(CodeMapPack.TestType, Key(scip), test.File, test.Line,
                 new() { ["name"] = Clip(test.Name, 400), ["file"] = test.File, ["framework"] = test.Framework, ["scip"] = Clip(scip, 600) }, links));
         }
-        return new ModuleSnapshot { Module = CodeMapPack.Manifest, Source = source, Records = records.AsReadOnly() };
+        return new ModuleSnapshot { Module = CodeMapPack.Manifest, Dependencies = [IntentPack.Manifest], Source = source, Records = records.AsReadOnly() };
     }
 
     /// <summary>A record key for a SCIP identity: itself when short enough, else a readable head and a hash of the whole.</summary>

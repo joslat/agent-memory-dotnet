@@ -6,6 +6,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- The coding packs link across layers (CO-2b, the coding ontology's slice 1, from the design the owner approved on 22 Nov
+  2026). A link is stored by the pack whose source says it: a requirement that names its parent decomposes it
+  (`INTENT_DECOMPOSES`, read from `(parent: REQ-1)` on the child's line); a test validates the requirement its own
+  attributes name (`CODEMAP_VALIDATES`, from `[Trait("Requirement", "REQ-12")]`, NUnit `[Property]` or MSTest
+  `[TestProperty]`, on the method or its class); a decision addresses the requirements its `Addresses:` line or its
+  decision drivers name (`DECISIONS_ADDRESSES`); a work item implements the requirements given as
+  `WorkLedgerOptions.Requirements` that its own id, its title or its `implements` field name (`WORK_IMPLEMENTS`). A link to
+  a requirement the intent pack does not hold is left out and counted, as before.
+  - **Composition change.** The code map (0.1.1), decisions (0.1.1) and work (0.1.2) packs now depend on the intent pack
+    (0.1.1), which lists them in `containableBy`: a host that composes one of them on its own adds `IntentPack` too, and a
+    snapshot of one names `IntentPack.Manifest` in `Dependencies` (`CodeMapBuilder`, `DecisionsReader` and the work readers
+    do; `LoadedPack.ToSnapshot` callers pass it). The code map's declarations changed, so a host that requires a trial of it
+    switches it off until it is trialled again.
+  - The Coding composite (0.1.1) adds intent (priority 50, after the members a host had) and architecture (starts off until
+    it has links of its own); decisions, work and the code map contain intent. Its layer order, from why to what (intent,
+    decisions, architecture, work, code), is declared in code with the new `CompositeMembers.Layers(...)` (`CodingPack.Layers`)
+    until the pack format carries it; a host has one.
+  - A walk labels each hop between two layers: `ContextItemProvenance.ViaMeaning` is `TraversalMeaning.Why` (to an earlier
+    layer) or `What` (to a later one), null within a layer. It is data beside the reason: reason paths, scores, ranks and order
+    do not change (R-WALK-066). The new relations are walked both ways, so a walk from a file reaches the requirement its test
+    validates (`Store.cs → StoreTests.Remove declared in it → validates REQ-12`); with no requirement links in the store it
+    reaches nothing new and spends at most one more read a hop. Latency not measured.
+  - Additive: `WorkLedgerReader.Read(..., WorkLedgerOptions)`, `WorkLedgerOptions`, `WorkCommitIds` (a commit may name its
+    ledger ids anywhere in its subject, as whole tokens), `CodeMapBuilder.AddValidates`, the relation constants.
+  - The CLI reads a task ledger as intent (CO-2d, the owner's test bed choice (b)): `intent scan|import --ledger <tasks.json>`
+    makes each row a requirement whose statement is its task and the owner's words about it (its progress stays on its work
+    item), and `work scan|import --ledger <tasks.json> --root <repo> --ledger-as-intent` makes each item implement its own
+    row. The ledger-specific reading stays in the tool.
+
 - A pack that comes back under a new id can take the names its removed old id owns, when an operator says so:
   `KnowledgePackImporter.TransferAsync(fromPackId, newPack, actor)` (PACK-NAME-TAKEOVER, decision D-06). A removal keeps
   a pack's schema names by design, so the packs that moved from `io.agentmemory.*` to new ids were refused with

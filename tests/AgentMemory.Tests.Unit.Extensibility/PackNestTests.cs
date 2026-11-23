@@ -18,7 +18,7 @@ namespace AgentMemory.Tests.Unit.Extensibility;
 public sealed class PackNestTests : IDisposable
 {
     private static readonly string Packs = Path.Combine(AppContext.BaseDirectory, "Packs");
-    private static readonly string[] CodingMembers = ["Decisions", "Repository", "CodeMap", "Work"];
+    private static readonly string[] CodingMembers = ["Decisions", "Repository", "CodeMap", "Work", "Intent", "Architecture"];
     private const string MartialArtsId = "io.agentmemory.packs.martialarts";
     private readonly string _root = Directory.CreateTempSubdirectory("pack-nest-").FullName;
     private readonly PackKey _key = PackKey.Create();
@@ -96,13 +96,14 @@ public sealed class PackNestTests : IDisposable
         var family = set.Families.Should().ContainSingle().Subject;
         family.Id.Should().Be("io.agentmemory.packs.workshop");
         family.Members.Select(m => m.Id).Should().Equal(MartialArtsId);
-        family.Families.Should().ContainSingle().Which.Members.Should().HaveCount(4);
-        set.AllPacks.Should().HaveCount(5);
+        family.Families.Should().ContainSingle().Which.Members.Should().HaveCount(6);
+        set.AllPacks.Should().HaveCount(7);
         set.AllFamilies.Select(f => f.Id).Should().Equal("io.agentmemory.packs.workshop", CodingPack.Manifest.Id);
         set.Packs.Should().BeEmpty();
 
         var builder = new ModuleSetBuilder().AddFamily(family);
-        builder.Modules.Select(m => m.Manifest.Id).Should().BeEquivalentTo([.. codingMembers.Select(Id), MartialArtsId]);
+        builder.Modules.Select(m => m.Manifest.Id).Should().BeEquivalentTo([.. codingMembers.Select(Id).Where(id => id != "io.agentmemory.packs.architecture"), MartialArtsId],
+            "architecture is a Coding member that starts off (CO-2b)");
         // The code map is 30 inside Coding; Coding's slot in the workshop is 1000, so 1030: never before its slot, in its order.
         builder.Priorities[CodeMapPack.Id].Should().Be(1030);
         builder.Priorities[MartialArtsId].Should().Be(50);

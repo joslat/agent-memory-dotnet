@@ -22,11 +22,11 @@ public sealed class CompositePackTests
 
         builder.AddComposite<CodingPack>();
 
-        builder.Modules.Select(m => m.Manifest.Id).Should().Equal(DecisionsPack.Id, RepositoryPack.Id, CodeMapPack.Id, WorkPack.Id);
+        builder.Modules.Select(m => m.Manifest.Id).Should().Equal(DecisionsPack.Id, RepositoryPack.Id, CodeMapPack.Id, WorkPack.Id, AgentMemory.Packs.Intent.IntentPack.Id);
         builder.Priorities.Should().BeEquivalentTo(new Dictionary<string, int>
         {
-            [DecisionsPack.Id] = 10, [RepositoryPack.Id] = 20, [CodeMapPack.Id] = 30, [WorkPack.Id] = 40,
-        });
+            [DecisionsPack.Id] = 10, [RepositoryPack.Id] = 20, [CodeMapPack.Id] = 30, [WorkPack.Id] = 40, [AgentMemory.Packs.Intent.IntentPack.Id] = 50,
+        }, "intent (CO-2b) comes last, so the members a host had keep their candidate order; architecture starts off");
         CodingPack.Manifest.Validate().Should().BeEmpty();
         CodingPack.Manifest.Display!.Title.Should().Be("Coding");
     }
@@ -37,7 +37,7 @@ public sealed class CompositePackTests
         var builder = new ModuleSetBuilder();
         builder.AddComposite<CodingPack>(o => o.Disable(RepositoryPack.Id).Prioritize(CodeMapPack.Id, 5));
 
-        builder.Modules.Select(m => m.Manifest.Id).Should().Equal(DecisionsPack.Id, CodeMapPack.Id, WorkPack.Id);
+        builder.Modules.Select(m => m.Manifest.Id).Should().Equal(DecisionsPack.Id, CodeMapPack.Id, WorkPack.Id, AgentMemory.Packs.Intent.IntentPack.Id);
         builder.Priorities[CodeMapPack.Id].Should().Be(5);
 
         FluentActions.Invoking(() => new ModuleSetBuilder().AddComposite<CodingPack>(o => o.Disable("io.example.nothing")))

@@ -28,6 +28,19 @@ public sealed class ModuleSetBuilder
 
     internal IReadOnlyList<ModuleRegistration> Modules => _modules;
     internal IReadOnlyDictionary<string, int> Priorities => _priorities;
+    /// <summary>The family's layer order (CO-2b): each module's place, 1 for the top; empty without one.</summary>
+    internal IReadOnlyDictionary<string, int> Layers => _layers;
+    private readonly Dictionary<string, int> _layers = new(StringComparer.Ordinal);
+    private string? _layersFrom;
+
+    // A family's layer order (CO-2b), from the composite that declares it: one a host, since two would number the same hops two ways.
+    internal void UseLayers(string compositeId, IReadOnlyList<string> moduleIds)
+    {
+        if (_layersFrom is not null)
+            throw new InvalidOperationException($"Composite '{compositeId}' declares a layer order, but '{_layersFrom}' already did: a host has one layer order.");
+        _layersFrom = compositeId;
+        for (var i = 0; i < moduleIds.Count; i++) _layers[moduleIds[i]] = i + 1;
+    }
     internal ModuleCompositionProfile? Profile { get; private set; }
     internal IModuleStoreAdapter? Store { get; private set; }
     internal IConfiguration? Configuration { get; private set; }
