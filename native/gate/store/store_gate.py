@@ -243,6 +243,8 @@ class Neo4j:
         """True once a TLS handshake for localhost completes on the store's port, verified against the gate's own
         throw-away certificate authority. Bolt accepts plain and TLS connections on the one port."""
         context = ssl.create_default_context(cafile=str(authority))
+        # TLS 1.2 at least, as the library itself negotiates (CodeQL py/insecure-protocol on #274).
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
         try:
             with socket.create_connection(("127.0.0.1", self.port), timeout=2) as raw, \
                     context.wrap_socket(raw, server_hostname="localhost"):
