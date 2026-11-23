@@ -25,6 +25,9 @@ internal static class MemoryWriterContract
 
         /// <summary>For a missing event observation: the event name the fact uses.</summary>
         public string? EventName { get; init; }
+
+        /// <summary>For an entity named exactly as a stored one: that name, which a renamed fix must tell apart.</summary>
+        public string? RepeatedName { get; init; }
     }
 
     private static readonly string[] EventPredicates = ["is scheduled for", "takes place at", "participation"];
@@ -99,6 +102,23 @@ internal static class MemoryWriterContract
             issues.Add(new(reason.Value, ops[i].Index, ops[i].Kind, ops[i].Text, problem!) { Kept = kept });
             ops[i] = kept;
         }
+        // IDENTITY-WRITER-COVERAGE: an entity add without a ref, named and typed exactly as a shown stored entity, is asked
+        // once which it is (ikb-cover-1: a second café was stored under the first one's name, so the next turn saw two it
+        // could not tell apart, and added a third). Events are observed again on purpose, so they are never asked.
+        var storedNames = stored.Where(item => item.Letter == 'E' && StoredType(item.Text) is { } type && type != "EVENT")
+            .GroupBy(item => (Name: Canonical(EntityName(item.Text)), Type: StoredType(item.Text)!))
+            .ToDictionary(group => group.Key, group => group.Select(item => item.Label).ToList());
+        foreach (var op in ops.Where(op => op.Kind == "entity" && op.Action == "add" && op.Ref is null))
+        {
+            if (EntityText.Match(op.Text) is not { Success: true } said || issues.Any(issue => ReferenceEquals(issue.Kept, op))) continue;
+            var name = said.Groups["n"].Value.Trim();
+            var type = MemoryWriterOps.EntityType(said.Groups["t"].Value);
+            if (type == "EVENT" || !storedNames.TryGetValue((Canonical(name), type), out var labels)) continue;
+            issues.Add(new(MemoryWriterOps.DropReason.StoredNameRepeated, op.Index, op.Kind, op.Text,
+                $"it has exactly the name of stored {string.Join(" or ", labels)}: if it is that same thing, give its \"ref\"; "
+                + $"if it is a different thing, name it with the words of the last message that tell it apart from \"{name}\"")
+            { Kept = op, RepeatedName = name });
+        }
         var observed = ops.Where(op => op.Kind == "entity" && op.Action == "add")
             .Select(op => Canonical(EntityName(op.Text))).ToHashSet(StringComparer.Ordinal);
         var storedEvents = stored.Where(item => item.Letter == 'E' && StoredType(item.Text) == "EVENT")
@@ -155,7 +175,9 @@ internal static class MemoryWriterContract
             var fix = issue.Reason is MemoryWriterOps.DropReason.OverLimit or MemoryWriterOps.DropReason.ConnectionEndEmpty
                 ? null : corrected.FirstOrDefault(op => !used.Contains(op) && Fixes(issue, op));
             if (fix is not null && fix.Ref is not null && ReferenceProblem(fix, byLabel).Reason is not null) fix = fix with { Ref = null };
-            var resolvesReference = issue.Kept is null || fix?.Ref is not null;
+            // A repeated name is resolved by a ref, or by a name that tells the thing apart (Fixes checks it holds the old one).
+            var resolvesReference = issue.Kept is null || fix?.Ref is not null ||
+                (issue.RepeatedName is { } repeated && fix is not null && Canonical(EntityName(fix.Text)) != Canonical(repeated));
             if (fix is null || (!resolvesReference && issue.Kept is not null))
             {
                 unfixed.Add(issue);
@@ -185,7 +207,8 @@ internal static class MemoryWriterContract
     internal static IngestionItemOutcome Outcome(Issue issue) => issue.Kept is not null ? Base(issue) with
     {
         SourceKey = $"writer:#{issue.Index.ToString(CultureInfo.InvariantCulture)}:ref",
-        ErrorMessage = Truncate($"{issue.Reason}: {issue.Text ?? "(no text)"}; {issue.Problem}; the entity was kept without its reference", 512),
+        ErrorMessage = Truncate($"{issue.Reason}: {issue.Text ?? "(no text)"}; {issue.Problem}; " + (issue.RepeatedName is null
+            ? "the entity was kept without its reference" : "the entity was kept as written"), 512),
     } : Base(issue);
 
     private static IngestionItemOutcome Base(Issue issue) => new()
@@ -309,6 +332,14 @@ internal static class MemoryWriterContract
                 original.Contains(EntityName(op.Text), StringComparison.OrdinalIgnoreCase);
         if (issue.EventName is { } name)
             return op.Kind == "entity" && op.Action == "add" && Canonical(EntityName(op.Text)) == Canonical(name);
+        // A repeated stored name is fixed by the same name with a ref, or by a longer name that holds it and tells it apart.
+        if (issue.RepeatedName is { } repeated)
+        {
+            if (op.Kind != "entity" || op.Action != "add" || !EntityText.IsMatch(op.Text)) return false;
+            var written = Canonical(EntityName(op.Text));
+            return op.Ref is not null ? written == Canonical(repeated)
+                : written != Canonical(repeated) && written.Contains(Canonical(repeated), StringComparison.Ordinal);
+        }
         if (issue.Kept is { } kept)
             return op.Kind == "entity" && op.Action == "add" && Canonical(EntityName(op.Text)) == Canonical(EntityName(kept.Text));
         return issue.Text is { Length: > 0 } text && Canonical(op.Text) == Canonical(text);

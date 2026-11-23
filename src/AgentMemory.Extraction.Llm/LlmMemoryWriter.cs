@@ -360,9 +360,34 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
             if (mentioning.Count <= AroundPerName) nearby.AddRange(mentioning.Select(MemoryWriterOps.Stored.Of));
         }
 
-        return MemoryWriterOps.Stored.Number(
+        var shown = MemoryWriterOps.Stored.Number(
             [.. named.Select(OfEntity).Concat(byName).Concat(byMeaning).Concat(theirs).Concat(nearby)
                 .DistinctBy(item => item.Id).Take(limit + 6)]);
+        return alsoCalled ? await WithFirstSaidAsync(shown, cancellationToken).ConfigureAwait(false) : shown;
+    }
+
+    /// <summary>
+    /// IDENTITY-WRITER-COVERAGE: stored entities shown under the same name and type carry the words each was first said
+    /// in, so the writer can tell them apart. One message read for each such entity, none when every name shown is unique.
+    /// </summary>
+    private async Task<IReadOnlyList<MemoryWriterOps.Stored>> WithFirstSaidAsync(IReadOnlyList<MemoryWriterOps.Stored> shown,
+        CancellationToken cancellationToken)
+    {
+        var repeated = shown.Where(item => item.Letter == 'E' && item.SourceMessageId is not null)
+            .GroupBy(item => item.Text, StringComparer.OrdinalIgnoreCase).Where(group => group.Count() > 1)
+            .SelectMany(group => group).ToList();
+        if (repeated.Count == 0 || _services.GetService<IMessageRepository>() is not { } messages) return shown;
+        var firstSaid = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var item in repeated)
+            if (await messages.GetByIdAsync(item.SourceMessageId!, cancellationToken).ConfigureAwait(false) is { Content: { Length: > 0 } content })
+                firstSaid[item.Id] = OneLine(content, 160);
+        return [.. shown.Select(item => firstSaid.TryGetValue(item.Id, out var words) ? item with { FirstSaid = words } : item)];
+    }
+
+    private static string OneLine(string text, int max)
+    {
+        var line = string.Join(' ', text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)).Trim();
+        return line.Length <= max ? line : line[..(max - 1)] + "…";
     }
 }
 
@@ -464,8 +489,11 @@ internal static class MemoryWriterPrompt
           film, album, document, report or project is THING.
         - Only names and titles count. A role or a common noun ("the dentist", "my laptop", "the office") is not a name and
           gets no entity of its own. People and pets keep the rules above.
-        - A thing already listed in STORED as an E item needs no new entity. When the statement tells a different thing of
-          the same name apart, add a new entity with "ref" null, named with the words that tell it apart.
+        - A thing already listed in STORED as an E item needs no new entity; if you write one for it, give its "ref". Two
+          stored things of one name are shown with the words each was first said in: a qualifier that says which one is
+          meant ("the one in the old town") picks that one and adds nothing new. Only a message that brings in another
+          thing of a stored name ("another", "a second", "a different") adds a new entity, with "ref" null, named with the
+          words that tell it apart; never store a second thing under exactly the name of a stored one.
 
         Stored entity references:
         - Every operation has a "ref" field; on facts, preferences and connections it is always null. An entity's "text" is
@@ -534,7 +562,8 @@ internal static class MemoryWriterPrompt
         foreach (var m in window.Targets.Where(m => IsUser(m.Role)))
             lines.Add($"{speaker} (LAST MESSAGE): {m.Content}");
         var list = stored.Count == 0 ? "(nothing)" : string.Join("\n", stored.Select(item =>
-            $"{item.Label}: {item.Text}{(item.AlsoCalled is null ? "" : ", also called " + item.AlsoCalled)}"));
+            $"{item.Label}: {item.Text}{(item.AlsoCalled is null ? "" : ", also called " + item.AlsoCalled)}"
+            + (item.FirstSaid is null ? "" : $", first said in \"{item.FirstSaid}\"")));
         return $"TODAY: {Today(now)}\n\nCONVERSATION:\n{string.Join("\n", lines)}\n\nSTORED (live, most relevant):\n{list}";
     }
 
@@ -638,6 +667,13 @@ internal static class MemoryWriterOps
 
         /// <summary>A connection with an end that holds no word ("Ana -[LIKES]-> ..."): it names nothing.</summary>
         ConnectionEndEmpty,
+
+        /// <summary>
+        /// An entity add without "ref" named and typed exactly as a shown stored entity that is not an event
+        /// (IDENTITY-WRITER-COVERAGE): the same thing needs its ref, a different one a name that tells it apart. Asked
+        /// once; when neither comes, the entity is kept as written.
+        /// </summary>
+        StoredNameRepeated,
     }
 
     /// <summary>An operation the writer did not keep, where it was in the reply, why, and its text when it had one.</summary>
@@ -659,9 +695,19 @@ internal static class MemoryWriterOps
         /// </summary>
         public string? AlsoCalled { get; init; }
 
+        /// <summary>
+        /// IDENTITY-WRITER-COVERAGE: the words a stored entity was first said in, shown after its text as ", first said in
+        /// ..." only when another shown entity has the same name and type, so the writer can tell them apart (ikb-cover-1
+        /// statement 22: two "Café Tortoni (LOCATION)" lines, and a third was added). Event-identity mode only.
+        /// </summary>
+        public string? FirstSaid { get; init; }
+
+        /// <summary>The entity's first source message, which <see cref="FirstSaid"/> quotes; data, never shown.</summary>
+        public string? SourceMessageId { get; init; }
+
         internal static Stored Of(Fact f) => new(f.FactId, 'F', $"{f.Subject} | {f.Predicate} | {f.Object}" + Validity(f));
         internal static Stored Of(Preference p) => new(p.PreferenceId, 'P', p.PreferenceText);
-        internal static Stored Of(Entity e) => new(e.EntityId, 'E', $"{e.Name} ({e.Type})");
+        internal static Stored Of(Entity e) => new(e.EntityId, 'E', $"{e.Name} ({e.Type})") { SourceMessageId = e.SourceMessageIds.FirstOrDefault() };
 
         /// <summary><see cref="Of(Entity)"/> with up to three of its aliases that are plain names (they reach the prompt).</summary>
         internal static Stored Of(Entity e, bool alsoCalled)
@@ -1071,7 +1117,7 @@ internal static class MemoryWriterOps
             : null;
 
     /// <summary>The prompt's PLACE and THING in the library's entity vocabulary (LOCATION, OBJECT).</summary>
-    private static string EntityType(string type) => type.Trim().ToUpperInvariant() switch
+    internal static string EntityType(string type) => type.Trim().ToUpperInvariant() switch
     {
         "PLACE" => "LOCATION",
         "THING" => "OBJECT",

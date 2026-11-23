@@ -359,6 +359,53 @@ public sealed class MemoryWriterContractTests : IDisposable
         result.Outcomes.Should().BeEmpty();
     }
 
+    /// <summary>
+    /// IDENTITY-WRITER-COVERAGE, the paid check of 23 Nov (ikb-cover-1): the writer stored a second café under exactly the
+    /// stored one's name, so the next turn was shown two stored "Café ... (LOCATION)" it could not tell apart, and added a
+    /// third. A new entity named and typed exactly as a shown stored one (not an event) is asked once which it is.
+    /// </summary>
+    [Fact]
+    public async Task A_new_entity_named_exactly_as_a_stored_one_is_asked_once_and_its_reference_kept()
+    {
+        ShowStored("place-lumen", "Café Lumen", "LOCATION");
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Café Lumen (PLACE)","quote":"Café Lumen","ref":null}]}""");
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Café Lumen (PLACE)","quote":"Café Lumen","ref":"E1"}]}""");
+
+        var result = await Write("Café Lumen has live jazz on Fridays.");
+
+        _calls.Should().HaveCount(2);
+        _calls[1].Messages.Last().Text.Should().Contain("E1").And.Contain("tell it apart");
+        result.Entities.Should().ContainSingle().Which.Reference!.EntityId.Should().Be("place-lumen");
+        result.Outcomes.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_different_thing_of_a_stored_name_is_kept_under_the_name_that_tells_it_apart()
+    {
+        ShowStored("place-lumen", "Café Lumen", "LOCATION");
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Café Lumen (PLACE)","quote":"Café Lumen","ref":null}]}""");
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Café Lumen in Porto (PLACE)","quote":"Café Lumen in Porto","ref":null}]}""");
+
+        var result = await Write("There is another Café Lumen in Porto, open only at night.");
+
+        _calls.Should().HaveCount(2);
+        var entity = result.Entities.Should().ContainSingle().Which;
+        entity.Name.Should().Be("Café Lumen in Porto");
+        entity.Reference.Should().BeNull();
+        result.Outcomes.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_stored_events_name_observed_again_is_not_asked()
+    {
+        ShowStoredGoLive();
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Acme Logistics billing system go-live (EVENT)","quote":"Acme Logistics billing system go-live","ref":null},{"op":"add","kind":"fact","text":"Acme Logistics billing system go-live | is scheduled for | Friday","quote":"Friday"}]}""");
+
+        await Write("The Acme Logistics billing system go-live is on Friday.");
+
+        _calls.Should().ContainSingle();
+    }
+
     [Fact]
     public async Task A_malformed_entity_that_stays_malformed_is_dropped_and_reported_never_stored_as_an_object()
     {

@@ -26,6 +26,7 @@ public sealed class LlmMemoryWriterTests
     private readonly IEntityRepository _entities = Substitute.For<IEntityRepository>();
     private readonly IRelationshipRepository _relationships = Substitute.For<IRelationshipRepository>();
     private readonly IEmbeddingOrchestrator _embeddings = Substitute.For<IEmbeddingOrchestrator>();
+    private readonly IMessageRepository _messages = Substitute.For<IMessageRepository>();
     private readonly TimeProvider _clock = Substitute.For<TimeProvider>();
     private readonly IChatClient _chat = Substitute.For<IChatClient>();
     private readonly List<(string System, string User, int? Room)> _asked = [];
@@ -58,7 +59,7 @@ public sealed class LlmMemoryWriterTests
     {
         var services = new ServiceCollection()
             .AddSingleton(_facts).AddSingleton(_preferences).AddSingleton(_entities).AddSingleton(_relationships)
-            .AddSingleton(_embeddings).AddSingleton(_clock)
+            .AddSingleton(_embeddings).AddSingleton(_clock).AddSingleton(_messages)
             .BuildServiceProvider();
         return new LlmMemoryWriter(_chat, Options.Create(new LlmExtractionOptions { UseMemoryWriter = true, MemoryWriterEventIdentities = eventIdentities }), services,
             NullLogger<LlmMemoryWriter>.Instance);
@@ -215,6 +216,53 @@ public sealed class LlmMemoryWriterTests
         new() { EntityId = "e-beatriz", Name = "Beatriz Molina", Type = "PERSON", Aliases = aliases, Confidence = 1, CreatedAtUtc = Now };
 
     private static string[] Stored(string context) => context.Split("STORED (live, most relevant):\n")[1].Split('\n');
+
+    private static Entity Cafe(string id, string source) => new()
+    {
+        EntityId = id, Name = "Café Lumen", Type = "LOCATION", SourceMessageIds = [source], Confidence = 1, CreatedAtUtc = Now,
+    };
+
+    private static Message Said(string id, string text) => new()
+    {
+        MessageId = id, ConversationId = "c", SessionId = "s", Role = "user", Content = text, TimestampUtc = Now.AddDays(-3),
+    };
+
+    private void ShowTwoStoredCafes()
+    {
+        _entities.SearchByVectorAsync(default!, default, default, default, default)
+            .ReturnsForAnyArgs([(Cafe("e-lisbon", "m-lisbon"), 0.9), (Cafe("e-porto", "m-porto"), 0.8)]);
+        _messages.GetByIdAsync("m-lisbon", Arg.Any<CancellationToken>()).Returns(Said("m-lisbon", "We had dinner at Café Lumen in Lisbon."));
+        _messages.GetByIdAsync("m-porto", Arg.Any<CancellationToken>()).Returns(Said("m-porto", "There is another Café Lumen in Porto, open only at night."));
+    }
+
+    /// <summary>
+    /// IDENTITY-WRITER-COVERAGE, the paid check of 23 Nov (ikb-cover-1, statement 22): the writer was shown two stored
+    /// "Café ... (LOCATION)" lines it could not tell apart, and added a third. Same-named stored things are shown with
+    /// the words each was first said in.
+    /// </summary>
+    [Fact]
+    public async Task In_event_identity_mode_stored_things_of_one_name_are_shown_with_the_words_each_was_first_said_in()
+    {
+        ShowTwoStoredCafes();
+
+        await Writer(true).WriteAsync(Turn("The Lumen in Lisbon has live jazz on Fridays.", MemoryScope.For("lukas")));
+
+        var shown = Stored(_asked.Single().User);
+        shown.Should().Contain("E1: Café Lumen (LOCATION), first said in \"We had dinner at Café Lumen in Lisbon.\"");
+        shown.Should().Contain("E2: Café Lumen (LOCATION), first said in \"There is another Café Lumen in Porto, open only at night.\"");
+    }
+
+    [Fact]
+    public async Task The_default_writer_and_a_unique_name_read_no_source_message()
+    {
+        ShowTwoStoredCafes();
+        await Writer().WriteAsync(Turn("The Lumen in Lisbon has live jazz on Fridays.", MemoryScope.For("lukas")));
+        Stored(_asked.Single().User).Should().NotContain(line => line.Contains("first said", StringComparison.Ordinal));
+
+        _entities.SearchByVectorAsync(default!, default, default, default, default).ReturnsForAnyArgs([(Cafe("e-lisbon", "m-lisbon"), 0.9)]);
+        await Writer(true).WriteAsync(Turn("The Lumen has live jazz on Fridays.", MemoryScope.For("lukas")));
+        await _messages.DidNotReceiveWithAnyArgs().GetByIdAsync(default!, default);
+    }
 
     private static MemoryWriteRequest WithContext(string earlier, string last, MemoryScope? scope) =>
         new(new ExtractionWindow
