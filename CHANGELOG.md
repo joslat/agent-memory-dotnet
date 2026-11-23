@@ -243,6 +243,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A connection to someone met before reaches the graph again with evidence-based identity (on by default since 2.2.0
+  wherever the store-aware writer runs on Neo4j). A connection is kept as a live edge only when both its ends are mentions
+  of the turn, and the writer is told that a stored person needs no new mention, so "Tomás's parents, Iker and Marta",
+  said after Tomás was met, kept the two claims but connected nobody to Tomás. Measured on a held-out conversation, 17 of
+  the writer's 21 connections in one run never became edges, and the writer was later shown a stored person without the
+  connections that told them from a namesake. The writer now refers to such an end in the connection's own words when it
+  names exactly one stored entity it was shown and the reply does not mention it otherwise; identity checks that
+  reference as it checks the writer's own. Two stored entities of the name, or words that do not name it, refer to
+  nobody, as before. Connections already kept as claims are not re-linked.
 - Recall for people stays quick on a large store. With identity on, a question that names someone reads the names the
   owner's people are known by, then those people. Both reads sought every person in the store, of every owner, and
   threw away all but the owner's. With index statistics from when the store was smaller (right after an import, or a

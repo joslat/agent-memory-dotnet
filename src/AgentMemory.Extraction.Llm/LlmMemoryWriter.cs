@@ -914,6 +914,7 @@ internal static class MemoryWriterOps
         var relationships = new List<ExtractedRelationship>();
         var confirmedFacts = new List<string>();
         var confirmedPreferences = new List<string>();
+        var connectionOps = new List<(ExtractedRelationship Connection, Op Op)>();
         // ILC-34: the entity names this call knows: the stored entities it showed, the ends of the stored connections it
         // showed (an entity may be shown only as one), and the entities this reply declares. The user is never one.
         var known = stored.Where(s => s.Letter == 'E').Select(s => s.Text)
@@ -979,13 +980,15 @@ internal static class MemoryWriterOps
                     facts.Add(CreateFact(op, paired, from.Said,
                         link.Groups["r"].Value.Trim().ToLowerInvariant().Replace('_', ' '), to.Said));
                 }
-                relationships.Add(new ExtractedRelationship
+                var connection = new ExtractedRelationship
                 {
                     SourceEntity = from.Entity,
                     TargetEntity = to.Entity,
                     RelationshipType = link.Groups["r"].Value.Trim().ToUpperInvariant().Replace(' ', '_'),
                     ReplacesId = target?.Letter == 'R' ? target.Id : null,
-                });
+                };
+                relationships.Add(connection);
+                connectionOps.Add((connection, op));
                 continue;
             }
             switch (op.Kind)
@@ -1030,12 +1033,47 @@ internal static class MemoryWriterOps
                     break;
             }
         }
+        if (referenceMessage is not null)
+            entities.AddRange(ConnectionEnds(connectionOps, stored, entities, referenceMessage));
         return new UnifiedExtractionResult
         {
             Facts = facts, Preferences = preferences, Entities = entities, Relationships = relationships,
             ConfirmedFactIds = [.. confirmedFacts.Distinct(StringComparer.Ordinal)],
             ConfirmedPreferenceIds = [.. confirmedPreferences.Distinct(StringComparer.Ordinal)],
         };
+    }
+
+    /// <summary>
+    /// IDENTITY-RELATION-GROUNDING (event-identity mode): with evidence-based identity a connection reaches the graph only
+    /// when both its ends are mentions of the turn, and the writer is told a stored person needs no new mention, so every
+    /// connection to someone met before stayed an unresolved claim (whos-who-v2's third run: 17 of the writer's 21). An end
+    /// that names exactly one stored entity shown to the writer, and no entity of this reply, is that entity, referred to
+    /// in the connection's own quoted words: the reference the writer may give itself, which identity re-checks the same
+    /// way. Two stored entities of the name, or an end the quote does not name, refer to nobody.
+    /// </summary>
+    private static IEnumerable<ExtractedEntity> ConnectionEnds(IReadOnlyList<(ExtractedRelationship Connection, Op Op)> connections,
+        IReadOnlyList<Stored> stored, IReadOnlyList<ExtractedEntity> mentioned, string message)
+    {
+        var added = new List<ExtractedEntity>();
+        foreach (var (connection, op) in connections)
+            foreach (var end in new[] { connection.SourceEntity, connection.TargetEntity })
+            {
+                var name = MemoryWriterContract.Canonical(end);
+                if (name.Length == 0 || MemoryUserNames.IsSelf(end) ||
+                    mentioned.Concat(added).Any(e => MemoryWriterContract.Canonical(e.Name) == name)) continue;
+                var shown = stored.Where(s => s.Letter == 'E' && s.Entity is { } e && MemoryWriterContract.Canonical(e.Name) == name).ToList();
+                if (shown is not [{ Entity: { } entity } only] || op.QuoteStart is not int start || op.QuoteEnd is not int stop ||
+                    start < 0 || stop > message.Length || start >= stop) continue;
+                var words = Regex.Match(message[start..stop], $@"(?<![\p{{L}}\p{{M}}]){Regex.Escape(end.Trim())}(?![\p{{L}}\p{{M}}])",
+                    RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(50));
+                if (!words.Success) continue;
+                added.Add(new ExtractedEntity
+                {
+                    Name = entity.Name, Type = entity.Type,
+                    Reference = new() { EntityId = only.Id, Quote = words.Value },
+                });
+            }
+        return added;
     }
 
     private enum EndKind { Name, KnownThenMore, Phrase, Empty }

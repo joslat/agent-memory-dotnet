@@ -917,4 +917,106 @@ public sealed class MemoryWriterContractTests : IDisposable
         if (kept is null) entity.Aliases.Should().BeEmpty();
         else entity.Aliases.Should().Equal(kept);
     }
+
+    private const string SonId = "identity-observation-tomas";
+
+    private void ShowStoredEntities(params Entity[] shown) =>
+        _entities.SearchByVectorAsync(default!, default, default, default, default)
+            .ReturnsForAnyArgs([.. shown.Select((e, i) => (e, 0.9 - i * 0.01))]);
+
+    private static Entity StoredPerson(string id, string name) => new()
+    {
+        EntityId = id, Name = name, Type = "PERSON", OwnerId = "bruna", Confidence = 1, SourceMessageIds = ["prior"],
+        CreatedAtUtc = DateTimeOffset.UnixEpoch,
+    };
+
+    private const string Parents = "Tomás's parents, Iker and Marta, live in Bilbao.";
+
+    private void ReplyWithTheParents(string? tomasEntity = null) => _replies.Enqueue($$"""
+        {"ops":[
+          {"op":"add","kind":"entity","text":"Iker (PERSON)","quote":"Iker and Marta","ref":null},
+          {"op":"add","kind":"entity","text":"Marta (PERSON)","quote":"Iker and Marta","ref":null},
+          {{tomasEntity}}
+          {"op":"add","kind":"relationship","text":"Iker -[parent of]-> Tomás","quote":"Tomás's parents, Iker and Marta","ref":null},
+          {"op":"add","kind":"relationship","text":"Marta -[parent of]-> Tomás","quote":"Tomás's parents, Iker and Marta","ref":null}
+        ]}
+        """);
+
+    /// <summary>
+    /// IDENTITY-RELATION-GROUNDING: with evidence-based identity a connection reaches the graph only when both its ends are
+    /// mentions of the turn, and the writer is told a stored person needs no new mention. So every connection to someone
+    /// met before (a partner's parents, a sister's daughter) stayed an unresolved claim: in whos-who-v2's third run, 17 of
+    /// the writer's 21 connections; the stored person the writer later had to tell from a namesake was shown without
+    /// them. A connection's end that names exactly one stored entity the writer was shown is that entity, referred to in
+    /// the connection's own words; identity re-checks the reference as it does the writer's own.
+    /// </summary>
+    [Fact]
+    public async Task A_connection_to_one_stored_person_refers_to_that_person()
+    {
+        ShowStoredEntities(StoredPerson(SonId, "Tomás"));
+        ReplyWithTheParents();
+
+        var result = await Write(Parents);
+
+        var tomas = result.Entities.Should().ContainSingle(e => e.Name == "Tomás").Which;
+        tomas.Type.Should().Be("PERSON");
+        tomas.Reference!.EntityId.Should().Be(SonId);
+        tomas.Reference.Quote.Should().Be("Tomás");
+        result.Relationships.Select(r => r.TargetEntity).Should().Equal("Tomás", "Tomás");
+        result.Entities.Where(e => e.Name != "Tomás").Should().OnlyContain(e => e.Reference == null);
+    }
+
+    [Fact]
+    public async Task A_connection_to_a_name_two_stored_people_share_refers_to_neither()
+    {
+        ShowStoredEntities(StoredPerson(SonId, "Tomás"), StoredPerson("identity-observation-tomas-2", "Tomás"));
+        ReplyWithTheParents();
+
+        var result = await Write(Parents);
+
+        result.Entities.Should().NotContain(e => e.Name == "Tomás", "two stored people of that name: which one is not the writer's to guess");
+    }
+
+    [Fact]
+    public async Task A_connection_to_a_person_the_reply_names_itself_is_left_to_that_mention()
+    {
+        ShowStoredEntities(StoredPerson(SonId, "Tomás"));
+        ReplyWithTheParents("""{"op":"add","kind":"entity","text":"Tomás (PERSON)","quote":"Tomás's parents","ref":null},""");
+
+        var result = await Write(Parents);
+
+        result.Entities.Should().ContainSingle(e => e.Name == "Tomás").Which.Reference.Should().BeNull("the reply's own mention stands");
+    }
+
+    [Fact]
+    public async Task A_connection_whose_words_do_not_name_the_stored_person_refers_to_nobody()
+    {
+        ShowStoredEntities(StoredPerson(SonId, "Tomás"));
+        _replies.Enqueue("""
+            {"ops":[
+              {"op":"add","kind":"entity","text":"Iker (PERSON)","quote":"Iker and Marta","ref":null},
+              {"op":"add","kind":"relationship","text":"Iker -[parent of]-> Tomás","quote":"Iker and Marta","ref":null}
+            ]}
+            """);
+
+        var result = await Write(Parents);
+
+        result.Entities.Should().NotContain(e => e.Name == "Tomás");
+    }
+
+    [Fact]
+    public async Task The_default_writer_adds_no_reference_to_a_connections_end()
+    {
+        ShowStoredEntities(StoredPerson(SonId, "Tomás"));
+        _replies.Enqueue("""
+            {"ops":[
+              {"op":"add","kind":"entity","text":"Iker (PERSON)","quote":"Iker and Marta"},
+              {"op":"add","kind":"relationship","text":"Iker -[parent of]-> Tomás","quote":"Tomás's parents, Iker and Marta"}
+            ]}
+            """);
+
+        var result = await Write(Parents, eventIdentities: false);
+
+        result.Entities.Should().NotContain(e => e.Name == "Tomás", "off is byte-identical");
+    }
 }
