@@ -196,6 +196,7 @@ internal sealed partial class Neo4jIdentityDecisionRepository(INeo4jTransactionR
                 if (rows.Count != 1) throw new InvalidOperationException("The fact role/provenance, binding or target is not valid in the exact requested scope.");
                 cancellationToken.ThrowIfCancellationRequested();
             }
+            await KeepSeenNames(runner, current, ownerId).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
             return current;
         }, cancellationToken).ConfigureAwait(false);
@@ -424,6 +425,17 @@ internal sealed partial class Neo4jIdentityDecisionRepository(INeo4jTransactionR
             context = policy.ContextProperties.Order(StringComparer.Ordinal).ToDictionary(name => name,
                 name => candidate.Entity.Attributes.GetValueOrDefault(name), StringComparer.Ordinal)
         })));
+
+    /// <summary>IDENTITY-CONFIRMED-ALIAS: a confirmed decision's observation names, kept on its person (<see cref="IdentityDecisionQueries.KeepSeenNames"/>).</summary>
+    internal static async Task KeepSeenNames(IAsyncQueryRunner runner, IdentityDecision decision, string? ownerId)
+    {
+        if (decision.Status != IdentityDecisionKind.Confirmed || decision.ConfirmedEntityId is not { } target || ownerId is null) return;
+        string[] names = [.. new[] { decision.Observation.Name }.Concat(decision.Observation.Aliases)
+            .Where(name => !string.IsNullOrWhiteSpace(name)).Select(name => name.Trim()).Distinct(StringComparer.Ordinal)];
+        if (names.Length == 0) return;
+        var cursor = await runner.RunAsync(IdentityDecisionQueries.KeepSeenNames, new { targetId = target, ownerId, names }).ConfigureAwait(false);
+        await cursor.ConsumeAsync().ConfigureAwait(false);
+    }
 
     private static string[] Roots(IdentityDecision decision)
     {

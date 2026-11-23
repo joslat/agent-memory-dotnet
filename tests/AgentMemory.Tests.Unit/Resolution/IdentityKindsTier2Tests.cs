@@ -193,6 +193,23 @@ public sealed class IdentityKindsTier2Tests
         IdentityKindsScorer.MentionWords("Luna, Clara's cat").Should().Contain("luna").And.NotContain("clara");
     }
 
+    /// <summary>
+    /// IKB-SCORER-PLACE-MENTION, the fourth paid check (cover4-1, statement 23): the writer stored "the mosque in Córdoba", a
+    /// thing the key does not hold, and the scorer counted it as Córdoba in Spain. A common-noun head with the place it is in
+    /// names the head; a proper name with its place ("Córdoba in Spain") still tells namesakes apart.
+    /// </summary>
+    [Fact]
+    public void A_stored_thing_named_with_the_place_it_is_in_is_not_that_place()
+    {
+        var score = IdentityKindsScorer.Score(Key, WhosWho, Store([.. PerfectEntities(), Entity("e-mosque", "the mosque in Córdoba", "OBJECT", [23])]),
+            IdentityGoldScorer.EntitiesView);
+
+        score.Mentions.Where(m => m.Identity == "e-mosque").Should().OnlyContain(m => m.Thing == null);
+        score.SplitThings.Should().NotContainKey("T10");
+        IdentityKindsScorer.MentionWords("the mosque in Córdoba").Should().Equal("mosque");
+        IdentityKindsScorer.MentionWords("Córdoba in Spain").Should().Contain("spain");
+    }
+
     [Fact]
     public void A_role_noun_still_finds_the_one_thing_of_its_type()
     {

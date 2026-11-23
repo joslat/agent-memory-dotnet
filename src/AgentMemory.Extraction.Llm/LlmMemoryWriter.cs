@@ -327,7 +327,11 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
         bool Live(Fact f) => f.InvalidatedAtUtc is null && (f.ValidUntil is null || f.ValidUntil > now);
         // IDENTITY-NICKNAME-SPLIT: in event-identity mode an entity is shown with the other names it is called by.
         var alsoCalled = conversation is not null;
-        MemoryWriterOps.Stored OfEntity(Entity e) => MemoryWriterOps.Stored.Of(e, alsoCalled);
+        // IDENTITY-CONFIRMED-ALIAS: a person found by a name identity has seen them under is shown with that name too.
+        var seenAs = new Dictionary<string, string>(StringComparer.Ordinal);
+        MemoryWriterOps.Stored OfEntity(Entity e) => seenAs.TryGetValue(e.EntityId, out var seen)
+            ? MemoryWriterOps.Stored.Of(e with { Aliases = [.. e.Aliases, seen] }, alsoCalled)
+            : MemoryWriterOps.Stored.Of(e, alsoCalled);
 
         // 1. The people and things the turn names, found by their stored names (merged and closed ones left out).
         var named = new List<Entity>();
@@ -338,6 +342,21 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
                 if (named.All(e => e.EntityId != entity.EntityId)) named.Add(entity);
             }
             else unknown.Add(name);
+
+        // 1a. IDENTITY-CONFIRMED-ALIAS (event-identity mode): a name the store does not know may be one identity has seen a
+        // person under: the short form a confirmed reference gave them ("Vale" for Valentina Ríos, the fourth paid check's
+        // statement 53), kept on the person, not as an alias identity matches on. At most three people a name.
+        if (alsoCalled && unknown.Count > 0)
+            foreach (var name in unknown.ToList())
+            {
+                var seen = await entities.FindLiveBySeenNameAsync(name, scope, 3, cancellationToken).ConfigureAwait(false);
+                foreach (var entity in seen.Where(e => named.All(n => n.EntityId != e.EntityId)))
+                {
+                    named.Add(entity);
+                    seenAs[entity.EntityId] = name;
+                }
+                if (seen.Count > 0) unknown.Remove(name);
+            }
 
         // 1b. IDENTITY-NICKNAME-SPLIT (event-identity mode): a name the store does not know ("Bea") may be a short form of a
         // person the conversation named in full a few turns before ("Beatriz Molina"). In two of six tier 2 runs that person

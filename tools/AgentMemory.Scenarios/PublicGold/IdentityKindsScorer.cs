@@ -176,6 +176,12 @@ internal static class IdentityKindsScorer
     /// </summary>
     internal static HashSet<string> MentionWords(string words)
     {
+        // IKB-SCORER-PLACE-MENTION: a common-noun head with the place it is in names the head, not the place: "the mosque in
+        // Córdoba" is the mosque (the fourth paid check, cover4-1). A head that holds a capitalised word keeps its place,
+        // which tells namesakes apart ("Córdoba in Spain", "another Café Tortoni in Rosario").
+        var place = PlaceItIsIn.Match(words);
+        if (place.Success && !words[..place.Index].Split(' ', StringSplitOptions.RemoveEmptyEntries).Any(w => char.IsUpper(w[0])))
+            words = words[..place.Index];
         var all = Words(words);
         var possessive = Possessive.Match(words);
         if (!possessive.Success) return all;

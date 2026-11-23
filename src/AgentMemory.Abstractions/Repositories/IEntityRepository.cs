@@ -96,6 +96,20 @@ public interface IEntityRepository
     }
 
     /// <summary>
+    /// IDENTITY-CONFIRMED-ALIAS: the owner's live people that evidence-based identity has seen under this name, besides
+    /// their own name and aliases: a short form a confirmed reference gave them ("Vale" for Valentina Ríos), or a name a
+    /// bound fact used. Case-insensitive, at most <paramref name="limit"/>, owned only. Several are returned as they are:
+    /// the caller decides between namesakes. A name no identity has seen finds none; the default, for a store without
+    /// evidence-based identity, finds none.
+    /// </summary>
+    Task<IReadOnlyList<Entity>> FindLiveBySeenNameAsync(
+        string name,
+        MemoryScope scope,
+        int limit = 3,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<Entity>>(Array.Empty<Entity>());
+
+    /// <summary>
     /// <see cref="GetByTypeAsync"/> without the vectors (<see cref="Entity.Embedding"/> is null): the
     /// entity-resolution candidate set when the semantic stage goes through the vector index. The default
     /// body reads everything and drops the vectors; a backend overrides it to not read them at all.

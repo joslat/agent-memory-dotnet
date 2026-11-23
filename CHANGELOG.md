@@ -35,6 +35,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     item), and `work scan|import --ledger <tasks.json> --root <repo> --ledger-as-intent` makes each item implement its own
     row. The ledger-specific reading stays in the tool.
 
+- The event-identity writer (`LlmExtractionOptions.MemoryWriterEventIdentities`, opt-in) keeps people and things apart
+  better, from the who's-who benchmark's paid checks of 23 Nov 2026 (14 runs: right 18 to 23 of 27 things, against 9 to
+  14 before; no wrong merge in the last four):
+  - It stores named things inside facts and preferences (brands, products, documents, works, places, groups), each beside
+    the fact that names it.
+  - A thing or place said again under exactly its stored name is left out (its facts use the stored name); a person or an
+    organisation is asked once for its reference; a different thing of a stored name is named with the words that tell it
+    apart. Stored things of one name are shown with the words each was first said in.
+  - A person called by a short form of a stored person's name ("Vale" for Valentina Ríos) may be referred to under it,
+    keeping the stored name and the short form as its alias; a new person named so is asked once which it is.
+  - A person reference the conversation's own relation words contradict ("my niece Valentina" against the stored designer,
+    in the message or the turn before) is refused before anything is stored, and the facts it carried keep the message's
+    own name. Reported in the write's outcomes (`ReferenceRelationConflict`).
+  - A person confirmed under a short form keeps it among the names identity saw them under (`identity_surfaces`, which
+    recall for people reads); it is no alias identity matches on. A later turn that says the short form alone finds them:
+    `IEntityRepository.FindLiveBySeenNameAsync` (new, additive; the default finds none, the Neo4j store reads the kept
+    names, owned only).
+
 - A pack that comes back under a new id can take the names its removed old id owns, when an operator says so:
   `KnowledgePackImporter.TransferAsync(fromPackId, newPack, actor)` (PACK-NAME-TAKEOVER, decision D-06). A removal keeps
   a pack's schema names by design, so the packs that moved from `io.agentmemory.*` to new ids were refused with

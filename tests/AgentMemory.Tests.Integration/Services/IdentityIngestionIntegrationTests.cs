@@ -481,6 +481,56 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
         (await facts.GetPersonDetailsAsync([valentina.EntityId], [], 8, Scope)).Should().BeEmpty();
     }
 
+    /// <summary>
+    /// IDENTITY-CONFIRMED-ALIAS (the fourth paid check, statement 53 in 4 of 4 runs): the writer referred "Vale" to the
+    /// stored designer, identity confirmed it, and the short form stayed on the decision's observation only, which is not
+    /// stored as an entity. A later "Vale" alone found nobody, so the writer wrote a new person. A confirmed person keeps
+    /// the names it was seen under, a short form included; a lookup by such a name finds them, for their owner only. It is
+    /// no name identity matches on by itself: the person's own aliases do not change, nor does the decision's target.
+    /// </summary>
+    [Fact]
+    public async Task A_short_form_a_confirmed_reference_gave_a_person_finds_that_person_later()
+    {
+        // whos-who-v1 statements 8 and 11, under the Conversational preset's policies, as the paid runs had them.
+        using var host = Host(conversationalPolicies: true); using var scope = host.CreateScope(); var services = scope.ServiceProvider;
+        const string designerTurn = "Valentina Ríos is the designer on Atlas.";
+        const string valeTurn = "Vale finished the new checkout mock-ups today.";
+        await fixture.TransactionRunner.WriteAsync(async runner => { await runner.RunAsync(
+            "MATCH (c:Conversation {id:'conversation'}) " +
+            "CREATE (a:Message {id:'turn-8', conversation_id:'conversation', content:$a, session_id:'scenario'}), (c)-[:HAS_MESSAGE]->(a) " +
+            "CREATE (b:Message {id:'turn-11', conversation_id:'conversation', content:$b, session_id:'scenario'}), (c)-[:HAS_MESSAGE]->(b)",
+            new { a = designerTurn, b = valeTurn }); });
+        await Ingest(services, new UnifiedExtractionResult
+        {
+            Entities = [new() { Name = "Valentina Ríos", Type = "PERSON", Confidence = 1 }],
+            Facts = [new() { Subject = "Valentina Ríos", Predicate = "is", Object = "the designer on Atlas", Confidence = 1 }]
+        }, messageId: "turn-8", content: designerTurn);
+        var facts = services.GetRequiredService<IFactRepository>();
+        var designer = (await facts.GetPersonIdentitiesAsync(1000, Scope)).Should().ContainSingle().Subject.EntityId;
+        var input = new UnifiedExtractionResult
+        {
+            // The writer's reference under the short form: the mention keeps the stored name and the short form as its alias.
+            Entities = [new() { Name = "Valentina Ríos", Type = "PERSON", Confidence = 1, Aliases = ["Vale"],
+                Reference = new() { EntityId = designer, Quote = "Vale" } }],
+            Facts = [new() { Subject = "Valentina Ríos", Predicate = "finished", Object = "the new checkout mock-ups", Confidence = 1 }]
+        };
+        await Ingest(services, input, messageId: "turn-11", content: valeTurn);
+        (await facts.GetPersonIdentitiesAsync(1000, Scope)).Should().ContainSingle("precondition: the reference was confirmed");
+        var entities = services.GetRequiredService<IEntityRepository>();
+
+        (await entities.FindLiveBySeenNameAsync("vale", Scope)).Should().ContainSingle().Which.EntityId.Should().Be(designer);
+        (await facts.GetPersonNamesAsync(10_000, Scope)).Should().Contain("Vale");
+        (await entities.GetByIdAsync(designer))!.Aliases.Should().NotContain("Vale", "a seen name is not an alias identity matches on");
+        (await entities.FindLiveBySeenNameAsync("Vale", MemoryScope.For("other-owner", false))).Should().BeEmpty();
+        (await entities.FindLiveBySeenNameAsync("Valeria", Scope)).Should().BeEmpty();
+
+        // The same write again (a retried journal entry) replays its decision: the kept name does not change its target.
+        var decisions = await Count("(d:IdentityDecision)");
+        await Ingest(services, input, messageId: "turn-11", content: valeTurn);
+        (await Count("(d:IdentityDecision)")).Should().Be(decisions);
+        (await entities.FindLiveBySeenNameAsync("Vale", Scope)).Should().ContainSingle();
+    }
+
     [Fact]
     public async Task Every_live_person_makes_a_name_ambiguous_but_a_reviewed_proposal_s_observation_does_not()
     {

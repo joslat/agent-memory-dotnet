@@ -47,6 +47,7 @@ public sealed class MemoryWriterContractTests : IDisposable
         preferences.SearchByVectorAsync(default!, default, default, default, default).ReturnsForAnyArgs([]);
         _entities.FindLiveByNameAsync(default!, default, default!, default).ReturnsForAnyArgs((Entity?)null);
         _entities.SearchByVectorAsync(default!, default, default, default, default).ReturnsForAnyArgs([]);
+        _entities.FindLiveBySeenNameAsync(default!, default!, default, default).ReturnsForAnyArgs([]);
         var relationships = Substitute.For<IRelationshipRepository>();
         relationships.GetLiveAroundAsync(default!, default!, default, default, default, default).ReturnsForAnyArgs([]);
         var embeddings = Substitute.For<IEmbeddingOrchestrator>();
@@ -780,5 +781,41 @@ public sealed class MemoryWriterContractTests : IDisposable
         entity.Name.Should().Be("José García");
         entity.Aliases.Should().Equal("Pepe");
         entity.Reference!.EntityId.Should().Be("identity-observation-jose");
+    }
+
+    /// <summary>
+    /// IDENTITY-CONFIRMED-ALIAS, the fourth paid check, statement 53: "Vale and I presented Atlas to the client." The designer
+    /// was confirmed as "Vale" at statement 11, but a name lookup reads names and aliases only, so she was not shown and the
+    /// writer wrote a new person. A name the store does not know is looked up among the names identity has seen people
+    /// under; the person found is shown with it ("also called Vale"), so the writer can refer to her.
+    /// </summary>
+    [Fact]
+    public async Task A_person_seen_under_a_short_form_is_shown_when_a_turn_says_it_alone()
+    {
+        var designer = new Entity
+        {
+            EntityId = DesignerId, Name = "Valentina Ríos", Type = "PERSON", OwnerId = "bruna", Confidence = 1,
+            SourceMessageIds = ["m-designer"], CreatedAtUtc = DateTimeOffset.UnixEpoch,
+        };
+        _entities.FindLiveBySeenNameAsync("Vale", Arg.Any<MemoryScope>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns([designer]);
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Vale (PERSON)","quote":"Vale and I","ref":"E1"}]}""");
+
+        var result = await Write("Vale and I presented Atlas to the client.");
+
+        _calls.Should().ContainSingle();
+        _calls[0].Messages[1].Text.Should().Contain("E1: Valentina Ríos (PERSON), also called Vale");
+        var entity = result.Entities.Should().ContainSingle().Which;
+        entity.Name.Should().Be("Valentina Ríos");
+        entity.Aliases.Should().Equal("Vale");
+        entity.Reference!.EntityId.Should().Be(DesignerId);
+    }
+
+    [Fact]
+    public async Task The_default_writer_does_not_look_names_up_among_the_names_identity_has_seen()
+    {
+        await Write("Vale and I presented Atlas to the client.", eventIdentities: false);
+
+        await _entities.DidNotReceiveWithAnyArgs().FindLiveBySeenNameAsync(default!, default!, default, default);
     }
 }
