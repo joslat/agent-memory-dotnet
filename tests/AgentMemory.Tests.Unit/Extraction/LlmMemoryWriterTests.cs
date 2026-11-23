@@ -110,6 +110,35 @@ public sealed class LlmMemoryWriterTests
             .And.NotContain("Córdoba").And.NotContain("December 11").And.NotContain("2026");
     }
 
+    /// <summary>
+    /// IDENTITY-WRITER-COVERAGE: in six tier 2 runs the writer stored the brand, the documents, the works and the products
+    /// of whos-who only as facts or preferences ("user | is reading | ..."), never as entities, so identity had nothing to
+    /// decide on. The event-identity prompt asked only for "a named entity".
+    /// </summary>
+    [Fact]
+    public void Event_identity_prompt_asks_for_named_things_inside_facts_and_preferences()
+    {
+        var prompt = EventIdentityPrompt();
+        foreach (var kind in new[] { "region", "brand", "team", "product", "book", "film", "document" })
+            prompt.Should().Contain(kind, $"a {kind} named in a fact is an entity too");
+        prompt.Should().Contain("inside a fact or a preference");
+        prompt.Should().Contain("is not a name", "a role or a common noun must not become an entity");
+        prompt.Should().Contain("needs no new entity", "a thing already stored is not added again");
+    }
+
+    [Fact]
+    public void The_event_identity_prompt_does_not_embed_the_identity_benchmarks_answers()
+    {
+        var prompt = EventIdentityPrompt();
+        foreach (var answer in new[] { "Kindle", "Dune", "Patagonia", "Q3", "Tortoni", "Corolla", "Atlas", "Luna", "Valentina",
+                     "platform team", "Bariloche", "Carlos Paz", "Brisa", "Sosa", "Inés", "Marta" })
+            prompt.Should().NotContain(answer);
+    }
+
+    private static string EventIdentityPrompt() =>
+        MemoryWriterPrompt.System(null, new LlmExtractionOptions().MemoryWriterMaxOperations, eventIdentities: true)
+        + MemoryWriterPrompt.EventIdentityInstructions;
+
     private static MemoryWriteRequest Turn(string text, MemoryScope? scope) =>
         new(new ExtractionWindow { Targets = [new Message { MessageId = "m", ConversationId = "c", SessionId = "s", Role = "user", Content = text, TimestampUtc = Now }] }, scope);
 

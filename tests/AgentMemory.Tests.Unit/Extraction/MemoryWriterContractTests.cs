@@ -244,6 +244,32 @@ public sealed class MemoryWriterContractTests : IDisposable
         result.Outcomes.Should().BeEmpty();
     }
 
+    /// <summary>
+    /// IDENTITY-WRITER-COVERAGE guard: a thing named inside a fact or a preference, written beside it as its own entity,
+    /// passes the contract in one call and keeps its kind; nothing between the writer and identity drops these kinds.
+    /// </summary>
+    [Fact]
+    public async Task Named_things_beside_a_fact_and_a_preference_pass_the_contract_with_their_kinds()
+    {
+        _replies.Enqueue("""
+            {"ops":[
+              {"op":"add","kind":"fact","text":"user | is reading | Field Notes on Rivers","quote":"I'm reading Field Notes on Rivers"},
+              {"op":"add","kind":"entity","text":"Field Notes on Rivers (THING)","quote":"Field Notes on Rivers","ref":null},
+              {"op":"add","kind":"preference","text":"Only buys boots from Northwind Outfitters","quote":"I only buy boots from Northwind Outfitters"},
+              {"op":"add","kind":"entity","text":"Northwind Outfitters (ORGANIZATION)","quote":"Northwind Outfitters","ref":null},
+              {"op":"add","kind":"entity","text":"finance team (ORGANIZATION)","quote":"the finance team","ref":null}
+            ]}
+            """);
+        var result = await Write("I'm reading Field Notes on Rivers, I only buy boots from Northwind Outfitters, and the finance team wants the summary.");
+        _calls.Should().ContainSingle();
+        result.Entities.Should().Contain(e => e.Name == "Field Notes on Rivers" && e.Type == "OBJECT");
+        result.Entities.Should().Contain(e => e.Name == "Northwind Outfitters" && e.Type == "ORGANIZATION");
+        result.Entities.Should().Contain(e => e.Name == "finance team" && e.Type == "ORGANIZATION");
+        result.Facts.Should().ContainSingle();
+        result.Preferences.Should().ContainSingle();
+        result.Outcomes.Should().BeEmpty();
+    }
+
     [Fact]
     public async Task A_malformed_entity_that_stays_malformed_is_dropped_and_reported_never_stored_as_an_object()
     {

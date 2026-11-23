@@ -394,7 +394,8 @@ internal static class MemoryWriterPrompt
         """;
 
     private const string EventEntityWhat =
-        "a named entity or a connection explicitly stated in the message; do not infer connections. "
+        "someone or something named in the message (a person, pet, place, organisation, group, brand, product, vehicle, book, "
+        + "film, document, project or event), or a connection explicitly stated in the message; do not infer connections. "
         + "Emit a current EVENT observation with each new fact about its date, place or participation, even for an already stored event. "
         + "A person's own event participation is still a fact about that event. Other already stored entity mentions need no duplicate.";
 
@@ -429,6 +430,16 @@ internal static class MemoryWriterPrompt
           fact; keep the participant and any negation in its object. Do not replace it solely with a user-subject sentence.
           If context cannot resolve the event reference unambiguously, preserve uncertainty instead of guessing a link.
         - Every emitted item must remain supported by the current message. Keep its source quote rules and operation cap.
+
+        Named things:
+        - A thing the last message names by a name or a title is also an entity, even when it appears only
+          inside a fact or a preference. Add its entity beside the fact or preference that names it: a city, region,
+          country or venue is PLACE; a company, brand, team or group is ORGANIZATION; a product, device, vehicle, book,
+          film, album, document, report or project is THING.
+        - Only names and titles count. A role or a common noun ("the dentist", "my laptop", "the office") is not a name and
+          gets no entity of its own. People and pets keep the rules above.
+        - A thing already listed in STORED as an E item needs no new entity. When the statement tells a different thing of
+          the same name apart, add a new entity with "ref" null, named with the words that tell it apart.
 
         Stored entity references:
         - Every operation has a "ref" field; on facts, preferences and connections it is always null. An entity's "text" is
