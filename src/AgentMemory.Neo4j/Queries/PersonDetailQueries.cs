@@ -104,12 +104,19 @@ internal static class PersonDetailQueries
         MATCH (p:Entity {id:personId})
         WHERE toUpper(p.type)='PERSON' AND p.invalidated_at IS NULL AND p.merged_into IS NULL
           AND (NOT $hasOwner OR p.owner_id=$ownerId OR ($includeShared AND p.owner_id IS NULL))
-        MATCH (f:Fact)-[:HAS_IDENTITY_BINDING]->(b:IdentityFactBinding)-[:DECIDED_BY]->(d:IdentityDecision),
-              (b)-[:RESOLVES_TO]->(p)
+        // P231A-PART4: the walk from the person to its bound facts alone in a subquery, the filters after it. Beside the
+        // filters, the planner could start from every fact of the owner, when index samples made those filters look
+        // selective (480,000 database hits for one person's facts). Alone, the person is the only cheap start.
+        CALL {
+          WITH p
+          MATCH (f:Fact)-[:HAS_IDENTITY_BINDING]->(b:IdentityFactBinding)-[:DECIDED_BY]->(d:IdentityDecision),
+                (b)-[:RESOLVES_TO]->(p)
+          RETURN f, b, d
+        }
+        WITH personRank, f, b, d
         WHERE NOT f.id IN $excludeIds AND f.invalidated_at IS NULL
           AND (f.valid_until IS NULL OR f.valid_until >= datetime($now))
           AND (NOT $hasOwner OR f.owner_id=$ownerId OR ($includeShared AND f.owner_id IS NULL))
-          // P231A-PART4: as lists, so the binding is reached from the person, never from the bindings' index.
           AND [b.identity_decision_id, b.owner_scope]=[d.id, d.owner_scope]
           AND b.owner_scope=CASE WHEN f.owner_id IS NULL THEN 'shared' ELSE 'owned:'+f.owner_id END
           AND ((f.owner_id IS NULL AND b.owner_id IS NULL AND d.owner_id IS NULL) OR

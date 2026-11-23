@@ -19,8 +19,15 @@ internal static class EventDetailQueries
           AND toUpper(event.type)='EVENT' AND event.invalidated_at IS NULL AND event.merged_into IS NULL
           AND (NOT $hasOwner OR event.owner_id=$ownerId OR ($includeShared AND event.owner_id IS NULL))
         WITH event,min(seedRank) AS seedRank ORDER BY seedRank,event.id LIMIT 20
-        MATCH (f:Fact)-[:HAS_IDENTITY_BINDING]->(b:IdentityFactBinding)-[:DECIDED_BY]->(d:IdentityDecision),
-              (b)-[:RESOLVES_TO]->(event)
+        // P231A-PART4: the walk from the event to its bound facts alone in a subquery, the filters after it, so the event
+        // is the only cheap start whatever the index samples say (as PersonDetailQueries.Read).
+        CALL {
+          WITH event
+          MATCH (f:Fact)-[:HAS_IDENTITY_BINDING]->(b:IdentityFactBinding)-[:DECIDED_BY]->(d:IdentityDecision),
+                (b)-[:RESOLVES_TO]->(event)
+          RETURN f, b, d
+        }
+        WITH event, seedRank, f, b, d
         WHERE NOT f.id IN $excludeIds AND NOT f.id IN $seedIds AND f.invalidated_at IS NULL
           AND (f.valid_until IS NULL OR f.valid_until >= datetime($now))
           AND (NOT $hasOwner OR f.owner_id=$ownerId OR ($includeShared AND f.owner_id IS NULL))

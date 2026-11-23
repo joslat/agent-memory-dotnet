@@ -2654,9 +2654,11 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
         var summary = await cursor.ConsumeAsync();
         static IEnumerable<IProfiledPlan> All(IProfiledPlan plan) => plan.Children.SelectMany(All).Prepend(plan);
         var steps = All(summary.Profile).ToArray();
-        // The three costliest steps, to say where the hits went when the bound fails.
-        var costliest = string.Join("; ", steps.OrderByDescending(step => step.DbHits).Take(3).Select(step =>
-            $"{step.OperatorType} {(step.Arguments.TryGetValue("Details", out var details) ? details : "")} = {step.DbHits}"));
+        // The three costliest steps and where the plan started (its leaves), to say where the hits went when a bound fails.
+        static string Show(IProfiledPlan step) =>
+            $"{step.OperatorType} {(step.Arguments.TryGetValue("Details", out var details) ? details : "")} = {step.DbHits}";
+        var costliest = string.Join("; ", steps.OrderByDescending(step => step.DbHits).Take(3).Select(Show))
+            + " | started from: " + string.Join("; ", steps.Where(step => step.Children.Count == 0).Select(Show));
         return (steps.Sum(step => step.DbHits), costliest);
     }
 }
