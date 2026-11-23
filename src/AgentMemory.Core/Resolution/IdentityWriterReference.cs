@@ -43,8 +43,11 @@ internal static class IdentityWriterReference
         // Ríos. The quote was there and she was the only Valentina, yet the turn's own words describe someone else. A relation
         // the turn gives that the stored person is not known by, when they are known by another, is no agreement: refused
         // here like any other unsupported reference, so it stays for review or the adjudicator.
+        // IDENTITY-NICKNAME-SPLIT: a person the writer refers to under a short form ("Bea") comes under the stored name with
+        // the short form as an alias; the turn names the alias, so its relation is read there too ("my niece Bea").
         var turnText = string.Join("\n", plan.Context.Sources.Where(fragment => roots.Contains(fragment.SourceId)).Select(fragment => fragment.Text));
-        if (IdentityRelationCue.Disagree(IdentityRelationCue.InTurn(turnText, [mention.Name, target.Name]), IdentityRelationCue.Known(targetCandidate!)))
+        if (IdentityRelationCue.Disagree(IdentityRelationCue.InTurn(turnText, [mention.Name, target.Name, .. mention.Aliases]),
+                IdentityRelationCue.Known(targetCandidate!)))
             return Note("writer_reference_relation_conflict");
 
         var evidence = new IdentityContextualResult(IdentityContextualVerdict.Same, target.EntityId,

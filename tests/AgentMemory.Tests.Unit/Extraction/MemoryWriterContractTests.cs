@@ -64,6 +64,17 @@ public sealed class MemoryWriterContractTests : IDisposable
     private void ShowStoredGoLive() =>
         _entities.SearchByVectorAsync(default!, default, default, default, default).ReturnsForAnyArgs([(GoLive, 0.9)]);
 
+    private const string PersonId = "identity-observation-beatriz";
+
+    private void ShowStored(string id, string name, string type) =>
+        _entities.SearchByVectorAsync(default!, default, default, default, default).ReturnsForAnyArgs([(new Entity
+        {
+            EntityId = id, Name = name, Type = type, OwnerId = "bruna", Confidence = 1, SourceMessageIds = ["prior"],
+            CreatedAtUtc = DateTimeOffset.UnixEpoch,
+        }, 0.9)]);
+
+    private void ShowStoredPerson() => ShowStored(PersonId, "Beatriz Molina", "PERSON");
+
     private Task<UnifiedExtractionResult> Write(string text, bool eventIdentities = true)
     {
         var writer = new LlmMemoryWriter(_chat, Options.Create(new LlmExtractionOptions
@@ -217,6 +228,84 @@ public sealed class MemoryWriterContractTests : IDisposable
         _calls.Should().HaveCount(2);
         result.Entities.Should().ContainSingle().Which.Reference.Should().BeNull();
         result.Outcomes.Should().ContainSingle();
+    }
+
+    // ── IDENTITY-NICKNAME-SPLIT (whos-who-v1 tier 2: "Vale" for the stored "Valentina Ríos" stayed a person of its own) ──
+
+    /// <summary>
+    /// Six tier 2 runs: shown the stored person, the writer wrote the nickname as a new person with "ref" null; with a "ref",
+    /// this contract demanded the stored name, so the nickname could only be lost. A short form of the stored person's name
+    /// that the message uses is another name of that person: the mention takes the stored name (which tells namesakes apart),
+    /// keeps the short form as an alias and keeps the reference, in one call.
+    /// </summary>
+    [Fact]
+    public async Task A_person_called_by_a_short_form_of_their_stored_name_is_that_person_also_called_so()
+    {
+        ShowStoredPerson();
+        _replies.Enqueue("""
+            {"ops":[
+              {"op":"add","kind":"entity","text":"Bea (PERSON)","quote":"Bea finished the floor plans today","ref":"E1"},
+              {"op":"add","kind":"fact","text":"Beatriz Molina | finished | the floor plans","quote":"Bea finished the floor plans today"}
+            ]}
+            """);
+
+        var result = await Write("Bea finished the floor plans today.");
+
+        _calls.Should().ContainSingle("a short form of the stored name is no name mismatch to correct");
+        var entity = result.Entities.Should().ContainSingle().Which;
+        entity.Name.Should().Be("Beatriz Molina");
+        entity.Type.Should().Be("PERSON");
+        entity.Aliases.Should().Equal("Bea");
+        entity.Reference!.EntityId.Should().Be(PersonId);
+        result.Facts.Should().ContainSingle().Which.Subject.Should().Be("Beatriz Molina");
+        result.Outcomes.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("Beatriz", "Beatriz finished the floor plans today")]   // a first name alone is part of the stored name
+    [InlineData("Jonas", "Jonas finished the floor plans today")]       // another name altogether
+    public async Task A_reference_under_any_other_name_still_needs_the_stored_name(string said, string message)
+    {
+        ShowStoredPerson();
+        _replies.Enqueue($$"""{"ops":[{"op":"add","kind":"entity","text":"{{said}} (PERSON)","quote":"{{message}}","ref":"E1"}]}""");
+        _replies.Enqueue("""{"ops":[]}""");
+
+        var result = await Write(message + ".");
+
+        _calls.Should().HaveCount(2, "the name mismatch is corrected as before");
+        var entity = result.Entities.Should().ContainSingle().Which;
+        entity.Name.Should().Be(said);
+        entity.Reference.Should().BeNull();
+        entity.Aliases.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_short_form_its_quote_does_not_hold_is_not_taken()
+    {
+        ShowStoredPerson();
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Bea (PERSON)","quote":"finished the floor plans today","ref":"E1"}]}""");
+        _replies.Enqueue("""{"ops":[]}""");
+
+        var result = await Write("Beatriz finished the floor plans today.");
+
+        _calls.Should().HaveCount(2);
+        result.Entities.Should().ContainSingle().Which.Reference.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("ORGANIZATION", "Northwind Analytics", "Northy (ORGANIZATION)", "Northy shipped the release")]
+    [InlineData("EVENT", "Harvest festival", "Harvy (EVENT)", "Harvy starts at noon")]
+    public async Task Only_a_person_is_referred_to_by_a_short_form(string type, string stored, string text, string message)
+    {
+        // An organisation, a place, a thing or an event keeps the exact stored-name rule (ILC-10).
+        ShowStored("stored-thing", stored, type);
+        _replies.Enqueue($$"""{"ops":[{"op":"add","kind":"entity","text":"{{text}}","quote":"{{message}}","ref":"E1"}]}""");
+        _replies.Enqueue("""{"ops":[]}""");
+
+        var result = await Write(message + ".");
+
+        _calls.Should().HaveCount(2);
+        result.Entities.Should().ContainSingle().Which.Reference.Should().BeNull();
     }
 
     [Fact]

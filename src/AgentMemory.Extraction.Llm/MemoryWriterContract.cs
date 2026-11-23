@@ -222,9 +222,56 @@ internal static class MemoryWriterContract
         if (op.QuoteStart is null)
             return (MemoryWriterOps.DropReason.ReferenceWithoutQuote, "a \"ref\" needs a quote of the last message's words that refer to the stored entity");
         var stored = EntityName(item.Text);
-        if (Canonical(EntityName(op.Text)) != Canonical(stored))
+        if (Canonical(EntityName(op.Text)) != Canonical(stored) && AlsoCalled(op, item) is null)
             return (MemoryWriterOps.DropReason.ReferenceNameMismatch, $"\"ref\" {op.Ref} is \"{stored}\"; with a ref, the text must use that exact stored name");
         return (null, null);
+    }
+
+    /// <summary>
+    /// IDENTITY-NICKNAME-SPLIT: the other name a referred entity add gives a stored person, or null. In six tier 2 runs the
+    /// writer, shown the stored "Valentina Ríos", wrote "Vale" as a new person: a reference had to carry the stored name, so
+    /// there was no way to say "this stored person, called Vale here". A person's entity add that refers to a stored person
+    /// under a short form of the stored name (<see cref="IsShortFormOf"/>), in words its quote holds, says exactly that: the
+    /// mention keeps the stored name, which tells namesakes apart, and the short form becomes its alias. Only people: an
+    /// organisation, place, thing or event keeps the exact stored-name rule (ILC-10).
+    /// </summary>
+    internal static string? AlsoCalled(MemoryWriterOps.Op op, MemoryWriterOps.Stored item)
+    {
+        if (op.Kind != "entity" || op.Action != "add" || item.Letter != 'E' || op.Quote is not { } quote ||
+            EntityText.Match(op.Text) is not { Success: true } said ||
+            !string.Equals(said.Groups["t"].Value.Trim(), "PERSON", StringComparison.OrdinalIgnoreCase) || StoredType(item.Text) != "PERSON")
+            return null;
+        var name = said.Groups["n"].Value.Trim();
+        return IsShortFormOf(name, EntityName(item.Text)) &&
+               Regex.IsMatch(quote, $@"(?<![\p{{L}}\p{{M}}]){Regex.Escape(name)}(?![\p{{L}}\p{{M}}])",
+                   RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(50))
+            ? name : null;
+    }
+
+    private static readonly Regex NameWord = new(@"[\p{L}\p{M}][\p{L}\p{M}'’-]*", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// Whether <paramref name="said"/> is a short form or nickname of the name <paramref name="full"/>: each of its words is a
+    /// word of the full name or a capitalised word of three letters or more that is not one but starts with the first three
+    /// letters of one ("Bea" for "Beatriz Molina", "Bea Molina" too), and at least one is the latter. A first name or a
+    /// surname alone is part of the full name, not another name of it; a name that shares no start ("Jonas") is another
+    /// person's. Only a gate on what a reference may carry: the writer's judgment and identity's own checks still decide.
+    /// </summary>
+    internal static bool IsShortFormOf(string said, string full)
+    {
+        var words = NameWord.Matches(full).Select(m => m.Value.ToLowerInvariant()).ToHashSet(StringComparer.Ordinal);
+        var saidWords = NameWord.Matches(said).Select(m => m.Value).ToList();
+        if (words.Count == 0 || saidWords.Count == 0) return false;
+        var shortened = false;
+        foreach (var word in saidWords)
+        {
+            var lower = word.ToLowerInvariant();
+            if (words.Contains(lower)) continue;
+            if (lower.Length < 3 || !char.IsUpper(word[0]) ||
+                !words.Any(w => w.Length >= 3 && w.StartsWith(lower[..3], StringComparison.Ordinal))) return false;
+            shortened = true;
+        }
+        return shortened;
     }
 
     private static bool HasDebris(string text) =>
