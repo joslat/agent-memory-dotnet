@@ -178,7 +178,9 @@ if (unknown.Count > 0)
     return 2;
 }
 
-if (identityValidation && (armNames.Length != 1 || armNames[0] != validationArm) || legacyComparison && !(identityValidation && identityWriter) ||
+// IBP-1b: the validation arm may be joined by its recall-only "-filled" twin, which reads its store and writes nothing.
+if (identityValidation && !(armNames.Length == 1 && armNames[0] == validationArm ||
+        armNames.Length == 2 && armNames[0] == validationArm && armNames[1] == validationArm + "-filled") || legacyComparison && !(identityValidation && identityWriter) ||
     !identityValidation && (identityWriter || armNames.Any(name=>name.StartsWith("graph-identity-",StringComparison.Ordinal) || name == "graph-legacy-writer")))
 {
     Console.Error.WriteLine("Identity arms require --identity-validation; --identity-writer selects the store-aware variant, alone under the same campaign budget.");
