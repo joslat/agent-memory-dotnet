@@ -438,6 +438,41 @@ public sealed class MemoryWriterContractTests : IDisposable
         result.Outcomes.Should().BeEmpty();
     }
 
+    /// <summary>
+    /// IDENTITY-HARD-CASES A3 (whos-who-v2 run 2): asked which it was, the writer told the neighbours' puppy from the stored
+    /// dog of the same name as "Name (who it belongs to) (PERSON)". The words in brackets are no valid entity name, so the
+    /// fix was not taken, the entity stayed under the bare stored name, and identity merged the two dogs. A correction that
+    /// tells a repeated name apart in brackets is that name with its qualifier: kept, without a reference.
+    /// </summary>
+    [Fact]
+    public async Task A_repeated_name_told_apart_in_brackets_is_kept_under_the_name_and_its_qualifier()
+    {
+        ShowStored("pet-luna", "Luna", "PERSON");
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Luna (PERSON)","quote":"named her Luna too","ref":null}]}""");
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Luna (the neighbours' kitten) (PERSON)","quote":"named her Luna too","ref":null}]}""");
+
+        var result = await Write("The neighbours got a kitten and named her Luna too.");
+
+        _calls.Should().HaveCount(2);
+        var entity = result.Entities.Should().ContainSingle().Which;
+        entity.Name.Should().Be("Luna, the neighbours' kitten");
+        entity.Type.Should().Be("PERSON");
+        entity.Reference.Should().BeNull();
+        result.Outcomes.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_first_answer_with_a_description_in_brackets_is_still_asked_to_fix_its_form()
+    {
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Ms. Ortega (a lawyer) (PERSON)","quote":"a lawyer called Ms. Ortega","ref":null}]}""");
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Ms. Ortega (PERSON)","quote":"a lawyer called Ms. Ortega","ref":null}]}""");
+
+        var result = await Write("I'm making a will with a lawyer called Ms. Ortega.");
+
+        _calls.Should().HaveCount(2, "a bracketed description is no name: only a repeated name's qualifier is kept");
+        result.Entities.Should().ContainSingle().Which.Name.Should().Be("Ms. Ortega");
+    }
+
     [Fact]
     public async Task A_stored_events_name_observed_again_is_not_asked()
     {

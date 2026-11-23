@@ -281,6 +281,17 @@ internal static class MemoryWriterContract
         {
             // Never sent for a correction, so never given one: a fix meant for another issue stays with that issue.
             var fix = ReportedOnly(issue.Reason) ? null : corrected.FirstOrDefault(op => !used.Contains(op) && Fixes(issue, op));
+            // IDENTITY-HARD-CASES A3 (whos-who-v2 run 2): a repeated name told apart in brackets ("Luna (the neighbours'
+            // kitten) (PERSON)") is that name with its qualifier. Not taken, the entity kept the bare stored name and identity
+            // merged the two. Only for a repeated name: elsewhere a bracketed description is no name and is asked to be fixed.
+            if (fix is null && issue.RepeatedName is not null && !ReportedOnly(issue.Reason))
+                foreach (var op in corrected.Where(op => !used.Contains(op)))
+                    if (Unbracketed(op) is { } plain && Fixes(issue, plain))
+                    {
+                        used.Add(op);
+                        fix = plain;
+                        break;
+                    }
             // A person named by a short form, given again with no ref: someone else, as the writer says; kept as written.
             if (issue.Reason == MemoryWriterOps.DropReason.StoredPersonShortForm && fix is { Ref: null })
             {
@@ -620,6 +631,16 @@ internal static class MemoryWriterContract
     internal static string Canonical(string? value) => MemoryTripleCanonicalizer.CanonicalValue(value);
 
     /// <summary>"Name (TYPE)" to its name; anything else stays as it is.</summary>
+    private static readonly Regex Bracketed = new(
+        @"^\s*(?<n>[^|(){}\[\]]+?)\s*\(\s*(?<q>[^|(){}\[\]]+?)\s*\)\s*\(\s*(?<t>PERSON|PLACE|ORGANIZATION|ORGANISATION|THING|EVENT|LOCATION|OBJECT)\s*\)\s*$",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    /// <summary>"Name (qualifier) (TYPE)" as the entity "Name, qualifier (TYPE)", or null when the text is not of that form.</summary>
+    private static MemoryWriterOps.Op? Unbracketed(MemoryWriterOps.Op op) =>
+        op.Kind == "entity" && op.Action == "add" && Bracketed.Match(op.Text) is { Success: true } m
+            ? op with { Text = $"{m.Groups["n"].Value.Trim()}, {m.Groups["q"].Value.Trim()} ({m.Groups["t"].Value.Trim()})" }
+            : null;
+
     internal static string EntityName(string text)
     {
         var open = text.LastIndexOf('(');
