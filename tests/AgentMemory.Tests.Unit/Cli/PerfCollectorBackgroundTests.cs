@@ -72,4 +72,52 @@ public sealed class PerfCollectorBackgroundTests
         record.Counter("background.neo4j.tx.read").Should().Be(1);
         record.Counter("background.access_tracking.writes").Should().Be(1);
     }
+
+    /// <summary>
+    /// A read-note write is counted whole, where its root span ends. Its statements end as they are sent, long before the
+    /// commit; counted one by one, those sent before the harness opened its flush window were lost, so the gate's
+    /// background.neo4j.queries read 1 to 3 from run to run (PR #274's CI, PERF-R-07 in the remote profile).
+    /// </summary>
+    [Fact]
+    public void A_read_note_write_whose_statements_ended_before_the_flush_is_counted_whole()
+    {
+        using var collector = new PerfCollector();
+        TurnRecord record;
+        using (var turn = collector.BeginTurn("test", 0, "measure")) record = turn.Record;
+
+        var root = AgentMemoryDiagnostics.Source.StartActivity("memory.background.access_tracking");
+        var tx = AgentMemoryDiagnostics.Source.StartActivity("memory.db.tx");
+        for (var statement = 0; statement < 3; statement++)
+            using (AgentMemoryDiagnostics.Source.StartActivity("memory.db.query", ActivityKind.Client, tx!.Context)) { }
+        using (collector.BackgroundFor(record))
+        {
+            tx!.Dispose();
+            root!.Dispose();
+        }
+
+        record.Counter("background.neo4j.queries").Should().Be(3, "the write's three statements belong to it, whenever each was sent");
+        record.Counter("background.neo4j.tx.read").Should().Be(1);
+        record.Counter("background.access_tracking.writes").Should().Be(1);
+    }
+
+    /// <summary>And a write that ends outside any flush window is counted nowhere, its statements included.</summary>
+    [Fact]
+    public void A_read_note_write_that_ends_outside_a_flush_is_not_counted_in_part()
+    {
+        using var collector = new PerfCollector();
+        TurnRecord record;
+        using (var turn = collector.BeginTurn("test", 0, "measure")) record = turn.Record;
+
+        var root = AgentMemoryDiagnostics.Source.StartActivity("memory.background.access_tracking");
+        using (collector.BackgroundFor(record))
+        {
+            using var tx = AgentMemoryDiagnostics.Source.StartActivity("memory.db.tx");
+            using (AgentMemoryDiagnostics.Source.StartActivity("memory.db.query", ActivityKind.Client, tx!.Context)) { }
+        }
+        root!.Dispose();
+
+        record.Counter("background.neo4j.queries").Should().Be(0);
+        record.Counter("background.neo4j.tx.read").Should().Be(0);
+        record.Counter("background.access_tracking.writes").Should().Be(0);
+    }
 }

@@ -107,52 +107,67 @@ public sealed class PerfCollector : IDisposable
     }
 
     // Any memory.background.* span: the queued read notes, and (PERF-R07-ORDER) the owner counts refreshed after 30 s.
-    private static bool UnderBackgroundSpan(Activity activity) => BackgroundRoot(activity) is not null;
+    private static bool UnderBackgroundSpan(Activity activity) => BackgroundRootOf(activity) is not null;
 
     // The memory.background.* span a span runs under, through its Parent chain, or null.
-    private static string? BackgroundRoot(Activity activity)
+    private static Activity? BackgroundRootOf(Activity activity)
     {
         for (var current = activity; current is not null; current = current.Parent)
-            if (current.OperationName.StartsWith("memory.background.", StringComparison.Ordinal)) return current.OperationName;
+            if (current.OperationName.StartsWith("memory.background.", StringComparison.Ordinal)) return current;
         return null;
     }
 
+    // A background span's root: the memory.background.* span it runs under.
+    private readonly record struct BackgroundRoot(string Name, ActivitySpanId Id);
+
     // PERF-R07-ORDER: a query span is started with its transaction's context as the parent, not the transaction
-    // Activity, so its Parent chain ends at itself. Background work's span ids are kept from their start with the
-    // background span they run under, and a span whose parent id is one of them inherits it; each id is dropped when its
-    // span stops.
-    private readonly ConcurrentDictionary<ActivitySpanId, string> _backgroundSpanIds = new();
+    // Activity, so its Parent chain ends at itself. Background work's span ids are kept from their start with their root,
+    // and a span whose parent id is one of them inherits it; each id is dropped when its span stops.
+    private readonly ConcurrentDictionary<ActivitySpanId, BackgroundRoot> _backgroundSpanIds = new();
+
+    // A read-note write's counts, gathered from its spans as they stop and charged whole when its root stops (PR #274's
+    // CI): its statements stop as they are sent, long before the commit, so counted one by one the ones sent before the
+    // harness opened its flush window were lost and background.neo4j.queries read 1 to 3 from run to run.
+    private readonly ConcurrentDictionary<ActivitySpanId, ConcurrentDictionary<string, long>> _pendingWrites = new();
 
     private void OnActivityStarted(Activity activity)
     {
-        var root = BackgroundRoot(activity) ?? (_backgroundSpanIds.TryGetValue(activity.ParentSpanId, out var parentRoot) ? parentRoot : null);
-        if (root is not null) _backgroundSpanIds.TryAdd(activity.SpanId, root);
+        BackgroundRoot? root = BackgroundRootOf(activity) is { } found ? new BackgroundRoot(found.OperationName, found.SpanId)
+            : _backgroundSpanIds.TryGetValue(activity.ParentSpanId, out var inherited) ? inherited : null;
+        if (root is { } known) _backgroundSpanIds.TryAdd(activity.SpanId, known);
     }
 
-    // The background span a span runs under, or null for a turn's own work.
-    private string? BackgroundOf(Activity activity) =>
-        _backgroundSpanIds.TryRemove(activity.SpanId, out var root) ? root : BackgroundRoot(activity);
+    // The background root a span runs under, or null for a turn's own work.
+    private BackgroundRoot? BackgroundOf(Activity activity) =>
+        _backgroundSpanIds.TryRemove(activity.SpanId, out var root) ? root
+        : BackgroundRootOf(activity) is { } found ? new BackgroundRoot(found.OperationName, found.SpanId) : null;
 
-    // Only the read notes are a turn's background work, counted while its notes are flushed. Other background work (the
-    // owner counts, refreshed once 30 s have passed) belongs to no turn: counted wherever a flush happened to be open, it
-    // made the gate's background counters differ from run to run (PR #274's CI).
-    private void OnBackgroundActivityStopped(Activity activity, string root)
+    // Only the read notes are a turn's background work: each write counted whole, into the turn whose notes are being
+    // flushed when the write's root span ends, or nowhere. Other background work (the owner counts, refreshed once 30 s
+    // have passed) belongs to no turn.
+    private void OnBackgroundActivityStopped(Activity activity, BackgroundRoot root)
     {
-        if (root != BackgroundSpan || Volatile.Read(ref _backgroundTarget) is not { } target) return;
+        if (root.Name != BackgroundSpan) return;
+        var counts = _pendingWrites.GetOrAdd(root.Id, _ => new ConcurrentDictionary<string, long>(StringComparer.Ordinal));
+        void Count(string name, long value = 1) => counts.AddOrUpdate(name, value, (_, total) => total + value);
         switch (activity.OperationName)
         {
             case BackgroundSpan:
-                target.Add("background.access_tracking.writes");
-                if (activity.GetTagItem("memory.background.items") is int items) target.Add("background.access_tracking.items", items);
-                if (activity.GetTagItem("memory.background.recalls") is int recalls) target.Add("background.access_tracking.recalls", recalls);
+                Count("background.access_tracking.writes");
+                if (activity.GetTagItem("memory.background.items") is int items) Count("background.access_tracking.items", items);
+                if (activity.GetTagItem("memory.background.recalls") is int recalls) Count("background.access_tracking.recalls", recalls);
                 break;
             case "memory.db.tx":
-                target.Add(activity.GetTagItem("db.mode") as string == "write" ? "background.neo4j.tx.write" : "background.neo4j.tx.read");
+                Count(activity.GetTagItem("db.mode") as string == "write" ? "background.neo4j.tx.write" : "background.neo4j.tx.read");
                 break;
             case "memory.db.query":
-                target.Add("background.neo4j.queries");
+                Count("background.neo4j.queries");
                 break;
         }
+        if (activity.SpanId != root.Id) return;
+        _pendingWrites.TryRemove(root.Id, out _);
+        if (Volatile.Read(ref _backgroundTarget) is not { } target) return;
+        foreach (var (name, value) in counts) target.Add(name, value);
     }
 
     private void OnActivityStopped(Activity activity)
