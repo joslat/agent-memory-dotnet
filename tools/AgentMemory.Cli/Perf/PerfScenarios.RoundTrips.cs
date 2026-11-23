@@ -81,7 +81,119 @@ public static partial class PerfScenarios
             ctx => FanOutRecallAsync(ctx, "PERF-D-10", inTurn: true),
             SupportsInterleavedAb: false,
             IncludeInDefaultRun: false),
+        new(
+            "PERF-D-11",
+            $"Recall for people on a large owner: {LargePeopleOwnerCount:N0} people, a question naming one of them, recall for people on",
+            ctx => PeopleRecallAsync(ctx, "PERF-D-11", LargePeopleOwner, personDetails: true),
+            SupportsInterleavedAb: false,
+            SetupAsync: SeedPeopleOwnersAsync,
+            IncludeInDefaultRun: false),
+        new(
+            "PERF-D-12",
+            "PERF-D-11 with recall for people off: what the people read adds",
+            ctx => PeopleRecallAsync(ctx, "PERF-D-12", LargePeopleOwner, personDetails: false),
+            SupportsInterleavedAb: false,
+            SetupAsync: SeedPeopleOwnersAsync,
+            IncludeInDefaultRun: false),
+        new(
+            "PERF-D-13",
+            $"Recall for people on an owner of {SmallPeopleOwnerCount} people, a question naming one of them: all three reads",
+            ctx => PeopleRecallAsync(ctx, "PERF-D-13", SmallPeopleOwner, personDetails: true),
+            SupportsInterleavedAb: false,
+            SetupAsync: SeedPeopleOwnersAsync,
+            IncludeInDefaultRun: false),
     ];
+
+    // P231-A part 4: the people read on a large owner. Two owners of their own, so no other scenario's recall sees them.
+    private const string LargePeopleOwner = "perf-people-large";
+    private const string SmallPeopleOwner = "perf-people-small";
+    private const int LargePeopleOwnerCount = 20_000;
+    private const int SmallPeopleOwnerCount = 200;
+    private static readonly SemaphoreSlim PeopleSeeded = new(1, 1);
+    private static bool _peopleSeeded;
+
+    // Recall for people needs the identity-evidence extension, enabled and migrated: a product of its own on the same
+    // store, as a host with identity on runs it. Kept for the run (the process ends with it).
+    private static ServiceProvider? _identityProduct;
+
+    /// <summary>
+    /// Seeds, once per run, the two owners' people as identity leaves them: live PERSON entities with the names their
+    /// bound facts used (<c>identity_surfaces</c>), each with a full name and a short form, and one fact each bound to
+    /// them through a decided identity (so each person is confirmed, and the third read has facts to read). Not measured.
+    /// </summary>
+    private static async Task SeedPeopleOwnersAsync(ScenarioSetupContext ctx)
+    {
+        await PeopleSeeded.WaitAsync(ctx.CancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_peopleSeeded) return;
+            var product = ctx.Profile.BuildFreshProduct(neo4j => neo4j.Extensions.Add("identity-evidence"));
+            await product.GetRequiredService<ISchemaBootstrapper>().BootstrapAsync(ctx.CancellationToken).ConfigureAwait(false);
+            _identityProduct = product;
+            var driver = ctx.Profile.Services.GetRequiredService<IDriver>();
+            var database = ctx.Profile.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<Neo4jOptions>>().Value.Database;
+            foreach (var (owner, count) in new[] { (LargePeopleOwner, LargePeopleOwnerCount), (SmallPeopleOwner, SmallPeopleOwnerCount) })
+            {
+                await driver.ExecutableQuery("""
+                        UNWIND range(1, $count) AS i
+                        WITH i, 'Person ' + toString(i) + ' Example' AS name, $owner + '-' + toString(i) AS key
+                        CREATE (p:Entity {id: key + '-person', owner_id: $owner, owner_key: $owner,
+                                          type: 'PERSON', name: name, canonical_name: toLower(name), aliases: [],
+                                          identity_observation_key: key, identity_surfaces: [name, 'Person ' + toString(i)],
+                                          confidence: 0.9, created_at: datetime(), updated_at: datetime()})
+                        CREATE (d:IdentityDecision {id: key + '-decision', owner_id: $owner, owner_scope: 'owned:' + $owner,
+                                                    identity_observation_key: key, identity_revision: 1, identity_lock_version: 1,
+                                                    created_at: datetime()})
+                        CREATE (f:Fact {id: key + '-fact', owner_id: $owner, owner_key: $owner, subject: name,
+                                        predicate: 'works at', object: 'Company ' + toString(i), confidence: 0.9,
+                                        created_at: datetime(), updated_at: datetime()})
+                        CREATE (b:IdentityFactBinding {id: key + '-binding', owner_id: $owner, owner_scope: 'owned:' + $owner,
+                                                       identity_decision_id: key + '-decision', identity_observed_surface: name})
+                        CREATE (f)-[:HAS_IDENTITY_BINDING]->(b), (b)-[:DECIDED_BY]->(d), (b)-[:RESOLVES_TO]->(p)
+                        """)
+                    .WithParameters(new { owner, count })
+                    .WithConfig(new QueryConfig(database: database))
+                    .ExecuteAsync(ctx.CancellationToken).ConfigureAwait(false);
+            }
+            _peopleSeeded = true;
+        }
+        finally
+        {
+            PeopleSeeded.Release();
+        }
+    }
+
+    /// <summary>
+    /// One recall for an owner of many people, through the assembler with recall for people set on or off, asking about
+    /// a person by name. Fails unless the people reads ran as their path says: on a large owner the light read only (a
+    /// full page of people names nobody), on a small one all three; off, none.
+    /// </summary>
+    private static async Task PeopleRecallAsync(ScenarioContext ctx, string scenarioId, string owner, bool personDetails)
+    {
+        var product = _identityProduct ?? throw new InvalidOperationException($"{scenarioId}: the identity product was not started");
+        await using var scope = product.CreateAsyncScope();
+        var assembler = scope.ServiceProvider.GetRequiredService<IMemoryContextAssembler>();
+        await assembler.AssembleContextAsync(new RecallRequest
+        {
+            SessionId = owner + "-session",
+            UserId = owner,
+            Query = "What do I know about Person 150 Example?",
+            Options = AgentMemory.Abstractions.Options.RecallOptions.Default with { PersonDetails = personDetails },
+        }, ctx.CancellationToken).ConfigureAwait(false);
+
+        int Spans(string name) => ctx.Turn.SpanCounts.TryGetValue(name, out var count) ? (int)count : 0;
+        var (names, identities, details) = (Spans("memory.recall.person-names"), Spans("memory.recall.person-identities"),
+            Spans("memory.recall.person-details"));
+        // On the large owner the light read stops at its bound of people; the second read runs only when the named person
+        // is among them, and then comes back a full page, which names nobody (REV4-1).
+        var ran = !personDetails ? (names, identities, details) == (0, 0, 0)
+            : owner == LargePeopleOwner ? names == 1 && identities <= 1 && details == 0
+            : (names, identities, details) == (1, 1, 1);
+        if (!ran)
+            throw new InvalidOperationException(
+                $"{scenarioId}: the people reads ran as names/identities/details {names}/{identities}/{details}; the " +
+                "measurement would not be of the people read.");
+    }
 
     /// <summary>
     /// DRT-7: recall with fan-out on, through an assembler built as the container builds it but with the planner enabled
@@ -208,7 +320,10 @@ public static partial class PerfScenarios
         var saved = await ctx.Profile.Services.GetRequiredService<ILongTermMemoryService>().AddFactAsync(new Fact
         {
             FactId = $"perf-d01-{unique}",
-            Subject = "Perf owner",
+            // A subject of its own: the duplicate search still runs, but cannot match an earlier probe whose hashed
+            // embedding happens to land within the dedup threshold (it did once in 26 runs, and the fact came back as
+            // that earlier one).
+            Subject = $"Perf probe {unique}",
             Predicate = "noted",
             Object = $"a round-trip probe {unique}",
             Confidence = 0.9,

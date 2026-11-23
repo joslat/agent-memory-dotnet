@@ -500,6 +500,7 @@ public sealed class PerfCommand
                 coalescedPersistenceTransactions = coalescedPersistence,
                 learnedEmbeddingBatching = true,
                 singleStatementReads = HermeticProfile.SingleStatementReads,
+                accessTrackingQueue = HermeticProfile.AccessTrackingQueue,
                 neo4jMaxConnectionPoolSize = maxConnectionPoolSize,
                 neo4jImage = "neo4j:5.26",
                 os = Environment.OSVersion.ToString(),

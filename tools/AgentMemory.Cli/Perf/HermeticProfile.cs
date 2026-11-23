@@ -69,6 +69,13 @@ public sealed class HermeticProfile : IAsyncDisposable
         !string.Equals(Environment.GetEnvironmentVariable("AGENTMEMORY_PERF_SINGLE_STATEMENT_READS"), "false", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
+    /// DRT-5b: whether recall hands its read notes to the queue (the default since 2.4). <c>AGENTMEMORY_PERF_ACCESS_TRACKING_QUEUE=false</c>
+    /// measures the same build with recall waiting for them, as in 2.3.
+    /// </summary>
+    public static bool AccessTrackingQueue { get; } =
+        !string.Equals(Environment.GetEnvironmentVariable("AGENTMEMORY_PERF_ACCESS_TRACKING_QUEUE"), "false", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// True only when an operator explicitly selected the pool size (the D1 pool-curve arms).
     /// Lab self-assertions treat any non-16 pool without this deliberate, fingerprinted selection
     /// as a wiring error.
@@ -242,6 +249,8 @@ public sealed class HermeticProfile : IAsyncDisposable
                 memory.Extraction.UseBatchEntityResolutionSnapshots = useBatchEntityResolutionSnapshots;
                 memory.Extraction.UseCoalescedPersistenceTransactions =
                     useCoalescedPersistenceTransactions;
+                // DRT-5b: set only when the operator turns the queue off; otherwise the library's default stands.
+                if (!AccessTrackingQueue) memory.UseAccessTrackingQueue = false;
             },
             neo4j =>
             {
