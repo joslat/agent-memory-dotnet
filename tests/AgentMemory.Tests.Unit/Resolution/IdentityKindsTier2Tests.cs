@@ -177,6 +177,22 @@ public sealed class IdentityKindsTier2Tests
         score.SplitThings.Should().NotContainKey("T25");
     }
 
+    /// <summary>
+    /// The third paid check (cover3-1, cover3-2): the writer stored the cat as "Luna, Clara's cat". The possessive strip took
+    /// everything up to the owner, "Luna" too, so the mention lost its own name. The owner is one word.
+    /// </summary>
+    [Fact]
+    public void A_stored_mention_that_names_the_owned_thing_before_its_owner_keeps_its_own_name()
+    {
+        var withoutTheCat = PerfectEntities().Where(e => !e.ToString()!.Contains("e-T06", StringComparison.Ordinal)).ToArray();
+        var score = IdentityKindsScorer.Score(Key, WhosWho, Store([.. withoutTheCat, Entity("e-cat", "Luna, Clara's cat", "PERSON", StatementsOf("T06"))]),
+            IdentityGoldScorer.EntitiesView);
+
+        score.Mentions.Where(m => m.Identity == "e-cat").Should().OnlyContain(m => m.Thing == "T06");
+        score.SplitThings.Should().NotContainKey("T25");
+        IdentityKindsScorer.MentionWords("Luna, Clara's cat").Should().Contain("luna").And.NotContain("clara");
+    }
+
     [Fact]
     public void A_role_noun_still_finds_the_one_thing_of_its_type()
     {

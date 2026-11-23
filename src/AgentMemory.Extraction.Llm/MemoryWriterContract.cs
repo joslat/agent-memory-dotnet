@@ -5,6 +5,7 @@ using System.Text.RegularExpressions;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Exceptions;
 using AgentMemory.Core.Memory;
+using AgentMemory.Core.Resolution;
 using Microsoft.Extensions.AI;
 
 namespace AgentMemory.Extraction.Llm;
@@ -36,6 +37,20 @@ internal static class MemoryWriterContract
         /// </summary>
         public bool Confirmable { get; init; }
     }
+
+    /// <summary>
+    /// IDENTITY-PERSON-REF-GUARD: what the checks of a person need beyond the reply: the last message, the window's earlier
+    /// user turns (latest first), and what each stored person the reply refers to or names by a short form is known as, by
+    /// label (<see cref="IdentityRelationCue.Known(Entity, IEnumerable{string})"/>).
+    /// </summary>
+    internal sealed record Persons(string Message, IReadOnlyList<string> Earlier, IReadOnlyDictionary<string, IReadOnlySet<string>> Known);
+
+    /// <summary>
+    /// Problems reported as they are, never sent for a correction: an operation past the limit, an empty connection end (only
+    /// a new name could fix it), and a person reference the conversation's relation words refuse (nothing is left to decide).
+    /// </summary>
+    internal static bool ReportedOnly(MemoryWriterOps.DropReason reason) => reason is MemoryWriterOps.DropReason.OverLimit
+        or MemoryWriterOps.DropReason.ConnectionEndEmpty or MemoryWriterOps.DropReason.ReferenceRelationConflict;
 
     /// <summary>The stored types a writer's ref can confirm (IdentityResolutionOptions' conversational set, events aside).</summary>
     private static readonly HashSet<string> RefConfirmable = new(["PERSON", "ORGANIZATION"], StringComparer.Ordinal);
@@ -74,7 +89,7 @@ internal static class MemoryWriterContract
     /// operation stays, without its reference) and returned as issues, as are drops and missing event observations.
     /// </summary>
     internal static IReadOnlyList<Issue> Check(List<MemoryWriterOps.Op> ops, IReadOnlyList<MemoryWriterOps.DroppedOp> dropped,
-        IReadOnlyList<MemoryWriterOps.Stored> stored, string? owner)
+        IReadOnlyList<MemoryWriterOps.Stored> stored, string? owner, Persons? persons = null)
     {
         var issues = new List<Issue>();
         foreach (var drop in dropped)
@@ -112,6 +127,33 @@ internal static class MemoryWriterContract
             issues.Add(new(reason.Value, ops[i].Index, ops[i].Kind, ops[i].Text, problem!) { Kept = kept });
             ops[i] = kept;
         }
+        // IDENTITY-PERSON-REF-GUARD: a person reference the conversation's own relation words contradict is refused before
+        // anything is stored, and the facts it carried keep the message's name. The third paid check, cover3-2 statement 13:
+        // "My niece Valentina started school this year, she is six." was referred to the stored designer Valentina Ríos and
+        // its facts written under her name; identity's relation guard refused the merge, but the facts were already hers.
+        var renamed = new HashSet<MemoryWriterOps.Op>(ReferenceEqualityComparer.Instance);
+        for (var i = 0; persons is not null && i < ops.Count; i++)
+        {
+            if (RelationConflict(ops[i], byLabel, persons) is not { } conflict) continue;
+            var storedName = EntityName(conflict.Item.Text);
+            var written = ops[i].Text;
+            var kept = ops[i] with { Text = conflict.Own is null ? written : $"{conflict.Own} (PERSON)", Ref = null };
+            ops[i] = kept;
+            renamed.Add(kept);
+            var moved = 0;
+            for (var j = 0; conflict.Own is not null && j < ops.Count; j++)
+            {
+                if (j == i || ops[j].Kind is not ("fact" or "preference" or "relationship") || ops[j].Action == "confirm") continue;
+                var text = Rename(ops[j].Text, storedName, conflict.Own);
+                if (text == ops[j].Text) continue;
+                ops[j] = ops[j] with { Text = text };
+                moved++;
+            }
+            issues.Add(new(MemoryWriterOps.DropReason.ReferenceRelationConflict, kept.Index, "entity", written,
+                $"\"ref\" {conflict.Item.Label} is \"{storedName}\", known as {string.Join(", ", conflict.Known.Order(StringComparer.Ordinal))}, "
+                + $"and the conversation calls this person {string.Join(", ", conflict.Said.Order(StringComparer.Ordinal))}: two people, so the reference "
+                + (conflict.Own is null ? "was refused" : $"was refused and the entity and {moved} other operation(s) keep the message's name \"{conflict.Own}\"")));
+        }
         // IDENTITY-WRITER-COVERAGE: an entity add without a ref, named and typed exactly as a shown stored entity, is asked
         // once which it is (ikb-cover-1: a second café was stored under the first one's name, so the next turn saw two it
         // could not tell apart, and added a third). Events are observed again on purpose, so they are never asked.
@@ -132,6 +174,23 @@ internal static class MemoryWriterContract
                 $"it has exactly the name of stored {string.Join(" or ", labels)}: {same}; "
                 + $"if it is a different thing, name it with the words of the last message that tell it apart from \"{name}\"")
             { Kept = op, RepeatedName = name, Confirmable = confirmable });
+        }
+        // IDENTITY-PERSON-REF-GUARD: a new person named by a short form of a shown stored person's name, or by a name the
+        // stored person is already also called, is asked once which it is. The third paid check: shown "Valentina Ríos", the
+        // writer wrote "Vale" with "ref" null in all four runs. Not asked of a person the relation words already tell apart.
+        var people = stored.Where(item => item.Letter == 'E' && StoredType(item.Text) == "PERSON").ToList();
+        foreach (var op in ops.Where(op => op.Kind == "entity" && op.Action == "add" && op.Ref is null && !renamed.Contains(op)))
+        {
+            if (EntityText.Match(op.Text) is not { Success: true } said || MemoryWriterOps.EntityType(said.Groups["t"].Value) != "PERSON" ||
+                issues.Any(issue => ReferenceEquals(issue.Kept, op))) continue;
+            var name = said.Groups["n"].Value.Trim();
+            var candidates = people.Where(item => MayBeCalled(name, item) && !RelationsDisagree(name, item, persons)).ToList();
+            if (candidates.Count == 0) continue;
+            issues.Add(new(MemoryWriterOps.DropReason.StoredPersonShortForm, op.Index, op.Kind, op.Text,
+                $"\"{name}\" may be a short form or another name of stored "
+                + string.Join(" or ", candidates.Select(item => $"{item.Label} \"{EntityName(item.Text)}\""))
+                + $": if it is that same person, give its \"ref\" and keep the text \"{name} (PERSON)\"; if it is someone else, give it again "
+                + "as it is, with \"ref\" null") { Kept = op });
         }
         var observed = ops.Where(op => op.Kind == "entity" && op.Action == "add")
             .Select(op => Canonical(EntityName(op.Text))).ToHashSet(StringComparer.Ordinal);
@@ -164,8 +223,9 @@ internal static class MemoryWriterContract
             text.Append(CultureInfo.InvariantCulture, $"- #{issue.Index} ({issue.Kind ?? "unknown kind"}) \"{issue.Text ?? "(no text)"}\": {issue.Problem}.\n");
         text.Append("Answer with JSON only, in the same format: {\"ops\": [...]} holding corrected operations for these items only, "
             + "or {\"ops\": []} to leave them out. Do not repeat operations that were kept. Every quote must be exact, contiguous "
-            + "words of the last message. Use \"ref\" only with the label of a stored entity shown above and its exact stored name; "
-            + "otherwise set it to null. Never invent an event, a date, a place or a reference to make an operation fit.");
+            + "words of the last message. Use \"ref\" only with the label of a stored entity shown above and its exact stored name "
+            + "(a person may keep the short form or other name the message calls them by); otherwise set it to null. Never invent "
+            + "an event, a date, a place or a reference to make an operation fit.");
         return text.ToString();
     }
 
@@ -186,8 +246,13 @@ internal static class MemoryWriterContract
         foreach (var issue in issues)
         {
             // Never sent for a correction, so never given one: a fix meant for another issue stays with that issue.
-            var fix = issue.Reason is MemoryWriterOps.DropReason.OverLimit or MemoryWriterOps.DropReason.ConnectionEndEmpty
-                ? null : corrected.FirstOrDefault(op => !used.Contains(op) && Fixes(issue, op));
+            var fix = ReportedOnly(issue.Reason) ? null : corrected.FirstOrDefault(op => !used.Contains(op) && Fixes(issue, op));
+            // A person named by a short form, given again with no ref: someone else, as the writer says; kept as written.
+            if (issue.Reason == MemoryWriterOps.DropReason.StoredPersonShortForm && fix is { Ref: null })
+            {
+                used.Add(fix);
+                continue;
+            }
             if (fix is not null && fix.Ref is not null && ReferenceProblem(fix, byLabel).Reason is not null) fix = fix with { Ref = null };
             // A place or a thing said again under exactly its stored name, with no name that tells it apart, is left out: its
             // facts carry it, and a ref'd observation of it would only stay pending (only a person's or an organisation's ref
@@ -230,8 +295,9 @@ internal static class MemoryWriterContract
     internal static IngestionItemOutcome Outcome(Issue issue) => issue.Kept is not null ? Base(issue) with
     {
         SourceKey = $"writer:#{issue.Index.ToString(CultureInfo.InvariantCulture)}:ref",
-        ErrorMessage = Truncate($"{issue.Reason}: {issue.Text ?? "(no text)"}; {issue.Problem}; " + (issue.RepeatedName is null
-            ? "the entity was kept without its reference" : "the entity was kept as written"), 512),
+        ErrorMessage = Truncate($"{issue.Reason}: {issue.Text ?? "(no text)"}; {issue.Problem}; " +
+            (issue.RepeatedName is null && issue.Reason != MemoryWriterOps.DropReason.StoredPersonShortForm
+                ? "the entity was kept without its reference" : "the entity was kept as written"), 512),
     } : Base(issue);
 
     private static IngestionItemOutcome Base(Issue issue) => new()
@@ -288,13 +354,131 @@ internal static class MemoryWriterContract
             !string.Equals(said.Groups["t"].Value.Trim(), "PERSON", StringComparison.OrdinalIgnoreCase) || StoredType(item.Text) != "PERSON")
             return null;
         var name = said.Groups["n"].Value.Trim();
-        return IsShortFormOf(name, EntityName(item.Text)) &&
+        return MayBeCalled(name, item) &&
                Regex.IsMatch(quote, $@"(?<![\p{{L}}\p{{M}}]){Regex.Escape(name)}(?![\p{{L}}\p{{M}}])",
                    RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(50))
             ? name : null;
     }
 
     private static readonly Regex NameWord = new(@"[\p{L}\p{M}][\p{L}\p{M}'’-]*", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// Whether a person may be called <paramref name="name"/> as another name of a stored person: a short form of the stored
+    /// name (<see cref="IsShortFormOf"/>), or a name the stored person is already shown as also called ("Pepe" for José).
+    /// </summary>
+    private static bool MayBeCalled(string name, MemoryWriterOps.Stored item) =>
+        Canonical(name) != Canonical(EntityName(item.Text)) &&
+        (IsShortFormOf(name, EntityName(item.Text)) || OtherNames(item).Contains(name, StringComparer.OrdinalIgnoreCase));
+
+    /// <summary>The other names a stored entity was shown with (", also called ...").</summary>
+    private static IReadOnlyList<string> OtherNames(MemoryWriterOps.Stored item) =>
+        item.AlsoCalled is { } names ? names.Split(", ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) : [];
+
+    /// <summary>
+    /// IDENTITY-PERSON-REF-GUARD: the stored people a reply's person entities refer to or name by another name, whose
+    /// description <see cref="Check"/> reads; none when the reply names no stored person.
+    /// </summary>
+    internal static IReadOnlyList<MemoryWriterOps.Stored> PersonsToRead(IReadOnlyList<MemoryWriterOps.Op> ops, IReadOnlyList<MemoryWriterOps.Stored> stored)
+    {
+        var people = stored.Where(item => item.Letter == 'E' && StoredType(item.Text) == "PERSON").ToList();
+        var read = new List<MemoryWriterOps.Stored>();
+        foreach (var op in ops)
+        {
+            if (op.Kind != "entity" || op.Action != "add" || EntityText.Match(op.Text) is not { Success: true } said ||
+                MemoryWriterOps.EntityType(said.Groups["t"].Value) != "PERSON") continue;
+            var name = said.Groups["n"].Value.Trim();
+            read.AddRange(op.Ref is { } label
+                ? people.Where(item => string.Equals(item.Label, label, StringComparison.OrdinalIgnoreCase))
+                : people.Where(item => MayBeCalled(name, item)));
+        }
+        return [.. read.DistinctBy(item => item.Label)];
+    }
+
+    private sealed record Conflict(MemoryWriterOps.Stored Item, string? Own, IReadOnlySet<string> Said, IReadOnlySet<string> Known);
+
+    /// <summary>
+    /// A person reference whose conversation gives the person a relation the stored person is not known by, while the
+    /// stored person is known by another: identity's own rule (<see cref="IdentityRelationCue.Disagree"/>), applied before
+    /// anything is stored. A message that holds the stored full name names that person itself and is left to identity.
+    /// </summary>
+    private static Conflict? RelationConflict(MemoryWriterOps.Op op, IReadOnlyDictionary<string, MemoryWriterOps.Stored> byLabel, Persons persons)
+    {
+        if (op.Kind != "entity" || op.Action != "add" || op.Ref is not { } label || !byLabel.TryGetValue(label, out var item) ||
+            item.Letter != 'E' || StoredType(item.Text) != "PERSON" || EntityText.Match(op.Text) is not { Success: true } written ||
+            MemoryWriterOps.EntityType(written.Groups["t"].Value) != "PERSON" || !persons.Known.TryGetValue(item.Label, out var known))
+            return null;
+        var storedName = EntityName(item.Text);
+        if (HoldsName(persons.Message, storedName)) return null;
+        var name = written.Groups["n"].Value.Trim();
+        var own = OwnName(name, storedName, persons.Message);
+        var said = RelationsSaid(own ?? name, persons);
+        return IdentityRelationCue.Disagree(said, known) ? new(item, own, said, known) : null;
+    }
+
+    /// <summary>Whether the relation words said of <paramref name="name"/> tell it apart from the stored person.</summary>
+    private static bool RelationsDisagree(string name, MemoryWriterOps.Stored item, Persons? persons) =>
+        persons is not null && persons.Known.TryGetValue(item.Label, out var known) &&
+        IdentityRelationCue.Disagree(RelationsSaid(name, persons), known);
+
+    /// <summary>
+    /// The relations the conversation gives the person (<see cref="IdentityRelationCue.InTurn"/>) under the name the message
+    /// calls them by: in the last message, or, when it gives none, in the latest earlier turn that names the person, and only
+    /// that one ("Valentina lost her first tooth" after "My niece Valentina started school"). Only that name: the stored
+    /// name's other words belong to whoever else the message names ("My niece Valentina wants to draw like Vale").
+    /// </summary>
+    private static IReadOnlySet<string> RelationsSaid(string name, Persons persons)
+    {
+        string[] names = [name];
+        var said = IdentityRelationCue.InTurn(persons.Message, names);
+        if (said.Count > 0) return said;
+        foreach (var turn in persons.Earlier)
+            if (HoldsName(turn, name)) return IdentityRelationCue.InTurn(turn, names);
+        return said;
+    }
+
+    /// <summary>
+    /// The name the message itself gives a person a reference put under a stored name: the writer's own name when it is not
+    /// the stored one and the message holds it ("Bea"), else the longest run of the message's capitalised words that are words
+    /// of the stored name or short forms of it ("My niece Valentina" gives "Valentina"); null when there is none.
+    /// </summary>
+    private static string? OwnName(string written, string storedName, string message)
+    {
+        if (Canonical(written) != Canonical(storedName)) return HoldsName(message, written) ? written : null;
+        var storedWords = NameWord.Matches(storedName).Select(m => m.Value.ToLowerInvariant()).ToHashSet(StringComparer.Ordinal);
+        string? best = null;
+        int start = -1, end = -1;
+        void Close()
+        {
+            if (start >= 0 && (best is null || end - start > best.Length)) best = message[start..end];
+            start = end = -1;
+        }
+        foreach (Match match in NameWord.Matches(message))
+        {
+            // A possessive's "'s" is not part of the name: "Valentina's school" names Valentina.
+            var word = Regex.Replace(match.Value, "['’]s$", "");
+            var fits = word.Length > 0 && char.IsUpper(word[0]) &&
+                (storedWords.Contains(word.ToLowerInvariant()) || IsShortFormOf(word, storedName));
+            if (!fits || start < 0 || !string.IsNullOrWhiteSpace(message[end..match.Index])) Close();
+            if (!fits) continue;
+            if (start < 0) start = match.Index;
+            end = match.Index + word.Length;
+        }
+        Close();
+        return best is null || Canonical(best) == Canonical(storedName) ? null : best;
+    }
+
+    private static readonly TimeSpan NameTimeout = TimeSpan.FromMilliseconds(50);
+
+    private static string WholeName(string name) => $@"(?<![\p{{L}}\p{{M}}]){Regex.Escape(name)}(?![\p{{L}}\p{{M}}])";
+
+    /// <summary>Whether <paramref name="text"/> holds <paramref name="name"/> as whole words, in any case.</summary>
+    private static bool HoldsName(string text, string name) => name.Length > 0 &&
+        Regex.IsMatch(text, WholeName(name), RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, NameTimeout);
+
+    /// <summary>Every whole-word <paramref name="from"/> in <paramref name="text"/> becomes <paramref name="to"/>.</summary>
+    private static string Rename(string text, string from, string to) =>
+        Regex.Replace(text, WholeName(from), to.Replace("$", "$$", StringComparison.Ordinal),
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, NameTimeout);
 
     /// <summary>
     /// Whether <paramref name="said"/> is a short form or nickname of the name <paramref name="full"/>: each of its words is a

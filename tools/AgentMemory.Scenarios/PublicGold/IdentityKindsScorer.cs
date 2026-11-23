@@ -184,8 +184,11 @@ internal static class IdentityKindsScorer
         return owned.Count > 0 ? owned : all;
     }
 
+    // The owner is one word, with the word that points at it ("her mother's", "Clara's"): "Luna, Clara's cat" keeps "Luna"
+    // (the third paid check, where a match from the start of the words took the cat's own name with its owner).
     private static readonly System.Text.RegularExpressions.Regex Possessive =
-        new(@"^.*?\p{L}['’]s(?=\s)", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        new(@"(?:\b(?:her|his|my|our|their|your|the)\s+)?[\p{L}\p{M}]+['’]s(?=\s)",
+            System.Text.RegularExpressions.RegexOptions.CultureInvariant | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
     private static readonly System.Text.RegularExpressions.Regex PlaceItIsIn =
         new(@"\s+in\s+\p{Lu}.*$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);

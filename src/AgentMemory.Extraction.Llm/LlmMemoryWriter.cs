@@ -93,8 +93,14 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
         var (ops, drops) = Locate(answered, dropped, message);
         IReadOnlyList<IngestionItemOutcome> rejected = [];
         if (_operationFormat is not null)
-            (ops, drops, rejected) = await EnforceAsync(system, context, reply, ops, drops, stored, owner, message, activity, cancellationToken)
+        {
+            // The window's earlier user turns, latest first: a person named in the last message may have been given a relation
+            // in the turn before ("My niece Valentina ..." then "Valentina lost her first tooth").
+            var earlier = request.Window.Context.Where(m => MemoryWriterPrompt.IsUser(m.Role) && !string.IsNullOrWhiteSpace(m.Content))
+                .Select(m => m.Content!).Reverse().ToList();
+            (ops, drops, rejected) = await EnforceAsync(system, context, reply, ops, drops, stored, owner, message, earlier, activity, cancellationToken)
                 .ConfigureAwait(false);
+        }
 
         if (drops.Count > 0)
         {
@@ -196,13 +202,13 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
     /// </summary>
     private async Task<(List<MemoryWriterOps.Op> Ops, List<MemoryWriterOps.DroppedOp> Drops, IReadOnlyList<IngestionItemOutcome> Rejected)> EnforceAsync(
         string system, string context, string reply, List<MemoryWriterOps.Op> ops, List<MemoryWriterOps.DroppedOp> drops,
-        IReadOnlyList<MemoryWriterOps.Stored> stored, string? owner, string message, System.Diagnostics.Activity? activity,
-        CancellationToken cancellationToken)
+        IReadOnlyList<MemoryWriterOps.Stored> stored, string? owner, string message, IReadOnlyList<string> earlier,
+        System.Diagnostics.Activity? activity, CancellationToken cancellationToken)
     {
-        var issues = MemoryWriterContract.Check(ops, drops, stored, owner);
+        var persons = await PersonsAsync(ops, stored, message, earlier, cancellationToken).ConfigureAwait(false);
+        var issues = MemoryWriterContract.Check(ops, drops, stored, owner, persons);
         if (issues.Count == 0) return (ops, [], []);
-        var correctable = issues.Where(issue => issue.Reason is not (MemoryWriterOps.DropReason.OverLimit or
-            MemoryWriterOps.DropReason.ConnectionEndEmpty)).ToList();
+        var correctable = issues.Where(issue => !MemoryWriterContract.ReportedOnly(issue.Reason)).ToList();
         IReadOnlyList<MemoryWriterOps.Op> corrected = [];
         if (correctable.Count > 0)
         {
@@ -231,6 +237,43 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
                 string.Join(" ; ", unfixed.Select(issue => $"#{issue.Index} {issue.Reason}{(issue.Text is null ? "" : ": " + issue.Text)}")));
         }
         return (merged, [], [.. unfixed.Select(MemoryWriterContract.Outcome)]);
+    }
+
+    /// <summary>
+    /// IDENTITY-PERSON-REF-GUARD: what the stored people a reply refers to, or names by a short form, are known as, read as
+    /// identity's relation guard reads a candidate (<see cref="AgentMemory.Core.Resolution.IdentityRelationCue"/>): their
+    /// description, subtype and aliases, the shown facts that say what they are, and the message they were first said in.
+    /// One message read for each such person; none when the reply names no stored person.
+    /// </summary>
+    private async Task<MemoryWriterContract.Persons> PersonsAsync(List<MemoryWriterOps.Op> ops, IReadOnlyList<MemoryWriterOps.Stored> stored,
+        string message, IReadOnlyList<string> earlier, CancellationToken cancellationToken)
+    {
+        var known = new Dictionary<string, IReadOnlySet<string>>(StringComparer.OrdinalIgnoreCase);
+        var read = MemoryWriterContract.PersonsToRead(ops, stored);
+        if (read.Count == 0) return new(message, earlier, known);
+        var facts = stored.Where(item => item.Triple is not null).Select(item => item.Triple!.Value).ToList();
+        var messages = _services.GetService<IMessageRepository>();
+        foreach (var item in read)
+        {
+            if (item.Entity is not { } entity) continue;
+            var said = new List<string>();
+            if (messages is not null && item.SourceMessageId is { } id)
+            {
+                try
+                {
+                    if (await messages.GetByIdAsync(id, cancellationToken).ConfigureAwait(false) is { Content: { Length: > 0 } content })
+                        said.Add(content);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Memory writer: could not read the message {Label} was first said in; its facts alone say what it is.", item.Label);
+                }
+            }
+            known[item.Label] = AgentMemory.Core.Resolution.IdentityRelationCue.Known(entity,
+                AgentMemory.Core.Resolution.IdentityRelationCue.FromFactsAndSources(entity, facts, said));
+        }
+        return new(message, earlier, known);
     }
 
     /// <summary>
@@ -674,6 +717,21 @@ internal static class MemoryWriterOps
         /// once; when neither comes, the entity is kept as written.
         /// </summary>
         StoredNameRepeated,
+
+        /// <summary>
+        /// IDENTITY-PERSON-REF-GUARD: a person reference whose message, or the latest earlier turn naming the person, gives
+        /// a relation the stored person is not known by while they are known by another ("my niece Valentina" against the
+        /// stored designer). Refused before anything is stored: the entity, and every fact, preference and connection of the
+        /// reply that named the stored person, keep the message's own name. Reported, never sent for a correction.
+        /// </summary>
+        ReferenceRelationConflict,
+
+        /// <summary>
+        /// IDENTITY-PERSON-REF-GUARD: a new person, without "ref", named by a short form of a shown stored person's name or by
+        /// a name the stored person is already also called ("Vale" with "Valentina Ríos" shown). Asked once: the same person
+        /// takes the ref; someone else keeps the name without one.
+        /// </summary>
+        StoredPersonShortForm,
     }
 
     /// <summary>An operation the writer did not keep, where it was in the reply, why, and its text when it had one.</summary>
@@ -705,9 +763,19 @@ internal static class MemoryWriterOps
         /// <summary>The entity's first source message, which <see cref="FirstSaid"/> quotes; data, never shown.</summary>
         public string? SourceMessageId { get; init; }
 
-        internal static Stored Of(Fact f) => new(f.FactId, 'F', $"{f.Subject} | {f.Predicate} | {f.Object}" + Validity(f));
+        /// <summary>
+        /// IDENTITY-PERSON-REF-GUARD: the stored entity itself (its description, subtype and aliases), read for what it is
+        /// known as when a reply refers to it; data, never shown.
+        /// </summary>
+        public Entity? Entity { get; init; }
+
+        /// <summary>A stored fact's subject, predicate and object, read for what the people it names are known as; data, never shown.</summary>
+        public (string? Subject, string? Predicate, string? Object)? Triple { get; init; }
+
+        internal static Stored Of(Fact f) => new(f.FactId, 'F', $"{f.Subject} | {f.Predicate} | {f.Object}" + Validity(f))
+        { Triple = (f.Subject, f.Predicate, f.Object) };
         internal static Stored Of(Preference p) => new(p.PreferenceId, 'P', p.PreferenceText);
-        internal static Stored Of(Entity e) => new(e.EntityId, 'E', $"{e.Name} ({e.Type})") { SourceMessageId = e.SourceMessageIds.FirstOrDefault() };
+        internal static Stored Of(Entity e) => new(e.EntityId, 'E', $"{e.Name} ({e.Type})") { SourceMessageId = e.SourceMessageIds.FirstOrDefault(), Entity = e };
 
         /// <summary><see cref="Of(Entity)"/> with up to three of its aliases that are plain names (they reach the prompt).</summary>
         internal static Stored Of(Entity e, bool alsoCalled)
