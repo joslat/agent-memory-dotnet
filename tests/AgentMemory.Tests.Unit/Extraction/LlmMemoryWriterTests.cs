@@ -138,6 +138,36 @@ public sealed class LlmMemoryWriterTests
     }
 
     /// <summary>
+    /// IKB-5: whos-who-v2 is the held-out test; the fixes it led to are judged on it, so the prompt never holds its names.
+    /// </summary>
+    [Fact]
+    public void The_event_identity_prompt_does_not_embed_the_held_out_tests_answers()
+    {
+        var prompt = EventIdentityPrompt();
+        foreach (var answer in new[] { "Priya", "Callum", "Fiona", "Pepper", "Hendersons", "Lighthouse", "MedPath", "Tidewater", "Okafor",
+                     "Okoro", "Kiran", "Arun", "Kerala", "Hazel", "Ivy", "Small Hours", "Long Tide", "Last Tide", "Civic", "Isla",
+                     "Rebecca", "Becks", "Robie", "Antigonish", "Dartmouth", "Leicester", "walking group", "sewing machine", "piano",
+                     "grant application", "corner café", "Gran" })
+            System.Text.RegularExpressions.Regex.IsMatch(prompt, $@"\b{System.Text.RegularExpressions.Regex.Escape(answer)}\b")
+                .Should().BeFalse($"the prompt must not hold \"{answer}\"");
+    }
+
+    /// <summary>
+    /// IDENTITY-HARD-CASES C1 (the owner's call, 23 Nov): a common noun anchored to an owner or a proper name is a thing of its
+    /// own, named with its anchor; a bare common noun still is not.
+    /// </summary>
+    [Fact]
+    public void Event_identity_prompt_makes_an_anchored_common_noun_a_thing_and_keeps_a_bare_one_out()
+    {
+        var prompt = EventIdentityPrompt();
+        prompt.Should().Contain("anchored to an owner or a name is a thing of its own");
+        prompt.Should().Contain("\"user's laptop\"", "the speaker's own thing is named with the facts' subject for the speaker");
+        prompt.Should().Contain("Two owners' things are two entities");
+        prompt.Should().Contain("without its anchor (\"the car\") gets no new entity");
+        prompt.Should().Contain("is not a name and gets no entity", "a role or a bare common noun still is none");
+    }
+
+    /// <summary>
     /// IDENTITY-NICKNAME-SPLIT: in six tier 2 runs the writer, shown the stored person, wrote her nickname as a new person
     /// with "ref" null: the prompt said a similar name alone is no reference, and a reference had to carry the stored name.
     /// A short form or nickname of a stored person's name, with the context making it clear, is that person; a first name

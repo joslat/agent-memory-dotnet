@@ -552,8 +552,14 @@ internal static class MemoryWriterPrompt
           inside a fact or a preference. Add its entity beside the fact or preference that names it: a city, region,
           country or venue is PLACE; a company, brand, team or group is ORGANIZATION; a product, device, vehicle, book,
           film, album, document, report or project is THING.
-        - Only names and titles count. A role or a common noun ("the dentist", "my laptop", "the office") is not a name and
-          gets no entity of its own. People and pets keep the rules above.
+        - A role or a common noun alone ("the dentist", "the office", "the meeting") is not a name and gets no entity of its
+          own. People and pets keep the rules above.
+        - A common noun anchored to an owner or a name is a thing of its own: someone's particular thing ("my laptop", "Ana's
+          flat", "Joe's bike", "Dad's chess club") or one a proper name pins down ("the house on Elm Street", "the cabin
+          in Tahoe"). Add its entity named with its anchor, the speaker's own with the same subject the facts use for the
+          speaker ("user's laptop"), others as the message says ("Ana's flat", "the house on Elm Street"): a home, shop or
+          venue is PLACE, a group, club or team ORGANIZATION, anything else THING. Two owners' things are two entities ("my
+          car" and "Dad's car"). The same noun said later without its anchor ("the car") gets no new entity.
         - A thing or place already listed in STORED as an E item needs no new entity: its facts use the stored name. Two
           stored things of one name are shown with the words each was first said in: a qualifier that says which one is
           meant ("the one in the old town") picks that one and adds nothing new. Only a message that brings in another
