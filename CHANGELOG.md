@@ -374,6 +374,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Coding packs read projects that keep requirements in design documents (CO-2f), all off by default:
+  `IntentReaderOptions.RequirementFolders` makes a folder's Markdown files requirement documents ("specs/design"), and
+  `IdLedRequirements` reads a line led by an id as a requirement though it does not say "shall"
+  ("**REQ-PTR-core-001** The compiler accepts a pointer type."). Requirement ids of several segments are read whole
+  ("REQ-PTR-parser-001", in a requirement line, a parent mark and a scenario tag alike); one-segment ids read as before.
+  `RustSpecTestReader` reads the requirements a Rust test says it validates, `#[spec_test(REQ_CF_001)]` before its
+  function, for `CodeMapBuilder.AddValidates` (SCIP carries no attributes).
 - `RecallOptions.FillFoldedEntityPlaces` (IBP-1b), off by default. The prompt shows each entity line once, so one thing
   stored as two alike entities takes one line and its second place stayed empty. On, the entity search asks for up to
   twice `MaxEntities` (at most 16 more), folds the alike ones keeping the most relevant, and keeps `MaxEntities`
