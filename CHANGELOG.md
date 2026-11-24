@@ -253,9 +253,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   checks that reference as it checks the writer's own. Two stored entities of the name, words that do not name it, a
   stored thing or project (a reference cannot confirm one, so "designer on Atlas" left Atlas open), a negated connection
   ("our landlord is also called Tomás, no relation"), a bare end beside a namesake the reply names apart, and an end the
-  message introduces by a relation or a description ("Finn's best mate Sam", "Sam, Finn's best mate", "Sam from the
-  gym": maybe someone new, measured on a blind conversation where a second Sam was merged into the stored one) refer to
-  nobody, as before. Only the person a relation is about ("Tomás" in "Tomás's parents") is referred. Connections
+  message introduces by a relation or a description ("Joel's best mate Rafa", "Rafa, Joel's best mate", "Rafa from the
+  gym": maybe someone new, measured on a blind conversation where a second person of a stored first name was merged into
+  the stored one) refer to nobody, as before. Only the person a relation is about ("Tomás" in "Tomás's parents") is referred. Connections
   already kept as claims are not re-linked.
 - Fewer wrong merges of namesakes with evidence-based identity, each measured on a held-out conversation where it merged
   two different things (IDENTITY-HARD-CASES):
