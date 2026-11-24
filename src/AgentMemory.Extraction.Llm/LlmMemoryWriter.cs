@@ -435,8 +435,11 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
     private async Task<IReadOnlyList<MemoryWriterOps.Stored>> WithFirstSaidAsync(IReadOnlyList<MemoryWriterOps.Stored> shown,
         CancellationToken cancellationToken)
     {
+        // IDENTITY-HARD-CASES A1: by name, whatever the type (whos-who-v2 run 1: a bid stored as an event and a project as a
+        // thing, both "Lighthouse", were shown without their first words, and the writer picked the wrong one).
         var repeated = shown.Where(item => item.Letter == 'E' && item.SourceMessageId is not null)
-            .GroupBy(item => item.Text, StringComparer.OrdinalIgnoreCase).Where(group => group.Count() > 1)
+            .GroupBy(item => MemoryWriterContract.Canonical(MemoryWriterContract.EntityName(item.Text)), StringComparer.Ordinal)
+            .Where(group => group.Count() > 1)
             .SelectMany(group => group).ToList();
         if (repeated.Count == 0 || _services.GetService<IMessageRepository>() is not { } messages) return shown;
         var firstSaid = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -549,8 +552,14 @@ internal static class MemoryWriterPrompt
           inside a fact or a preference. Add its entity beside the fact or preference that names it: a city, region,
           country or venue is PLACE; a company, brand, team or group is ORGANIZATION; a product, device, vehicle, book,
           film, album, document, report or project is THING.
-        - Only names and titles count. A role or a common noun ("the dentist", "my laptop", "the office") is not a name and
-          gets no entity of its own. People and pets keep the rules above.
+        - A role or a common noun alone ("the dentist", "the office", "the meeting") is not a name and gets no entity of its
+          own. People and pets keep the rules above.
+        - A common noun anchored to an owner or a name is a thing of its own: someone's particular thing ("my laptop", "Ana's
+          flat", "Joe's bike", "Dad's chess club") or one a proper name pins down ("the house on Elm Street", "the cabin
+          in Tahoe"). Add its entity named with its anchor, the speaker's own with the same subject the facts use for the
+          speaker ("user's laptop"), others as the message says ("Ana's flat", "the house on Elm Street"): a home, shop or
+          venue is PLACE, a group, club or team ORGANIZATION, anything else THING. Two owners' things are two entities ("my
+          car" and "Dad's car"). The same noun said later without its anchor ("the car") gets no new entity.
         - A thing or place already listed in STORED as an E item needs no new entity: its facts use the stored name. Two
           stored things of one name are shown with the words each was first said in: a qualifier that says which one is
           meant ("the one in the old town") picks that one and adds nothing new. Only a message that brings in another
@@ -569,6 +578,10 @@ internal static class MemoryWriterPrompt
           ("Bea (PERSON)"), quoting the words that hold it: the person is then also called by it, and STORED shows such
           names after "also called". Facts about them still use the stored exact name as their subject. A first name or a
           surname alone is part of the stored name, not another name: write the stored exact name.
+        - A message that corrects or changes the name of a stored person, organisation or event ("it's Ms. Vidal, not
+          Ortega" said of a stored "Ms. Ortega", "the firm was renamed Brightline") is about that stored entity: an entity
+          "add" (never a replace) with "ref" set to its E label, the new name alone in "text" ("Ms. Vidal (PERSON)") and a
+          quote of the words that say both names.
         - Otherwise set "ref" to null: for a similar name, the same date, a shared person or place alone, or when two stored
           entities could match. A first name or a short form that STORED or the conversation also gives someone else (another
           E item, or facts about another person called so) could be either: set "ref" to null. A "ref" only says which
@@ -914,6 +927,7 @@ internal static class MemoryWriterOps
         var relationships = new List<ExtractedRelationship>();
         var confirmedFacts = new List<string>();
         var confirmedPreferences = new List<string>();
+        var connectionOps = new List<(ExtractedRelationship Connection, Op Op)>();
         // ILC-34: the entity names this call knows: the stored entities it showed, the ends of the stored connections it
         // showed (an entity may be shown only as one), and the entities this reply declares. The user is never one.
         var known = stored.Where(s => s.Letter == 'E').Select(s => s.Text)
@@ -979,13 +993,15 @@ internal static class MemoryWriterOps
                     facts.Add(CreateFact(op, paired, from.Said,
                         link.Groups["r"].Value.Trim().ToLowerInvariant().Replace('_', ' '), to.Said));
                 }
-                relationships.Add(new ExtractedRelationship
+                var connection = new ExtractedRelationship
                 {
                     SourceEntity = from.Entity,
                     TargetEntity = to.Entity,
                     RelationshipType = link.Groups["r"].Value.Trim().ToUpperInvariant().Replace(' ', '_'),
                     ReplacesId = target?.Letter == 'R' ? target.Id : null,
-                });
+                };
+                relationships.Add(connection);
+                connectionOps.Add((connection, op));
                 continue;
             }
             switch (op.Kind)
@@ -1030,12 +1046,89 @@ internal static class MemoryWriterOps
                     break;
             }
         }
+        if (referenceMessage is not null)
+            entities.AddRange(ConnectionEnds(connectionOps, stored, entities, referenceMessage));
         return new UnifiedExtractionResult
         {
             Facts = facts, Preferences = preferences, Entities = entities, Relationships = relationships,
             ConfirmedFactIds = [.. confirmedFacts.Distinct(StringComparer.Ordinal)],
             ConfirmedPreferenceIds = [.. confirmedPreferences.Distinct(StringComparer.Ordinal)],
         };
+    }
+
+    /// <summary>
+    /// IDENTITY-RELATION-GROUNDING (event-identity mode): with evidence-based identity a connection reaches the graph only
+    /// when both its ends are mentions of the turn, and the writer is told a stored person needs no new mention, so every
+    /// connection to someone met before stayed an unresolved claim (whos-who-v2's third run: 17 of the writer's 21). An end
+    /// that names exactly one stored entity shown to the writer, and no entity of this reply, is that entity, referred to
+    /// in the connection's own quoted words: the reference the writer may give itself, which identity re-checks the same
+    /// way. Two stored entities of the name, or an end the quote does not name, refer to nobody.
+    /// </summary>
+    private static IEnumerable<ExtractedEntity> ConnectionEnds(IReadOnlyList<(ExtractedRelationship Connection, Op Op)> connections,
+        IReadOnlyList<Stored> stored, IReadOnlyList<ExtractedEntity> mentioned, string message)
+    {
+        var added = new List<ExtractedEntity>();
+        foreach (var (connection, op) in connections)
+        {
+            // The paid check of 24 Nov (ihc1-v2-glm-1, statement 34): "Our landlord is also called Arun, no relation" gave
+            // "user's landlord Arun -[no relation]-> Arun". A connection that says there is none joins nobody.
+            if (Negated.IsMatch(connection.RelationshipType.Replace('_', ' '))) continue;
+            foreach (var end in new[] { connection.SourceEntity, connection.TargetEntity })
+            {
+                var name = MemoryWriterContract.Canonical(end);
+                if (name.Length == 0 || MemoryUserNames.IsSelf(end) ||
+                    mentioned.Concat(added).Any(e => MemoryWriterContract.Canonical(e.Name) == name)) continue;
+                // A namesake this reply names apart ("user's landlord Arun" beside a stored "Arun"): which one a bare end
+                // means is not the writer's word.
+                if (mentioned.Any(e => HoldsWord(e.Name, end.Trim()))) continue;
+                var shown = stored.Where(s => s.Letter == 'E' && s.Entity is { } e && MemoryWriterContract.Canonical(e.Name) == name).ToList();
+                if (shown is not [{ Entity: { } entity } only] || op.QuoteStart is not int start || op.QuoteEnd is not int stop ||
+                    start < 0 || stop > message.Length || start >= stop) continue;
+                // The paid check of 24 Nov (ihc1-v1-glm-1, statement 8): a reference cannot confirm a thing or a place, so one
+                // to "Atlas" stayed open beside the stored project, a split. Only a person or an organisation is referred to.
+                if (EntityType(entity.Type) is not ("PERSON" or "ORGANIZATION")) continue;
+                // The blind whos-who-v3 run of 24 Nov: "Finn's best mate Sam slept over" (a second Sam) was referred to the
+                // one stored Sam and confirmed, in all three runs. Only the end a relation is about ("Tomás" in "Tomás's
+                // parents") is referred, never an end the message describes by it, whichever way the arrow was drawn.
+                if (Described(message, end.Trim())) continue;
+                var words = Regex.Match(message[start..stop], $@"(?<![\p{{L}}\p{{M}}]){Regex.Escape(end.Trim())}(?![\p{{L}}\p{{M}}])",
+                    RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(50));
+                if (!words.Success) continue;
+                added.Add(new ExtractedEntity
+                {
+                    Name = entity.Name, Type = entity.Type,
+                    Reference = new() { EntityId = only.Id, Quote = words.Value },
+                });
+            }
+        }
+        return added;
+
+        static bool HoldsWord(string text, string words) => Regex.IsMatch(text,
+            $@"(?<![\p{{L}}\p{{M}}]){Regex.Escape(words)}(?![\p{{L}}\p{{M}}])",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(50));
+    }
+
+    private static readonly Regex Negated = new(@"\b(?:no|not|none|unrelated|non)\b",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// Whether the message introduces <paramref name="name"/> by a relation or a description: after an owner and lowercase
+    /// words ("Finn's best mate Sam", "my neighbour Sam", "Tomás's parents, Iker and Marta"), or followed by one ("Sam, Finn's
+    /// best mate", "Sam from the gym"). Such a person may be someone new, so a bare name alone does not say they are the
+    /// stored one.
+    /// </summary>
+    internal static bool Described(string message, string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return false;
+        // A contraction ("That's what Sam said") is no owner.
+        const string owner = @"(?:(?<![\p{L}\p{M}])(?!(?:[Ii]t|[Tt]hat|[Hh]e|[Ss]he|[Tt]here|[Ww]hat|[Ww]ho|[Hh]ere|[Ll]et|[Ww]here|[Hh]ow)['’]s\b)"
+            + @"[\p{L}\p{M}]+(?:['’]s|s['’])|\b(?:[Mm]y|[Oo]ur|[Hh]is|[Hh]er|[Tt]heir|[Yy]our))";
+        const string words = @"(?:[\p{Ll}\p{M}-]+\s+){0,3}[\p{Ll}\p{M}-]+";
+        const string listed = @"(?:[\p{L}\p{M}]+\s*(?:,|\band\b|&)\s*){0,3}";
+        var n = $@"(?<![\p{{L}}\p{{M}}]){Regex.Escape(name)}(?![\p{{L}}\p{{M}}])";
+        return Regex.IsMatch(message, $@"{owner}\s+{words}\s*,?\s*{listed}{n}", RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(50)) ||
+            Regex.IsMatch(message, $@"{n}\s*,\s*{owner}\s+\p{{Ll}}", RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(50)) ||
+            Regex.IsMatch(message, $@"{n}\s+from\s+(?:the\s+)?[\p{{L}}\p{{M}}]", RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(50));
     }
 
     private enum EndKind { Name, KnownThenMore, Phrase, Empty }

@@ -1,7 +1,15 @@
 {
   "name": "whos-who-v1-gold",
-  "version": 1,
+  "version": 2,
   "frozen": "2026-11-16, before any run. Never edited to make a result pass; a new version only with a written reason.",
+  "changes": [
+    {
+      "version": 2,
+      "on": "2026-11-24",
+      "by": "the owner's decision (docket ihc-v1-key2)",
+      "why": "The conversation has one Marta: 'Marta's wedding' (statements 36 and 38) is the wedding of the colleague of statement 39. Version 1 labelled only the wedding there, so a writer that keeps Marta from her wedding on, and writes statement 39 as a fact about her, was scored as missing her. Marta is now labelled in 36 and 38 too (level 2, a clear possessive). Every earlier run re-scored with both versions: the baseline (checks 7 and 8) 23.1 to 23.3, the first hard-cases check 21.0 to about 21.7."
+    }
+  ],
   "levels": {
     "1": "Named by its usual name, nothing else carries that name nearby",
     "2": "Named again in a later session, or with a clear possessive",
@@ -188,8 +196,8 @@
       "id": "T26",
       "kind": "person",
       "type": "PERSON",
-      "what": "Marta, a colleague at Brisa",
-      "mentions": 1
+      "what": "Marta, a colleague at Brisa, the bride of the wedding",
+      "mentions": 3
     },
     {
       "id": "T27",
@@ -608,6 +616,14 @@
       "level": 1
     },
     {
+      "statement": 36,
+      "session": 6,
+      "message": 4,
+      "thing": "T26",
+      "as": "name",
+      "level": 2
+    },
+    {
       "statement": 37,
       "session": 6,
       "message": 5,
@@ -622,6 +638,14 @@
       "thing": "T22",
       "as": "name",
       "level": 1
+    },
+    {
+      "statement": 38,
+      "session": 6,
+      "message": 6,
+      "thing": "T26",
+      "as": "name",
+      "level": 2
     },
     {
       "statement": 39,

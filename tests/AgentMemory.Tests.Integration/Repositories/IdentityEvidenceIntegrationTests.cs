@@ -1,5 +1,7 @@
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
+using AgentMemory.Core.Resolution;
 using AgentMemory.Neo4j.Infrastructure;
 using AgentMemory.Neo4j.Repositories;
 using AgentMemory.Tests.Integration.Fixtures;
@@ -7,6 +9,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Neo4j.Driver;
+using NSubstitute;
 
 namespace AgentMemory.Tests.Integration.Repositories;
 
@@ -185,6 +188,31 @@ public sealed class IdentityEvidenceIntegrationTests : IAsyncLifetime
         var vector = await _identity.FindApproximateCandidatesAsync(Query("unrelated", limit: 2) with { UseFuzzyCandidates = false }, [1, 0, 0, 0]);
         vector.Candidates.Should().HaveCount(2).And.OnlyContain(c => c.Entity.OwnerId == "pablito");
         vector.Candidates.Should().OnlyContain(c => c.Signals.FuzzySimilarity == null && c.Signals.SemanticSimilarity >= -1 && c.Signals.SemanticSimilarity <= 1);
+    }
+
+    /// <summary>
+    /// IDENTITY-HARD-CASES D against the real lookup (the second paid check of 24 Nov, ihc2-v2-glm-1 statement 113): one
+    /// stored person has a bare first name exactly, two others hold it in longer names. The full-text lookup finds the
+    /// longer names, and the plan reviews them with the exact one, so the adjudicator is never offered only one of them.
+    /// </summary>
+    [Fact]
+    public async Task A_bare_name_is_reviewed_against_the_stored_names_that_hold_it()
+    {
+        var exact = await Seed("Rafa");
+        var colleague = await Seed("Rafa from accounts");
+        var big = await Seed("big Rafa");
+        await Seed("Rafael Ortiz");
+        await Seed("Marta");
+        await _fixture.TransactionRunner.ReadAsync(async runner => { await runner.RunAsync("CALL db.index.fulltext.awaitEventuallyConsistentIndexRefresh()"); });
+        var planner = new IdentityPlanner(_identity, Substitute.For<IEmbeddingOrchestrator>(), Substitute.For<IIdGenerator>(), TimeProvider.System,
+            IdentityConfiguration.Capture(new IdentityResolutionOptions { Enabled = true, MaxCandidates = 4 }), useSemanticCandidates: false);
+
+        var plan = await planner.PlanAsync(new ExtractedEntity { Name = "Rafa", Type = "PERSON", Confidence = 1 },
+            new EntityIdentityResolutionContext { SourceMessageIds = ["m"] }, MemoryScope.For("pablito", includeShared: false));
+
+        plan.Result.Decision.Should().Be(IdentityDecisionKind.Pending);
+        plan.Result.PendingEntityIds.Should().BeEquivalentTo([exact.EntityId, colleague.EntityId, big.EntityId]);
+        plan.Result.CanAdjudicate.Should().BeTrue();
     }
 
     private Task SeedSourceMessages() => _fixture.TransactionRunner.WriteAsync(async runner =>

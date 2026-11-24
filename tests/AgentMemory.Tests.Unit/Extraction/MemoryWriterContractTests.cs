@@ -438,6 +438,104 @@ public sealed class MemoryWriterContractTests : IDisposable
         result.Outcomes.Should().BeEmpty();
     }
 
+    /// <summary>
+    /// IDENTITY-HARD-CASES A3 (whos-who-v2 run 2): asked which it was, the writer told the neighbours' puppy from the stored
+    /// dog of the same name as "Name (who it belongs to) (PERSON)". The words in brackets are no valid entity name, so the
+    /// fix was not taken, the entity stayed under the bare stored name, and identity merged the two dogs. A correction that
+    /// tells a repeated name apart in brackets is that name with its qualifier: kept, without a reference.
+    /// </summary>
+    [Fact]
+    public async Task A_repeated_name_told_apart_in_brackets_is_kept_under_the_name_and_its_qualifier()
+    {
+        ShowStored("pet-luna", "Luna", "PERSON");
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Luna (PERSON)","quote":"named her Luna too","ref":null}]}""");
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Luna (the neighbours' kitten) (PERSON)","quote":"named her Luna too","ref":null}]}""");
+
+        var result = await Write("The neighbours got a kitten and named her Luna too.");
+
+        _calls.Should().HaveCount(2);
+        var entity = result.Entities.Should().ContainSingle().Which;
+        entity.Name.Should().Be("Luna, the neighbours' kitten");
+        entity.Type.Should().Be("PERSON");
+        entity.Reference.Should().BeNull();
+        result.Outcomes.Should().BeEmpty();
+    }
+
+    /// <summary>
+    /// IDENTITY-HARD-CASES E (whos-who-v2, every run): "it's Ms. Okafor, not Okoro". The writer referred the corrected name
+    /// to the stored Ms. Okoro, rightly, and the contract refused a reference under another name, so the correction became
+    /// a second person. A name the message gives in place of a stored one, saying both with a correction or a rename, is
+    /// that stored entity, also called by the new name.
+    /// </summary>
+    [Theory]
+    [InlineData("Ms. Ortega", "PERSON", "Ms. Vidal", "I've been getting her name wrong: it's Ms. Vidal, not Ortega.", "it's Ms. Vidal, not Ortega")]
+    [InlineData("Nexo Studio", "ORGANIZATION", "Brightline", "Nexo Studio has a new name: it's Brightline now.", "Nexo Studio has a new name: it's Brightline now")]
+    [InlineData("Nexo Studio", "ORGANIZATION", "Brightline", "Nexo Studio was renamed Brightline last week.", "Nexo Studio was renamed Brightline")]
+    public async Task A_stored_name_corrected_or_renamed_in_the_message_is_that_entity_also_called_by_the_new_name(
+        string stored, string type, string renamed, string message, string quote)
+    {
+        ShowStored("stored-1", stored, type);
+        _replies.Enqueue($$"""{"ops":[{"op":"add","kind":"entity","text":"{{renamed}} ({{type}})","quote":"{{quote}}","ref":"E1"}]}""");
+
+        var result = await Write(message);
+
+        _calls.Should().ContainSingle("a correction or a rename is no name mismatch to correct");
+        var entity = result.Entities.Should().ContainSingle().Which;
+        entity.Name.Should().Be(stored);
+        entity.Aliases.Should().Equal(renamed);
+        entity.Reference!.EntityId.Should().Be("stored-1");
+        result.Outcomes.Should().BeEmpty();
+    }
+
+    /// <summary>
+    /// The paid check of 24 Nov (ihc1-v1-glm-2 and 3, statement 50, "Brisa is called Brisa Labs now"): told that a rename
+    /// is about the stored entity, the writer answered with an entity "replace" and a text holding both names; the text was
+    /// no entity name, so a junk thing was stored and the studio split. An entity is always an add; its leading "Name
+    /// (TYPE)" is the entity, and "is called ... now" says a rename.
+    /// </summary>
+    [Theory]
+    [InlineData("Nexo Labs (ORGANIZATION) (replacing: Nexo Studio (ORGANIZATION))")]
+    [InlineData("Nexo Labs (ORGANIZATION) replaces Nexo Studio (ORGANIZATION) (renamed) - stored as E1")]
+    public async Task A_rename_answered_as_an_entity_replace_is_the_stored_entity_also_called_by_the_new_name(string text)
+    {
+        ShowStored("stored-1", "Nexo Studio", "ORGANIZATION");
+        _replies.Enqueue($$"""{"ops":[{"op":"replace","kind":"entity","id":"E1","text":"{{text}}","quote":"Nexo Studio is called Nexo Labs now.","ref":"E1"}]}""");
+
+        var result = await Write("Nexo Studio is called Nexo Labs now.");
+
+        _calls.Should().ContainSingle();
+        var entity = result.Entities.Should().ContainSingle().Which;
+        entity.Name.Should().Be("Nexo Studio");
+        entity.Aliases.Should().Equal("Nexo Labs");
+        entity.Reference!.EntityId.Should().Be("stored-1");
+    }
+
+    [Theory]
+    [InlineData("Ms. Vidal called about the will.", "Ms. Vidal called")]                       // the stored name is not said
+    [InlineData("Ms. Vidal and Ms. Ortega both called.", "Ms. Vidal and Ms. Ortega both called")] // both said, no correction
+    public async Task Another_name_without_a_correction_or_a_rename_still_needs_the_stored_name(string message, string quote)
+    {
+        ShowStored("stored-1", "Ms. Ortega", "PERSON");
+        _replies.Enqueue($$"""{"ops":[{"op":"add","kind":"entity","text":"Ms. Vidal (PERSON)","quote":"{{quote}}","ref":"E1"}]}""");
+        _replies.Enqueue("""{"ops":[]}""");
+
+        await Write(message);
+
+        _calls.Should().HaveCount(2, "the name mismatch is corrected as before");
+    }
+
+    [Fact]
+    public async Task A_first_answer_with_a_description_in_brackets_is_still_asked_to_fix_its_form()
+    {
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Ms. Ortega (a lawyer) (PERSON)","quote":"a lawyer called Ms. Ortega","ref":null}]}""");
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Ms. Ortega (PERSON)","quote":"a lawyer called Ms. Ortega","ref":null}]}""");
+
+        var result = await Write("I'm making a will with a lawyer called Ms. Ortega.");
+
+        _calls.Should().HaveCount(2, "a bracketed description is no name: only a repeated name's qualifier is kept");
+        result.Entities.Should().ContainSingle().Which.Name.Should().Be("Ms. Ortega");
+    }
+
     [Fact]
     public async Task A_stored_events_name_observed_again_is_not_asked()
     {
@@ -823,6 +921,68 @@ public sealed class MemoryWriterContractTests : IDisposable
     // "Valentina Ríos | started school | 2026" and "Valentina Ríos | is | six years old", with no entity operation, so there
     // was no reference for the guard above to refuse and the niece's facts went under the designer's name.) ──
 
+    /// <summary>
+    /// IDENTITY-HARD-CASES A4, the paid check of 24 Nov (ihc1-v2-glm-1, statement 18): a person stored by a first name only,
+    /// met as someone's parent; "My boss X, ..." answered with facts about "X" and no entity. The message holds the stored
+    /// name itself, so the guard above left it, the boss's facts went under the parent's name, and a later "the boss" was
+    /// confirmed as the parent. Such facts take the name with the message's relation, and the namesake gets an entity.
+    /// </summary>
+    [Fact]
+    public async Task Facts_about_a_namesake_the_message_names_exactly_as_the_stored_person_take_the_name_with_its_relation()
+    {
+        var parent = new Entity
+        {
+            EntityId = "identity-observation-marta", Name = "Marta", Type = "PERSON", OwnerId = "bruna", Confidence = 1,
+            SourceMessageIds = ["m-parents"], CreatedAtUtc = DateTimeOffset.UnixEpoch,
+        };
+        _messages.GetByIdAsync("m-parents", Arg.Any<CancellationToken>()).Returns(new Message
+        {
+            MessageId = "m-parents", ConversationId = "c", SessionId = "s", Role = "user",
+            Content = "Tomás's parents, Iker and Marta, live in Bilbao.", TimestampUtc = DateTimeOffset.UnixEpoch,
+        });
+        ShowStoredEntities(parent);
+        _replies.Enqueue("""
+            {"ops":[
+              {"op":"add","kind":"fact","text":"Marta | is | user's boss","quote":"My boss Marta","ref":null},
+              {"op":"add","kind":"fact","text":"Marta | put forward | user's name","quote":"put my name forward","ref":null}
+            ]}
+            """);
+
+        var result = await Write("My boss Marta put my name forward.");
+
+        _calls.Should().ContainSingle("the refusal is deterministic: no correction call");
+        result.Facts.Select(f => f.Subject).Should().Equal("Marta, user's boss", "Marta, user's boss");
+        var entity = result.Entities.Should().ContainSingle().Which;
+        entity.Name.Should().Be("Marta, user's boss");
+        entity.Type.Should().Be("PERSON");
+        entity.Reference.Should().BeNull();
+        result.Outcomes.Should().ContainSingle().Which.ErrorMessage.Should()
+            .Contain(nameof(MemoryWriterOps.DropReason.ReferenceRelationConflict)).And.Contain("boss").And.Contain("parent");
+    }
+
+    [Fact]
+    public async Task Facts_about_the_stored_person_the_message_names_with_their_own_relation_are_left_as_written()
+    {
+        var parent = new Entity
+        {
+            EntityId = "identity-observation-marta", Name = "Marta", Type = "PERSON", OwnerId = "bruna", Confidence = 1,
+            SourceMessageIds = ["m-parents"], CreatedAtUtc = DateTimeOffset.UnixEpoch,
+        };
+        _messages.GetByIdAsync("m-parents", Arg.Any<CancellationToken>()).Returns(new Message
+        {
+            MessageId = "m-parents", ConversationId = "c", SessionId = "s", Role = "user",
+            Content = "My mum, Marta, lives in Bilbao.", TimestampUtc = DateTimeOffset.UnixEpoch,
+        });
+        ShowStoredEntities(parent);
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"fact","text":"Marta | called | user","quote":"My mum Marta called","ref":null}]}""");
+
+        var result = await Write("My mum Marta called me today.");
+
+        result.Facts.Should().ContainSingle().Which.Subject.Should().Be("Marta");
+        result.Entities.Should().BeEmpty();
+        result.Outcomes.Should().BeEmpty();
+    }
+
     [Fact]
     public async Task Facts_that_name_a_stored_person_the_messages_relation_contradicts_keep_the_messages_name()
     {
@@ -895,6 +1055,34 @@ public sealed class MemoryWriterContractTests : IDisposable
     }
 
     /// <summary>
+    /// The same holds for a correction (the paid check of 24 Nov, ihc1-v1-glm-1 statement 54): a malformed entity text
+    /// ("Luna (OBJECT) (also called: Luna) (OBJECT)", "ref": "E1") was asked to be fixed, the fix "Luna (OBJECT)" kept the
+    /// ref to the stored thing and was stored, and the re-mention stayed pending as another identity of it.
+    /// </summary>
+    [Theory]
+    [InlineData("thing-atlas", "Atlas", "OBJECT", "Atlas (OBJECT)", "Atlas (OBJECT) (also called: Atlas) (OBJECT)", "Atlas is two weeks late.", "Atlas")]
+    [InlineData("place-lumen", "Café Lumen", "LOCATION", "Café Lumen (PLACE)", "Café Lumen (PLACE), the café", "Café Lumen has live jazz on Fridays.", "Café Lumen")]
+    public async Task A_stored_thing_or_place_a_correction_refers_to_is_left_out_too(
+        string id, string name, string type, string entity, string malformed, string message, string quote)
+    {
+        ShowStored(id, name, type);
+        _replies.Enqueue($$"""
+            {"ops":[
+              {"op":"add","kind":"entity","text":"{{malformed}}","quote":"{{quote}}","ref":"E1"},
+              {"op":"add","kind":"fact","text":"{{name}} | is | busy","quote":"{{quote}}","ref":null}
+            ]}
+            """);
+        _replies.Enqueue($$"""{"ops":[{"op":"add","kind":"entity","text":"{{entity}}","quote":"{{quote}}","ref":"E1"}]}""");
+
+        var result = await Write(message);
+
+        _calls.Should().HaveCount(2, "the malformed entity is asked to be fixed once");
+        result.Entities.Should().BeEmpty("the fix names the same stored thing, which needs no new observation");
+        result.Facts.Should().ContainSingle().Which.Subject.Should().Be(name);
+        result.Outcomes.Should().BeEmpty("the correction answered the issue");
+    }
+
+    /// <summary>
     /// IDENTITY-REF-SHORT-FORM-KEPT (the seventh paid check, cover7-2 statement 11): the writer referred "Vale finished the new
     /// checkout mock-ups" to the stored designer under her full name. The reference was right, but "Vale" was never kept,
     /// so at statement 53 a lookup by "Vale" found nobody. A person referred to under the full stored name keeps, as its
@@ -916,5 +1104,220 @@ public sealed class MemoryWriterContractTests : IDisposable
         entity.Reference!.EntityId.Should().Be(DesignerId);
         if (kept is null) entity.Aliases.Should().BeEmpty();
         else entity.Aliases.Should().Equal(kept);
+    }
+
+    private const string SonId = "identity-observation-tomas";
+
+    private void ShowStoredEntities(params Entity[] shown) =>
+        _entities.SearchByVectorAsync(default!, default, default, default, default)
+            .ReturnsForAnyArgs([.. shown.Select((e, i) => (e, 0.9 - i * 0.01))]);
+
+    private static Entity StoredPerson(string id, string name) => new()
+    {
+        EntityId = id, Name = name, Type = "PERSON", OwnerId = "bruna", Confidence = 1, SourceMessageIds = ["prior"],
+        CreatedAtUtc = DateTimeOffset.UnixEpoch,
+    };
+
+    private const string Parents = "Tomás's parents, Iker and Marta, live in Bilbao.";
+
+    private void ReplyWithTheParents(string? tomasEntity = null) => _replies.Enqueue($$"""
+        {"ops":[
+          {"op":"add","kind":"entity","text":"Iker (PERSON)","quote":"Iker and Marta","ref":null},
+          {"op":"add","kind":"entity","text":"Marta (PERSON)","quote":"Iker and Marta","ref":null},
+          {{tomasEntity}}
+          {"op":"add","kind":"relationship","text":"Iker -[parent of]-> Tomás","quote":"Tomás's parents, Iker and Marta","ref":null},
+          {"op":"add","kind":"relationship","text":"Marta -[parent of]-> Tomás","quote":"Tomás's parents, Iker and Marta","ref":null}
+        ]}
+        """);
+
+    /// <summary>
+    /// IDENTITY-RELATION-GROUNDING: with evidence-based identity a connection reaches the graph only when both its ends are
+    /// mentions of the turn, and the writer is told a stored person needs no new mention. So every connection to someone
+    /// met before (a partner's parents, a sister's daughter) stayed an unresolved claim: in whos-who-v2's third run, 17 of
+    /// the writer's 21 connections; the stored person the writer later had to tell from a namesake was shown without
+    /// them. A connection's end that names exactly one stored entity the writer was shown is that entity, referred to in
+    /// the connection's own words; identity re-checks the reference as it does the writer's own.
+    /// </summary>
+    [Fact]
+    public async Task A_connection_to_one_stored_person_refers_to_that_person()
+    {
+        ShowStoredEntities(StoredPerson(SonId, "Tomás"));
+        ReplyWithTheParents();
+
+        var result = await Write(Parents);
+
+        var tomas = result.Entities.Should().ContainSingle(e => e.Name == "Tomás").Which;
+        tomas.Type.Should().Be("PERSON");
+        tomas.Reference!.EntityId.Should().Be(SonId);
+        tomas.Reference.Quote.Should().Be("Tomás");
+        result.Relationships.Select(r => r.TargetEntity).Should().Equal("Tomás", "Tomás");
+        result.Entities.Where(e => e.Name != "Tomás").Should().OnlyContain(e => e.Reference == null);
+    }
+
+    [Fact]
+    public async Task A_connection_to_a_name_two_stored_people_share_refers_to_neither()
+    {
+        ShowStoredEntities(StoredPerson(SonId, "Tomás"), StoredPerson("identity-observation-tomas-2", "Tomás"));
+        ReplyWithTheParents();
+
+        var result = await Write(Parents);
+
+        result.Entities.Should().NotContain(e => e.Name == "Tomás", "two stored people of that name: which one is not the writer's to guess");
+    }
+
+    [Fact]
+    public async Task A_connection_to_a_person_the_reply_names_itself_is_left_to_that_mention()
+    {
+        ShowStoredEntities(StoredPerson(SonId, "Tomás"));
+        ReplyWithTheParents("""{"op":"add","kind":"entity","text":"Tomás (PERSON)","quote":"Tomás's parents","ref":null},""");
+
+        var result = await Write(Parents);
+
+        result.Entities.Should().ContainSingle(e => e.Name == "Tomás").Which.Reference.Should().BeNull("the reply's own mention stands");
+    }
+
+    [Fact]
+    public async Task A_connection_whose_words_do_not_name_the_stored_person_refers_to_nobody()
+    {
+        ShowStoredEntities(StoredPerson(SonId, "Tomás"));
+        _replies.Enqueue("""
+            {"ops":[
+              {"op":"add","kind":"entity","text":"Iker (PERSON)","quote":"Iker and Marta","ref":null},
+              {"op":"add","kind":"relationship","text":"Iker -[parent of]-> Tomás","quote":"Iker and Marta","ref":null}
+            ]}
+            """);
+
+        var result = await Write(Parents);
+
+        result.Entities.Should().NotContain(e => e.Name == "Tomás");
+    }
+
+    /// <summary>
+    /// The paid check of 24 Nov (ihc1-v2-glm-1, statement 34): "Our landlord is also called X, no relation" gave the new
+    /// landlord and "user's landlord X -[no relation]-> X"; the bare end was referred to the stored brother X, which the
+    /// key read as the landlord merged with him. A connection that says there is none, and a bare end beside a namesake the
+    /// reply names apart, refer to nobody.
+    /// </summary>
+    [Theory]
+    [InlineData("user's landlord Tomás -[no relation]-> Tomás")]
+    [InlineData("user's landlord Tomás -[knows]-> Tomás")]
+    public async Task A_bare_end_beside_a_namesake_the_reply_names_apart_refers_to_nobody(string connection)
+    {
+        ShowStoredEntities(StoredPerson(SonId, "Tomás"));
+        _replies.Enqueue($$"""
+            {"ops":[
+              {"op":"add","kind":"entity","text":"user's landlord Tomás (PERSON)","quote":"Our landlord is also called Tomás","ref":null},
+              {"op":"add","kind":"relationship","text":"{{connection}}","quote":"Our landlord is also called Tomás, no relation","ref":null}
+            ]}
+            """);
+
+        var result = await Write("Our landlord is also called Tomás, no relation, and he fixed the boiler.");
+
+        result.Entities.Should().ContainSingle().Which.Name.Should().Be("user's landlord Tomás");
+    }
+
+    /// <summary>
+    /// The paid check of 24 Nov (ihc1-v1-glm-1, statement 8): "X is the designer on Atlas" gave a connection to the stored
+    /// project and a reference to it; a reference cannot confirm a thing, so it stayed open beside the stored one, a split
+    /// the run before the fix never had. Only an end a reference may confirm (a person, an organisation) is referred to.
+    /// </summary>
+    [Fact]
+    public async Task A_connection_to_a_stored_thing_refers_to_nothing()
+    {
+        ShowStoredEntities(new Entity
+        {
+            EntityId = "thing-atlas", Name = "Atlas", Type = "OBJECT", OwnerId = "bruna", Confidence = 1, SourceMessageIds = ["prior"],
+            CreatedAtUtc = DateTimeOffset.UnixEpoch,
+        });
+        _replies.Enqueue("""
+            {"ops":[
+              {"op":"add","kind":"entity","text":"Iker (PERSON)","quote":"Iker","ref":null},
+              {"op":"add","kind":"relationship","text":"Iker -[designer on]-> Atlas","quote":"Iker is the designer on Atlas","ref":null}
+            ]}
+            """);
+
+        var result = await Write("Iker is the designer on Atlas.");
+
+        result.Entities.Should().NotContain(e => e.Name == "Atlas");
+    }
+
+    [Fact]
+    public async Task A_connection_that_says_there_is_none_refers_to_nobody()
+    {
+        ShowStoredEntities(StoredPerson(SonId, "Tomás"));
+        _replies.Enqueue("""
+            {"ops":[
+              {"op":"add","kind":"entity","text":"Iker (PERSON)","quote":"Iker","ref":null},
+              {"op":"add","kind":"relationship","text":"Iker -[not related to]-> Tomás","quote":"Iker is not related to Tomás","ref":null}
+            ]}
+            """);
+
+        var result = await Write("Iker is not related to Tomás at all.");
+
+        result.Entities.Should().NotContain(e => e.Name == "Tomás");
+    }
+
+    /// <summary>
+    /// The blind whos-who-v3 run of 24 Nov: "Finn's best mate Sam slept over" (a second Sam; the stored one is someone else)
+    /// was written as a fact under the bare name and a connection with no entity of its own; the connection fix referred the
+    /// bare end to the one stored Sam, and identity, with no relation of the stored Sam to compare, confirmed the merge in
+    /// all three runs. A connection refers only the end the relation is about ("Tomás" in "Tomás's parents"), never an end
+    /// the message describes by it, before or after the name, whichever way the writer drew the arrow.
+    /// </summary>
+    [Theory]
+    [InlineData("Joel's best mate Rafa slept over on Saturday.", "Rafa -[best mate of]-> Joel")]
+    [InlineData("Joel's best mate Rafa slept over on Saturday.", "Joel -[best mate]-> Rafa")]
+    [InlineData("Rafa, Joel's best mate, slept over on Saturday.", "Rafa -[best mate of]-> Joel")]
+    [InlineData("My neighbour Rafa lent Joel a ladder on Saturday.", "Rafa -[lent a ladder to]-> Joel")]
+    [InlineData("Rafa from the climbing gym lent Joel a ladder on Saturday.", "Rafa -[lent a ladder to]-> Joel")]
+    public async Task A_connection_never_refers_an_end_the_message_describes_by_it(string message, string connection)
+    {
+        ShowStoredEntities(StoredPerson("identity-observation-rafa", "Rafa"), StoredPerson("identity-observation-joel", "Joel"));
+        _replies.Enqueue($$"""
+            {"ops":[
+              {"op":"add","kind":"fact","text":"Rafa | slept over at | user's home","quote":"{{message}}","ref":null},
+              {"op":"add","kind":"relationship","text":"{{connection}}","quote":"{{message}}","ref":null}
+            ]}
+            """);
+
+        var result = await Write(message);
+
+        result.Entities.Should().NotContain(e => e.Name == "Rafa", "a person the message introduces by a relation is not the stored namesake on that word alone");
+        if (connection.Contains("Joel"))
+            result.Entities.Should().ContainSingle(e => e.Name == "Joel").Which.Reference!.EntityId.Should().Be("identity-observation-joel",
+                "the person the relation is about is still referred");
+    }
+
+    [Theory]
+    [InlineData("That's what Rafa told Joel about the ladder.")]
+    [InlineData("It's Rafa who lent Joel the ladder.")]
+    public async Task A_contraction_is_no_owner_and_the_stored_person_is_still_referred(string message)
+    {
+        ShowStoredEntities(StoredPerson("identity-observation-rafa", "Rafa"), StoredPerson("identity-observation-joel", "Joel"));
+        _replies.Enqueue($$"""
+            {"ops":[
+              {"op":"add","kind":"relationship","text":"Rafa -[lent a ladder to]-> Joel","quote":"{{message}}","ref":null}
+            ]}
+            """);
+
+        var result = await Write(message);
+
+        result.Entities.Should().ContainSingle(e => e.Name == "Rafa").Which.Reference!.EntityId.Should().Be("identity-observation-rafa");
+    }
+
+    [Fact]
+    public async Task The_default_writer_adds_no_reference_to_a_connections_end()
+    {
+        ShowStoredEntities(StoredPerson(SonId, "Tomás"));
+        _replies.Enqueue("""
+            {"ops":[
+              {"op":"add","kind":"entity","text":"Iker (PERSON)","quote":"Iker and Marta"},
+              {"op":"add","kind":"relationship","text":"Iker -[parent of]-> Tomás","quote":"Tomás's parents, Iker and Marta"}
+            ]}
+            """);
+
+        var result = await Write(Parents, eventIdentities: false);
+
+        result.Entities.Should().NotContain(e => e.Name == "Tomás", "off is byte-identical");
     }
 }

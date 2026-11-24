@@ -148,6 +148,11 @@ internal static class IdentityKindsScorer
         var namedAndTyped = named.Where(c => things[c].Type == kind).ToList();
         if (namedAndTyped.Count == 1) return (namedAndTyped[0], "name and type");
         if (namedAndTyped.Count > 1) return (null, "two things of this name and type in the statement");
+        // IHC-SCORER (the owner's call, 23 Nov): an event named after a thing ("Rebecca Thornton's wedding", where the key
+        // names only the friend) is not that thing, nor a thing named after an event. The thing's bare name under the other
+        // type still is: a model may type a project an event.
+        if (named.Count == 1 && (kind == "EVENT") != (things[named[0]].Type == "EVENT") && words.Except(names[named[0]]).Any())
+            return (null, "an event named after a thing, or a thing after an event");
         if (named.Count == 1) return (named[0], "name, another type");
         if (named.Count > 1) return (null, "two things of this name in the statement");
         // A proper name that names none of the statement's things is a thing the key does not hold (the city a venue is
@@ -192,8 +197,11 @@ internal static class IdentityKindsScorer
 
     // The owner is one word, with the word that points at it ("her mother's", "Clara's"): "Luna, Clara's cat" keeps "Luna"
     // (the third paid check, where a match from the start of the words took the cat's own name with its owner).
+    // IHC-SCORER: an owner of several capitalised words, a title too ("Dr. Sosa's clinic", "Rebecca Thornton's wedding"),
+    // is the owner as a whole: one word left "dr" and "rebecca" to name the owner's thing as the owner (the paid check of 24
+    // Nov, ihc1-v1-glm-1 statement 49). A comma still ends it: "Luna, Clara's cat" keeps "Luna".
     private static readonly System.Text.RegularExpressions.Regex Possessive =
-        new(@"(?:\b(?:her|his|my|our|their|your|the)\s+)?[\p{L}\p{M}]+['’]s(?=\s)",
+        new(@"(?:\b(?:her|his|my|our|their|your|the)\s+)?(?:\b\p{Lu}[\p{L}\p{M}]*\.?\s+){0,3}[\p{L}\p{M}]+['’]s(?=\s)",
             System.Text.RegularExpressions.RegexOptions.CultureInvariant | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
     private static readonly System.Text.RegularExpressions.Regex PlaceItIsIn =

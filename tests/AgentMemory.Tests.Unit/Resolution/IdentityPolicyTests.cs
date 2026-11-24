@@ -47,6 +47,32 @@ public sealed class IdentityPolicyTests
         result.ConfirmedEntityId.Should().BeNull();
     }
 
+    /// <summary>
+    /// IDENTITY-HARD-CASES D, the second paid check of 24 Nov (ihc2-v2-glm-1, statement 113): three people of one first name
+    /// were stored under it alone and under two longer names. A bare mention of it scores low against the longer names
+    /// (token sort ratio about 0.5), so only the exact one was reviewed; the adjudicator, offered no other, confirmed it,
+    /// and another's turn merged into it. A bare name one candidate has exactly and others hold as whole words is reviewed
+    /// against all of them.
+    /// </summary>
+    [Fact]
+    public void A_bare_name_one_candidate_has_and_others_hold_is_reviewed_against_all_of_them()
+    {
+        var result = Decide([Candidate("nephew", "Rafa", fuzzy: 1.0), Candidate("colleague", "Rafa from accounts", fuzzy: 0.55),
+            Candidate("big", "big Rafa", fuzzy: 0.6), Candidate("other", "Rafael Ortiz", fuzzy: 0.7)], mention: "Rafa");
+
+        result.Decision.Should().Be(IdentityDecisionKind.Pending);
+        result.PendingEntityIds.Should().BeEquivalentTo(["big", "colleague", "nephew"], "\"Rafa\" is no whole word of \"Rafael Ortiz\"");
+        result.CanAdjudicate.Should().BeTrue();
+    }
+
+    [Fact]
+    public void A_longer_name_that_holds_the_mention_is_not_reviewed_without_an_exact_namesake()
+    {
+        var result = Decide([Candidate("designer", "Rafa Molina", fuzzy: 0.6)], mention: "Rafa");
+
+        result.Decision.Should().Be(IdentityDecisionKind.New, "a first name alone is no namesake set; unchanged");
+    }
+
     [Fact]
     public void A_verified_complete_key_can_confirm_despite_a_different_display_name()
     {
