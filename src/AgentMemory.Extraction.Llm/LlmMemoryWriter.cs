@@ -579,8 +579,9 @@ internal static class MemoryWriterPrompt
           names after "also called". Facts about them still use the stored exact name as their subject. A first name or a
           surname alone is part of the stored name, not another name: write the stored exact name.
         - A message that corrects or changes the name of a stored person, organisation or event ("it's Ms. Vidal, not
-          Ortega" said of a stored "Ms. Ortega", "the firm was renamed Brightline") is about that stored entity: set "ref" to its E label, write the new
-          name in "text" and quote the words that say both names.
+          Ortega" said of a stored "Ms. Ortega", "the firm was renamed Brightline") is about that stored entity: an entity
+          "add" (never a replace) with "ref" set to its E label, the new name alone in "text" ("Ms. Vidal (PERSON)") and a
+          quote of the words that say both names.
         - Otherwise set "ref" to null: for a similar name, the same date, a shared person or place alone, or when two stored
           entities could match. A first name or a short form that STORED or the conversation also gives someone else (another
           E item, or facts about another person called so) could be either: set "ref" to null. A "ref" only says which
