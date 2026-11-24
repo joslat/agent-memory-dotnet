@@ -232,6 +232,25 @@ public sealed class IdentityKindsTier2Tests
         score.WrongMerges.Should().Be(0);
     }
 
+    /// <summary>
+    /// IHC-SCORER, the root of the case above: a possessive's owner was one word, so "Dr. Sosa's clinic" kept "dr" and was
+    /// counted as the vet (the paid check of 24 Nov, ihc1-v1-glm-1, statement 49), as "Rebecca Thornton's" kept "rebecca".
+    /// An owner of several capitalised words (a title too) is the owner; "Luna, Clara's cat" keeps "Luna".
+    /// </summary>
+    [Fact]
+    public void A_thing_named_after_an_owner_of_several_words_is_not_that_owner()
+    {
+        var score = IdentityKindsScorer.Score(Key, WhosWho, Store([.. PerfectEntities(),
+                Entity("e-clinic", "Dr. Sosa's clinic", "LOCATION", [49])]),
+            IdentityGoldScorer.EntitiesView);
+
+        score.Mentions.Single(m => m.Identity == "e-clinic").Thing.Should().BeNull();
+        score.SplitThings.Should().NotContainKey("T04");
+        IdentityKindsScorer.MentionWords("Dr. Sosa's clinic").Should().Equal("clinic");
+        IdentityKindsScorer.MentionWords("Valentina Ríos's leaving lunch").Should().BeEquivalentTo(["leaving", "lunch"]);
+        IdentityKindsScorer.MentionWords("Luna, Clara's cat").Should().Contain("luna");
+    }
+
     [Fact]
     public void A_role_noun_still_finds_the_one_thing_of_its_type()
     {

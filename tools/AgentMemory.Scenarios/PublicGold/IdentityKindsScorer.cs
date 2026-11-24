@@ -197,8 +197,11 @@ internal static class IdentityKindsScorer
 
     // The owner is one word, with the word that points at it ("her mother's", "Clara's"): "Luna, Clara's cat" keeps "Luna"
     // (the third paid check, where a match from the start of the words took the cat's own name with its owner).
+    // IHC-SCORER: an owner of several capitalised words, a title too ("Dr. Sosa's clinic", "Rebecca Thornton's wedding"),
+    // is the owner as a whole: one word left "dr" and "rebecca" to name the owner's thing as the owner (the paid check of 24
+    // Nov, ihc1-v1-glm-1 statement 49). A comma still ends it: "Luna, Clara's cat" keeps "Luna".
     private static readonly System.Text.RegularExpressions.Regex Possessive =
-        new(@"(?:\b(?:her|his|my|our|their|your|the)\s+)?[\p{L}\p{M}]+['’]s(?=\s)",
+        new(@"(?:\b(?:her|his|my|our|their|your|the)\s+)?(?:\b\p{Lu}[\p{L}\p{M}]*\.?\s+){0,3}[\p{L}\p{M}]+['’]s(?=\s)",
             System.Text.RegularExpressions.RegexOptions.CultureInvariant | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
     private static readonly System.Text.RegularExpressions.Regex PlaceItIsIn =
