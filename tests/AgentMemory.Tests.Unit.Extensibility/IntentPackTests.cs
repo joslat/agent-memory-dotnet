@@ -210,6 +210,29 @@ public sealed class IntentPackTests : IDisposable
             .Should().NotContain(r => r.Type == IntentPack.RequirementType, "without id-led lines, only lines that say 'shall' are requirements");
     }
 
+    /// <summary>
+    /// INTENT-LINE-NOT-IDENTITY (found by CO-2f on ironplc: 11,961 of 12,165 requirement versions were not text changes): a
+    /// requirement with an id is that id, and its line is provenance. An edit above it moves it down without changing what
+    /// the store compares, so it gets no new version and its links do not turn suspect; the excerpt still says where it is. A
+    /// requirement without an id is keyed by its place, as before.
+    /// </summary>
+    [Fact]
+    public void A_requirement_moved_by_an_edit_above_it_keeps_what_the_store_compares()
+    {
+        Write("docs/requirements/orders.md", "- REQ-1: The system shall keep every order.\n- The system shall log in.\n");
+        var before = Read(out _);
+        Write("docs/requirements/orders.md", "An introduction added later.\n\n- REQ-1: The system shall keep every order.\n- The system shall log in.\n");
+        var after = Read(out _);
+
+        string Compared(ModuleProposal r) => string.Join("|", r.Properties.OrderBy(p => p.Key).Select(p => p.Key + "=" + p.Value.GetRawText()));
+        var moved = Record(after, IntentPack.RequirementType, "REQ-1");
+        Compared(moved).Should().Be(Compared(Record(before, IntentPack.RequirementType, "REQ-1")));
+        Text(moved, "source").Should().Be("docs/requirements/orders.md");
+        moved.Source.Excerpt.Should().Be("docs/requirements/orders.md:3", "the excerpt still says where it is now");
+        Text(Record(after, IntentPack.RequirementType, "docs/requirements/orders.md:4"), "source").Should().Be("docs/requirements/orders.md:4",
+            "a requirement without an id is its place");
+    }
+
     [Fact]
     public void Reading_twice_gives_the_same_snapshot()
     {

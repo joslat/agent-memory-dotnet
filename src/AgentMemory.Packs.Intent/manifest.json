@@ -1,7 +1,7 @@
 {
   "format": "agentmemory.module/v1alpha1",
   "id": "io.agentmemory.packs.intent",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "sdk": "[0.1,0.2)",
   "display": {
     "title": "Product intent",
@@ -58,7 +58,7 @@
             "type": "string",
             "maxLength": 512,
             "required": true,
-            "description": "The file and line it came from"
+            "description": "The file it came from, and its line when it has no id (a requirement with an id is that id: its line is in the excerpt, so moving it gives no new version)"
           }
         }
       },

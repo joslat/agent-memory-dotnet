@@ -243,6 +243,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Intent pack 0.1.2: a requirement with an id is no longer given a new version when only its line moves. Its `source`
+  held its file and line, which the store compares, so an edit above a requirement versioned it and every requirement
+  after it in the document, and made the links to them suspect though nothing about them changed (on one open-source
+  project's history, 11,961 of 12,165 requirement versions). `source` now holds the file for a requirement with an id
+  (its line is in the record's excerpt); a requirement without an id is still keyed by its file and line.
 - A connection to someone met before reaches the graph again with evidence-based identity (on by default since 2.2.0
   wherever the store-aware writer runs on Neo4j). A connection is kept as a live edge only when both its ends are mentions
   of the turn, and the writer is told that a stored person needs no new mention, so "Tomás's parents, Iker and Marta",

@@ -136,6 +136,9 @@ public static partial class IntentReader
     {
         /// <summary>The parents a requirement names (CO-2b), in its line's order.</summary>
         internal IReadOnlyList<string> Parents { get; init; } = [];
+
+        /// <summary>Where it is now, for the proposal's excerpt, when its compared <c>source</c> leaves the line out.</summary>
+        internal string? Excerpt { get; init; }
     }
 
     private static ModuleProposal Proposal(Record record, IReadOnlyList<ProposedLink> links) => new()
@@ -144,7 +147,7 @@ public static partial class IntentReader
         Properties = record.Properties.Where(p => p.Value is not null and not (string { Length: 0 }))
             .ToDictionary(p => p.Key, p => JsonSerializer.SerializeToElement(p.Value is string s ? Clip(s, Limit(record.Type, p.Key)) : p.Value), StringComparer.Ordinal).AsReadOnly(),
         Links = links,
-        Source = new ProposalSource { Excerpt = Clip((string)record.Properties["source"]!, 512) },
+        Source = new ProposalSource { Excerpt = Clip(record.Excerpt ?? (string)record.Properties["source"]!, 512) },
     };
 
     private static int Limit(string type, string property) =>
@@ -181,10 +184,14 @@ public static partial class IntentReader
             body = ParentMark().Replace(body, "").Trim();
             var status = StatusMark().Match(body) is { Success: true } mark ? mark.Groups["status"].Value.ToLowerInvariant() : "proposed";
             body = StatusMark().Replace(body, "").Trim();
+            // INTENT-LINE-NOT-IDENTITY: a requirement with an id is that id, and its line is provenance (the excerpt), so an edit
+            // above it gives it no new version; one without an id is keyed by its place, line and all.
+            var place = $"{file}:{i + 1}";
             yield return new(IntentPack.RequirementType, id, new()
             {
-                ["reference"] = id, ["text"] = body, ["pattern"] = Pattern(body), ["status"] = status, ["file"] = file, ["source"] = $"{file}:{i + 1}",
-            }) { Parents = parents };
+                ["reference"] = id, ["text"] = body, ["pattern"] = Pattern(body), ["status"] = status, ["file"] = file,
+                ["source"] = match.Success ? file : place,
+            }) { Parents = parents, Excerpt = place };
         }
     }
 
