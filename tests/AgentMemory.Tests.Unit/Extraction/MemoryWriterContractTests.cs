@@ -1055,6 +1055,34 @@ public sealed class MemoryWriterContractTests : IDisposable
     }
 
     /// <summary>
+    /// The same holds for a correction (the paid check of 24 Nov, ihc1-v1-glm-1 statement 54): a malformed entity text
+    /// ("Luna (OBJECT) (also called: Luna) (OBJECT)", "ref": "E1") was asked to be fixed, the fix "Luna (OBJECT)" kept the
+    /// ref to the stored thing and was stored, and the re-mention stayed pending as another identity of it.
+    /// </summary>
+    [Theory]
+    [InlineData("thing-atlas", "Atlas", "OBJECT", "Atlas (OBJECT)", "Atlas (OBJECT) (also called: Atlas) (OBJECT)", "Atlas is two weeks late.", "Atlas")]
+    [InlineData("place-lumen", "Café Lumen", "LOCATION", "Café Lumen (PLACE)", "Café Lumen (PLACE), the café", "Café Lumen has live jazz on Fridays.", "Café Lumen")]
+    public async Task A_stored_thing_or_place_a_correction_refers_to_is_left_out_too(
+        string id, string name, string type, string entity, string malformed, string message, string quote)
+    {
+        ShowStored(id, name, type);
+        _replies.Enqueue($$"""
+            {"ops":[
+              {"op":"add","kind":"entity","text":"{{malformed}}","quote":"{{quote}}","ref":"E1"},
+              {"op":"add","kind":"fact","text":"{{name}} | is | busy","quote":"{{quote}}","ref":null}
+            ]}
+            """);
+        _replies.Enqueue($$"""{"ops":[{"op":"add","kind":"entity","text":"{{entity}}","quote":"{{quote}}","ref":"E1"}]}""");
+
+        var result = await Write(message);
+
+        _calls.Should().HaveCount(2, "the malformed entity is asked to be fixed once");
+        result.Entities.Should().BeEmpty("the fix names the same stored thing, which needs no new observation");
+        result.Facts.Should().ContainSingle().Which.Subject.Should().Be(name);
+        result.Outcomes.Should().BeEmpty("the correction answered the issue");
+    }
+
+    /// <summary>
     /// IDENTITY-REF-SHORT-FORM-KEPT (the seventh paid check, cover7-2 statement 11): the writer referred "Vale finished the new
     /// checkout mock-ups" to the stored designer under her full name. The reference was right, but "Vale" was never kept,
     /// so at statement 53 a lookup by "Vale" found nobody. A person referred to under the full stored name keeps, as its

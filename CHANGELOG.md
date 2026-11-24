@@ -46,10 +46,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   14 before; no wrong merge in the last four):
   - It stores named things inside facts and preferences (brands, products, documents, works, places, groups), each beside
     the fact that names it.
-  - A thing or place said again under exactly its stored name, or referred to again, is left out (its facts use the stored
-    name; a writer's reference cannot confirm a thing or a place, so it would only stay pending); a person or an
-    organisation is asked once for its reference; a different thing of a stored name is named with the words that tell it
-    apart. Stored things of one name are shown with the words each was first said in.
+  - A thing or place said again under exactly its stored name, or referred to again (also in a correction), is left out
+    (its facts use the stored name; a writer's reference cannot confirm a thing or a place, so it would only stay
+    pending); a person or an organisation is asked once for its reference; a different thing of a stored name is named
+    with the words that tell it apart. Stored things of one name are shown with the words each was first said in.
   - A person called by a short form of a stored person's name ("Vale" for Valentina Ríos) may be referred to under it,
     keeping the stored name and the short form as its alias (also when the writer refers to them under the full name
     and the message used the short form); a new person named so is asked once which it is.

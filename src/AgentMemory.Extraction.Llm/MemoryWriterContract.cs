@@ -140,9 +140,7 @@ internal static class MemoryWriterContract
         // is (below). A writer's reference confirms only a person, an organisation or an event, so the re-mention would stay
         // a pending observation, another identity of it (the sixth paid check, cover6-1 statement 40: "Atlas (OBJECT)" with
         // "ref": "E1"). Its facts already carry the stored name. A valid ref here names the stored entity's exact name.
-        ops.RemoveAll(op => op.Kind == "entity" && op.Action == "add" && op.Ref is { } label &&
-            byLabel.TryGetValue(label, out var item) && item.Letter == 'E' && StoredType(item.Text) is { } type &&
-            type != "EVENT" && !RefConfirmable.Contains(type));
+        ops.RemoveAll(op => RefersToStoredThing(op, byLabel));
         // IDENTITY-PERSON-REF-GUARD: a person reference the conversation's own relation words contradict is refused before
         // anything is stored, and the facts it carried keep the message's name. The third paid check, cover3-2 statement 13:
         // "My niece Valentina started school this year, she is six." was referred to the stored designer Valentina Ríos and
@@ -343,6 +341,15 @@ internal static class MemoryWriterContract
                 continue;
             }
             if (fix is not null && fix.Ref is not null && ReferenceProblem(fix, byLabel).Reason is not null) fix = fix with { Ref = null };
+            // IDENTITY-THING-REF-LEFT-OUT holds for a correction too (the paid check of 24 Nov, ihc1-v1-glm-1 statement 54:
+            // a malformed "Luna (OBJECT) (also called: Luna) (OBJECT)" fixed as "Luna (OBJECT)" with "ref": "E1" was stored,
+            // and the re-mention stayed pending as another identity of the stored thing).
+            if (fix is not null && RefersToStoredThing(fix, byLabel))
+            {
+                used.Add(fix);
+                if (issue.Kept is not null) result.Remove(issue.Kept);
+                continue;
+            }
             // A place or a thing said again under exactly its stored name, with no name that tells it apart, is left out: its
             // facts carry it, and a ref'd observation of it would only stay pending (only a person's or an organisation's ref
             // can confirm one).
@@ -659,6 +666,15 @@ internal static class MemoryWriterContract
     private static string? TextProblem(string text) =>
         HasDebris(text) ? DebrisProblem : MemoryWriterOps.HasEmptyConnectionEnd(text) ? EmptyEndProblem : null;
     private const string EntityFormatProblem = "an entity's text must be exactly \"Name (PERSON|PLACE|ORGANIZATION|THING|EVENT)\", with nothing before or after";
+
+    /// <summary>
+    /// An entity add whose valid ref names a stored thing or place: a writer's reference confirms only a person, an
+    /// organisation or an event, so such a re-mention would stay pending as another identity of it. It is left out.
+    /// </summary>
+    private static bool RefersToStoredThing(MemoryWriterOps.Op op, IReadOnlyDictionary<string, MemoryWriterOps.Stored> byLabel) =>
+        op.Kind == "entity" && op.Action == "add" && op.Ref is { } label &&
+        byLabel.TryGetValue(label, out var item) && item.Letter == 'E' && StoredType(item.Text) is { } type &&
+        type != "EVENT" && !RefConfirmable.Contains(type);
 
     /// <summary>The shape checks every operation passes, a correction's included: an entity's form and a text's debris.</summary>
     private static (MemoryWriterOps.DropReason Reason, string Problem)? ShapeProblem(MemoryWriterOps.Op op)
