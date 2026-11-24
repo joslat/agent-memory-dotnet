@@ -270,9 +270,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - A namesake of a stored person whom the message gives another relation ("my boss Marta", the stored Marta known as
     Tomás's parent) is kept as "Marta, user's boss" with an entity of its own. The writer had written only facts about
     "Marta", and a later "the boss" confirmed as the parent.
-  - A writer's reference under a bare name that another candidate's name holds ("Rafa" beside a stored "Rafa" and a
-    stored "big Rafa") is kept for review, a split, instead of confirmed: when only earlier facts tell the two
-    apart, the reference picked the wrong one.
+  - A bare name one stored person or thing has exactly and others hold in longer names ("Rafa" beside a stored "Rafa",
+    "big Rafa" and "Rafa from accounts") is weighed against all of them. The longer names score low against it, so
+    only the exact one was reviewed, and identity, offered no other, confirmed it, also when the writer had referred to
+    it; when only earlier facts tell them apart, that was the wrong one. A writer's reference under such a name is no
+    longer taken as decisive, and a longer name alone, with no exact namesake, is not reviewed for holding it.
 - Recall for people stays quick on a large store. With identity on, a question that names someone reads the names the
   owner's people are known by, then those people. Both reads sought every person in the store, of every owner, and
   threw away all but the owner's. With index statistics from when the store was smaller (right after an import, or a
