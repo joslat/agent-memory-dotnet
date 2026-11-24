@@ -25,6 +25,14 @@ public interface IKnowledgePackStore
     Task<KnowledgePackImportResult> RemoveAsync(ModuleManifest pack, DateTimeOffset atUtc, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// What importing <paramref name="pack"/> would drop of what the store holds of its id, read without writing (the host
+    /// lifecycle: a host sees an upgrade's drops and may refuse it); <see cref="KnowledgePackDrops.None"/> when the store holds
+    /// nothing of the id.
+    /// </summary>
+    Task<KnowledgePackDrops> DropsAsync(KnowledgePack pack, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("This store does not compare a pack's versions.");
+
+    /// <summary>
     /// Closes every live record of a pack read from what the store itself holds of its id, without its manifest: for a pack whose
     /// bundle is gone or cannot be opened (PACK-REMOVE-MISSING-ARCHIVE). The end state is the one <see cref="RemoveAsync"/>
     /// leaves: history and schema stay, and an id the store holds nothing of closes nothing.
@@ -83,6 +91,69 @@ public sealed record KnowledgePackImportResult
     public int Unchanged { get; init; }
     /// <summary>Live records closed: gone from this version, or removed with the pack.</summary>
     public int Closed { get; init; }
+    /// <summary>
+    /// What this version no longer defines of what the store held of its id (R-HOST-062): the live records of a dropped type are
+    /// closed and counted in <see cref="Closed"/>. <see cref="KnowledgePackDrops.None"/> for a removal and when nothing was dropped.
+    /// </summary>
+    public KnowledgePackDrops Dropped { get; init; } = KnowledgePackDrops.None;
+}
+
+/// <summary>
+/// What a version of a knowledge pack no longer defines of what a store holds live of its id (the host lifecycle, R-HOST-062): the
+/// types and relations its live records use that this version does not define, and the properties its live records carry that
+/// this version's types no longer declare. A name the id keeps after its records closed (R-HOST-060) is no longer a drop. A host reads it before an upgrade (<see cref="KnowledgePackImporter.DropsAsync"/>) to see
+/// the change and refuse it; an import returns what it dropped (<see cref="KnowledgePackImportResult.Dropped"/>).
+/// </summary>
+[Experimental("AMEXT001")]
+public sealed record KnowledgePackDrops
+{
+    /// <summary>Nothing dropped.</summary>
+    public static KnowledgePackDrops None { get; } = new();
+    /// <summary>Types the id's live records have that this version does not define; an import closes those records.</summary>
+    public IReadOnlyList<string> Types { get; init; } = [];
+    /// <summary>Relation types the id's live records use that this version does not define.</summary>
+    public IReadOnlyList<string> Relations { get; init; } = [];
+    /// <summary>
+    /// Properties, as <c>Type.property</c>, that live records carry and this version's type no longer declares; a record's new
+    /// version is written without them, and its earlier versions keep them as history.
+    /// </summary>
+    public IReadOnlyList<string> Properties { get; init; } = [];
+    /// <summary>Whether nothing is dropped.</summary>
+    public bool IsEmpty => Types.Count == 0 && Relations.Count == 0 && Properties.Count == 0;
+
+    /// <summary>
+    /// Compares a version with what a store holds live of its id: the types of its live records, the relation types they use, and
+    /// for each type, the property names they carry. The SDK's own record properties are never a drop.
+    /// </summary>
+    public static KnowledgePackDrops Compare(ModuleManifest pack, IEnumerable<string> liveTypes, IEnumerable<string> liveRelations,
+        IReadOnlyDictionary<string, IReadOnlyCollection<string>> liveProperties)
+    {
+        ArgumentNullException.ThrowIfNull(pack);
+        ArgumentNullException.ThrowIfNull(liveTypes);
+        ArgumentNullException.ThrowIfNull(liveRelations);
+        ArgumentNullException.ThrowIfNull(liveProperties);
+        var types = (pack.Ontology?.Types ?? []).ToDictionary(t => t.Name, StringComparer.Ordinal);
+        var relations = (pack.Ontology?.Relations ?? []).Select(r => r.Name).ToHashSet(StringComparer.Ordinal);
+        var drops = new KnowledgePackDrops
+        {
+            Types = [.. liveTypes.Where(t => !types.ContainsKey(t)).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)],
+            Relations = [.. liveRelations.Where(r => !relations.Contains(r)).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)],
+            Properties = [.. liveProperties.Where(live => types.ContainsKey(live.Key))
+                .SelectMany(live => live.Value
+                    .Where(name => !ModuleReservedNames.Properties.Contains(name) && !types[live.Key].Properties.ContainsKey(name))
+                    .Select(name => live.Key + "." + name))
+                .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)],
+        };
+        return drops.IsEmpty ? None : drops;
+    }
+
+    /// <inheritdoc/>
+    public override string ToString() => IsEmpty ? "nothing" : string.Join("; ", new[]
+    {
+        Types.Count > 0 ? "types " + string.Join(", ", Types) : null,
+        Relations.Count > 0 ? "relations " + string.Join(", ", Relations) : null,
+        Properties.Count > 0 ? "properties " + string.Join(", ", Properties) : null,
+    }.Where(part => part is not null));
 }
 
 /// <summary>What a transfer of a removed pack id's names to a new id moved (see <see cref="IKnowledgePackStore.TransferAsync"/>).</summary>
@@ -145,6 +216,17 @@ public sealed class KnowledgePackImporter
         return _store.GetStateAsync(pack, cancellationToken);
     }
 
+    /// <summary>
+    /// What importing <paramref name="pack"/> would drop of what the store holds of its id, without writing anything: the types and
+    /// relations it no longer defines, and the properties its types no longer declare. A host that does not accept a drop refuses
+    /// the upgrade here, before the import.
+    /// </summary>
+    public Task<KnowledgePackDrops> DropsAsync(KnowledgePack pack, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(pack);
+        return _store.DropsAsync(pack, cancellationToken);
+    }
+
     /// <summary>Imports a verified pack; equal records are no-ops, so importing the same version again writes nothing.</summary>
     public async Task<KnowledgePackImportResult> ImportAsync(KnowledgePack pack, bool allowDowngrade = false, CancellationToken cancellationToken = default)
     {
@@ -153,7 +235,8 @@ public sealed class KnowledgePackImporter
         try
         {
             var result = await ImportCheckedAsync(pack, allowDowngrade, trace, cancellationToken).ConfigureAwait(false);
-            trace.Completed($"{result.Created} new, {result.Changed} changed, {result.Unchanged} unchanged, {result.Closed} closed");
+            trace.Completed($"{result.Created} new, {result.Changed} changed, {result.Unchanged} unchanged, {result.Closed} closed"
+                + (result.Dropped.IsEmpty ? "" : $"; dropped {result.Dropped}"));
             return result;
         }
         catch (Exception error)

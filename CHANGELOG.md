@@ -243,6 +243,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A knowledge pack upgrade that drops a type, a property or a relation now leaves nothing of it live. The Neo4j store
+  read a pack's live records by the new version's types only, so the records of a type the new version no longer defines
+  stayed live, and so did a later removal by the pack's manifest (only a removal by its id closed them); and it compared a
+  record with its live version on what the new version declares only, so a record whose property or link the new version
+  dropped was "unchanged" and its live version kept the property and a link to a record that had closed. An import now
+  closes the live records of a dropped type and writes a new version of every record carrying a dropped property or link;
+  a removal closes the dropped type's records too (R-HOST-060, R-HOST-062).
+- `ampack verify` refuses a pack set whose family pins another member than the one the set carries (the same id and
+  version with other content, or a member missing), as loading it does (R-COMPOSE-012). It checked the set's signature
+  and each member on its own, so a set could be verified and then refused by the host.
 - Intent pack 0.1.2: a requirement with an id is no longer given a new version when only its line moves. Its `source`
   held its file and line, which the store compares, so an edit above a requirement versioned it and every requirement
   after it in the document, and made the links to them suspect though nothing about them changed (on one open-source
@@ -421,6 +431,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- What a knowledge pack upgrade drops is named (`KnowledgePackDrops`): the types and relations the pack's live records
+  use that the new version no longer defines, and the properties they carry that the new version's types no longer
+  declare. A name the pack keeps after its records closed (R-HOST-060) is not dropped again. `KnowledgePackImporter.DropsAsync(pack)` reads them without writing, so a host can refuse an upgrade
+  before it imports; `KnowledgePackImportResult.Dropped` says what an import dropped. `KnowledgePackDrops.Compare` is the
+  comparison for any store.
+- The host specification's lifecycle document (`spec/host/lifecycle.md`): what a host does with a pack's records and
+  names when it removes it, loads it again, upgrades it or gives it a new id (R-HOST-060 to 065, each with its test), and
+  what is decided for sets, minds, hierarchies and an upgrade whose ontology changed, to be specified as each is built.
 - One release workflow for the native library (`native-release.yml`, NATIVE-RELEASE): one build per platform, gated,
   reaches every registry. It checks the version is new on PyPI, npm and GitHub, collects and checks the wheels, the npm
   packages and C/C++ archives (library, header, manifest and licence per platform, with SHA256SUMS), attests every file

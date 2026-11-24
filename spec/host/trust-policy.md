@@ -1,7 +1,7 @@
 # Host document: the trust policy
 
 **Version 1, draft.** Format strings: `agentmemory.pack.trust/1.1` (the trust policy), `agentmemory.pack.revocations/1.2`
-(revocation documents). Requirement ids: `R-HOST-nnn`, numbered across the three host documents. Key words as in Core
+(revocation documents). Requirement ids: `R-HOST-nnn`, numbered across the host documents. Key words as in Core
 §1.2.
 
 A host's trust policy says which keys it trusts, for which pack ids and in which roles, what it has revoked, and which

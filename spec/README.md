@@ -21,6 +21,7 @@ decided later.
 | [profiles/permissions.md](profiles/permissions.md) | 1, draft | Usage policies: declaration only, refused until enforced | Permissions Host |
 | [host/trust-policy.md](host/trust-policy.md) | 1, draft | The host's trust policy and revocation documents | (every host) |
 | [host/ledger.md](host/ledger.md) | 1, draft | The host's ledger against rollback | (every host) |
+| [host/lifecycle.md](host/lifecycle.md) | 1, draft | A pack's lifecycle: load, remove, reload, upgrade | (every host) |
 | [host/decision-record.md](host/decision-record.md) | 1, draft | The trial decision a host signs | Trial Host, Certify Host |
 | [annex/status.md](annex/status.md) | informative | What the reference implementation builds today | |
 | [annex/history.md](annex/history.md) | informative | Where the rules came from: versions, review rounds, dates | |

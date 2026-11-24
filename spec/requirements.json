@@ -3145,7 +3145,8 @@
     "unit:PackFamilyTests.A_missing_member_refuses_the_family",
     "unit:PackFamilyTests.An_extra_member_refuses_the_family",
     "unit:PackFamilyTests.A_member_swapped_for_other_content_refuses_the_family",
-    "unit:PackFamilyTests.A_member_changed_inside_a_set_is_refused_even_when_the_set_is_resigned"
+    "unit:PackFamilyTests.A_member_changed_inside_a_set_is_refused_even_when_the_set_is_resigned",
+    "unit:PackFamilyTests.A_set_whose_family_pins_another_member_is_refused_by_verify_as_by_the_loader"
    ]
   },
   {
@@ -4742,6 +4743,77 @@
    "verifiedBy": [
     "unit:RecordLifeTests.The_module_set_s_reader_keeps_the_records_true_at_its_pin_and_asks_the_store_at_it",
     "integration:ModuleRecordWriteIntegrationTests.ARecordTrueOnlyUntilAnInstantAnswersAQuestionAsOfThenButNotNowInBothStores"
+   ]
+  },
+  {
+   "id": "R-HOST-060",
+   "doc": "host/lifecycle.md",
+   "section": "2",
+   "level": "MUST",
+   "summary": "A host MUST remove a pack by closing its records: each leaves every live view at the removal and keeps its history. The pack's schema and its claim on its names MUST stay; a removal by the pack's id, when its archive is gone, MUST close the same records.",
+   "verifiedBy": [
+    "integration:KnowledgePackIntegrationTests.AKnowledgePackImportsIsSearchedByEveryOwnerUpgradesByKeyAndIsRemovedWithItsHistoryKept",
+    "integration:PackRemoveByIdIntegrationTests.APackWhoseBundleIsGoneIsRemovedByItsIdFromWhatTheStoreHoldsAndLoadsAgainLater",
+    "integration:PackReloadIntegrationTests.TheMartialArtsPackUnderANewIdIsRefusedTheOldIdsNamesAndTheFailureNamesThePackTheStepAndTheOwner",
+    "integration:ModuleRecordWriteIntegrationTests.AnUpgradeThatDropsATypeAPropertyAndARelationClosesWhatItNoLongerHoldsAndARemovalLeavesNothingLive",
+    "integration:ModuleRecordWriteIntegrationTests.ARemovalByANewerManifestClosesTheLiveRecordsOfATypeOnlyAnEarlierVersionDefined"
+   ]
+  },
+  {
+   "id": "R-HOST-061",
+   "doc": "host/lifecycle.md",
+   "section": "2",
+   "level": "MUST",
+   "summary": "A pack removed and loaded again at the same version MUST be imported again: every record it holds is written again and is live.",
+   "verifiedBy": [
+    "integration:PackReloadIntegrationTests.TheMartialArtsPackRemovedAndLoadedAgainImportsAgainWithEveryRecordLive"
+   ]
+  },
+  {
+   "id": "R-HOST-062",
+   "doc": "host/lifecycle.md",
+   "section": "2",
+   "level": "MUST",
+   "summary": "A newer version of a pack MUST replace the older one record by record, by key: a changed record becomes a new version and keeps the old one as history, an unchanged one MUST stay as it is, and a record the newer version no longer holds MUST be closed.",
+   "verifiedBy": [
+    "unit:KnowledgePackDropsTests.A_type_a_relation_and_a_property_the_version_no_longer_defines_are_named_in_order_once_each",
+    "integration:KnowledgePackIntegrationTests.AKnowledgePackImportsIsSearchedByEveryOwnerUpgradesByKeyAndIsRemovedWithItsHistoryKept",
+    "integration:AmpackEndToEndIntegrationTests.TheRealMartialArtsPackAsAnAmpackImportsIsSearchedUpgradesRefusesItsOlderVersionAndIsRemoved",
+    "integration:ModuleRecordWriteIntegrationTests.AnUpgradeThatDropsATypeAPropertyAndARelationClosesWhatItNoLongerHoldsAndARemovalLeavesNothingLive"
+   ]
+  },
+  {
+   "id": "R-HOST-063",
+   "doc": "host/lifecycle.md",
+   "section": "2",
+   "level": "MUST",
+   "summary": "A pack under a new id MUST be refused a name another id's pack claims, even after that pack was removed, and the refusal MUST name the pack, the step and the name's owner. An operator MAY transfer a removed pack's names, records and history to its new id; a transfer MUST change nothing unless the old id is removed and the new pack claims every name the old one did, as it did.",
+   "verifiedBy": [
+    "integration:PackReloadIntegrationTests.TheMartialArtsPackUnderANewIdIsRefusedTheOldIdsNamesAndTheFailureNamesThePackTheStepAndTheOwner",
+    "integration:PackTransferIntegrationTests.ARemovedPacksNamesRecordsAndTombstonesTransferToItsNewIdWithTheHistoryKeptAndTheWalkUnchanged",
+    "integration:PackTransferIntegrationTests.APackNameTransferIsRefusedWithNothingChangedUnlessTheOldIdIsRemovedAndTheNewPackOwnsEveryNameAsItWas"
+   ]
+  },
+  {
+   "id": "R-HOST-064",
+   "doc": "host/lifecycle.md",
+   "section": "2",
+   "level": "MUST",
+   "summary": "Where a host keeps a local copy of a pack for each owner, removing the pack MUST detach the owner's copy, inactive and protected, with the owner's own changes kept, and loading it again MUST make it live with every value the owner had.",
+   "verifiedBy": [
+    "integration:PackLocalReloadIntegrationTests.Local_copy_detached_and_mounted_again_is_live_keeps_its_values_and_stays_protected_until_configured"
+   ]
+  },
+  {
+   "id": "R-HOST-065",
+   "doc": "host/lifecycle.md",
+   "section": "2",
+   "level": "MUST",
+   "summary": "A host MUST name what an upgrade drops of what its store holds live of the pack: every type and relation the pack's live records use that the newer version does not define, and every property they carry that the newer version's types do not declare, before it imports, so that it can refuse the upgrade, and in the import's result. A live record that carries a dropped property or link MUST be written again as a new version without it. A name the pack keeps after its records closed is not a drop.",
+   "verifiedBy": [
+    "unit:KnowledgePackDropsTests.A_type_a_relation_and_a_property_the_version_no_longer_defines_are_named_in_order_once_each",
+    "unit:KnowledgePackDropsTests.The_sdk_s_own_record_properties_are_never_a_drop",
+    "integration:ModuleRecordWriteIntegrationTests.AnUpgradeThatDropsATypeAPropertyAndARelationClosesWhatItNoLongerHoldsAndARemovalLeavesNothingLive"
    ]
   },
   {

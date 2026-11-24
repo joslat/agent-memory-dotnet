@@ -1,6 +1,6 @@
 {
  "format": "agentmemory.guards.mutants-results/2",
- "commit": "d933ccd0",
+ "commit": "cd466315",
  "results": [
   {
    "id": "archive-ratio",
@@ -92,11 +92,11 @@
    "door": "definition",
    "mutant_sha256": "fab89c2b5cd494bb95b7ca6abafae2d55e5288bb90e45f1383834a411de68657",
    "killed": true,
-   "file_sha256": "f03e50d76353dd17d29d5b886a8475157c04bd8ac4648af859acc8faa2ed1840",
+   "file_sha256": "315baec0c148e5e340e5207db169f135264a1d47ff1239d37f54237aeae1b237",
    "failed": [
     "AuthenticateFirstTests.Review8_A12_a_pack_whose_signature_does_not_hold_is_refused_for_that_alone_at_every_load_path"
    ],
-   "seconds": 7
+   "seconds": 10
   },
   {
    "id": "expand-returns-node",
@@ -176,11 +176,11 @@
    "door": "definition",
    "mutant_sha256": "62da0dce4d3b8f0bb10a803b6d81001943b538935038bcfc051c57902014ec8e",
    "killed": true,
-   "file_sha256": "f03e50d76353dd17d29d5b886a8475157c04bd8ac4648af859acc8faa2ed1840",
+   "file_sha256": "315baec0c148e5e340e5207db169f135264a1d47ff1239d37f54237aeae1b237",
    "failed": [
     "AuthenticateFirstTests.Review8_A12_a_pack_whose_signature_does_not_hold_is_refused_for_that_alone_at_every_load_path"
    ],
-   "seconds": 7
+   "seconds": 9
   },
   {
    "id": "authenticate-at-load",
@@ -1257,12 +1257,12 @@
    "door": "install",
    "mutant_sha256": "616629a22d14757a9bf05131276f7e26dd974587d93d3bbe10f92c1d15695f3a",
    "killed": true,
-   "file_sha256": "a6a01a8c22da74a7e8e4bb01e573bf3f3c2bcd49260901077489db3a7c336455",
+   "file_sha256": "c807efe01ee81bc846a390c20e381fdf9a2797ec92e168b98880519e6d15259e",
    "failed": [
     "ErasureTests.A_loaded_packs_import_applies_the_erasures_it_carries_first",
     "ErasureTests.An_import_applies_the_erasures_that_name_its_pack_before_it_writes"
    ],
-   "seconds": 9
+   "seconds": 10
   },
   {
    "id": "memory-keeps-erased",
@@ -1885,11 +1885,11 @@
    "door": "verify",
    "mutant_sha256": "7cae052f99c990b4fed62daa27fd9050cd4b26ab09316db24838449f1ae31889",
    "killed": true,
-   "file_sha256": "f03e50d76353dd17d29d5b886a8475157c04bd8ac4648af859acc8faa2ed1840",
+   "file_sha256": "315baec0c148e5e340e5207db169f135264a1d47ff1239d37f54237aeae1b237",
    "failed": [
     "kit"
    ],
-   "seconds": 201
+   "seconds": 230
   },
   {
    "id": "python-read-door-open",
@@ -2018,11 +2018,11 @@
    "door": "verify",
    "mutant_sha256": "e9e13942ca0ac85498d2829ede340ef295faffbfbf20a70eb9b8c6e54a7bd7a0",
    "killed": true,
-   "file_sha256": "f03e50d76353dd17d29d5b886a8475157c04bd8ac4648af859acc8faa2ed1840",
+   "file_sha256": "315baec0c148e5e340e5207db169f135264a1d47ff1239d37f54237aeae1b237",
    "failed": [
     "kit"
    ],
-   "seconds": 208
+   "seconds": 227
   },
   {
    "id": "python-set-policy-allowed",
@@ -2396,11 +2396,11 @@
    "door": "definition",
    "mutant_sha256": "80c843ddfe255f8d111803be1a46b6f5a8635ae0c6d9d06abdbd36ba6ec1e015",
    "killed": true,
-   "file_sha256": "f03e50d76353dd17d29d5b886a8475157c04bd8ac4648af859acc8faa2ed1840",
+   "file_sha256": "315baec0c148e5e340e5207db169f135264a1d47ff1239d37f54237aeae1b237",
    "failed": [
     "Review8WriterGuardTests.F1_an_envelope_every_reader_refuses_is_refused_by_the_writer_and_by_lint"
    ],
-   "seconds": 15
+   "seconds": 11
   },
   {
    "id": "set-structure-without-trust",
@@ -2408,11 +2408,11 @@
    "door": "definition",
    "mutant_sha256": "bd3a07c7b5545f1a8404c63bcc23df1bcb1923d01659e2a04c1a4e34072ba0c9",
    "killed": true,
-   "file_sha256": "f03e50d76353dd17d29d5b886a8475157c04bd8ac4648af859acc8faa2ed1840",
+   "file_sha256": "315baec0c148e5e340e5207db169f135264a1d47ff1239d37f54237aeae1b237",
    "failed": [
     "Review8WriterGuardTests.F2_a_set_every_reader_refuses_is_refused_by_the_writer_and_by_lint"
    ],
-   "seconds": 11
+   "seconds": 10
   },
   {
    "id": "federation-without-trust",
@@ -2420,7 +2420,7 @@
    "door": "definition",
    "mutant_sha256": "f148e36eae90176b38a13bbad4a5a3b114e28a9ee158c10e18da031cad7beaf9",
    "killed": true,
-   "file_sha256": "f03e50d76353dd17d29d5b886a8475157c04bd8ac4648af859acc8faa2ed1840",
+   "file_sha256": "315baec0c148e5e340e5207db169f135264a1d47ff1239d37f54237aeae1b237",
    "failed": [
     "FederationTests.Review9_A1_a_federated_sets_member_rules_need_no_key_so_the_writer_and_lint_hold_them_too"
    ],
@@ -2468,11 +2468,11 @@
    "door": "definition",
    "mutant_sha256": "464abc8228c56527b0c823431433a5d4d3c43260283333003eeeaad2387f60a7",
    "killed": true,
-   "file_sha256": "f03e50d76353dd17d29d5b886a8475157c04bd8ac4648af859acc8faa2ed1840",
+   "file_sha256": "315baec0c148e5e340e5207db169f135264a1d47ff1239d37f54237aeae1b237",
    "failed": [
     "Review8WriterGuardTests.F4_the_library_acts_only_on_packs_its_host_s_trust_verifies"
    ],
-   "seconds": 11
+   "seconds": 9
   },
   {
    "id": "certificate-verify-each-copy",
@@ -2504,11 +2504,11 @@
    "door": "install",
    "mutant_sha256": "65da3da3aee6feaf198d7160dec381057524854fdb608b51544b26103c5b8936",
    "killed": true,
-   "file_sha256": "0170c6120f6f2adda030799e911a8d866a232a63eec06cac99f7e78e5b2be8ee",
+   "file_sha256": "635a0c9602c0a8e78750243a37ce81a95606887df2ff9573847987b9d58a94ed",
    "failed": [
     "ModuleRecordWriteIntegrationTests.APackSearchedByMeaningFindsAReworded_question_LeavesItsRecordsAsTheyWere_AndClosedRecordsKeepNoVector"
    ],
-   "seconds": 37
+   "seconds": 49
   },
   {
    "id": "meaning-other-model",

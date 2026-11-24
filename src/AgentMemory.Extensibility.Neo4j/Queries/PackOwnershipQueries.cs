@@ -22,6 +22,28 @@ internal static class PackOwnershipQueries
     /// <summary>The label a namespace key names, when it names one.</summary>
     internal const string LabelClaim = "namespace/label/";
 
+    /// <summary>The relation type a namespace key names, when it names one.</summary>
+    internal const string RelationClaim = "namespace/relation/";
+
+    /// <summary>One row when the pack has a live record under the label.</summary>
+    internal static string AnyLive(string label) => "MATCH (n:`" + label + "`) WHERE n.source_pack=$pack AND n.invalidated_at IS NULL RETURN 1 AS live LIMIT 1";
+
+    /// <summary>One row when a live record of the pack has a relationship of the type.</summary>
+    internal static string AnyLiveRelation(string relation) => "MATCH (n)-[r:`" + relation + "`]->() WHERE n.source_pack=$pack AND n.invalidated_at IS NULL "
+        + "RETURN 1 AS live LIMIT 1";
+
+    /// <summary>The keys of the pack's live records under a label that carry a property.</summary>
+    internal static string LiveWithProperty(string label, string property) => "MATCH (n:`" + label + "`) WHERE n.source_pack=$pack AND n.invalidated_at IS NULL "
+        + "AND n.`" + property + "` IS NOT NULL RETURN n.key AS key";
+
+    /// <summary>The labels and keys of the pack's live records that have a relationship of the type.</summary>
+    internal static string LiveWithRelation(string relation) => "MATCH (n)-[:`" + relation + "`]->() WHERE n.source_pack=$pack AND n.invalidated_at IS NULL "
+        + "RETURN DISTINCT labels(n) AS labels, n.key AS key";
+
+    /// <summary>The property names a pack's live records carry under one of its labels (what an upgrade may drop).</summary>
+    internal static string LiveProperties(string label) => "MATCH (n:`" + label + "`) WHERE n.source_pack=$pack AND n.invalidated_at IS NULL "
+        + "UNWIND keys(n) AS name RETURN DISTINCT name ORDER BY name";
+
     /// <summary>The live records a pack wrote under one of its labels, with what closing one checks.</summary>
     internal static string LiveRecords(string label) => "MATCH (n:`" + label + "`) WHERE n.source_pack=$pack AND n.invalidated_at IS NULL "
         + "RETURN n.id AS id, n.key_id AS keyId, n.key AS key, n.owner_id AS owner, n.superseded_by AS supersededBy, "
