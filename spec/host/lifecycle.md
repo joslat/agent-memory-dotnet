@@ -52,6 +52,15 @@ records closed, only when no installed set or pack holds it any more, whether it
 version of that holder no longer carries it. Other content under the same id MUST still be refused. A pack a set carries
 MUST NOT be uninstalled on its own; a host switches it off instead.
 
+**R-HOST-068.** A host MUST let any member of a nested family be switched on or off, and given a priority, by its path:
+the ids of the families it sits in and then its own, joined by `/`; a path that does not lead through nested families to
+a member MUST be refused. A hierarchy carried in one set is installed, upgraded and uninstalled as that set: a newer
+version lets go of what it no longer carries, at any depth, as R-HOST-067 says.
+
+**R-HOST-069.** A local copy that a removal detached, loaded again, MUST keep the protection its owner had set before the
+removal; where the owner had kept it writable, the host's request at the new mount MUST apply. A copy with no record of
+its protection before the removal MUST stay protected.
+
 ## 3. Decided, not yet required (informative)
 
 Decided on 24 November 2026. Each becomes a requirement in section 2 when the reference host builds and tests it.
@@ -61,9 +70,6 @@ Decided on 24 November 2026. Each becomes a requirement in section 2 when the re
   records' history, needs a later minor version of the format.
 - **Minds** (beyond R-HOST-066). Removing a mind switches it off at once; its own members follow the rule for sets. A
   character-only mode stays the user's explicit choice.
-- **Hierarchies.** Any member of a family, at any depth, can be switched off by its path. Removing or upgrading the
-  outermost family acts on every member it holds as one unit.
-- **Local copies.** A copy loaded again takes the host's request; a protection the owner set before the removal is kept.
 - **A pack that requires another** is resolved against the packs the host has loaded, and refused, naming the missing
   pack, otherwise.
 

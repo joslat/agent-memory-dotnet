@@ -400,6 +400,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- A local copy of a pack, detached by a removal and mounted again, keeps the protection its owner had set before the
+  removal; where the owner had kept it writable, the host's request at the new mount now applies (R-HOST-069). Before, it
+  came back protected whatever the host asked until the owner configured it. A mount with no revision history from before
+  the detach stays protected.
 - A pack that several sets or families carry as the same content (one digest), as every Mind set carries one values
   pack, is now held by each instead of refused (R-HOST-067): a host composes it once, valid while any holder is (the latest
   end among them, none when one has none, whatever the order the routes were given in), and `PackStore` installs the second
@@ -438,6 +442,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A host switches a member of a nested family on or off, or gives it a priority, by its path (R-HOST-068): the ids of
+  the families it sits in and then its own, joined by `CompositeOptions.PathSeparator` (`/`), as in
+  `AddFamily(arts, o => o.Disable("io.example.styles/io.example.karate/io.example.shotokan"))`. Before, only a family's
+  top-level members could be switched; a path that leads through no nested family to a member is refused. Proven on Neo4j
+  with a family three composites deep, upgraded and uninstalled as one set.
 - What a Mind needs from knowledge is checked against the packs a host has loaded (`MindKnowledge.Bind`, R-HOST-066):
   for each of its knowledge needs (`agentmemory.mind/2.0`), the loaded pack whose `assets/knowledge-contract.json`
   (`agentmemory.knowledge/1`) names its interface, language, jurisdiction and question format and has the minimum live
@@ -448,7 +457,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   before it imports; `KnowledgePackImportResult.Dropped` says what an import dropped. `KnowledgePackDrops.Compare` is the
   comparison for any store.
 - The host specification's lifecycle document (`spec/host/lifecycle.md`): what a host does with a pack's records and
-  names when it removes it, loads it again, upgrades it or gives it a new id (R-HOST-060 to 067, each with its test), and
+  names when it removes it, loads it again, upgrades it or gives it a new id (R-HOST-060 to 069, each with its test), and
   what is decided for sets, minds, hierarchies and an upgrade whose ontology changed, to be specified as each is built.
 - One release workflow for the native library (`native-release.yml`, NATIVE-RELEASE): one build per platform, gated,
   reaches every registry. It checks the version is new on PyPI, npm and GitHub, collects and checks the wheels, the npm

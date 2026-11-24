@@ -4853,6 +4853,30 @@
    ]
   },
   {
+   "id": "R-HOST-068",
+   "doc": "host/lifecycle.md",
+   "section": "2",
+   "level": "MUST",
+   "summary": "A host MUST let any member of a nested family be switched on or off, and given a priority, by its path: the ids of the families it sits in and then its own, joined by `/`; a path that does not lead through nested families to a member MUST be refused. A hierarchy carried in one set is installed, upgraded and uninstalled as that set: a newer version lets go of what it no longer carries, at any depth, as R-HOST-067 says.",
+   "verifiedBy": [
+    "unit:PackNestTests.A_member_inside_a_nested_family_is_switched_off_or_on_by_its_path",
+    "unit:PackNestTests.A_path_through_a_member_that_is_no_family_or_to_no_member_is_refused",
+    "unit:PackHoldingTests.A_set_s_newer_version_lets_go_of_what_it_no_longer_carries_unless_another_set_holds_it",
+    "integration:ModuleRecordWriteIntegrationTests.AFamilyThreeCompositesDeepIsRecalledSwitchedOffByPathUpgradedAsOneUnitAndUninstalled"
+   ]
+  },
+  {
+   "id": "R-HOST-069",
+   "doc": "host/lifecycle.md",
+   "section": "2",
+   "level": "MUST",
+   "summary": "A local copy that a removal detached, loaded again, MUST keep the protection its owner had set before the removal; where the owner had kept it writable, the host's request at the new mount MUST apply. A copy with no record of its protection before the removal MUST stay protected.",
+   "verifiedBy": [
+    "integration:ModuleRecordWriteIntegrationTests.Local_copy_the_owner_kept_writable_is_live_again_with_its_values_and_takes_the_host_s_request",
+    "integration:ModuleRecordWriteIntegrationTests.Local_copy_the_owner_protected_stays_protected_when_loaded_again_whatever_the_host_asks"
+   ]
+  },
+  {
    "id": "R-EMB-001",
    "doc": "profiles/embeddings.md",
    "section": "2",

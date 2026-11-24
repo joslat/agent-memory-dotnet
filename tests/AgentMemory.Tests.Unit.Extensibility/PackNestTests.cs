@@ -120,6 +120,40 @@ public sealed class PackNestTests : IDisposable
         new ModuleSetBuilder().AddFamily(family, o => o.Disable(CodingPack.Manifest.Id)).Modules.Select(m => m.Manifest.Id).Should().Equal(MartialArtsId);
     }
 
+    // The host lifecycle for hierarchies (R-HOST-068, AMPACK-BATTLE-TEST step 4, 24 Nov 2026): a host reaches any member of a
+    // nested family by its path, its id after each family it sits in, and switches it off or on as it does a top-level one.
+    private LoadedFamily Workshop()
+    {
+        var (coding, codingMembers) = Coding();
+        var martialArts = MartialArts();
+        var workshop = Composite("io.agentmemory.packs.workshop", [(coding, 10), (martialArts, 50)]);
+        return PackFamilies.LoadComposite(Save(workshop), [Save(coding), Save(martialArts), .. codingMembers.Select(Save)], Trust());
+    }
+
+    [Fact]
+    public void A_member_inside_a_nested_family_is_switched_off_or_on_by_its_path()
+    {
+        var family = Workshop();
+        static string InCoding(string member) => CodingPack.Manifest.Id + "/" + member;
+
+        var off = new ModuleSetBuilder().AddFamily(family, o => o.Disable(InCoding("io.agentmemory.packs.repository"))).Modules.Select(m => m.Manifest.Id).ToList();
+
+        off.Should().NotContain("io.agentmemory.packs.repository").And.Contain(CodeMapPack.Id).And.Contain(MartialArtsId);
+        new ModuleSetBuilder().AddFamily(family, o => o.Enable(InCoding("io.agentmemory.packs.architecture"))).Modules.Select(m => m.Manifest.Id)
+            .Should().Contain("io.agentmemory.packs.architecture", "a member that starts off is switched on the same way");
+    }
+
+    [Fact]
+    public void A_path_through_a_member_that_is_no_family_or_to_no_member_is_refused()
+    {
+        var family = Workshop();
+
+        FluentActions.Invoking(() => new ModuleSetBuilder().AddFamily(family, o => o.Disable(MartialArtsId + "/io.agentmemory.packs.anything")))
+            .Should().Throw<InvalidOperationException>().WithMessage("*has no member*");
+        FluentActions.Invoking(() => new ModuleSetBuilder().AddFamily(family, o => o.Disable(CodingPack.Manifest.Id + "/io.agentmemory.packs.nothing")))
+            .Should().Throw<InvalidOperationException>().WithMessage("*has no member*");
+    }
+
     [Fact]
     public void Four_composites_deep_loads_and_five_is_refused()
     {

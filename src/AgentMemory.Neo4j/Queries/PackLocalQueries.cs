@@ -72,6 +72,17 @@ internal static class PackLocalQueries
         LIMIT 33
         """;
     internal const string Rebase = "MATCH (p:PackLocalMount {id:$id}) SET p.base_digest=$digest,p.base_version=$version,p.active=true,p.revision=p.revision+1 RETURN properties(p) AS policy";
+    // A detached mount loaded again (the host lifecycle, R-HOST-069): the protection the owner had before the detach is kept;
+    // where the copy was writable then, the host's request applies. Without that history (a mount from before it), it stays.
+    internal const string Reactivate = """
+        MATCH (p:PackLocalMount {id:$id})
+        OPTIONAL MATCH (before:PackLocalRevision {mount_id:p.id})-[:SUPERSEDED_BY]->(detached:PackLocalRevision {mount_id:p.id})
+          WHERE detached.invalidated_at IS NULL AND detached.active=false AND before.active=true
+        WITH p, before
+        SET p.base_digest=$digest,p.base_version=$version,p.active=true,p.revision=p.revision+1,
+          p.write_protected=CASE WHEN before IS NOT NULL AND before.write_protected=false THEN $protected ELSE p.write_protected END
+        RETURN properties(p) AS policy
+        """;
     internal const string Change = """
         MATCH (p:PackLocalMount {id:$id})
         OPTIONAL MATCH (old:PackLocalChange {mount_id:$id,type:$type,key:$key}) WHERE old.invalidated_at IS NULL

@@ -201,11 +201,17 @@ public sealed class CompositeOptions
     internal Dictionary<string, bool> Switches { get; } = new(StringComparer.Ordinal);
     internal Dictionary<string, int> Priorities { get; } = new(StringComparer.Ordinal);
 
-    /// <summary>Composes a member the composite starts off.</summary>
+    /// <summary>
+    /// Joins the ids on a path to a member inside a nested composite (R-HOST-068): <c>outer.member/inner.member</c> reaches
+    /// <c>inner.member</c> inside the nested composite <c>outer.member</c>. Reverse-DNS ids never hold it.
+    /// </summary>
+    public const string PathSeparator = "/";
+
+    /// <summary>Composes a member the composite starts off: its id, or its path inside a nested composite (<see cref="PathSeparator"/>).</summary>
     public CompositeOptions Enable(string memberId) { Switches[memberId] = true; return this; }
-    /// <summary>Leaves a member out.</summary>
+    /// <summary>Leaves a member out: its id, or its path inside a nested composite (<see cref="PathSeparator"/>).</summary>
     public CompositeOptions Disable(string memberId) { Switches[memberId] = false; return this; }
-    /// <summary>Overrides a member's priority, 0 to 10,000.</summary>
+    /// <summary>Overrides a member's priority, 0 to 10,000: its id, or its path inside a nested composite.</summary>
     public CompositeOptions Prioritize(string memberId, int priority)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(priority);
@@ -272,7 +278,12 @@ public sealed class CompositeMembers
         _seen.Add(member.Id);
         var enabled = _on && (_options.Switches.TryGetValue(member.Id, out var on) ? on : member.Enabled);
         var slot = Math.Min(10_000, _offset + (_options.Priorities.TryGetValue(member.Id, out var p) ? p : member.Priority));
-        var nested = new CompositeMembers(_builder, composite, new CompositeOptions(), [.. _chain, composite.Id], slot, enabled, _composed);
+        // A host's switches and priorities for a member inside it come by path, its id after this one's (R-HOST-068).
+        var inside = new CompositeOptions();
+        var prefix = member.Id + CompositeOptions.PathSeparator;
+        foreach (var (path, switched) in _options.Switches.Where(s => s.Key.StartsWith(prefix, StringComparison.Ordinal))) inside.Switches[path[prefix.Length..]] = switched;
+        foreach (var (path, priority) in _options.Priorities.Where(s => s.Key.StartsWith(prefix, StringComparison.Ordinal))) inside.Priorities[path[prefix.Length..]] = priority;
+        var nested = new CompositeMembers(_builder, composite, inside, [.. _chain, composite.Id], slot, enabled, _composed);
         addMembers(nested);
         nested.Complete();
         _nested[member.Id] = (nested, enabled);
@@ -368,7 +379,9 @@ public sealed class CompositeMembers
     {
         var missing = _composite.Members.Select(m => m.Id).Where(id => !_seen.Contains(id)).ToList();
         if (missing.Count != 0) throw new InvalidOperationException($"Composite '{_composite.Id}' did not add {string.Join(", ", missing)}.");
-        var unknown = _options.Switches.Keys.Concat(_options.Priorities.Keys).Where(id => _composite.Members.All(m => m.Id != id)).Distinct().ToList();
+        // A path reaches inside a nested composite, which checks the rest of it; anywhere else it names nothing.
+        var unknown = _options.Switches.Keys.Concat(_options.Priorities.Keys).Where(id => id.IndexOf(CompositeOptions.PathSeparator, StringComparison.Ordinal) is var at && at >= 0
+            ? !_nested.ContainsKey(id[..at]) : _composite.Members.All(m => m.Id != id)).Distinct().ToList();
         if (unknown.Count != 0) throw new InvalidOperationException($"Composite '{_composite.Id}' has no member {string.Join(", ", unknown)}.");
         // A member depends on (and links to) only what it contains, and what it needs is composed with it. A module inside a
         // nested composite is contained through that composite.
