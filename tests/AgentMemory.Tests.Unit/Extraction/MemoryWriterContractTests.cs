@@ -1165,6 +1165,31 @@ public sealed class MemoryWriterContractTests : IDisposable
         result.Entities.Should().ContainSingle().Which.Name.Should().Be("user's landlord Tomás");
     }
 
+    /// <summary>
+    /// The paid check of 24 Nov (ihc1-v1-glm-1, statement 8): "X is the designer on Atlas" gave a connection to the stored
+    /// project and a reference to it; a reference cannot confirm a thing, so it stayed open beside the stored one, a split
+    /// the run before the fix never had. Only an end a reference may confirm (a person, an organisation) is referred to.
+    /// </summary>
+    [Fact]
+    public async Task A_connection_to_a_stored_thing_refers_to_nothing()
+    {
+        ShowStoredEntities(new Entity
+        {
+            EntityId = "thing-atlas", Name = "Atlas", Type = "OBJECT", OwnerId = "bruna", Confidence = 1, SourceMessageIds = ["prior"],
+            CreatedAtUtc = DateTimeOffset.UnixEpoch,
+        });
+        _replies.Enqueue("""
+            {"ops":[
+              {"op":"add","kind":"entity","text":"Iker (PERSON)","quote":"Iker","ref":null},
+              {"op":"add","kind":"relationship","text":"Iker -[designer on]-> Atlas","quote":"Iker is the designer on Atlas","ref":null}
+            ]}
+            """);
+
+        var result = await Write("Iker is the designer on Atlas.");
+
+        result.Entities.Should().NotContain(e => e.Name == "Atlas");
+    }
+
     [Fact]
     public async Task A_connection_that_says_there_is_none_refers_to_nobody()
     {

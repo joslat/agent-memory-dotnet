@@ -1083,6 +1083,9 @@ internal static class MemoryWriterOps
                 var shown = stored.Where(s => s.Letter == 'E' && s.Entity is { } e && MemoryWriterContract.Canonical(e.Name) == name).ToList();
                 if (shown is not [{ Entity: { } entity } only] || op.QuoteStart is not int start || op.QuoteEnd is not int stop ||
                     start < 0 || stop > message.Length || start >= stop) continue;
+                // The paid check of 24 Nov (ihc1-v1-glm-1, statement 8): a reference cannot confirm a thing or a place, so one
+                // to "Atlas" stayed open beside the stored project, a split. Only a person or an organisation is referred to.
+                if (EntityType(entity.Type) is not ("PERSON" or "ORGANIZATION")) continue;
                 var words = Regex.Match(message[start..stop], $@"(?<![\p{{L}}\p{{M}}]){Regex.Escape(end.Trim())}(?![\p{{L}}\p{{M}}])",
                     RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(50));
                 if (!words.Success) continue;
