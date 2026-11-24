@@ -4756,7 +4756,8 @@
     "integration:PackRemoveByIdIntegrationTests.APackWhoseBundleIsGoneIsRemovedByItsIdFromWhatTheStoreHoldsAndLoadsAgainLater",
     "integration:PackReloadIntegrationTests.TheMartialArtsPackUnderANewIdIsRefusedTheOldIdsNamesAndTheFailureNamesThePackTheStepAndTheOwner",
     "integration:ModuleRecordWriteIntegrationTests.AnUpgradeThatDropsATypeAPropertyAndARelationClosesWhatItNoLongerHoldsAndARemovalLeavesNothingLive",
-    "integration:ModuleRecordWriteIntegrationTests.ARemovalByANewerManifestClosesTheLiveRecordsOfATypeOnlyAnEarlierVersionDefined"
+    "integration:ModuleRecordWriteIntegrationTests.ARemovalByANewerManifestClosesTheLiveRecordsOfATypeOnlyAnEarlierVersionDefined",
+    "integration:ModuleRecordWriteIntegrationTests.AFamilyOfTwoKnowledgePacksIsRecalledUpgradesAMemberWhoseOntologyDroppedATypeAndIsRemovedAndLoadedAgain"
    ]
   },
   {
@@ -4766,7 +4767,8 @@
    "level": "MUST",
    "summary": "A pack removed and loaded again at the same version MUST be imported again: every record it holds is written again and is live.",
    "verifiedBy": [
-    "integration:PackReloadIntegrationTests.TheMartialArtsPackRemovedAndLoadedAgainImportsAgainWithEveryRecordLive"
+    "integration:PackReloadIntegrationTests.TheMartialArtsPackRemovedAndLoadedAgainImportsAgainWithEveryRecordLive",
+    "integration:ModuleRecordWriteIntegrationTests.AFamilyOfTwoKnowledgePacksIsRecalledUpgradesAMemberWhoseOntologyDroppedATypeAndIsRemovedAndLoadedAgain"
    ]
   },
   {
@@ -4779,7 +4781,8 @@
     "unit:KnowledgePackDropsTests.A_type_a_relation_and_a_property_the_version_no_longer_defines_are_named_in_order_once_each",
     "integration:KnowledgePackIntegrationTests.AKnowledgePackImportsIsSearchedByEveryOwnerUpgradesByKeyAndIsRemovedWithItsHistoryKept",
     "integration:AmpackEndToEndIntegrationTests.TheRealMartialArtsPackAsAnAmpackImportsIsSearchedUpgradesRefusesItsOlderVersionAndIsRemoved",
-    "integration:ModuleRecordWriteIntegrationTests.AnUpgradeThatDropsATypeAPropertyAndARelationClosesWhatItNoLongerHoldsAndARemovalLeavesNothingLive"
+    "integration:ModuleRecordWriteIntegrationTests.AnUpgradeThatDropsATypeAPropertyAndARelationClosesWhatItNoLongerHoldsAndARemovalLeavesNothingLive",
+    "integration:ModuleRecordWriteIntegrationTests.AFamilyOfTwoKnowledgePacksIsRecalledUpgradesAMemberWhoseOntologyDroppedATypeAndIsRemovedAndLoadedAgain"
    ]
   },
   {
@@ -4813,7 +4816,8 @@
    "verifiedBy": [
     "unit:KnowledgePackDropsTests.A_type_a_relation_and_a_property_the_version_no_longer_defines_are_named_in_order_once_each",
     "unit:KnowledgePackDropsTests.The_sdk_s_own_record_properties_are_never_a_drop",
-    "integration:ModuleRecordWriteIntegrationTests.AnUpgradeThatDropsATypeAPropertyAndARelationClosesWhatItNoLongerHoldsAndARemovalLeavesNothingLive"
+    "integration:ModuleRecordWriteIntegrationTests.AnUpgradeThatDropsATypeAPropertyAndARelationClosesWhatItNoLongerHoldsAndARemovalLeavesNothingLive",
+    "integration:ModuleRecordWriteIntegrationTests.AFamilyOfTwoKnowledgePacksIsRecalledUpgradesAMemberWhoseOntologyDroppedATypeAndIsRemovedAndLoadedAgain"
    ]
   },
   {
