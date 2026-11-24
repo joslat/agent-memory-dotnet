@@ -92,6 +92,15 @@ internal static class MemoryWriterContract
         IReadOnlyList<MemoryWriterOps.Stored> stored, string? owner, Persons? persons = null)
     {
         var issues = new List<Issue>();
+        // The paid check of 24 Nov (ihc1-v1-glm-2 and 3, statement 50): a rename answered as an entity "replace" whose text
+        // held both names ("Brisa Labs (ORGANIZATION) (replacing: Brisa (ORGANIZATION))") was stored as a junk thing. An
+        // entity is always an add: its leading "Name (TYPE)" is the entity, its reference kept.
+        for (var i = 0; i < ops.Count; i++)
+            if (ops[i].Kind == "entity" && ops[i].Action is "replace" or "correct" && !EntityText.IsMatch(ops[i].Text) &&
+                LeadingEntity.Match(ops[i].Text) is { Success: true } lead)
+                ops[i] = ops[i] with { Action = "add", Id = null, Text = lead.Value.Trim() };
+            else if (ops[i].Kind == "entity" && ops[i].Action is "replace" or "correct" && EntityText.IsMatch(ops[i].Text))
+                ops[i] = ops[i] with { Action = "add", Id = null };
         foreach (var drop in dropped)
         {
             // A dropped entity whose text is malformed too is asked to fix both in its one correction (ILC-23 ECB+: a
@@ -454,7 +463,7 @@ internal static class MemoryWriterContract
     /// </summary>
     /// <summary>Words that say a name is corrected or changed: "it's Okafor, not Okoro", "renamed it MedPath", "has a new name".</summary>
     private static readonly Regex RenameCue = new(
-        @"\b(?:not|renamed|rebranded|new\s+name|now\s+called|now\s+named|is\s+now|spell(?:ed|ing|t)?|misspel\w*|actually|correction)\b",
+        @"\b(?:not|renamed|rebranded|new\s+name|now\s+called|now\s+named|is\s+now|(?:is|are|was|were)\s+(?:now\s+)?(?:called|named)|spell(?:ed|ing|t)?|misspel\w*|actually|correction)\b",
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     /// <summary>
@@ -707,6 +716,10 @@ internal static class MemoryWriterContract
     internal static string Canonical(string? value) => MemoryTripleCanonicalizer.CanonicalValue(value);
 
     /// <summary>"Name (TYPE)" to its name; anything else stays as it is.</summary>
+    private static readonly Regex LeadingEntity = new(
+        @"^\s*[^|(){}\[\]]+?\s*\(\s*(?:PERSON|PLACE|ORGANIZATION|ORGANISATION|THING|EVENT|LOCATION|OBJECT)\s*\)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
     private static readonly Regex Bracketed = new(
         @"^\s*(?<n>[^|(){}\[\]]+?)\s*\(\s*(?<q>[^|(){}\[\]]+?)\s*\)\s*\(\s*(?<t>PERSON|PLACE|ORGANIZATION|ORGANISATION|THING|EVENT|LOCATION|OBJECT)\s*\)\s*$",
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);

@@ -487,6 +487,29 @@ public sealed class MemoryWriterContractTests : IDisposable
         result.Outcomes.Should().BeEmpty();
     }
 
+    /// <summary>
+    /// The paid check of 24 Nov (ihc1-v1-glm-2 and 3, statement 50, "Brisa is called Brisa Labs now"): told that a rename
+    /// is about the stored entity, the writer answered with an entity "replace" and a text holding both names; the text was
+    /// no entity name, so a junk thing was stored and the studio split. An entity is always an add; its leading "Name
+    /// (TYPE)" is the entity, and "is called ... now" says a rename.
+    /// </summary>
+    [Theory]
+    [InlineData("Nexo Labs (ORGANIZATION) (replacing: Nexo Studio (ORGANIZATION))")]
+    [InlineData("Nexo Labs (ORGANIZATION) replaces Nexo Studio (ORGANIZATION) (renamed) - stored as E1")]
+    public async Task A_rename_answered_as_an_entity_replace_is_the_stored_entity_also_called_by_the_new_name(string text)
+    {
+        ShowStored("stored-1", "Nexo Studio", "ORGANIZATION");
+        _replies.Enqueue($$"""{"ops":[{"op":"replace","kind":"entity","id":"E1","text":"{{text}}","quote":"Nexo Studio is called Nexo Labs now.","ref":"E1"}]}""");
+
+        var result = await Write("Nexo Studio is called Nexo Labs now.");
+
+        _calls.Should().ContainSingle();
+        var entity = result.Entities.Should().ContainSingle().Which;
+        entity.Name.Should().Be("Nexo Studio");
+        entity.Aliases.Should().Equal("Nexo Labs");
+        entity.Reference!.EntityId.Should().Be("stored-1");
+    }
+
     [Theory]
     [InlineData("Ms. Vidal called about the will.", "Ms. Vidal called")]                       // the stored name is not said
     [InlineData("Ms. Vidal and Ms. Ortega both called.", "Ms. Vidal and Ms. Ortega both called")] // both said, no correction
