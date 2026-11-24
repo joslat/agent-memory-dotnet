@@ -2098,6 +2098,54 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
             DateTimeOffset.UtcNow, Scope)).Should().BeEmpty();
     }
 
+    /// <summary>
+    /// IDENTITY-RELATION-GROUNDING: a connection reaches the graph only when both its ends are mentions of the turn. The
+    /// writer is told a stored person needs no new mention, so "Tomás's parents, Iker and Marta" said after Tomás was met
+    /// gave two unresolved claims and no connection: whos-who-v2's third run kept 4 of the writer's 21. The writer now
+    /// refers to the stored end in the connection's words (LlmMemoryWriter.ConnectionEnds); identity checks that
+    /// reference like any other, and the connection is live.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_connection_to_a_person_met_before_is_live_when_the_writer_refers_to_them(bool referred)
+    {
+        using var host = Host(conversationalPolicies: true); using var scope = host.CreateScope(); var services = scope.ServiceProvider;
+        const string first = "My son Tomás starts school in September.";
+        const string later = "Tomás's parents, Iker and Marta, live in Bilbao.";
+        // The turns are stored before they are read, as in the product: identity checks a reference's words against them.
+        await fixture.TransactionRunner.WriteAsync(async runner => { await runner.RunAsync(
+            "MATCH (c:Conversation {id:'conversation'}) " +
+            "CREATE (a:Message {id:'turn-1', conversation_id:'conversation', content:$a, session_id:'scenario'}), (c)-[:HAS_MESSAGE]->(a) " +
+            "CREATE (b:Message {id:'turn-2', conversation_id:'conversation', content:$b, session_id:'scenario'}), (c)-[:HAS_MESSAGE]->(b)",
+            new { a = first, b = later }); });
+        await Ingest(services, new UnifiedExtractionResult
+        {
+            Entities = [new() { Name = "Tomás", Type = "PERSON", Confidence = 1 }],
+            Facts = [new() { Subject = "Tomás", Predicate = "starts school in", Object = "September", Confidence = 1 }]
+        }, messageId: "turn-1", content: first);
+        var facts = services.GetRequiredService<IFactRepository>();
+        var tomas = (await facts.GetPersonIdentitiesAsync(1000, Scope)).Should().ContainSingle().Subject.EntityId;
+
+        ExtractedEntity[] parents = [new() { Name = "Iker", Type = "PERSON", Confidence = 1 }, new() { Name = "Marta", Type = "PERSON", Confidence = 1 }];
+        await Ingest(services, new UnifiedExtractionResult
+        {
+            Entities = referred
+                ? [.. parents, new() { Name = "Tomás", Type = "PERSON", Confidence = 1, Reference = new() { EntityId = tomas, Quote = "Tomás" } }]
+                : parents,
+            Relationships = [new() { SourceEntity = "Iker", RelationshipType = "PARENT_OF", TargetEntity = "Tomás", Confidence = 1 },
+                new() { SourceEntity = "Marta", RelationshipType = "PARENT_OF", TargetEntity = "Tomás", Confidence = 1 }]
+        }, messageId: "turn-2", content: later);
+
+        var live = await services.GetRequiredService<IRelationshipRepository>().GetLiveAroundAsync([tomas], [], 16, DateTimeOffset.UtcNow, Scope);
+        if (referred)
+            live.Select(r => r.Relationship.TargetEntityId).Should().Equal([tomas, tomas], "both parents are connected to the Tomás met before");
+        else
+            live.Should().BeEmpty("without a mention of Tomás in this turn the connections stay unresolved claims");
+        (await Count("(:IdentityRelationshipObservation)")).Should().Be(2, "the claims are kept either way");
+        (await facts.GetPersonIdentitiesAsync(1000, Scope)).Should().HaveCount(3, "the reference adds no second Tomás");
+    }
+
     // ── P231-A part 2 (17-P231A-KEPT-NAMES-RIPPLES.md): other paths and identity data ──
 
     /// <summary>Valentina, confirmed, two facts bound, one of them said of "Vale", her nickname (kept on her, as Bind keeps it).</summary>

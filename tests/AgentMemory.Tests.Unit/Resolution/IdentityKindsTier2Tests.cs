@@ -43,7 +43,7 @@ public sealed class IdentityKindsTier2Tests
         WhosWho.Turns().Should().HaveCount(54);
         Key.Things.Should().HaveCount(27);
         Key.Namesakes.Should().HaveCount(9);
-        Key.Mentions.Should().HaveCount(68);
+        Key.Mentions.Should().HaveCount(70, "key version 2 labels Marta in her wedding's two statements too");
         Key.Things.Select(t => t.Kind).Distinct().Should().HaveCount(14);
         WhosWho.Questions.Should().HaveCount(7);
         // Five questions forbid a namesake's facts; "cordoba" and "brisa" ask about one thing only.
@@ -79,7 +79,7 @@ public sealed class IdentityKindsTier2Tests
         score.Splits.Should().Be(0);
         score.Missed.Should().Be(0, string.Join("; ", score.Mentions.Where(m => m.Thing is null).Select(m => $"{m.Words} in {m.Statement}: {m.How}")));
         score.Right.Should().Be(27);
-        score.ByLevel.Values.Sum(l => l.Right).Should().Be(68);
+        score.ByLevel.Values.Sum(l => l.Right).Should().Be(70);
     }
 
     [Fact]
@@ -208,6 +208,47 @@ public sealed class IdentityKindsTier2Tests
         score.SplitThings.Should().NotContainKey("T10");
         IdentityKindsScorer.MentionWords("the mosque in Córdoba").Should().Equal("mosque");
         IdentityKindsScorer.MentionWords("Córdoba in Spain").Should().Contain("spain");
+    }
+
+    /// <summary>
+    /// IHC-SCORER (the owner's call, 23 Nov): whos-who-v2's baseline counted two wrong merges that were the scorer's. The
+    /// writer stored "Rebecca Thornton's wedding" as an event where the friend's engagement was told (statement 16, where
+    /// the key names only the friend) and found it again where the wedding is named; the scorer, finding no event in
+    /// statement 16, labelled the event as the friend by its name words. An event named after a thing is not that thing;
+    /// the thing's bare name stored under the wrong type still is (a model may type a project an event).
+    /// </summary>
+    [Fact]
+    public void An_event_named_after_a_thing_is_not_that_thing()
+    {
+        // A two-word name keeps its first word when the possessive is stripped, as "Rebecca Thornton's" kept "Rebecca".
+        var score = IdentityKindsScorer.Score(Key, WhosWho, Store([.. PerfectEntities(),
+                Entity("e-lunch", "Valentina Ríos's leaving lunch", "EVENT", [11]),
+                Entity("e-typed-event", "Vale", "EVENT", [42])]),
+            IdentityGoldScorer.EntitiesView);
+
+        score.Mentions.Single(m => m.Identity == "e-lunch").Thing.Should().BeNull();
+        score.Mentions.Single(m => m.Identity == "e-typed-event").Thing.Should().Be("T01");
+        score.SplitThings.Keys.Should().Equal("T01");
+        score.WrongMerges.Should().Be(0);
+    }
+
+    /// <summary>
+    /// IHC-SCORER, the root of the case above: a possessive's owner was one word, so "Dr. Sosa's clinic" kept "dr" and was
+    /// counted as the vet (the paid check of 24 Nov, ihc1-v1-glm-1, statement 49), as "Rebecca Thornton's" kept "rebecca".
+    /// An owner of several capitalised words (a title too) is the owner; "Luna, Clara's cat" keeps "Luna".
+    /// </summary>
+    [Fact]
+    public void A_thing_named_after_an_owner_of_several_words_is_not_that_owner()
+    {
+        var score = IdentityKindsScorer.Score(Key, WhosWho, Store([.. PerfectEntities(),
+                Entity("e-clinic", "Dr. Sosa's clinic", "LOCATION", [49])]),
+            IdentityGoldScorer.EntitiesView);
+
+        score.Mentions.Single(m => m.Identity == "e-clinic").Thing.Should().BeNull();
+        score.SplitThings.Should().NotContainKey("T04");
+        IdentityKindsScorer.MentionWords("Dr. Sosa's clinic").Should().Equal("clinic");
+        IdentityKindsScorer.MentionWords("Valentina Ríos's leaving lunch").Should().BeEquivalentTo(["leaving", "lunch"]);
+        IdentityKindsScorer.MentionWords("Luna, Clara's cat").Should().Contain("luna");
     }
 
     [Fact]

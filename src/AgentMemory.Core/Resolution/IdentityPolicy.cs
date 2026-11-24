@@ -10,6 +10,17 @@ internal static class IdentityPolicy
     /// <summary>Review reason of a candidate nominated only because it was observed in a context turn.</summary>
     internal const string ContextRootedReview = "context_rooted_review";
 
+    /// <summary>Review reason of a candidate whose longer name holds a bare name another candidate has exactly.</summary>
+    internal const string NamesakeReview = "namesake_holds_name";
+
+    /// <summary>Whether <paramref name="longer"/> holds <paramref name="name"/> as whole words, and is more than it.</summary>
+    internal static bool HoldsName(string longer, string name) =>
+        !string.IsNullOrWhiteSpace(name) && !SameName(longer, name) &&
+        System.Text.RegularExpressions.Regex.IsMatch(longer,
+            $@"(?<![\p{{L}}\p{{M}}]){System.Text.RegularExpressions.Regex.Escape(name.Trim())}(?![\p{{L}}\p{{M}}])",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant,
+            TimeSpan.FromMilliseconds(50));
+
     internal static IdentityPolicyResult Evaluate(ExtractedEntity mention,
         IReadOnlyList<IdentityCandidate> candidates, EntityIdentityResolutionContext context,
         EntityIdentityPolicy policy, MemoryScope? scope)
@@ -122,6 +133,20 @@ internal static class IdentityPolicy
                 reasons[id] = ContextRootedReview;
             }
         }
+
+        // IDENTITY-HARD-CASES D, the second paid check of 24 Nov (ihc2-v2-glm-1, statement 113): a bare name one candidate has
+        // exactly and others hold as whole words ("Kiran" beside "Kiran from the IV room" and "grown-up Kiran") says nothing
+        // of which one is meant. The longer names score low against it, so only the exact one was reviewed, and the
+        // adjudicator, offered no other, confirmed it. Every candidate of such a set is reviewed together.
+        if (!literal && candidates.Any(candidate => review.Contains(candidate.Entity.EntityId) && SameName(mention.Name, candidate.Entity.Name)))
+            foreach (var candidate in candidates)
+            {
+                var id = candidate.Entity.EntityId;
+                if (!Visible(candidate.Entity, scope) || rejected.Contains(id) || review.Contains(id) || confirmed.Contains(id) ||
+                    !HoldsName(candidate.Entity.Name, mention.Name)) continue;
+                review.Add(id);
+                reasons[id] = NamesakeReview;
+            }
 
         // Repeated IDs with inconsistent records cannot smuggle a confirmation past a veto.
         confirmed.ExceptWith(rejected);

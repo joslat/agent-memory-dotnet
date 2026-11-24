@@ -46,10 +46,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   14 before; no wrong merge in the last four):
   - It stores named things inside facts and preferences (brands, products, documents, works, places, groups), each beside
     the fact that names it.
-  - A thing or place said again under exactly its stored name, or referred to again, is left out (its facts use the stored
-    name; a writer's reference cannot confirm a thing or a place, so it would only stay pending); a person or an
-    organisation is asked once for its reference; a different thing of a stored name is named with the words that tell it
-    apart. Stored things of one name are shown with the words each was first said in.
+  - A thing or place said again under exactly its stored name, or referred to again (also in a correction), is left out
+    (its facts use the stored name; a writer's reference cannot confirm a thing or a place, so it would only stay
+    pending); a person or an organisation is asked once for its reference; a different thing of a stored name is named
+    with the words that tell it apart. Stored things of one name are shown with the words each was first said in.
   - A person called by a short form of a stored person's name ("Vale" for Valentina Ríos) may be referred to under it,
     keeping the stored name and the short form as its alias (also when the writer refers to them under the full name
     and the message used the short form); a new person named so is asked once which it is.
@@ -243,6 +243,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A connection to someone met before reaches the graph again with evidence-based identity (on by default since 2.2.0
+  wherever the store-aware writer runs on Neo4j). A connection is kept as a live edge only when both its ends are mentions
+  of the turn, and the writer is told that a stored person needs no new mention, so "Tomás's parents, Iker and Marta",
+  said after Tomás was met, kept the two claims but connected nobody to Tomás. Measured on a held-out conversation, 17 of
+  the writer's 21 connections in one run never became edges, and the writer was later shown a stored person without the
+  connections that told them from a namesake. The writer now refers to such an end in the connection's own words when it
+  names exactly one stored person or organisation it was shown and the reply does not mention it otherwise; identity
+  checks that reference as it checks the writer's own. Two stored entities of the name, words that do not name it, a
+  stored thing or project (a reference cannot confirm one, so "designer on Atlas" left Atlas open), a negated connection
+  ("our landlord is also called Tomás, no relation"), a bare end beside a namesake the reply names apart, and an end the
+  message introduces by a relation or a description ("Joel's best mate Rafa", "Rafa, Joel's best mate", "Rafa from the
+  gym": maybe someone new, measured on a blind conversation where a second person of a stored first name was merged into
+  the stored one) refer to nobody, as before. Only the person a relation is about ("Tomás" in "Tomás's parents") is referred. Connections
+  already kept as claims are not re-linked.
+- Fewer wrong merges of namesakes with evidence-based identity, each measured on a held-out conversation where it merged
+  two different things (IDENTITY-HARD-CASES):
+  - A person met as someone's parent ("Tomás's parents, Iker and Marta") is no longer confirmed as the owner's boss of
+    that name: identity's relation check now reads "parent(s)", a relation given before a list or an apposition ("my
+    mum, Marta") or after a pronoun, and a mother or a father agrees with a parent.
+  - A second pet or thing of a stored name that the writer tells apart in brackets when asked ("Luna (the neighbours'
+    kitten)") is kept as "Luna, the neighbours' kitten"; it was kept under the bare stored name and merged.
+  - Stored things of one name but two types (an event and a project) are shown to the writer with the words each was
+    first said in, as things of one name and one type already were.
+  - A name the message corrects or changes ("it's Ms. Vidal, not Ortega", "renamed Brightline", "is called Brightline
+    now") is the stored person, organisation or event, also called by the new name, when the writer refers to it and
+    quotes both names: it was a second entity. A writer that answers with an entity replace, or a text holding both
+    names, is read as an add of the leading name with its reference kept.
+  - A namesake of a stored person whom the message gives another relation ("my boss Marta", the stored Marta known as
+    Tomás's parent) is kept as "Marta, user's boss" with an entity of its own. The writer had written only facts about
+    "Marta", and a later "the boss" confirmed as the parent.
+  - A bare name one stored person or thing has exactly and others hold in longer names ("Rafa" beside a stored "Rafa",
+    "big Rafa" and "Rafa from accounts") is weighed against all of them. The longer names score low against it, so
+    only the exact one was reviewed, and identity, offered no other, confirmed it, also when the writer had referred to
+    it; when only earlier facts tell them apart, that was the wrong one. A writer's reference under such a name is no
+    longer taken as decisive, and a longer name alone, with no exact namesake, is not reviewed for holding it.
 - Recall for people stays quick on a large store. With identity on, a question that names someone reads the names the
   owner's people are known by, then those people. Both reads sought every person in the store, of every owner, and
   threw away all but the owner's. With index statistics from when the store was smaller (right after an import, or a
@@ -350,6 +385,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- With evidence-based identity, the writer stores a common noun anchored to an owner or a name as a thing of its own
+  (the owner's decision, 23 Nov 2026): someone's particular thing ("my laptop", "Ana's flat", "Dad's chess club") or one
+  a proper name pins down ("the house on Elm Street"), named with its anchor, the speaker's own as "user's laptop" (or
+  the owner's name). A bare common noun ("the office", "the meeting") still gets no entity, nor the same noun said
+  later without its anchor. Things without a proper name were the largest block of identity failures in both held-out
+  who's-who conversations; anchored, one owner's thing and another's ("my car", "Dad's car") are two. A store gets more
+  entities of kind THING, PLACE and ORGANIZATION; recall and facts are unchanged.
 - The embedding cache is on by default: `MemoryOptions.EmbeddingCacheCapacity`, left unset, is 512 texts (about 2 MB).
   An embedding model is a pure function of its text, so a hit changes nothing but the round trip; a live turn embedded
   the user's message twice. Under strict multi-tenant isolation (`MemoryIsolationMode.StrictMultiTenant`) it stays off

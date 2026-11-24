@@ -92,6 +92,15 @@ internal static class MemoryWriterContract
         IReadOnlyList<MemoryWriterOps.Stored> stored, string? owner, Persons? persons = null)
     {
         var issues = new List<Issue>();
+        // The paid check of 24 Nov (ihc1-v1-glm-2 and 3, statement 50): a rename answered as an entity "replace" whose text
+        // held both names ("Brisa Labs (ORGANIZATION) (replacing: Brisa (ORGANIZATION))") was stored as a junk thing. An
+        // entity is always an add: its leading "Name (TYPE)" is the entity, its reference kept.
+        for (var i = 0; i < ops.Count; i++)
+            if (ops[i].Kind == "entity" && ops[i].Action is "replace" or "correct" && !EntityText.IsMatch(ops[i].Text) &&
+                LeadingEntity.Match(ops[i].Text) is { Success: true } lead)
+                ops[i] = ops[i] with { Action = "add", Id = null, Text = lead.Value.Trim() };
+            else if (ops[i].Kind == "entity" && ops[i].Action is "replace" or "correct" && EntityText.IsMatch(ops[i].Text))
+                ops[i] = ops[i] with { Action = "add", Id = null };
         foreach (var drop in dropped)
         {
             // A dropped entity whose text is malformed too is asked to fix both in its one correction (ILC-23 ECB+: a
@@ -131,9 +140,7 @@ internal static class MemoryWriterContract
         // is (below). A writer's reference confirms only a person, an organisation or an event, so the re-mention would stay
         // a pending observation, another identity of it (the sixth paid check, cover6-1 statement 40: "Atlas (OBJECT)" with
         // "ref": "E1"). Its facts already carry the stored name. A valid ref here names the stored entity's exact name.
-        ops.RemoveAll(op => op.Kind == "entity" && op.Action == "add" && op.Ref is { } label &&
-            byLabel.TryGetValue(label, out var item) && item.Letter == 'E' && StoredType(item.Text) is { } type &&
-            type != "EVENT" && !RefConfirmable.Contains(type));
+        ops.RemoveAll(op => RefersToStoredThing(op, byLabel));
         // IDENTITY-PERSON-REF-GUARD: a person reference the conversation's own relation words contradict is refused before
         // anything is stored, and the facts it carried keep the message's name. The third paid check, cover3-2 statement 13:
         // "My niece Valentina started school this year, she is six." was referred to the stored designer Valentina Ríos and
@@ -187,6 +194,41 @@ internal static class MemoryWriterContract
                 $"it names stored {person.Label} \"{storedName}\", known as {string.Join(", ", known.Order(StringComparer.Ordinal))}, and the "
                 + $"conversation calls this person {string.Join(", ", said.Order(StringComparer.Ordinal))}: two people, so {moved} operation(s) keep the "
                 + $"message's name \"{own}\""));
+        }
+        // IDENTITY-HARD-CASES A4, the paid check of 24 Nov (ihc1-v2-glm-1, statement 18): a person stored by a first name only,
+        // met as a partner's parent; "My boss Fiona, the chief pharmacist, put my name forward" was answered with facts about
+        // "Fiona" and no entity. The message holds the stored name itself, so the guard above left it: the boss's facts went
+        // under the parent's name and a later "the boss" was confirmed as the parent. The message's relation that the stored
+        // person is not known by names a namesake: the operations take the name with that relation, and it gets an entity.
+        for (var p = 0; persons is not null && p < stored.Count; p++)
+        {
+            var person = stored[p];
+            if (person.Letter != 'E' || StoredType(person.Text) != "PERSON" || !persons.Known.TryGetValue(person.Label, out var known)) continue;
+            var storedName = EntityName(person.Text);
+            if (!NamesakeInFactsOnly(ops, storedName, persons.Message)) continue;
+            var said = IdentityRelationCue.InTurn(persons.Message, [storedName]);
+            if (!IdentityRelationCue.Disagree(said, known)) continue;
+            var own = $"{storedName}, {owner ?? "user"}'s {said.Order(StringComparer.Ordinal).First()}";
+            var first = -1;
+            string? written = null;
+            var moved = 0;
+            for (var j = 0; j < ops.Count; j++)
+            {
+                if (!NamesInText(ops[j]) || !HoldsName(ops[j].Text, storedName)) continue;
+                if (first < 0) (first, written) = (j, ops[j].Text);
+                ops[j] = ops[j] with { Text = Rename(ops[j].Text, storedName, own) };
+                moved++;
+            }
+            var at = Regex.Match(persons.Message, WholeName(storedName), RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, NameTimeout);
+            ops.Add(new MemoryWriterOps.Op("add", "entity", $"{own} (PERSON)", null)
+            {
+                Quote = at.Value, QuoteStart = at.Index, QuoteEnd = at.Index + at.Length,
+                Index = ops.Select(op => op.Index).DefaultIfEmpty(-1).Max() + 1,
+            });
+            issues.Add(new(MemoryWriterOps.DropReason.ReferenceRelationConflict, ops[first].Index, ops[first].Kind, written,
+                $"it names stored {person.Label} \"{storedName}\", known as {string.Join(", ", known.Order(StringComparer.Ordinal))}, and the "
+                + $"message calls this person {string.Join(", ", said.Order(StringComparer.Ordinal))}: another person, so {moved} operation(s) "
+                + $"and a new entity are named \"{own}\""));
         }
         // IDENTITY-WRITER-COVERAGE: an entity add without a ref, named and typed exactly as a shown stored entity, is asked
         // once which it is (ikb-cover-1: a second café was stored under the first one's name, so the next turn saw two it
@@ -281,6 +323,17 @@ internal static class MemoryWriterContract
         {
             // Never sent for a correction, so never given one: a fix meant for another issue stays with that issue.
             var fix = ReportedOnly(issue.Reason) ? null : corrected.FirstOrDefault(op => !used.Contains(op) && Fixes(issue, op));
+            // IDENTITY-HARD-CASES A3 (whos-who-v2 run 2): a repeated name told apart in brackets ("Luna (the neighbours'
+            // kitten) (PERSON)") is that name with its qualifier. Not taken, the entity kept the bare stored name and identity
+            // merged the two. Only for a repeated name: elsewhere a bracketed description is no name and is asked to be fixed.
+            if (fix is null && issue.RepeatedName is not null && !ReportedOnly(issue.Reason))
+                foreach (var op in corrected.Where(op => !used.Contains(op)))
+                    if (Unbracketed(op) is { } plain && Fixes(issue, plain))
+                    {
+                        used.Add(op);
+                        fix = plain;
+                        break;
+                    }
             // A person named by a short form, given again with no ref: someone else, as the writer says; kept as written.
             if (issue.Reason == MemoryWriterOps.DropReason.StoredPersonShortForm && fix is { Ref: null })
             {
@@ -288,6 +341,15 @@ internal static class MemoryWriterContract
                 continue;
             }
             if (fix is not null && fix.Ref is not null && ReferenceProblem(fix, byLabel).Reason is not null) fix = fix with { Ref = null };
+            // IDENTITY-THING-REF-LEFT-OUT holds for a correction too (the paid check of 24 Nov, ihc1-v1-glm-1 statement 54:
+            // a malformed "Luna (OBJECT) (also called: Luna) (OBJECT)" fixed as "Luna (OBJECT)" with "ref": "E1" was stored,
+            // and the re-mention stayed pending as another identity of the stored thing).
+            if (fix is not null && RefersToStoredThing(fix, byLabel))
+            {
+                used.Add(fix);
+                if (issue.Kept is not null) result.Remove(issue.Kept);
+                continue;
+            }
             // A place or a thing said again under exactly its stored name, with no name that tells it apart, is left out: its
             // facts carry it, and a ref'd observation of it would only stay pending (only a person's or an organisation's ref
             // can confirm one).
@@ -383,6 +445,7 @@ internal static class MemoryWriterContract
     /// </summary>
     internal static string? AlsoCalled(MemoryWriterOps.Op op, MemoryWriterOps.Stored item)
     {
+        if (Renamed(op, item) is { } renamed) return renamed;
         if (op.Kind != "entity" || op.Action != "add" || item.Letter != 'E' || op.Quote is not { } quote ||
             EntityText.Match(op.Text) is not { Success: true } said ||
             !string.Equals(said.Groups["t"].Value.Trim(), "PERSON", StringComparison.OrdinalIgnoreCase) || StoredType(item.Text) != "PERSON")
@@ -405,6 +468,36 @@ internal static class MemoryWriterContract
     /// Whether a person may be called <paramref name="name"/> as another name of a stored person: a short form of the stored
     /// name (<see cref="IsShortFormOf"/>), or a name the stored person is already shown as also called ("Pepe" for José).
     /// </summary>
+    /// <summary>Words that say a name is corrected or changed: "it's Okafor, not Okoro", "renamed it MedPath", "has a new name".</summary>
+    private static readonly Regex RenameCue = new(
+        @"\b(?:not|renamed|rebranded|new\s+name|now\s+called|now\s+named|is\s+now|(?:is|are|was|were)\s+(?:now\s+)?(?:called|named)|spell(?:ed|ing|t)?|misspel\w*|actually|correction)\b",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// IDENTITY-HARD-CASES E (whos-who-v2, every run): "it's Ms. Okafor, not Okoro". The writer referred the corrected name to
+    /// the stored person and the contract refused a reference under another name, so the correction became a second person.
+    /// A reference under a new name is that stored entity, also called by it, when the quote says the new name, a word of
+    /// the stored one and a correction or a rename, for the kinds a reference may confirm (a person, an organisation, an
+    /// event); a place or a thing keeps the exact-name rule. Null otherwise.
+    /// </summary>
+    private static string? Renamed(MemoryWriterOps.Op op, MemoryWriterOps.Stored item)
+    {
+        if (op.Kind != "entity" || op.Action != "add" || item.Letter != 'E' || op.Quote is not { } quote ||
+            EntityText.Match(op.Text) is not { Success: true } said) return null;
+        var type = MemoryWriterOps.EntityType(said.Groups["t"].Value);
+        if (type != StoredType(item.Text) || type is not ("PERSON" or "ORGANIZATION" or "EVENT")) return null;
+        var name = said.Groups["n"].Value.Trim();
+        var stored = EntityName(item.Text);
+        if (Canonical(name) == Canonical(stored) || !RenameCue.IsMatch(quote) || !Says(quote, name)) return null;
+        var newWords = NameWord.Matches(name).Select(m => Canonical(m.Value)).ToHashSet(StringComparer.Ordinal);
+        return NameWord.Matches(stored).Select(m => m.Value)
+            .Any(word => word.Length >= 3 && !newWords.Contains(Canonical(word)) && Says(quote, word)) ? name : null;
+
+        static bool Says(string text, string words) => Regex.IsMatch(text,
+            $@"(?<![\p{{L}}\p{{M}}]){Regex.Escape(words)}(?![\p{{L}}\p{{M}}])",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(50));
+    }
+
     private static bool MayBeCalled(string name, MemoryWriterOps.Stored item) =>
         Canonical(name) != Canonical(EntityName(item.Text)) &&
         (IsShortFormOf(name, EntityName(item.Text)) || OtherNames(item).Contains(name, StringComparer.OrdinalIgnoreCase));
@@ -424,7 +517,8 @@ internal static class MemoryWriterContract
         var read = new List<MemoryWriterOps.Stored>();
         // IDENTITY-FACT-NAME-GUARD: a stored person a reply's facts name in full, where the message does not.
         if (message is not null)
-            read.AddRange(people.Where(item => NamedInFactsOnly(ops, EntityName(item.Text), message)));
+            read.AddRange(people.Where(item => NamedInFactsOnly(ops, EntityName(item.Text), message) ||
+                                               NamesakeInFactsOnly(ops, EntityName(item.Text), message)));
         foreach (var op in ops)
         {
             if (op.Kind != "entity" || op.Action != "add" || EntityText.Match(op.Text) is not { Success: true } said ||
@@ -439,6 +533,15 @@ internal static class MemoryWriterContract
 
     private static bool NamedInFactsOnly(IReadOnlyList<MemoryWriterOps.Op> ops, string storedName, string message) =>
         !HoldsName(message, storedName) && ops.Any(op => NamesInText(op) && HoldsName(op.Text, storedName));
+
+    /// <summary>
+    /// IDENTITY-HARD-CASES A4: the message holds a stored person's name and gives it a relation ("my boss Marta"), and the
+    /// reply names it only in its facts, preferences or connections, with no entity of that name.
+    /// </summary>
+    private static bool NamesakeInFactsOnly(IReadOnlyList<MemoryWriterOps.Op> ops, string storedName, string message) =>
+        HoldsName(message, storedName) && IdentityRelationCue.InTurn(message, [storedName]).Count > 0 &&
+        !ops.Any(op => op.Kind == "entity" && op.Action == "add" && Canonical(EntityName(op.Text)) == Canonical(storedName)) &&
+        ops.Any(op => NamesInText(op) && HoldsName(op.Text, storedName));
 
     private static bool NamesInText(MemoryWriterOps.Op op) => op.Kind is "fact" or "preference" or "relationship" && op.Action != "confirm";
 
@@ -564,6 +667,15 @@ internal static class MemoryWriterContract
         HasDebris(text) ? DebrisProblem : MemoryWriterOps.HasEmptyConnectionEnd(text) ? EmptyEndProblem : null;
     private const string EntityFormatProblem = "an entity's text must be exactly \"Name (PERSON|PLACE|ORGANIZATION|THING|EVENT)\", with nothing before or after";
 
+    /// <summary>
+    /// An entity add whose valid ref names a stored thing or place: a writer's reference confirms only a person, an
+    /// organisation or an event, so such a re-mention would stay pending as another identity of it. It is left out.
+    /// </summary>
+    private static bool RefersToStoredThing(MemoryWriterOps.Op op, IReadOnlyDictionary<string, MemoryWriterOps.Stored> byLabel) =>
+        op.Kind == "entity" && op.Action == "add" && op.Ref is { } label &&
+        byLabel.TryGetValue(label, out var item) && item.Letter == 'E' && StoredType(item.Text) is { } type &&
+        type != "EVENT" && !RefConfirmable.Contains(type);
+
     /// <summary>The shape checks every operation passes, a correction's included: an entity's form and a text's debris.</summary>
     private static (MemoryWriterOps.DropReason Reason, string Problem)? ShapeProblem(MemoryWriterOps.Op op)
     {
@@ -620,6 +732,20 @@ internal static class MemoryWriterContract
     internal static string Canonical(string? value) => MemoryTripleCanonicalizer.CanonicalValue(value);
 
     /// <summary>"Name (TYPE)" to its name; anything else stays as it is.</summary>
+    private static readonly Regex LeadingEntity = new(
+        @"^\s*[^|(){}\[\]]+?\s*\(\s*(?:PERSON|PLACE|ORGANIZATION|ORGANISATION|THING|EVENT|LOCATION|OBJECT)\s*\)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    private static readonly Regex Bracketed = new(
+        @"^\s*(?<n>[^|(){}\[\]]+?)\s*\(\s*(?<q>[^|(){}\[\]]+?)\s*\)\s*\(\s*(?<t>PERSON|PLACE|ORGANIZATION|ORGANISATION|THING|EVENT|LOCATION|OBJECT)\s*\)\s*$",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    /// <summary>"Name (qualifier) (TYPE)" as the entity "Name, qualifier (TYPE)", or null when the text is not of that form.</summary>
+    private static MemoryWriterOps.Op? Unbracketed(MemoryWriterOps.Op op) =>
+        op.Kind == "entity" && op.Action == "add" && Bracketed.Match(op.Text) is { Success: true } m
+            ? op with { Text = $"{m.Groups["n"].Value.Trim()}, {m.Groups["q"].Value.Trim()} ({m.Groups["t"].Value.Trim()})" }
+            : null;
+
     internal static string EntityName(string text)
     {
         var open = text.LastIndexOf('(');
