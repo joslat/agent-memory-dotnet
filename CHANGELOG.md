@@ -249,8 +249,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   said after Tomás was met, kept the two claims but connected nobody to Tomás. Measured on a held-out conversation, 17 of
   the writer's 21 connections in one run never became edges, and the writer was later shown a stored person without the
   connections that told them from a namesake. The writer now refers to such an end in the connection's own words when it
-  names exactly one stored entity it was shown and the reply does not mention it otherwise; identity checks that
-  reference as it checks the writer's own. Two stored entities of the name, or words that do not name it, refer to
+  names exactly one stored person or organisation it was shown and the reply does not mention it otherwise; identity
+  checks that reference as it checks the writer's own. Two stored entities of the name, words that do not name it, a
+  stored thing or project (a reference cannot confirm one, so "designer on Atlas" left Atlas open), a negated connection
+  ("our landlord is also called Tomás, no relation") and a bare end beside a namesake the reply names apart refer to
   nobody, as before. Connections already kept as claims are not re-linked.
 - Fewer wrong merges of namesakes with evidence-based identity, each measured on a held-out conversation where it merged
   two different things (IDENTITY-HARD-CASES):
@@ -261,9 +263,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     kitten)") is kept as "Luna, the neighbours' kitten"; it was kept under the bare stored name and merged.
   - Stored things of one name but two types (an event and a project) are shown to the writer with the words each was
     first said in, as things of one name and one type already were.
-  - A name the message corrects or changes ("it's Ms. Vidal, not Ortega", "renamed Brightline") is the stored person,
-    organisation or event, also called by the new name, when the writer refers to it and quotes both names: it was a
-    second entity.
+  - A name the message corrects or changes ("it's Ms. Vidal, not Ortega", "renamed Brightline", "is called Brightline
+    now") is the stored person, organisation or event, also called by the new name, when the writer refers to it and
+    quotes both names: it was a second entity. A writer that answers with an entity replace, or a text holding both
+    names, is read as an add of the leading name with its reference kept.
+  - A namesake of a stored person whom the message gives another relation ("my boss Marta", the stored Marta known as
+    Tomás's parent) is kept as "Marta, user's boss" with an entity of its own. The writer had written only facts about
+    "Marta", and a later "the boss" confirmed as the parent.
+  - A writer's reference under a bare name that another candidate's name holds ("Rafa" beside a stored "Rafa" and a
+    stored "big Rafa") is kept for review, a split, instead of confirmed: when only earlier facts tell the two
+    apart, the reference picked the wrong one.
 - Recall for people stays quick on a large store. With identity on, a question that names someone reads the names the
   owner's people are known by, then those people. Both reads sought every person in the store, of every owner, and
   threw away all but the owner's. With index statistics from when the store was smaller (right after an import, or a
