@@ -1,0 +1,307 @@
+# NATIVE-RELEASE: one release of the AgentMemory native library for every registry (the owner's choice, 24 Nov 2026).
+#
+# Started by hand (Actions, "Native release", Run workflow) on main after a version bump. It builds the library once per
+# platform and gates it (native-platforms.yml), collects and checks what every registry gets (four wheels, five npm
+# packages, four C/C++ archives with SHA256SUMS), attests each file (GitHub artifact attestations, Sigstore), and then
+# uploads, each step behind its own environment's reviewer, so nothing leaves without a click: the GitHub Release
+# (environment github-release, tag native-v<version>, the archives and SHA256SUMS) first, then PyPI (environment pypi)
+# and npm (environment npm). The same build reaches every registry.
+#
+# On a pull request that touches the native code, and every Monday (the weekly toolchain check: new runner images, a
+# compiler below the security floor), it runs the build, the gate and every package check, and uploads nothing.
+#
+# No key is stored. PyPI and npm take a short-lived proof that THIS file, in this repository and environment, is the
+# publisher they name (Trusted Publishing): the upload jobs must stay in this file (neither accepts a called workflow),
+# and renaming it breaks them until their settings follow. Before the first release from this file the owner adds its
+# entries: PyPI (agentmemory-native: workflow native-release.yml, environment pypi) and npm (each of the five packages:
+# joslat / agent-memory-dotnet / native-release.yml / environment npm, "npm publish" allowed). An npm setting that has
+# not published within 2 days of its creation lapses (reported by other projects, late 2026), so make those on release
+# day. The two older publish workflows go once this one has released.
+name: Native release
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'native/**'
+      - 'tools/AgentMemory.Native/**'
+      - '.github/workflows/native-release.yml'
+      - '.github/workflows/native-platforms.yml'
+  schedule:
+    - cron: '17 4 * * 1'   # Monday 04:17 UTC: the weekly toolchain check
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-release-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # A registry never accepts a version twice. Asked first, so a release whose version is already up anywhere stops in
+  # seconds with the fix named, not after four platforms' builds.
+  version:
+    name: The version is new everywhere
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: One version in the sources, new on PyPI, npm and GitHub
+        id: check
+        run: |
+          python_version="$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' native/python/agentmemory_native/__init__.py)"
+          npm_version="$(python3 -c 'import json; print(json.load(open("native/typescript/package.json"))["version"])')"
+          if [ -z "$python_version" ] || [ "$python_version" != "$npm_version" ]; then
+            echo "::error::native/python says ${python_version:-nothing}, native/typescript/package.json says ${npm_version}: one version line, raise both."
+            exit 1
+          fi
+          version="$python_version"
+          for url in "https://pypi.org/pypi/agentmemory-native/${version}/json" "https://registry.npmjs.org/agentmemory-native/${version}"; do
+            code="$(curl -s -o /dev/null -w '%{http_code}' "$url")"
+            echo "${url}: ${code}"
+            if [ "$code" = "200" ]; then echo "::error::agentmemory-native ${version} is already up (${url}). Raise the version in both sources, merge it to main, then run this again."; exit 1; fi
+            if [ "$code" != "404" ]; then echo "::error::${url} answered ${code}; try again later."; exit 1; fi
+          done
+          if git ls-remote --exit-code --tags "https://github.com/${GITHUB_REPOSITORY}.git" "refs/tags/native-v${version}" >/dev/null; then
+            echo "::error::The tag native-v${version} exists already."; exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+  platforms:
+    name: Build and gate
+    needs: version
+    if: ${{ !cancelled() && (needs.version.result == 'success' || needs.version.result == 'skipped') }}
+    uses: ./.github/workflows/native-platforms.yml
+
+  packages:
+    name: Collect and check every registry's files
+    needs: platforms
+    if: ${{ !cancelled() && needs.platforms.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+
+      - name: Fetch the platforms' files
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: agentmemory-native-*
+          path: platforms/
+
+      # The gated wheels only: each platform's build artifact keeps its wheel under wheel/.
+      - name: Exactly four wheels, one per platform, of the source's version
+        run: |
+          mkdir -p dist
+          find platforms -path '*/wheel/*.whl' -exec cp {} dist/ \;
+          python - <<'EOF'
+          import pathlib, re, sys
+          source = pathlib.Path("native/python/agentmemory_native/__init__.py").read_text(encoding="utf-8")
+          version = re.search(r'__version__ = "([^"]+)"', source).group(1)
+          wheels = sorted(p.name for p in pathlib.Path("dist").glob("*.whl"))
+          print("version in the source:", version)
+          for w in wheels: print("  ", w)
+          patterns = [r"manylinux_2_34_x86_64", r"manylinux_2_34_aarch64", r"macosx_\d+_\d+_arm64", r"win_amd64"]
+          problems = []
+          if len(wheels) != 4: problems.append(f"expected 4 wheels, found {len(wheels)}")
+          for w in wheels:
+              m = re.fullmatch(r"agentmemory_native-([^-]+)-py3-none-(.+)\.whl", w)
+              if not m: problems.append(f"unexpected file name: {w}"); continue
+              if m.group(1) != version: problems.append(f"{w}: version {m.group(1)}, the source says {version}")
+          for p in patterns:
+              if sum(1 for w in wheels if re.search(p + r"\.whl$", w)) != 1: problems.append(f"not exactly one wheel for {p}")
+          if problems:
+              print("\n".join("PROBLEM: " + x for x in problems)); sys.exit(1)
+          EOF
+
+      - name: Check the wheels' metadata
+        run: |
+          python -m pip install --disable-pip-version-check "twine==7.0.0"
+          python -m twine check --strict dist/*
+
+      - name: Exactly five npm packages of the source's version, none private
+        run: |
+          mkdir -p npm
+          python3 - <<'EOF'
+          import json, pathlib, shutil, sys, tarfile
+          version = json.load(open("native/typescript/package.json"))["version"]
+          print("version in the source:", version)
+          suffixes = ["linux-x64-gnu", "linux-arm64-gnu", "darwin-arm64", "win32-x64"]
+          found = {}
+          for tgz in sorted(pathlib.Path("platforms").glob("*/npm/*.tgz")):
+              found.setdefault(tgz.name, tgz)  # the main package is built on every platform: the first is kept
+          wanted = [f"agentmemory-native-{s}-{version}.tgz" for s in suffixes] + [f"agentmemory-native-{version}.tgz"]
+          problems = [f"missing {name}" for name in wanted if name not in found]
+          for name in wanted:
+              if name not in found: continue
+              with tarfile.open(found[name]) as t:
+                  package = json.load(t.extractfile("package/package.json"))
+              if package.get("version") != version: problems.append(f"{name}: version {package.get('version')}, the source says {version}")
+              if package.get("private"): problems.append(f"{name}: marked private, npm would refuse it")
+              if name == f"agentmemory-native-{version}.tgz":
+                  deps = package.get("optionalDependencies", {})
+                  for s in suffixes:
+                      if deps.get(f"agentmemory-native-{s}") != version: problems.append(f"{name}: optional dependency on {s} is {deps.get(f'agentmemory-native-{s}')}")
+              shutil.copy(found[name], pathlib.Path("npm") / name)
+              print("  ", name)
+          if problems:
+              print("\n".join("PROBLEM: " + p for p in problems)); sys.exit(1)
+          EOF
+
+      - name: The four C/C++ archives and their SHA256SUMS
+        run: |
+          version="$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' native/python/agentmemory_native/__init__.py)"
+          python native/packaging/native_archives.py --platforms platforms --header native/include/agentmemory_native.h \
+            --license LICENSE --version "$version" --out archives
+          cat archives/SHA256SUMS
+
+      - name: Keep the wheels
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agentmemory-native-dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Keep the npm packages
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agentmemory-native-npm-packages
+          path: npm/
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Keep the archives
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agentmemory-native-archives
+          path: archives/
+          if-no-files-found: error
+          retention-days: 7
+
+  attest:
+    name: Attest every file
+    needs: [version, packages]
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && needs.packages.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write       # signing the attestations (Sigstore)
+      attestations: write   # build provenance attestations
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: agentmemory-native-{dist,npm-packages,archives}
+          path: release/
+
+      - name: Generate build provenance attestations
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            release/agentmemory-native-dist/*.whl
+            release/agentmemory-native-npm-packages/*.tgz
+            release/agentmemory-native-archives/*.tar.gz
+            release/agentmemory-native-archives/*.zip
+
+  github-release:
+    name: GitHub Release (C/C++ archives)
+    needs: [version, attest]
+    if: ${{ !cancelled() && needs.attest.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: github-release
+      url: https://github.com/${{ github.repository }}/releases/tag/native-v${{ needs.version.outputs.version }}
+    permissions:
+      contents: write       # the tag and the release; nothing else
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: agentmemory-native-archives
+          path: archives/
+
+      - name: Create the release at this commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          gh release create "native-v${VERSION}" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "agentmemory-native ${VERSION}" \
+            --notes "The AgentMemory native library ${VERSION} for C and C++: one archive per platform with the library, its header and its manifest (the library's SHA-256, the commit, the SDK). Check an archive with \`gh attestation verify <file> --repo ${GITHUB_REPOSITORY}\` and SHA256SUMS. The same build is on PyPI and npm as agentmemory-native." \
+            archives/*.tar.gz archives/*.zip archives/SHA256SUMS
+
+  pypi:
+    name: Upload to PyPI
+    needs: [version, github-release]
+    if: ${{ !cancelled() && needs.github-release.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/project/agentmemory-native/
+    permissions:
+      id-token: write     # the short-lived proof PyPI checks; nothing else
+    steps:
+      - name: Fetch the checked wheels
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: agentmemory-native-dist
+          path: dist/
+
+      - name: Upload
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+
+  npm:
+    name: Publish to npm
+    needs: [version, github-release]
+    if: ${{ !cancelled() && needs.github-release.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/agentmemory-native
+    permissions:
+      contents: read
+      id-token: write     # the short-lived identity npm's Trusted Publishing checks; nothing else
+    steps:
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Fetch the checked packages
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: agentmemory-native-npm-packages
+          path: npm/
+
+      - name: Publish, the four platform packages first and the main package last
+        working-directory: npm
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          npm --version
+          # Trusted Publishing needs npm 11.5.1 or newer.
+          node -e 'const [a,b,c]=process.argv[1].split(".").map(Number); if (a<11||(a===11&&(b<5||(b===5&&c<1)))) { console.error("::error::npm "+process.argv[1]+" is older than 11.5.1"); process.exit(1) }' "$(npm --version)"
+          for name in agentmemory-native-linux-x64-gnu agentmemory-native-linux-arm64-gnu agentmemory-native-darwin-arm64 agentmemory-native-win32-x64 agentmemory-native; do
+            if [ "$(curl -s -o /dev/null -w '%{http_code}' "https://registry.npmjs.org/${name}/${VERSION}")" = "200" ]; then
+              echo "${name} ${VERSION} is already on npm; skipped (a rerun after a partial publish)."
+              continue
+            fi
+            npm publish "./${name}-${VERSION}.tgz" --access public --provenance
+          done
+          { echo "### agentmemory-native ${VERSION} on npm"; echo; for n in linux-x64-gnu linux-arm64-gnu darwin-arm64 win32-x64; do echo "- agentmemory-native-${n}"; done; echo "- agentmemory-native"; } >> "$GITHUB_STEP_SUMMARY"

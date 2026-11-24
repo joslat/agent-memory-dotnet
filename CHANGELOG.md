@@ -421,6 +421,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- One release workflow for the native library (`native-release.yml`, NATIVE-RELEASE): one build per platform, gated,
+  reaches every registry. It checks the version is new on PyPI, npm and GitHub, collects and checks the wheels, the npm
+  packages and C/C++ archives (library, header, manifest and licence per platform, with SHA256SUMS), attests every file
+  (`gh attestation verify`), and uploads behind each environment's reviewer: a GitHub Release `native-v<version>` with the
+  archives, then PyPI and npm (Trusted Publishing). It runs everything but the uploads on a pull request that touches the
+  native code and every Monday (a toolchain check). The older PyPI and npm publish workflows stay until it has released.
 - Coding packs read projects that keep requirements in design documents (CO-2f), all off by default:
   `IntentReaderOptions.RequirementFolders` makes a folder's Markdown files requirement documents ("specs/design"), and
   `IdLedRequirements` reads a line led by an id as a requirement though it does not say "shall"
