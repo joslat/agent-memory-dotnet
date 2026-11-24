@@ -43,7 +43,7 @@ public sealed class IdentityKindsTier2Tests
         WhosWho.Turns().Should().HaveCount(54);
         Key.Things.Should().HaveCount(27);
         Key.Namesakes.Should().HaveCount(9);
-        Key.Mentions.Should().HaveCount(68);
+        Key.Mentions.Should().HaveCount(70, "key version 2 labels Marta in her wedding's two statements too");
         Key.Things.Select(t => t.Kind).Distinct().Should().HaveCount(14);
         WhosWho.Questions.Should().HaveCount(7);
         // Five questions forbid a namesake's facts; "cordoba" and "brisa" ask about one thing only.
@@ -79,7 +79,7 @@ public sealed class IdentityKindsTier2Tests
         score.Splits.Should().Be(0);
         score.Missed.Should().Be(0, string.Join("; ", score.Mentions.Where(m => m.Thing is null).Select(m => $"{m.Words} in {m.Statement}: {m.How}")));
         score.Right.Should().Be(27);
-        score.ByLevel.Values.Sum(l => l.Right).Should().Be(68);
+        score.ByLevel.Values.Sum(l => l.Right).Should().Be(70);
     }
 
     [Fact]
