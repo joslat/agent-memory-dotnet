@@ -242,6 +242,32 @@ public sealed class IdentityWriterReferenceTests
         decision.Diagnostics.Should().Contain("writer_reference_relation_conflict");
     }
 
+    /// <summary>
+    /// IDENTITY-HARD-CASES D, the paid check of 24 Nov (ihc1-v2-glm-3, statement 113): two people of one first name were
+    /// stored as "X" and "grown-up X"; "X was on call the first night" (only earlier facts say which) was referred to the
+    /// wrong one and confirmed. A bare name another candidate's name holds is the writer's guess: kept for review.
+    /// </summary>
+    [Fact]
+    public async Task A_bare_name_another_candidate_s_name_holds_is_not_confirmed()
+    {
+        var decision = await Plan(new() { EntityId = "rafa", Quote = "Rafa" },
+            [Candidate("rafa", "Rafa", "PERSON"), Candidate("big-rafa", "big Rafa", "PERSON")], withModel: false, type: "PERSON",
+            text: "Rafa was on call the first night and didn't sleep.", name: "Rafa");
+
+        decision.Status.Should().NotBe(IdentityDecisionKind.Confirmed);
+        decision.Diagnostics.Should().Contain("writer_reference_ambiguous");
+    }
+
+    [Fact]
+    public async Task A_name_that_holds_a_bare_namesake_s_name_still_confirms()
+    {
+        var decision = await Plan(new() { EntityId = "big-rafa", Quote = "big Rafa" },
+            [Candidate("rafa", "Rafa", "PERSON"), Candidate("big-rafa", "big Rafa", "PERSON")], withModel: false, type: "PERSON",
+            text: "big Rafa was on call the first night.", name: "big Rafa");
+
+        decision.Status.Should().Be(IdentityDecisionKind.Confirmed, "the message itself says which one");
+    }
+
     [Theory]
     [InlineData("My mum Marta called me today.")]
     [InlineData("My mother, Marta, called me today.")]
