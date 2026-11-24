@@ -1,6 +1,6 @@
 {
  "format": "agentmemory.guards.mutants-results/2",
- "commit": "cd466315",
+ "commit": "67ced4ad",
  "results": [
   {
    "id": "archive-ratio",
@@ -188,13 +188,13 @@
    "door": "load",
    "mutant_sha256": "0052d373f27d6a4575085b66ff5f99873bad2975c4998040e969348b83f3e920",
    "killed": true,
-   "file_sha256": "bd3a17c649e5868b0312a18c9e41d7ff8ff2fb090308b8382e7dbaab1231d24c",
+   "file_sha256": "4ceea3267be54ae35aca3ced1a275a815794367bc60f1df3342c0d751865c891",
    "failed": [
     "AuthenticateFirstTests.H1_a_signed_pack_still_loads_through_every_path",
     "AuthenticateFirstTests.H1_every_load_path_refuses_an_unsigned_pack_before_it_reads_pack_json",
     "AuthenticateFirstTests.Review8_A12_a_pack_whose_signature_does_not_hold_is_refused_for_that_alone_at_every_load_path"
    ],
-   "seconds": 12
+   "seconds": 10
   },
   {
    "id": "unverified-at-diff",
@@ -564,12 +564,12 @@
    "door": "serve",
    "mutant_sha256": "27dff61738e0cc6d3f1b077bd7e879f28e68ea28470df7ff66dd5664a40468fd",
    "killed": true,
-   "file_sha256": "67e4e4cd3c91ac1f10be1597504d6f20f7295a2b6603580dab04d889ec47ed57",
+   "file_sha256": "d968c9be655f96693b4568f0638d15b986761cf4767d9b8cc86ab3f76a975faa",
    "failed": [
     "PackConsentTests.Review12_serve_holds_one_live_snapshot_of_a_module",
     "PackConsentTests.Review13_the_store_installs_only_what_serve_then_holds"
    ],
-   "seconds": 9
+   "seconds": 12
   },
   {
    "id": "mount-plan-at-gate",
@@ -661,11 +661,11 @@
    "door": "family routes",
    "mutant_sha256": "9b6504f13fc6b9ad64eb55b376ad0b43ab3e8d5e9ceda6ba7e626564f7f82b9d",
    "killed": true,
-   "file_sha256": "67e4e4cd3c91ac1f10be1597504d6f20f7295a2b6603580dab04d889ec47ed57",
+   "file_sha256": "d968c9be655f96693b4568f0638d15b986761cf4767d9b8cc86ab3f76a975faa",
    "failed": [
     "Review10GuardTests.C_M2_a_family_member_counts_through_the_route_a_host_composes_it_by"
    ],
-   "seconds": 7
+   "seconds": 9
   },
   {
    "id": "serve-own-composition",
@@ -686,11 +686,11 @@
    "door": "family routes",
    "mutant_sha256": "da0c51901359aaaa840b4f04a4a784d7d1012a710c8baff114026b3cb6548389",
    "killed": true,
-   "file_sha256": "67e4e4cd3c91ac1f10be1597504d6f20f7295a2b6603580dab04d889ec47ed57",
+   "file_sha256": "d968c9be655f96693b4568f0638d15b986761cf4767d9b8cc86ab3f76a975faa",
    "failed": [
     "Review10GuardTests.R12_4_each_pack_comes_from_the_route_that_registered_it"
    ],
-   "seconds": 8
+   "seconds": 10
   },
   {
    "id": "install-any-set",
@@ -698,12 +698,12 @@
    "door": "install",
    "mutant_sha256": "35b226951e8829af5fc1e87da6b5a4ad4fd1e426d1c5d4eeaf486b0912a20418",
    "killed": true,
-   "file_sha256": "8f7364fc75ecc8d2a1ca8cfc86e309f6b7135ed138e87eeb7dba0ff0edcdcf5a",
+   "file_sha256": "f02b1e7b0372562ff214837f4d79c41448119336f590fe2718f0895d1cd6db0c",
    "failed": [
     "PackConsentTests.Review13_the_store_installs_only_what_serve_then_holds",
     "PackFamilyTests.Review12_a_pack_a_family_carries_switched_off_is_held_once_when_given_on_its_own"
    ],
-   "seconds": 8
+   "seconds": 12
   },
   {
    "id": "snapshot-without-definition",
@@ -711,11 +711,11 @@
    "door": "definition",
    "mutant_sha256": "6f92931623997942dee41be457a06fca99fefe0fe1f0f1a4944d3b03f177bbbd",
    "killed": true,
-   "file_sha256": "67e4e4cd3c91ac1f10be1597504d6f20f7295a2b6603580dab04d889ec47ed57",
+   "file_sha256": "d968c9be655f96693b4568f0638d15b986761cf4767d9b8cc86ab3f76a975faa",
    "failed": [
     "PackConsentTests.Review13_the_store_installs_only_what_serve_then_holds"
    ],
-   "seconds": 8
+   "seconds": 10
   },
   {
    "id": "install-without-imports",
@@ -747,12 +747,12 @@
    "door": "serve",
    "mutant_sha256": "c24516601c13aed388a9873c85e2c100394813579b2dbb4c63612de74fc0e0a4",
    "killed": true,
-   "file_sha256": "bd3a17c649e5868b0312a18c9e41d7ff8ff2fb090308b8382e7dbaab1231d24c",
+   "file_sha256": "4ceea3267be54ae35aca3ced1a275a815794367bc60f1df3342c0d751865c891",
    "failed": [
     "PackReviewFindingsTests.A_pack_that_carries_code_is_refused_until_the_host_runs_it_and_a_malformed_usage_policy_by_every_reader",
     "PackReviewFindingsTests.A_pack_that_declares_protection_the_host_cannot_open_is_refused"
    ],
-   "seconds": 13
+   "seconds": 9
   },
   {
    "id": "python-profiles-file-match",
@@ -1354,11 +1354,11 @@
    "door": "install",
    "mutant_sha256": "eea3129f690f1eb9d81636560aa8f7157654be100444206258b8f5585cc18640",
    "killed": true,
-   "file_sha256": "bd3a17c649e5868b0312a18c9e41d7ff8ff2fb090308b8382e7dbaab1231d24c",
+   "file_sha256": "4ceea3267be54ae35aca3ced1a275a815794367bc60f1df3342c0d751865c891",
    "failed": [
     "ErasureTests.A_loaded_pack_keeps_the_erasures_it_carries_that_verify_and_no_other"
    ],
-   "seconds": 12
+   "seconds": 10
   },
   {
    "id": "python-issued-any-digit",
@@ -1982,11 +1982,11 @@
    "door": "install",
    "mutant_sha256": "e6567b948a5a26c21305f51274726f615b79c232829bd65af7550353c41e3ab5",
    "killed": true,
-   "file_sha256": "bd3a17c649e5868b0312a18c9e41d7ff8ff2fb090308b8382e7dbaab1231d24c",
+   "file_sha256": "4ceea3267be54ae35aca3ced1a275a815794367bc60f1df3342c0d751865c891",
    "failed": [
     "PolicyTests.Read_is_a_condition_of_every_other_verb_and_the_loader_names_the_policy_on_every_record"
    ],
-   "seconds": 17
+   "seconds": 11
   },
   {
    "id": "snapshot-policy-unnamed",
@@ -2006,11 +2006,11 @@
    "door": "install",
    "mutant_sha256": "3dc164f3040d9112be7a8a4716ef5ef412a891730510a60bc6f246ac79ad453a",
    "killed": true,
-   "file_sha256": "67e4e4cd3c91ac1f10be1597504d6f20f7295a2b6603580dab04d889ec47ed57",
+   "file_sha256": "d968c9be655f96693b4568f0638d15b986761cf4767d9b8cc86ab3f76a975faa",
    "failed": [
     "PackFamilyTests.A_family_member_s_usage_policy_is_held_as_an_added_pack_s_is"
    ],
-   "seconds": 7
+   "seconds": 9
   },
   {
    "id": "set-policy-allowed",
@@ -2054,11 +2054,11 @@
    "door": "install",
    "mutant_sha256": "b6d0ccbc6f139d555400b36f8f395d319353beabc8c4557f069913b997e30343",
    "killed": true,
-   "file_sha256": "bd3a17c649e5868b0312a18c9e41d7ff8ff2fb090308b8382e7dbaab1231d24c",
+   "file_sha256": "4ceea3267be54ae35aca3ced1a275a815794367bc60f1df3342c0d751865c891",
    "failed": [
     "PolicyTests.A_module_set_withholds_a_pack_s_records_from_a_model_its_policy_keeps_them_from"
    ],
-   "seconds": 13
+   "seconds": 9
   },
   {
    "id": "serve-exports-anyway",
@@ -2078,12 +2078,12 @@
    "door": "install",
    "mutant_sha256": "d478a7391fe3087b407240355ddd9991220f442a6bb5a24e9258d17f08f22e0a",
    "killed": true,
-   "file_sha256": "bd3a17c649e5868b0312a18c9e41d7ff8ff2fb090308b8382e7dbaab1231d24c",
+   "file_sha256": "4ceea3267be54ae35aca3ced1a275a815794367bc60f1df3342c0d751865c891",
    "failed": [
     "ConfidenceTests.A_host_trusts_a_record_no_further_than_its_source_and_its_signer",
     "ConfidenceTests.Every_role_the_policy_requires_caps_a_record_through_its_most_trusted_signer"
    ],
-   "seconds": 13
+   "seconds": 12
   },
   {
    "id": "signer-cap-publishers-only",
@@ -2091,11 +2091,11 @@
    "door": "install",
    "mutant_sha256": "c939616fb3fa3619e1629e65ef7c46586dde7086221514956ec0b7ca23c7955e",
    "killed": true,
-   "file_sha256": "bd3a17c649e5868b0312a18c9e41d7ff8ff2fb090308b8382e7dbaab1231d24c",
+   "file_sha256": "4ceea3267be54ae35aca3ced1a275a815794367bc60f1df3342c0d751865c891",
    "failed": [
     "ConfidenceTests.Every_role_the_policy_requires_caps_a_record_through_its_most_trusted_signer"
    ],
-   "seconds": 13
+   "seconds": 12
   },
   {
    "id": "python-confidence-on-any-key",
@@ -2115,12 +2115,12 @@
    "door": "install",
    "mutant_sha256": "fbe444f57ee7668c9b359442432a59fc339f349c425673a8681d9d98b27cb090",
    "killed": true,
-   "file_sha256": "bd3a17c649e5868b0312a18c9e41d7ff8ff2fb090308b8382e7dbaab1231d24c",
+   "file_sha256": "4ceea3267be54ae35aca3ced1a275a815794367bc60f1df3342c0d751865c891",
    "failed": [
     "ConfidenceTests.A_host_trusts_a_record_no_further_than_its_source_and_its_signer",
     "ConfidenceTests.Every_role_the_policy_requires_caps_a_record_through_its_most_trusted_signer"
    ],
-   "seconds": 14
+   "seconds": 15
   },
   {
    "id": "confidence-the-most",

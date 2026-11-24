@@ -13,6 +13,13 @@ public sealed record InstalledPack(string Id, string Version, string Digest, str
 {
     /// <summary>For a pack set, the ids of the packs it carries; empty otherwise.</summary>
     public IReadOnlyList<string> Members { get; init; } = [];
+
+    /// <summary>
+    /// Returned by <see cref="PackStore.Install"/>: the packs the version it replaced carried, that this version does not and no
+    /// other installed pack or set holds (the host lifecycle, R-HOST-067). The host removes their records
+    /// (<c>KnowledgePackImporter.RemoveAsync</c>). Empty otherwise, and never kept in the index.
+    /// </summary>
+    public IReadOnlyList<string> Released { get; init; } = [];
 }
 
 /// <summary>
@@ -70,6 +77,7 @@ public sealed class PackStore
         var (id, version, kind) = (manifest.Id, manifest.Version, manifest.Kind);
         string digest;
         IReadOnlyList<string> members = [];
+        var carried = new Dictionary<string, string>(StringComparer.Ordinal);
         Action record;
         switch (kind)
         {
@@ -78,6 +86,7 @@ public sealed class PackStore
                 var set = PackFamilies.LoadSet(content, trust, ledger, allowDowngrade);
                 digest = set.Digest;
                 members = [.. set.AllPacks.Select(p => p.Id).Where(m => m != id).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)];
+                foreach (var carriedPack in set.AllPacks.Where(p => p.Id != id)) carried[carriedPack.Id] = carriedPack.Digest;
                 record = () => ledger.Record(set);
                 break;
             case "composite":
@@ -85,15 +94,27 @@ public sealed class PackStore
             default:
                 var pack = PackLoader.Load(content, trust, ledger, allowDowngrade);
                 digest = pack.Digest;
+                carried[id] = digest;
                 record = () => ledger.Record(pack);
                 break;
         }
-        // One id is installed once: a pack that a set already carries, or a set carrying an installed pack, is refused (review 1, M8).
+        // One id, one content (review 1, M8): a pack a set already carries, or a set carrying an installed pack, installs beside it
+        // only as the same pack, which each then holds (the host lifecycle, R-HOST-067: every Mind set carries one values pack).
         var others = _installed.Where(p => p.Id != id).ToList();
-        if (others.FirstOrDefault(p => p.Members.Contains(id, StringComparer.Ordinal)) is { } carrier)
-            throw new PackLoadException([$"{id} is installed as part of the set {carrier.Id}: uninstall the set first, or install a newer set."]);
-        if (members.FirstOrDefault(m => others.Any(p => p.Id == m || p.Members.Contains(m, StringComparer.Ordinal))) is { } overlap)
-            throw new PackLoadException([$"The set {id} carries {overlap}, which is already installed here: uninstall it first."]);
+        foreach (var other in others.Where(p => p.Id != id && (p.Members.Any(carried.ContainsKey) || carried.ContainsKey(p.Id))))
+        {
+            var theirs = other.Kind == "set" ? Carried(PackReader.ReadArchiveFile(Path.Combine(_root, other.File)), trust)
+                : new Dictionary<string, string>(StringComparer.Ordinal) { [other.Id] = other.Digest };
+            if (carried.FirstOrDefault(c => theirs.TryGetValue(c.Key, out var held) && held != c.Value) is { Key: { } differs })
+                throw new PackLoadException([kind == "set"
+                    ? $"The set {id} carries {differs}, which is already installed here as other content: uninstall it first."
+                    : $"{id} is installed as part of the set {other.Id} as other content: uninstall the set first, or install a newer set."]);
+        }
+        // What the version it replaces carried and this one does not, that nothing else installed holds: the host lets it go.
+        var previous = _installed.FirstOrDefault(p => p.Id == id);
+        var heldElsewhere = others.SelectMany(p => p.Members.Append(p.Id)).ToHashSet(StringComparer.Ordinal);
+        List<string> released = previous is null ? [] : [.. (previous.Kind == "set" ? previous.Members : [previous.Id])
+            .Where(m => m != id && !members.Contains(m, StringComparer.Ordinal) && !heldElsewhere.Contains(m)).Order(StringComparer.Ordinal)];
         // The store as it will be, held as serve --store and test --store then hold it, by the one decider, before anything is
         // written (round 12, R12-2: a set every host refuses was installed; round 13, R13-1: a snapshot rule broken across items was).
         PackMemory.Held([.. others.Select(p => PackReader.ReadArchiveFile(Path.Combine(_root, p.File))), archive], trust);
@@ -109,7 +130,7 @@ public sealed class PackStore
             throw;
         }
         File.Move(temporary, target, overwrite: true);
-        var installed = new InstalledPack(id, version, digest, kind, file, DateTimeOffset.UtcNow) { Members = members };
+        var installed = new InstalledPack(id, version, digest, kind, file, DateTimeOffset.UtcNow) { Members = members, Released = released.Count == 0 ? [] : released };
         // The index first, then the old files (review 2: an index that failed to save named a file already deleted); a name
         // that differs only by case is the same file on most systems, and was just overwritten, so it is not deleted.
         var replaced = _installed.Where(p => p.Id == id && !string.Equals(p.File, installed.File, StringComparison.OrdinalIgnoreCase)).ToList();
@@ -122,16 +143,43 @@ public sealed class PackStore
 
     /// <summary>Removes an installed pack; the ledger keeps it, so the same or an older version cannot be installed again unnoticed.</summary>
     /// <returns>Whether the id was installed.</returns>
-    public bool Uninstall(string id)
+    public bool Uninstall(string id) => Uninstall(id, out _);
+
+    /// <summary>
+    /// Removes an installed pack or set, as <see cref="Uninstall(string)"/>, and says which packs it let go: the pack itself, or
+    /// the set's members, that no other installed pack or set holds (the host lifecycle, R-HOST-067). The host removes their
+    /// records (<c>KnowledgePackImporter.RemoveAsync</c>). A pack a set carries is not installed on its own and is not removed
+    /// alone: a host switches it off instead.
+    /// </summary>
+    /// <returns>Whether the id was installed.</returns>
+    public bool Uninstall(string id, out IReadOnlyList<string> released)
     {
         using var held = Hold();
         _installed = Read(_root);
         var removed = _installed.Where(p => p.Id == id).ToList();
+        released = [];
+        if (removed.Count == 0) return false;
         _installed.RemoveAll(p => p.Id == id);
-        if (removed.Count > 0) Save();
+        var stillHeld = _installed.SelectMany(p => p.Members.Append(p.Id)).ToHashSet(StringComparer.Ordinal);
+        List<string> letGo = [.. removed.SelectMany(p => p.Kind == "set" ? p.Members : [p.Id]).Distinct(StringComparer.Ordinal)
+            .Where(m => !stillHeld.Contains(m)).Order(StringComparer.Ordinal)];
+        Save();
         foreach (var pack in removed) File.Delete(Path.Combine(_root, pack.File));
-        return removed.Count > 0;
+        if (letGo.Count > 0) released = letGo;
+        return true;
     }
+
+    /// <summary>
+    /// The installed packs and sets that hold a pack, in id order: the pack itself when it is installed on its own, and every
+    /// installed set that carries it (the host lifecycle, R-HOST-067). Empty when nothing installed holds it.
+    /// </summary>
+    public IReadOnlyList<string> Holders(string id) =>
+        [.. _installed.Where(p => p.Id == id || p.Members.Contains(id, StringComparer.Ordinal)).Select(p => p.Id).Order(StringComparer.Ordinal)];
+
+    // What an installed pack set carries, by id and digest: the packs of its families at any depth and the packs of none, verified
+    // again under the trust the host gives the store.
+    private static Dictionary<string, string> Carried(byte[] archive, PackTrust trust) =>
+        PackFamilies.LoadSet(archive, trust).AllPacks.ToDictionary(p => p.Id, p => p.Digest, StringComparer.Ordinal);
 
     /// <summary>The installed archives' bytes, by id order, to mount or load (each is verified again by whoever loads it).</summary>
     public IReadOnlyList<byte[]> Archives() => [.. Installed.Select(p => PackReader.ReadArchiveFile(Path.Combine(_root, p.File)))];

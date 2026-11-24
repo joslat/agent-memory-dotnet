@@ -117,9 +117,8 @@ public sealed class AmpackLoaderTests
 
         FluentActions.Invoking(() => PackMemory.Mount([first, later], Trust())).Should().Throw<PackLoadException>()
             .Which.Problems.Should().ContainSingle().Which.Should().Contain("comes more than once").And.Contain("a host holds one version of a pack");
-        // A host adds a module once (round 11): the same pack given twice is refused, as the host's builder refuses it.
-        FluentActions.Invoking(() => PackMemory.Mount([first, first], Trust())).Should().Throw<PackLoadException>()
-            .Which.Problems.Should().Contain(p => p.Contains("composed more than once"));
+        // The same pack given twice is one pack, held once, as the host's builder holds it (R-HOST-067, 24 Nov 2026).
+        PackMemory.Mount([first, first], Trust()).Packs.Should().ContainSingle();
     }
 
     [Fact]
@@ -140,8 +139,10 @@ public sealed class AmpackLoaderTests
         LoadedPack Kept(params byte[][] archives) => PackMemory.Mount(archives, Trust()).Packs.Single(p => p.Id == "io.agentmemory.packs.martialarts");
 
         Kept(set).ValidUntil.Should().NotBeNull("the set alone narrows it to its own end");
-        FluentActions.Invoking(() => Kept(first, set)).Should().Throw<PackLoadException>();
-        FluentActions.Invoking(() => Kept(set, first)).Should().Throw<PackLoadException>("the same refusal, whatever the order");
+        // Held by each copy (R-HOST-067, 24 Nov 2026): valid while any holder is, so the copy on its own, with no end, keeps it
+        // without one; one rule, whatever the order.
+        Kept(first, set).ValidUntil.Should().BeNull("the copy on its own has no end");
+        Kept(set, first).ValidUntil.Should().BeNull("the same, whatever the order");
     }
 
     [Fact]
@@ -156,8 +157,9 @@ public sealed class AmpackLoaderTests
         }));
 
         PackMemory.Mount([SetOf("io.agentmemory.packs.set-one")], Trust()).Packs.Should().ContainSingle();
-        FluentActions.Invoking(() => PackMemory.Mount([SetOf("io.agentmemory.packs.set-one"), SetOf("io.agentmemory.packs.set-two")], Trust()))
-            .Should().Throw<PackLoadException>().Which.Problems.Should().Contain(p => p.Contains("composed more than once"));
+        // R-HOST-067 (24 Nov 2026): the same pack in two sets is held by each and composed once, as a host composes it, with the
+        // latest end of any set that holds it.
+        PackMemory.Mount([SetOf("io.agentmemory.packs.set-one"), SetOf("io.agentmemory.packs.set-two")], Trust()).Packs.Should().ContainSingle();
     }
 
     [Fact]

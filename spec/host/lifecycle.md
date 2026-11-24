@@ -42,6 +42,16 @@ version's types do not declare, before it imports, so that it can refuse the upg
 record that carries a dropped property or link MUST be written again as a new version without it. A name the pack keeps
 after its records closed is not a drop.
 
+**R-HOST-066.** A host that switches a Mind on (`agentmemory.mind/2.0`) MUST check its knowledge needs against the
+knowledge packs it has loaded first, and again whenever that knowledge changes: it MUST name every need no loaded pack
+meets, and MUST NOT switch the Mind on in full while one is unmet.
+
+**R-HOST-067.** A pack that several installed sets or families carry as the same content (one digest) MUST be held by
+each: composed once, valid while any holder is (the latest end among them, and none when one has none), and let go, its
+records closed, only when no installed set or pack holds it any more, whether its last holder was uninstalled or a newer
+version of that holder no longer carries it. Other content under the same id MUST still be refused. A pack a set carries
+MUST NOT be uninstalled on its own; a host switches it off instead.
+
 ## 3. Decided, not yet required (informative)
 
 Decided on 24 November 2026. Each becomes a requirement in section 2 when the reference host builds and tests it.
@@ -49,12 +59,8 @@ Decided on 24 November 2026. Each becomes a requirement in section 2 when the re
 - **An upgrade whose ontology changed** (beyond R-HOST-065). A property whose type changed is named too. A declaration
   inside the pack of what it drops or renames, so that a drop is refused unless declared and a renamed type keeps its
   records' history, needs a later minor version of the format.
-- **Sets.** A member a newer version of a set no longer carries is closed, unless another loaded set or family holds it.
-  One member is switched off, never removed alone. A member two loaded sets carry is held by each and closed when the
-  last one goes; two contents for one id are refused.
-- **Minds.** Removing a mind switches it off at once; its own members follow the rule for sets. What a mind needs from
-  knowledge is checked when it is switched on: every need the loaded knowledge does not meet is named, and the mind is
-  not switched on in full while one is unmet (a character-only mode stays the user's explicit choice).
+- **Minds** (beyond R-HOST-066). Removing a mind switches it off at once; its own members follow the rule for sets. A
+  character-only mode stays the user's explicit choice.
 - **Hierarchies.** Any member of a family, at any depth, can be switched off by its path. Removing or upgrading the
   outermost family acts on every member it holds as one unit.
 - **Local copies.** A copy loaded again takes the host's request; a protection the owner set before the removal is kept.

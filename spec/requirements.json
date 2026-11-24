@@ -4757,7 +4757,8 @@
     "integration:PackReloadIntegrationTests.TheMartialArtsPackUnderANewIdIsRefusedTheOldIdsNamesAndTheFailureNamesThePackTheStepAndTheOwner",
     "integration:ModuleRecordWriteIntegrationTests.AnUpgradeThatDropsATypeAPropertyAndARelationClosesWhatItNoLongerHoldsAndARemovalLeavesNothingLive",
     "integration:ModuleRecordWriteIntegrationTests.ARemovalByANewerManifestClosesTheLiveRecordsOfATypeOnlyAnEarlierVersionDefined",
-    "integration:ModuleRecordWriteIntegrationTests.AFamilyOfTwoKnowledgePacksIsRecalledUpgradesAMemberWhoseOntologyDroppedATypeAndIsRemovedAndLoadedAgain"
+    "integration:ModuleRecordWriteIntegrationTests.AFamilyOfTwoKnowledgePacksIsRecalledUpgradesAMemberWhoseOntologyDroppedATypeAndIsRemovedAndLoadedAgain",
+    "integration:ModuleRecordWriteIntegrationTests.AMindAndTheCorpusItNeedsAreBoundRecalledUnloadedAndLoadedAgainOnNeo4j"
    ]
   },
   {
@@ -4768,7 +4769,8 @@
    "summary": "A pack removed and loaded again at the same version MUST be imported again: every record it holds is written again and is live.",
    "verifiedBy": [
     "integration:PackReloadIntegrationTests.TheMartialArtsPackRemovedAndLoadedAgainImportsAgainWithEveryRecordLive",
-    "integration:ModuleRecordWriteIntegrationTests.AFamilyOfTwoKnowledgePacksIsRecalledUpgradesAMemberWhoseOntologyDroppedATypeAndIsRemovedAndLoadedAgain"
+    "integration:ModuleRecordWriteIntegrationTests.AFamilyOfTwoKnowledgePacksIsRecalledUpgradesAMemberWhoseOntologyDroppedATypeAndIsRemovedAndLoadedAgain",
+    "integration:ModuleRecordWriteIntegrationTests.AMindAndTheCorpusItNeedsAreBoundRecalledUnloadedAndLoadedAgainOnNeo4j"
    ]
   },
   {
@@ -4818,6 +4820,36 @@
     "unit:KnowledgePackDropsTests.The_sdk_s_own_record_properties_are_never_a_drop",
     "integration:ModuleRecordWriteIntegrationTests.AnUpgradeThatDropsATypeAPropertyAndARelationClosesWhatItNoLongerHoldsAndARemovalLeavesNothingLive",
     "integration:ModuleRecordWriteIntegrationTests.AFamilyOfTwoKnowledgePacksIsRecalledUpgradesAMemberWhoseOntologyDroppedATypeAndIsRemovedAndLoadedAgain"
+   ]
+  },
+  {
+   "id": "R-HOST-066",
+   "doc": "host/lifecycle.md",
+   "section": "2",
+   "level": "MUST",
+   "summary": "A host that switches a Mind on (`agentmemory.mind/2.0`) MUST check its knowledge needs against the knowledge packs it has loaded first, and again whenever that knowledge changes: it MUST name every need no loaded pack meets, and MUST NOT switch the Mind on in full while one is unmet.",
+   "verifiedBy": [
+    "unit:MindReaderTests.A_tutor_s_knowledge_need_is_met_by_a_corpus_whose_contract_and_records_match",
+    "unit:MindReaderTests.With_no_knowledge_loaded_every_need_is_named_unmet",
+    "unit:MindReaderTests.A_corpus_that_does_not_meet_the_need_is_named_with_its_reason",
+    "integration:ModuleRecordWriteIntegrationTests.AMindAndTheCorpusItNeedsAreBoundRecalledUnloadedAndLoadedAgainOnNeo4j"
+   ]
+  },
+  {
+   "id": "R-HOST-067",
+   "doc": "host/lifecycle.md",
+   "section": "2",
+   "level": "MUST",
+   "summary": "A pack that several installed sets or families carry as the same content (one digest) MUST be held by each: composed once, valid while any holder is (the latest end among them, and none when one has none), and let go, its records closed, only when no installed set or pack holds it any more, whether its last holder was uninstalled or a newer version of that holder no longer carries it. Other content under the same id MUST still be refused. A pack a set carries MUST NOT be uninstalled on its own; a host switches it off instead.",
+   "verifiedBy": [
+    "unit:PackHoldingTests.Two_sets_carrying_the_same_pack_both_install_and_each_holds_it",
+    "unit:PackHoldingTests.A_set_carrying_other_content_under_an_installed_pack_s_id_is_still_refused",
+    "unit:PackHoldingTests.Uninstalling_a_set_lets_go_only_of_what_no_other_installed_set_holds",
+    "unit:PackHoldingTests.A_set_s_newer_version_lets_go_of_what_it_no_longer_carries_unless_another_set_holds_it",
+    "unit:PackHoldingTests.One_member_of_a_set_is_never_uninstalled_alone",
+    "unit:PackHoldingTests.A_host_composes_a_pack_two_sets_carry_once_and_refuses_two_contents_for_one_id",
+    "unit:PackHoldingTests.A_pack_two_sets_hold_stays_valid_until_the_later_of_their_ends_whatever_the_order",
+    "integration:ModuleRecordWriteIntegrationTests.TwoMindSetsSharingTheirValuesHoldThemTogetherAndOnlyTheLastSetToGoClosesTheirRecords"
    ]
   },
   {

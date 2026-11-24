@@ -63,10 +63,14 @@ public sealed class Review10GuardTests
         var x = pack.Id;
         LoadedSet WithX(string family) => Set(Family(Composite(family, (x, true)), [pack]));
 
-        // R11-1: one module reached through two sets, or a set and on its own: the host refuses it, whatever the packaging.
-        FluentActions.Invoking(() => PackFamilies.HostComposes([WithX("io.example.f1"), WithX("io.example.f2")], [])).Should().Throw<PackLoadException>()
-            .Which.Problems.Should().Contain(p => p.Contains("composed more than once"));
-        FluentActions.Invoking(() => PackFamilies.HostComposes([WithX("io.example.f1")], [pack])).Should().Throw<PackLoadException>();
+        // R11-1 under R-HOST-067 (24 Nov 2026): one pack reached through two sets, or a set and on its own, is held once, as a
+        // host composes it, whatever the packaging; a copy signed by others is another copy, refused whatever the order.
+        PackFamilies.HostComposes([WithX("io.example.f1"), WithX("io.example.f2")], []).Should().ContainSingle();
+        PackFamilies.HostComposes([WithX("io.example.f1")], [pack]).Should().ContainSingle();
+        var resigned = Set(Family(Composite("io.example.f3", (x, true)), [pack with { Signers = ["another publisher"] }]));
+        FluentActions.Invoking(() => PackFamilies.HostComposes([WithX("io.example.f1"), resigned], [])).Should().Throw<PackLoadException>()
+            .Which.Problems.Should().Contain(p => p.Contains("signed by others"));
+        FluentActions.Invoking(() => PackFamilies.HostComposes([resigned, WithX("io.example.f1")], [])).Should().Throw<PackLoadException>();
 
         // R11-2: a family pinning its member outside the range it declares is refused, not composed.
         var narrow = CompositeManifest.Parse("{\"format\":\"agentmemory.composite/v1alpha1\",\"id\":\"io.example.n\",\"version\":\"1.0.0\",\"members\":[{\"id\":\""

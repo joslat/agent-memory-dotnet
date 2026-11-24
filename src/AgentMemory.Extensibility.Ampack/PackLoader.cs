@@ -440,7 +440,14 @@ public static class PackLoader
         // while that certificate travels with the pack, is trusted, and no newer trusted one stands beside it (review 1, M1;
         // review 2, L3).
         if (added.Modules.LastOrDefault(r => r.Manifest.Id == pack.Id && r.PackDigest == pack.Digest) is { } registration)
-            registration.TrustedCertificates = PackCertificates.LatestTrusted(pack) is { } latest ? [latest.Digest] : [];
+        {
+            IReadOnlyList<string> trusted = PackCertificates.LatestTrusted(pack) is { } latest ? [latest.Digest] : [];
+            // A pack held by a second route (R-HOST-067) keeps one rule whatever the order: a copy with other certificates is
+            // another copy, refused, as two contents for one id are.
+            if (registration.TrustedCertificates is { } before && !before.SequenceEqual(trusted, StringComparer.Ordinal))
+                throw new PackLoadException([$"{pack.Id} {pack.Version} comes twice with other evaluation certificates: give one copy of it."]);
+            registration.TrustedCertificates = trusted;
+        }
         return added;
     }
 

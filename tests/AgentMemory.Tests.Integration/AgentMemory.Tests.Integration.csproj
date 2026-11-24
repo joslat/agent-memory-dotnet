@@ -66,6 +66,8 @@
   <!-- PACK-e2e: the real packs, built into .ampack files by the tests. -->
   <ItemGroup>
     <None Include="../Fixtures/MartialArts.Legacy/**/*" Exclude="../Fixtures/MartialArts.Legacy/agentmemory.module.*" Link="Packs/MartialArts/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The Mind convention's fixtures (tutor, coach, adviser, values, relationship), one copy for the unit and the Neo4j tests. -->
+    <None Include="../AgentMemory.Tests.Unit.Extensibility/Fixtures/Mind/**/*" Link="Fixtures/Mind/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../src/AgentMemory.Packs.CodeMap/manifest.json" Link="Packs/CodeMap/manifest.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../src/AgentMemory.Packs.Decisions/manifest.json" Link="Packs/Decisions/manifest.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../src/AgentMemory.Packs.Work/manifest.json" Link="Packs/Work/manifest.json" CopyToOutputDirectory="PreserveNewest" />

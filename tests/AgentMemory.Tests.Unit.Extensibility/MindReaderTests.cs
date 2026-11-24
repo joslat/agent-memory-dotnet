@@ -208,4 +208,80 @@ public sealed class MindReaderTests : IDisposable
         });
         FluentActions.Invoking(() => MindReader.Read(family)).Should().Throw<InvalidDataException>();
     }
+
+    // A curriculum corpus (agentmemory.knowledge/1) for the tutor's need: objectives, sources and multiple-choice questions.
+    LoadedPack Corpus(string language = "en", int questions = 3, bool withContract = true, string iface = "agentmemory.curriculum/1")
+    {
+        var records = new List<string>
+        {
+            """{"type":"WcObjective","key":"o1","properties":{"text":"Explain the water cycle"}}""",
+            """{"type":"WcSource","key":"s1","properties":{"url":"https://example.org/water-cycle"}}""",
+        };
+        for (var i = 1; i <= questions; i++)
+            records.Add($$$"""{"type":"WcQuestion","key":"q{{{i}}}","properties":{"stem":"Question {{{i}}}","correctOption":"a","sourceKey":"s1","objectiveKey":"o1"}}""");
+        var source = new Dictionary<string, byte[]>
+        {
+            ["pack.json"] = JsonSerializer.SerializeToUtf8Bytes(new { format = "agentmemory.pack/1.2", id = "io.example.minds.corpus", version = "1.0.0", kind = "knowledge", sdk = "[0.1,0.2)", code = "E0", tier = "open", protection = "open" }),
+            ["ontology.json"] = Encoding.UTF8.GetBytes("""
+                {"labelPrefix":"Wc","types":[
+                  {"name":"WcObjective","scope":"shared","properties":{"text":{"type":"string"}}},
+                  {"name":"WcSource","scope":"shared","properties":{"url":{"type":"string"}}},
+                  {"name":"WcQuestion","scope":"shared","properties":{"stem":{"type":"string"},"correctOption":{"type":"string"},"sourceKey":{"type":"string"},"objectiveKey":{"type":"string"}}}]}
+                """.ReplaceLineEndings("\n")),
+            ["records/corpus.jsonl"] = Encoding.UTF8.GetBytes(string.Join("\n", records) + "\n"),
+        };
+        if (withContract)
+            source["assets/knowledge-contract.json"] = Encoding.UTF8.GetBytes($$$"""
+                {"format":"agentmemory.knowledge/1","interface":"{{{iface}}}","edition":"test-2026-11","languages":["{{{language}}}"],"jurisdictions":[],"formats":["mcq-4"],
+                 "typeRoles":{"objective":"WcObjective","question":"WcQuestion","source":"WcSource"}}
+                """.ReplaceLineEndings("\n"));
+        return PackLoader.Load(PackAuthoring.Build(source, key.PrivateKeyPem), PackTrust.Parse(Encoding.UTF8.GetBytes(PackAuthoring.TrustPolicy(key.PublicKeyPem, "io.example.minds"))));
+    }
+
+    [Fact]
+    public void A_tutor_s_knowledge_need_is_met_by_a_corpus_whose_contract_and_records_match()
+    {
+        var tutor = MindReader.Read(Family("tutor"));
+        var corpus = Corpus();
+
+        var binding = MindKnowledge.Bind(tutor, [corpus], DateTimeOffset.UtcNow);
+
+        binding.IsComplete.Should().BeTrue(string.Join("; ", binding.Unmet));
+        binding.Selected.Should().ContainSingle().Which.Value.Should().BeSameAs(corpus);
+    }
+
+    [Fact]
+    public void With_no_knowledge_loaded_every_need_is_named_unmet()
+    {
+        var tutor = MindReader.Read(Family("tutor"));
+
+        var binding = MindKnowledge.Bind(tutor, [], DateTimeOffset.UtcNow);
+
+        binding.IsComplete.Should().BeFalse();
+        binding.Unmet.Should().ContainSingle().Which.Should().Contain("agentmemory.curriculum/1 in en").And.Contain("no knowledge pack is loaded");
+    }
+
+    [Theory]
+    [InlineData("de", 3, true, "agentmemory.curriculum/1", "is not in en")]
+    [InlineData("en", 2, true, "agentmemory.curriculum/1", "has 2 live 'question' records, fewer than 3")]
+    [InlineData("en", 3, false, "agentmemory.curriculum/1", "publishes no assets/knowledge-contract.json")]
+    [InlineData("en", 3, true, "agentmemory.rules/1", "publishes agentmemory.rules/1")]
+    public void A_corpus_that_does_not_meet_the_need_is_named_with_its_reason(string language, int questions, bool withContract, string iface, string reason)
+    {
+        var tutor = MindReader.Read(Family("tutor"));
+
+        var binding = MindKnowledge.Bind(tutor, [Corpus(language, questions, withContract, iface)], DateTimeOffset.UtcNow);
+
+        binding.IsComplete.Should().BeFalse();
+        binding.Unmet.Should().ContainSingle().Which.Should().Contain("io.example.minds.corpus " + reason);
+    }
+
+    [Fact]
+    public void A_mind_without_knowledge_needs_is_bound_with_nothing_loaded()
+    {
+        var coach = MindReader.Read(Family("coach"));
+        coach.KnowledgeNeeds.Should().BeEmpty("the coach fixture needs no corpus");
+
+        MindKnowledge.Bind(coach, [], DateTimeOffset.UtcNow).IsComplete.Should().BeTrue();
+    }
 }
