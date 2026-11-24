@@ -153,6 +153,36 @@ public sealed class LlmMemoryWriterTests
     }
 
     /// <summary>
+    /// whos-who-v3 is the blind test (frozen 24 Nov, written blind to every identity fix): its key is read at test time
+    /// from the private strategy repository where it is checked out, so its names are never written into this file, and
+    /// a failure names only the thing's id. Only proper names are checked (a word other than a leading article or
+    /// possessive starts with a capital); a plain description ("the cabin") would match ordinary words, and so would a
+    /// family word used as a name ("Dad", which the prompt's general example "Dad's chess club" holds).
+    /// </summary>
+    [Fact]
+    public void The_event_identity_prompt_holds_no_name_of_the_blind_test()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !Directory.Exists(Path.Combine(dir.FullName, "strategy"))) dir = dir.Parent;
+        var key = dir is null ? null : Path.Combine(dir.FullName, "strategy", "features", "evidence-based-identity", "validation",
+            "identity-kinds", "whos-who-v3", "whos-who-v3.gold.json");
+        if (key is null || !File.Exists(key)) return; // the private strategy repository is not checked out (CI)
+        var prompt = EventIdentityPrompt();
+        var gold = AgentMemory.Scenarios.PublicGold.IdentityKindsGold.Load(key);
+        string[] family = ["Dad", "Mum", "Mom", "Mother", "Father", "Mama", "Papa", "Gran", "Granny", "Grandma", "Grandpa",
+            "Grandad", "Granddad", "Nan", "Nana", "Aunt", "Auntie", "Uncle"];
+        // Held by the prompt before the blind test was written (on main at 53f4cf80 too, so both sides of its comparison see
+        // it): a coincidence, not tuning. Any other of its names in the prompt fails.
+        string[] before = ["Lisbon"];
+        foreach (var thing in gold.Things)
+            foreach (var name in AgentMemory.Scenarios.PublicGold.IdentityKindsGold.NamesOf(thing).Where(n => !before.Contains(n)).Where(n =>
+                         n.Split(' ', StringSplitOptions.RemoveEmptyEntries).SkipWhile(w => w is "the" or "The" or "my" or "My" or "a" or "A")
+                             .Any(w => char.IsUpper(w[0]) && !family.Contains(w.TrimEnd('\'', '’', 's')) && !family.Contains(w))))
+                System.Text.RegularExpressions.Regex.IsMatch(prompt, $@"\b{System.Text.RegularExpressions.Regex.Escape(name)}\b")
+                    .Should().BeFalse($"the prompt must not hold a name of the blind test (thing {thing.Id})");
+    }
+
+    /// <summary>
     /// IDENTITY-HARD-CASES C1 (the owner's call, 23 Nov): a common noun anchored to an owner or a proper name is a thing of its
     /// own, named with its anchor; a bare common noun still is not.
     /// </summary>
