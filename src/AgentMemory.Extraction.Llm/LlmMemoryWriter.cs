@@ -1087,6 +1087,10 @@ internal static class MemoryWriterOps
                 // The paid check of 24 Nov (ihc1-v1-glm-1, statement 8): a reference cannot confirm a thing or a place, so one
                 // to "Atlas" stayed open beside the stored project, a split. Only a person or an organisation is referred to.
                 if (EntityType(entity.Type) is not ("PERSON" or "ORGANIZATION")) continue;
+                // The blind whos-who-v3 run of 24 Nov: "Finn's best mate Sam slept over" (a second Sam) was referred to the
+                // one stored Sam and confirmed, in all three runs. Only the end a relation is about ("Tomás" in "Tomás's
+                // parents") is referred, never an end the message describes by it, whichever way the arrow was drawn.
+                if (Described(message, end.Trim())) continue;
                 var words = Regex.Match(message[start..stop], $@"(?<![\p{{L}}\p{{M}}]){Regex.Escape(end.Trim())}(?![\p{{L}}\p{{M}}])",
                     RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(50));
                 if (!words.Success) continue;
@@ -1106,6 +1110,26 @@ internal static class MemoryWriterOps
 
     private static readonly Regex Negated = new(@"\b(?:no|not|none|unrelated|non)\b",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// Whether the message introduces <paramref name="name"/> by a relation or a description: after an owner and lowercase
+    /// words ("Finn's best mate Sam", "my neighbour Sam", "Tomás's parents, Iker and Marta"), or followed by one ("Sam, Finn's
+    /// best mate", "Sam from the gym"). Such a person may be someone new, so a bare name alone does not say they are the
+    /// stored one.
+    /// </summary>
+    internal static bool Described(string message, string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return false;
+        // A contraction ("That's what Sam said") is no owner.
+        const string owner = @"(?:(?<![\p{L}\p{M}])(?!(?:[Ii]t|[Tt]hat|[Hh]e|[Ss]he|[Tt]here|[Ww]hat|[Ww]ho|[Hh]ere|[Ll]et|[Ww]here|[Hh]ow)['’]s\b)"
+            + @"[\p{L}\p{M}]+(?:['’]s|s['’])|\b(?:[Mm]y|[Oo]ur|[Hh]is|[Hh]er|[Tt]heir|[Yy]our))";
+        const string words = @"(?:[\p{Ll}\p{M}-]+\s+){0,3}[\p{Ll}\p{M}-]+";
+        const string listed = @"(?:[\p{L}\p{M}]+\s*(?:,|\band\b|&)\s*){0,3}";
+        var n = $@"(?<![\p{{L}}\p{{M}}]){Regex.Escape(name)}(?![\p{{L}}\p{{M}}])";
+        return Regex.IsMatch(message, $@"{owner}\s+{words}\s*,?\s*{listed}{n}", RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(50)) ||
+            Regex.IsMatch(message, $@"{n}\s*,\s*{owner}\s+\p{{Ll}}", RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(50)) ||
+            Regex.IsMatch(message, $@"{n}\s+from\s+(?:the\s+)?[\p{{L}}\p{{M}}]", RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(50));
+    }
 
     private enum EndKind { Name, KnownThenMore, Phrase, Empty }
 

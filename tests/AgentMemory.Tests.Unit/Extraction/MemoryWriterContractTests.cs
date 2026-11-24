@@ -1257,6 +1257,54 @@ public sealed class MemoryWriterContractTests : IDisposable
         result.Entities.Should().NotContain(e => e.Name == "Tomás");
     }
 
+    /// <summary>
+    /// The blind whos-who-v3 run of 24 Nov: "Finn's best mate Sam slept over" (a second Sam; the stored one is someone else)
+    /// was written as a fact under the bare name and a connection with no entity of its own; the connection fix referred the
+    /// bare end to the one stored Sam, and identity, with no relation of the stored Sam to compare, confirmed the merge in
+    /// all three runs. A connection refers only the end the relation is about ("Tomás" in "Tomás's parents"), never an end
+    /// the message describes by it, before or after the name, whichever way the writer drew the arrow.
+    /// </summary>
+    [Theory]
+    [InlineData("Joel's best mate Rafa slept over on Saturday.", "Rafa -[best mate of]-> Joel")]
+    [InlineData("Joel's best mate Rafa slept over on Saturday.", "Joel -[best mate]-> Rafa")]
+    [InlineData("Rafa, Joel's best mate, slept over on Saturday.", "Rafa -[best mate of]-> Joel")]
+    [InlineData("My neighbour Rafa lent Joel a ladder on Saturday.", "Rafa -[lent a ladder to]-> Joel")]
+    [InlineData("Rafa from the climbing gym lent Joel a ladder on Saturday.", "Rafa -[lent a ladder to]-> Joel")]
+    public async Task A_connection_never_refers_an_end_the_message_describes_by_it(string message, string connection)
+    {
+        ShowStoredEntities(StoredPerson("identity-observation-rafa", "Rafa"), StoredPerson("identity-observation-joel", "Joel"));
+        _replies.Enqueue($$"""
+            {"ops":[
+              {"op":"add","kind":"fact","text":"Rafa | slept over at | user's home","quote":"{{message}}","ref":null},
+              {"op":"add","kind":"relationship","text":"{{connection}}","quote":"{{message}}","ref":null}
+            ]}
+            """);
+
+        var result = await Write(message);
+
+        result.Entities.Should().NotContain(e => e.Name == "Rafa", "a person the message introduces by a relation is not the stored namesake on that word alone");
+        if (connection.Contains("Joel"))
+            result.Entities.Should().ContainSingle(e => e.Name == "Joel").Which.Reference!.EntityId.Should().Be("identity-observation-joel",
+                "the person the relation is about is still referred");
+    }
+
+    [Theory]
+    [InlineData("That's what Rafa told Joel about the ladder.")]
+    [InlineData("It's Rafa who lent Joel the ladder.")]
+    public async Task A_contraction_is_no_owner_and_the_stored_person_is_still_referred(string message)
+    {
+        ShowStoredEntities(StoredPerson("identity-observation-rafa", "Rafa"), StoredPerson("identity-observation-joel", "Joel"));
+        _replies.Enqueue($$"""
+            {"ops":[
+              {"op":"add","kind":"relationship","text":"Rafa -[lent a ladder to]-> Joel","quote":"{{message}}","ref":null}
+            ]}
+            """);
+
+        var result = await Write(message);
+
+        result.Entities.Should().ContainSingle(e => e.Name == "Rafa").Which.Reference!.EntityId.Should().Be("identity-observation-rafa");
+    }
+
     [Fact]
     public async Task The_default_writer_adds_no_reference_to_a_connections_end()
     {

@@ -252,8 +252,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   names exactly one stored person or organisation it was shown and the reply does not mention it otherwise; identity
   checks that reference as it checks the writer's own. Two stored entities of the name, words that do not name it, a
   stored thing or project (a reference cannot confirm one, so "designer on Atlas" left Atlas open), a negated connection
-  ("our landlord is also called Tomás, no relation") and a bare end beside a namesake the reply names apart refer to
-  nobody, as before. Connections already kept as claims are not re-linked.
+  ("our landlord is also called Tomás, no relation"), a bare end beside a namesake the reply names apart, and an end the
+  message introduces by a relation or a description ("Finn's best mate Sam", "Sam, Finn's best mate", "Sam from the
+  gym": maybe someone new, measured on a blind conversation where a second Sam was merged into the stored one) refer to
+  nobody, as before. Only the person a relation is about ("Tomás" in "Tomás's parents") is referred. Connections
+  already kept as claims are not re-linked.
 - Fewer wrong merges of namesakes with evidence-based identity, each measured on a held-out conversation where it merged
   two different things (IDENTITY-HARD-CASES):
   - A person met as someone's parent ("Tomás's parents, Iker and Marta") is no longer confirmed as the owner's boss of
