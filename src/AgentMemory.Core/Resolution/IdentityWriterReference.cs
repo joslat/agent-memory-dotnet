@@ -40,7 +40,7 @@ internal static class IdentityWriterReference
         // guess is kept for review, a split rather than a merge.
         if (plan.Candidates.Any(candidate => candidate.Entity.EntityId != target.EntityId &&
             string.Equals(candidate.Entity.Type, target.Type, StringComparison.OrdinalIgnoreCase) &&
-            MemoryTripleCanonicalizer.CanonicalValue(mention.Name) == name && HoldsName(candidate.Entity.Name, mention.Name)))
+            MemoryTripleCanonicalizer.CanonicalValue(mention.Name) == name && IdentityPolicy.HoldsName(candidate.Entity.Name, mention.Name)))
             return Note("writer_reference_ambiguous");
         var roots = plan.Context.SourceMessageIds.ToHashSet(StringComparer.Ordinal);
         var source = string.IsNullOrWhiteSpace(reference.Quote) || reference.Quote.Length > 2_048 ? null :
@@ -76,13 +76,4 @@ internal static class IdentityWriterReference
             Diagnostics = [.. plan.Diagnostics, "writer_reference_confirmed"], ContextualEvidence = evidence
         };
     }
-
-    /// <summary>Whether <paramref name="longer"/> holds <paramref name="name"/> as whole words, and is more than it.</summary>
-    private static bool HoldsName(string longer, string name) =>
-        !string.IsNullOrWhiteSpace(name) &&
-        MemoryTripleCanonicalizer.CanonicalValue(longer) != MemoryTripleCanonicalizer.CanonicalValue(name) &&
-        System.Text.RegularExpressions.Regex.IsMatch(longer,
-            $@"(?<![\p{{L}}\p{{M}}]){System.Text.RegularExpressions.Regex.Escape(name.Trim())}(?![\p{{L}}\p{{M}}])",
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant,
-            TimeSpan.FromMilliseconds(50));
 }
