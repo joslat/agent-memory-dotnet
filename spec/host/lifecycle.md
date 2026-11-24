@@ -70,8 +70,7 @@ Decided on 24 November 2026. Each becomes a requirement in section 2 when the re
   records' history, needs a later minor version of the format.
 - **Minds** (beyond R-HOST-066). Removing a mind switches it off at once; its own members follow the rule for sets. A
   character-only mode stays the user's explicit choice.
-- **A pack that requires another** is resolved against the packs the host has loaded, and refused, naming the missing
-  pack, otherwise.
-
 Not decided in this version: several brains sharing one store without local copies, where removing a pack in one closes
-its records for all.
+its records for all; and a knowledge pack that requires another. A knowledge pack is data only and depends on no module
+(Extensibility 0.13 §K1): its records reach another pack's types as a snapshot of that pack's definition, or the two
+travel in one family. Letting a knowledge pack require another would change the format.
