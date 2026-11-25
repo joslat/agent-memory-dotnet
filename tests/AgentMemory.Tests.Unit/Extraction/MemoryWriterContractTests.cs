@@ -27,7 +27,21 @@ public sealed class MemoryWriterContractTests : IDisposable
     private readonly List<(List<ChatMessage> Messages, ChatOptions? Options)> _calls = [];
     private readonly IEntityRepository _entities = Substitute.For<IEntityRepository>();
     private readonly IMessageRepository _messages = Substitute.For<IMessageRepository>();
+    private readonly WarningLog _log = new();
     private readonly ServiceProvider _services;
+
+    /// <summary>The writer's warnings, as text: a drop must reach a warning, not only Debug.</summary>
+    private sealed class WarningLog : Microsoft.Extensions.Logging.ILogger<LlmMemoryWriter>
+    {
+        public List<string> Warnings { get; } = [];
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+        public void Log<TState>(Microsoft.Extensions.Logging.LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId, TState state,
+            Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == Microsoft.Extensions.Logging.LogLevel.Warning) Warnings.Add(formatter(state, exception));
+        }
+    }
 
     private const string GoLiveId = "identity-observation-golive";
     private static readonly Entity GoLive = new()
@@ -80,7 +94,7 @@ public sealed class MemoryWriterContractTests : IDisposable
     private Task<UnifiedExtractionResult> Write(string text, bool eventIdentities = true, params string[] before)
     {
         var writer = new LlmMemoryWriter(_chat, Options.Create(new LlmExtractionOptions
-        { UseMemoryWriter = true, MemoryWriterEventIdentities = eventIdentities }), _services, NullLogger<LlmMemoryWriter>.Instance);
+        { UseMemoryWriter = true, MemoryWriterEventIdentities = eventIdentities }), _services, _log);
         static Message Turn(string id, string content) => new() { MessageId = id, ConversationId = "c", SessionId = "s", Role = "user",
             Content = content, TimestampUtc = DateTimeOffset.UnixEpoch };
         return writer.WriteAsync(new(ExtractionWindow.ForTargets([Turn("current", text)]) with
@@ -174,6 +188,49 @@ public sealed class MemoryWriterContractTests : IDisposable
         _calls[1].Messages.Last().Text.Should().Contain("Lucia wedding (EVENT)");
         result.Entities.Should().ContainSingle().Which.Type.Should().Be("EVENT");
         result.Outcomes.Should().BeEmpty();
+    }
+
+    // ── WRITER-SILENT-DROPS: the two drops of the full Bariloche run of 12 Nov, replayed with the model's recorded replies ──
+    // (strategy/core/identity-resolution-validation/bariloche49-actual-complete-quality-failed, calls 37 and 44). Then they
+    // were Debug lines and zero warnings. The worst case for the correction is the model repeating its mistake.
+
+    private const string Turn36 = "The wedding is in Bariloche on Saturday, December 12. I already booked my flights: I will be in Bariloche from December 9 to December 13.";
+    private const string Turn36Reply = """
+        {"ops": [
+        {"op": "entity", "kind": "entity", "text": "Lucía's wedding (EVENT)", "quote": "The wedding is in Bariloche on Saturday, December 12."},
+        {"op": "add", "kind": "fact", "text": "Lucía's wedding | is scheduled for | Saturday, December 12", "quote": "The wedding is in Bariloche on Saturday, December 12."},
+        {"op": "add", "kind": "fact", "text": "Lucía's wedding | takes place at | Bariloche", "quote": "The wedding is in Bariloche on Saturday, December 12."},
+        {"op": "add", "kind": "fact", "text": "Bruna | will be in Bariloche from | December 9 to December 13", "quote": "I already booked my flights: I will be in Bariloche from December 9 to December 13."}
+        ]}
+        """;
+
+    [Fact]
+    public async Task Bariloche_turn_36_an_unknown_action_repeated_in_the_correction_surfaces_as_a_warning_and_a_rejected_outcome()
+    {
+        _replies.Enqueue(Turn36Reply);
+        _replies.Enqueue(Turn36Reply);
+
+        var result = await Write(Turn36);
+
+        _calls.Should().HaveCount(2, "one correction, never a third call");
+        _calls[1].Messages.Last().Text.Should().Contain("Lucía's wedding (EVENT)");
+        result.Outcomes.Should().Contain(o => o.ErrorCode == MemoryErrorCodes.WriterOperationRejected && o.ErrorMessage!.Contains("Lucía's wedding"));
+        _log.Warnings.Should().ContainSingle(w => w.Contains("remain after one correction") && w.Contains("Lucía's wedding"));
+    }
+
+    [Fact]
+    public async Task Bariloche_turn_43_a_split_quote_repeated_in_the_correction_surfaces_and_the_valid_fact_is_kept()
+    {
+        const string reply = """{"ops": [{"op": "add", "kind": "fact", "text": "go-live runbook | needs | to be written by Bruna", "quote": "I still need to write the go-live runbook"}, {"op": "add", "kind": "fact", "text": "rollback checklist | needs | to be written by Bruna", "quote": "I still need to write... the rollback checklist"}]}""";
+        _replies.Enqueue(reply);
+        _replies.Enqueue(reply);
+
+        var result = await Write("I still need to write the go-live runbook and the rollback checklist.");
+
+        _calls.Should().HaveCount(2, "one correction, never a third call");
+        result.Facts.Should().ContainSingle().Which.Subject.Should().Be("go-live runbook");
+        result.Outcomes.Should().ContainSingle().Which.ErrorMessage.Should().Contain("rollback checklist");
+        _log.Warnings.Should().ContainSingle(w => w.Contains("remain after one correction") && w.Contains("rollback checklist"));
     }
 
     [Fact]
