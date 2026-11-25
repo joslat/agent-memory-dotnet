@@ -561,6 +561,42 @@ public sealed class CompositeEntityResolverTests
         result.EntityId.Should().Be("e1"); // existing entity returned, not folded/mutated
     }
 
+    // RVW-FUZZY-FOLD: a near name below auto-merge was resolved onto the stored entity with no alias and no link, so a
+    // place, an organisation or an event with a similar name became another one ("Australia" scores 0.875 against
+    // "Austria"). Persons have their own guard (40.93); for every other kind a fuzzy or semantic match below auto-merge now
+    // stays a separate entity. Exact and partial-name matches still resolve.
+    private static ExtractionOptions DefaultBands() => new()
+    {
+        EntityResolution = new EntityResolutionOptions { EnableSemanticMatch = false },
+    };
+
+    [Theory]
+    [InlineData("Australia", "Austria", "LOCATION")]
+    [InlineData("Slovakia Telecom", "Slovenia Telecom", "ORGANIZATION")]
+    public async Task ResolveEntityAsync_ANearNameOfAnotherKindBelowAutoMerge_StaysASeparateEntity(string mention, string stored, string type)
+    {
+        var existing = new[] { MakeEntity("stored", stored, type) };
+        _entityRepo.GetByTypeAsync(type, Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Entity>>(existing));
+
+        var result = await CreateSut(DefaultBands()).ResolveEntityAsync(MakeCandidate(mention, type), Array.Empty<string>());
+
+        result.EntityId.Should().NotBe("stored", $"\"{mention}\" is not \"{stored}\"");
+        result.Name.Should().Be(mention);
+    }
+
+    [Fact]
+    public async Task ResolveEntityAsync_AnExactNameOfAnotherKind_StillResolves()
+    {
+        var existing = new[] { MakeEntity("stored", "Austria", "LOCATION") };
+        _entityRepo.GetByTypeAsync("LOCATION", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Entity>>(existing));
+
+        var result = await CreateSut(DefaultBands()).ResolveEntityAsync(MakeCandidate("austria", "LOCATION"), Array.Empty<string>());
+
+        result.EntityId.Should().Be("stored");
+    }
+
     [Fact]
     public async Task ResolveEntityAsync_ConfidenceInSameAsRange_ReturnsExistingWithoutUpsert()
     {

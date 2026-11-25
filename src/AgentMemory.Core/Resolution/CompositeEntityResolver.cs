@@ -138,8 +138,7 @@ internal sealed partial class CompositeEntityResolver : IEntityResolver, IExtrac
 
         // >= AutoMergeThreshold: auto-merge (add alias to existing entity) — ONLY when auto-merge is
         // enabled. With EnableAutoMerge=false a high-confidence match falls through to the SAME_AS band
-        // below (non-destructive: the entities are linked, not folded), so a user who disabled auto-merge
-        // to keep distinct-but-similar entities separate is honored instead of silently losing one.
+        // below, which adds no alias (RVW-FUZZY-FOLD: and keeps a near name of another kind apart).
         if (_options.EnableAutoMerge && resolutionResult.Confidence >= _options.AutoMergeThreshold)
         {
             _logger.LogDebug(
@@ -176,9 +175,26 @@ internal sealed partial class CompositeEntityResolver : IEntityResolver, IExtrac
                 : mergedEntity, false);
         }
 
-        // >= SameAsThreshold and < AutoMergeThreshold: flag for SAME_AS — caller handles relationship
+        // >= SameAsThreshold and < AutoMergeThreshold: resolved to the stored entity without an alias.
         if (resolutionResult.Confidence >= _options.SameAsThreshold)
         {
+            // RVW-FUZZY-FOLD: nothing ever wrote the SAME_AS link this band was named for, so a near name of a place, an
+            // organisation, an event or an object became the stored one with no trace ("Australia" scores 0.875 against
+            // "Austria"). Persons have their own guard (40.93); for every other kind a similar spelling or embedding below
+            // auto-merge is not enough: the mention stays a separate entity (the duplicate finder still lists the pair).
+            // Exact and partial-name matches resolve as before.
+            if (resolutionResult.MatchType is EntityMatchType.Fuzzy or EntityMatchType.Semantic
+                && !GivenNames.IsPerson(extractedEntity.Type))
+            {
+                _logger.LogDebug(
+                    "Entity '{Candidate}' is near '{Existing}' ({MatchType}, confidence {Confidence:F3}) but below auto-merge: kept apart.",
+                    extractedEntity.Name, matched.Name, resolutionResult.MatchType, resolutionResult.Confidence);
+                return (await CreateNewEntityAsync(
+                        extractedEntity, sourceMessageIds, scope, persistResolution,
+                        embeddings.Computed(extractedEntity.Name), cancellationToken)
+                    .ConfigureAwait(false), true);
+            }
+
             _logger.LogDebug(
                 "Entity '{Candidate}' is SAME_AS '{Existing}' (confidence {Confidence:F3}). Returning existing without merge.",
                 extractedEntity.Name, matched.Name, resolutionResult.Confidence);

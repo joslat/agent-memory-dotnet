@@ -18,7 +18,12 @@ public sealed class ExtractionOptions
     public bool EnableAutoMerge { get; set; } = true;
     /// <summary>Confidence threshold that triggers auto-merge (≥ this value).</summary>
     public double AutoMergeThreshold { get; set; } = 0.95;
-    /// <summary>Confidence threshold that adds a SAME_AS relationship (between this and <see cref="AutoMergeThreshold"/>).</summary>
+    /// <summary>
+    /// Lower bound of the band below <see cref="AutoMergeThreshold"/> where a match resolves to the stored entity without
+    /// adding an alias. In that band a fuzzy or semantic match of a kind other than a person stays a separate entity
+    /// (a similar spelling is not the same place or organisation); exact and partial-name matches, and persons (whose
+    /// given names must agree), resolve. No SAME_AS relationship is written.
+    /// </summary>
     public double SameAsThreshold { get; set; } = 0.85;
     /// <summary>Confidence assigned to strong regex patterns in PatternBasedPreferenceDetector.</summary>
     public double StrongPatternConfidence { get; set; } = 0.95;

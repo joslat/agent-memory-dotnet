@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Fixed: the default entity resolver no longer folds a near name of another kind into a stored entity.** A fuzzy or
+  semantic match between `SameAsThreshold` (0.85) and `AutoMergeThreshold` (0.95) resolved to the stored entity with no
+  alias and no link (the SAME_AS relationship the option described was never written), so "Australia" (0.875 against
+  "Austria") or "Slovakia Telecom" became the stored one and their facts went with it. For every kind but a person, such a
+  match now stays a separate entity; `FindPotentialDuplicatesAsync` still lists the pair. Persons keep their given-name
+  guard, and exact and partial-name matches resolve as before. **Behaviour change** for stores without evidence-based
+  identity: a near-spelling of a place or organisation (a typo below 0.95) is now a new entity rather than the stored one.
+
 - **Fixed: an identity review can no longer hide facts silently (evidence-based identity).** When a mention stayed an
   open proposal, its observation was stored as an entity, and later mentions could be confirmed into it. Confirming the
   first mention into another entity then hid that observation from identity lookups and people recall, with the later
