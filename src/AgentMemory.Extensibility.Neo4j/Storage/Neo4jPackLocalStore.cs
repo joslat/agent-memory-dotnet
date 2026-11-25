@@ -99,7 +99,9 @@ public sealed class Neo4jPackLocalStore(INeo4jTransactionRunner runner, IMemoryI
             var snapshot = await ReadInAsync(transaction, args, cancellationToken).ConfigureAwait(false);
             ValidateUpgrade(identity, snapshot);
             Validate(identity, snapshot.Changes.Where(c => c.Proposal is not null).Select(c => c.Proposal!).ToList());
-            var rebased = Policy((await RowsAsync(transaction, PackLocalQueries.Rebase, args, cancellationToken).ConfigureAwait(false)).Single());
+            // A detached copy is reactivated by its own rule (R-HOST-069); an active one is rebased, its policy kept.
+            var rebased = Policy((await RowsAsync(transaction, policy.Active ? PackLocalQueries.Rebase : PackLocalQueries.Reactivate, args, cancellationToken)
+                .ConfigureAwait(false)).Single());
             await RowsAsync(transaction, PackLocalQueries.RecordRevision, args, cancellationToken).ConfigureAwait(false);
             return rebased;
         }, cancellationToken);

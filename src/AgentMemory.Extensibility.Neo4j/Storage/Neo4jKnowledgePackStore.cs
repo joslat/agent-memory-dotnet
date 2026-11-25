@@ -64,6 +64,18 @@ public sealed class Neo4jKnowledgePackStore : IKnowledgePackStore
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// Reads, in one read transaction, the labels and relation types the id owns in the SDK namespace ledger and the property names
+    /// of its live records under each type the version keeps; writes nothing, not even schema.
+    /// </remarks>
+    public Task<KnowledgePackDrops> DropsAsync(KnowledgePack pack, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(pack);
+        var module = pack.Resolution.Modules.Single(m => m.Id == pack.Id);
+        return _runner.ReadAsync(transaction => PackOwnership.DropsAsync(transaction, module, cancellationToken), cancellationToken);
+    }
+
+    /// <inheritdoc/>
     public async Task<KnowledgePackEraseResult> EraseAsync(ModuleManifest pack, IReadOnlyList<ModuleErasure> erasures, DateTimeOffset atUtc, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(pack);

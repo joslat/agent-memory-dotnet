@@ -490,6 +490,23 @@ internal static class PackVerifier
                 : member.Pack is { } inner && outer.Manifest.Federation is { } federation && MemberFederationProblem(federation, inner.Id, inner.Manifest) is { } problem
                     ? new PackVerification(null, [problem]) : member;
         }
+        // A composite the set carries pins its members by version and digest; the set carries them beside it, so each pin is
+        // checked against the member carried, as the loader does (AMPACK-VERIFY-PINS, 24 Nov): what verify accepts, loads.
+        foreach (var (id, verification) in members.ToList())
+        {
+            if (verification.Pack is not { Manifest.Kind: "composite" } composite) continue;
+            var (pins, lockProblem) = PackLock.Parse(composite.Files[PackPaths.LockFile]);
+            var problems = new List<string>();
+            if (pins is null) problems.Add(lockProblem!);
+            else
+                foreach (var pin in pins)
+                {
+                    if (!members.TryGetValue(pin.Id, out var carried)) { problems.Add($"{id} pins {pin.Id} {pin.Version}, which is missing."); continue; }
+                    if (carried.Pack is { } found && (found.Digest != pin.Digest || found.Version != pin.Version))
+                        problems.Add($"{id} pins {pin.Id} {pin.Version} {pin.Digest[..23]}…, but was given {found.Version} {found.Digest[..23]}….");
+                }
+            if (problems.Count > 0) members[id] = new PackVerification(null, problems);
+        }
         return (set, members);
     }
 

@@ -7,17 +7,12 @@
 # and the write tests on a store of their own. Wheels and releases are later rows (NATIVE-PLAT-WHEELS, NATIVE-RELEASE).
 #
 # Nothing is published from here: no secret, no environment, nothing leaves the run but its artifacts, kept 7 days. The
-# PyPI publish workflow (publish-agentmemory-native-pypi.yml) calls this one and uploads its four wheels only after every
-# job here has passed and its reviewer has approved. The store job trusts a throw-away certificate authority on its own
-# runner, which is discarded with the runner.
+# native release workflow (native-release.yml) calls this one, on a pull request that touches the native code, every
+# Monday and on release day, and uploads only after every job here has passed and its reviewers have approved. The store
+# job trusts a throw-away certificate authority on its own runner, which is discarded with the runner.
 name: Native platforms
 
 on:
-  pull_request:
-    paths:
-      - 'native/**'
-      - 'tools/AgentMemory.Native/**'
-      - '.github/workflows/native-platforms.yml'
   workflow_dispatch:
   workflow_call:
 

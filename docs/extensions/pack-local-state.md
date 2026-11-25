@@ -41,7 +41,9 @@ is present; it never applies DDL itself.
 
 An imported publisher pack remains shared and unchanged. Local assertions are scoped by resolved
 store, application/brain and owner. A mount captures its initial protection; later library-default
-changes do not change the installed policy. Policy changes and every writer acquire the same mount
+changes do not change the installed policy. A detach protects the copy while it is out; mounting it again keeps the
+protection the owner had set before the detach, and where the owner had kept it writable, the host's request at that
+mount applies (a mount with no revision history from before the detach stays protected). Policy changes and every writer acquire the same mount
 lock before checking revision, protection, active state and base digest.
 Writes also resolve write ownership before database work. Reads reject a mounted digest that changed
 after the host bound its verified pack; the host must reconnect with the new verified revision.

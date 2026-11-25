@@ -207,9 +207,19 @@ public static partial class PackFamilies
         void Added(Action add, IReadOnlyList<LoadedPack> from)
         {
             var before = builder.Modules.Count;
+            var heldBefore = builder.HeldAgain.Count;
             add();
             foreach (var registration in builder.Modules.Skip(before).Where(r => r.PackDigest is not null))
                 origin[registration] = from.First(p => p.Digest == registration.PackDigest);
+            // A pack this route held again (R-HOST-067): the copy it brought must be signed as the copy first composed, or
+            // which signers a host shows would depend on the order of the routes (review 12, R12-4).
+            foreach (var id in builder.HeldAgain.Skip(heldBefore))
+            {
+                var registration = builder.Modules.First(r => r.Manifest.Id == id);
+                var copy = from.FirstOrDefault(p => p.Id == id && p.Digest == registration.PackDigest);
+                if (copy is not null && origin.TryGetValue(registration, out var first) && !first.Signers.SequenceEqual(copy.Signers, StringComparer.Ordinal))
+                    throw new PackLoadException([$"{id} {copy.Version} comes twice signed by others ({string.Join(", ", first.Signers)}; {string.Join(", ", copy.Signers)}): give one copy of it."]);
+            }
         }
     }
 

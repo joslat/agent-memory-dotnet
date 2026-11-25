@@ -106,6 +106,12 @@ public sealed class Neo4jModuleStore : IModuleStore
                 var tombstones = await TombstonesAsync(transaction, module.Id, cancellationToken).ConfigureAwait(false);
                 var proposals = WithoutErased(module, pack.Proposals, tombstones);
                 var live = await PackLiveAsync(transaction, module, cancellationToken).ConfigureAwait(false);
+                // What this version no longer defines of what the store holds of the id, read before a record is written (the host
+                // lifecycle, R-HOST-062): the live records of a type it dropped are not among the version's types, so are closed below.
+                var drops = await PackOwnership.DropsAsync(transaction, module, cancellationToken).ConfigureAwait(false);
+                // A live record that carries a dropped property or link is written again without it, though all it declares is equal.
+                var carrying = drops.IsEmpty ? new HashSet<(string, string)>() : await PackOwnership.CarryingAsync(transaction, module, drops, cancellationToken)
+                    .ConfigureAwait(false);
                 var seeded = proposals.Select(p => (p.Type, p.Key)).ToHashSet();
                 var gone = live.Keys.Where(k => !seeded.Contains(k)).Order().ToArray();
                 foreach (var (type, key) in seeded.Concat(gone).Select(k => (Type: module.Ontology!.Types.Single(t => t.Name == k.Type), k.Key))
@@ -116,15 +122,18 @@ public sealed class Neo4jModuleStore : IModuleStore
                 {
                     var proposal = proposals[index];
                     var outcome = await WriteOneAsync(transaction, module, request, new() { Index = index, Proposal = proposal }, atUtc, cancellationToken,
-                        exact: true).ConfigureAwait(false);
+                        exact: true, changed: carrying.Contains((proposal.Type, proposal.Key))).ConfigureAwait(false);
                     if (outcome.Status == ProposalWriteStatus.NoOp) unchanged++;
                     else if (live.ContainsKey((proposal.Type, proposal.Key))) changed++;
                     else created++;
                 }
                 foreach (var key in gone)
                     if (await CloseAsync(transaction, module, request, key, atUtc, cancellationToken).ConfigureAwait(false)) closed++;
+                if (drops.Types.Count > 0)
+                    closed += await PackOwnership.CloseLiveAsync(transaction, module.Id, drops.Types, atUtc.ToString("O", CultureInfo.InvariantCulture),
+                        cancellationToken).ConfigureAwait(false);
                 return new KnowledgePackImportResult { PackId = pack.Id, Version = pack.Version, Digest = pack.Digest,
-                    Created = created, Changed = changed, Unchanged = unchanged, Closed = closed };
+                    Created = created, Changed = changed, Unchanged = unchanged, Closed = closed, Dropped = drops };
             }, cancellationToken).ConfigureAwait(false);
         }
         catch (ModuleRecordRefusal refusal) { throw new KnowledgePackException([refusal.Message]); }
@@ -361,6 +370,11 @@ public sealed class Neo4jModuleStore : IModuleStore
                 var closed = 0;
                 foreach (var key in live.Keys.OrderBy(k => KeyId(module.Id, k.Type, null, k.Key), StringComparer.Ordinal))
                     if (await CloseAsync(transaction, module, request, key, atUtc, cancellationToken).ConfigureAwait(false)) closed++;
+                // A type an earlier version defined and this one does not: its live records go with the pack too (R-HOST-060).
+                var dropped = await PackOwnership.DropsAsync(transaction, module, cancellationToken).ConfigureAwait(false);
+                if (dropped.Types.Count > 0)
+                    closed += await PackOwnership.CloseLiveAsync(transaction, packId, dropped.Types, atUtc.ToString("O", CultureInfo.InvariantCulture),
+                        cancellationToken).ConfigureAwait(false);
                 return new KnowledgePackImportResult { PackId = packId, Closed = closed };
             }, cancellationToken).ConfigureAwait(false);
         }
@@ -444,7 +458,8 @@ public sealed class Neo4jModuleStore : IModuleStore
     }
 
     private async Task<ProposalOutcome> WriteOneAsync(IAsyncQueryRunner runner, ModuleManifest module,
-        IngestionRequest request, AdmittedModuleProposal input, DateTimeOffset atUtc, CancellationToken cancellationToken, bool exact = false)
+        IngestionRequest request, AdmittedModuleProposal input, DateTimeOffset atUtc, CancellationToken cancellationToken, bool exact = false,
+        bool changed = false)
     {
         var proposal = input.Proposal; var type = module.Ontology!.Types.Single(t => t.Name == proposal.Type);
         var owner = type.Scope == "shared" ? null : request.Owner;
@@ -480,7 +495,8 @@ public sealed class Neo4jModuleStore : IModuleStore
         }
         var links = await _links.ResolveAsync(runner, module, proposal, previousId, owner, cancellationToken, exact).ConfigureAwait(false);
         if (links.LeftOut != 0) Interlocked.Add(ref _linksLeftOut, links.LeftOut);
-        if (live && old!["equal"].As<bool>() && !links.Changed) return Outcome(input.Index, ProposalWriteStatus.NoOp, previousId);
+        // changed: the live version carries what its pack's version dropped (a property or a link), so it is not equal (R-HOST-062).
+        if (live && old!["equal"].As<bool>() && !links.Changed && !changed) return Outcome(input.Index, ProposalWriteStatus.NoOp, previousId);
         if (old is not null && old["newer"].As<bool>()) throw new ModuleRecordRefusal("Write clock precedes the last version.");
         var nextVersion = checked(version + 1); var id = keyId + ":" + nextVersion.ToString(CultureInfo.InvariantCulture);
         var pack = proposal.Source.Pack;

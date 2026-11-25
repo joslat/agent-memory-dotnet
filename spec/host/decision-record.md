@@ -1,7 +1,7 @@
 # Host document: the decision record
 
 **Version 1, draft.** Predicate type: `urn:agentmemory:pack:trial:v1`. Requirement ids: `R-HOST-nnn`, numbered across the
-three host documents. Key words as in Core §1.2.
+host documents. Key words as in Core §1.2.
 
 A decision record is what a Trial Host (Trial profile) signs when it decides on a pack's trial, or when it admits a pack
 on a certificate (Certify profile). The host keeps its records as activation records.

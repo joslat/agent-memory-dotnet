@@ -22,6 +22,11 @@ namespace AgentMemory.Extensibility.Modules;
 public sealed class ModuleSetBuilder
 {
     private readonly List<ModuleRegistration> _modules = [];
+    // For a module from a pack: how it was added, so a second route holds it only when it brings exactly the same (R-HOST-067).
+    private readonly Dictionary<string, (string Implementation, int Priority)> _addedAs = new(StringComparer.Ordinal);
+
+    /// <summary>The ids of packs a second route brought and the builder held once (R-HOST-067), in order, for the pack layer's checks.</summary>
+    internal List<string> HeldAgain { get; } = [];
     private readonly Dictionary<string, int> _priorities = new(StringComparer.Ordinal);
 
     internal ModuleSetBuilder() { }
@@ -203,8 +208,22 @@ public sealed class ModuleSetBuilder
         string? packDigest = null, DateTimeOffset? validUntil = null)
     {
         ArgumentNullException.ThrowIfNull(manifest);
-        if (_modules.Any(m => string.Equals(m.Manifest.Id, manifest.Id, StringComparison.Ordinal)))
+        if (_modules.FirstOrDefault(m => string.Equals(m.Manifest.Id, manifest.Id, StringComparison.Ordinal)) is { } existing)
+        {
+            // The same signed pack reached by a second route, as the values pack every Mind set carries: composed once, held by
+            // each route (the host lifecycle, R-HOST-067), when the route brings it exactly as the first did (its fingerprint and
+            // priority). Other content under one id, or the same content added otherwise, is still refused.
+            if (packDigest is not null && string.Equals(existing.PackDigest, packDigest, StringComparison.Ordinal)
+                && _addedAs.TryGetValue(manifest.Id, out var first) && first == (implementation, traversalPriority))
+            {
+                // Valid while any route that holds it is: the later end, and no end over any, so the order of the routes
+                // never decides (review 8, W3; review 11, R11-1).
+                existing.ValidUntil = existing.ValidUntil is not { } held || validUntil is not { } given ? null : held > given ? held : given;
+                HeldAgain.Add(manifest.Id);
+                return this;
+            }
             throw new ArgumentException($"Module '{manifest.Id}' is already added.", nameof(manifest));
+        }
         var registration = new ModuleRegistration(manifest, implementation, packDigest) { ValidUntil = validUntil };
         configure(registration);
         // CMP-1: a module that declares traversal gets its share of the turn's walk, with no code of its own.
@@ -212,6 +231,7 @@ public sealed class ModuleSetBuilder
             registration.AddContextContributor(c => new Contributors.TraversalContributor(c.Module.Manifest, c.ModuleSet.TraversalFor(c.Module.Manifest.Id, c.Services), traversalPriority));
         registration.Freeze();
         _modules.Add(registration);
+        if (packDigest is not null) _addedAs[manifest.Id] = (implementation, traversalPriority);
         return this;
     }
 
@@ -364,8 +384,11 @@ internal sealed class ModuleRegistration(ModuleManifest manifest, string impleme
     public string Implementation { get; } = implementation;
     /// <summary>For a module that came from a pack, the pack's digest, which its trial decision must name; null for compiled code.</summary>
     public string? PackDigest { get; } = packDigest;
-    /// <summary>For a pack that declares <c>validUntil</c>, when it expires: after it, its contributors go silent.</summary>
-    public DateTimeOffset? ValidUntil { get; init; }
+    /// <summary>
+    /// For a pack that declares <c>validUntil</c>, when it expires: after it, its contributors go silent. A pack reached by
+    /// several routes (R-HOST-067) keeps the latest end of any of them, and none when one has none.
+    /// </summary>
+    public DateTimeOffset? ValidUntil { get; set; }
     /// <summary>When the trial decision that switched it on expires under the host's floor (feature 11), set by the gate.</summary>
     public DateTimeOffset? DecisionExpires { get; set; }
     /// <summary>

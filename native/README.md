@@ -151,7 +151,8 @@ The binding stays framework-neutral; two thin adapters sit beside it, each impor
 | win-x64 | windows-2025 | `win_amd64` |
 
 The workflow `.github/workflows/native-platforms.yml` builds the library on each platform's own runner (Native AOT does not
-cross-compile between operating systems), when a pull request touches the native library or by hand. On each it checks
+cross-compile between operating systems), called by the native release workflow (on a pull request that touches the native
+library, every Monday, and on release day) or by hand. On each it checks
 the compiler against the security floor (`packaging/check_toolchain.py`), writes `MANIFEST.json`
 (`packaging/native_manifest.py`: size, SHA-256, compiler; on Linux the newest glibc symbol, at most 2.34; on macOS the
 minimum macOS), checks the macOS signature, runs the gate's tiers and builds the wheel:
@@ -166,4 +167,15 @@ minimum macOS), checks the macOS signature, runs the gate's tiers and builds the
 `gate/store/store_gate.py` runs tiers B and C with a local Neo4j 5.26 from its community distribution on Java 21, so one
 script serves every platform (macOS runners have no Docker); `run-gate.sh` and `run-write-gate.sh` remain the gate on the
 target image, plain Ubuntu 24.04 with no .NET. A binary built against a newer glibc does not load on an older one, so the
-Linux libraries are held to glibc 2.34. Nothing is published from the workflow itself: `.github/workflows/publish-agentmemory-native-pypi.yml` calls it, checks that there are exactly four wheels of the source's version, one per platform, and uploads them to PyPI after the `pypi` environment's reviewer approves.
+Linux libraries are held to glibc 2.34. Nothing is published from the workflow itself.
+
+### Releasing
+
+`.github/workflows/native-release.yml` makes one release for every registry from one build. Started by hand on main after
+the version is raised in both `python/agentmemory_native/__init__.py` and `typescript/package.json` (one version line), it
+checks the version is new on PyPI, npm and GitHub, builds and gates every platform, checks exactly four wheels, five npm
+packages (the main package last, its platform packages pinned to it) and four C/C++ archives (`packaging/native_archives.py`:
+the library, `include/agentmemory_native.h`, `MANIFEST.json` and the licence, with `SHA256SUMS`), attests every file, and
+then uploads, each step behind its environment's reviewer: the GitHub Release `native-v<version>` with the archives, then
+PyPI and npm (Trusted Publishing: no key is stored). On a pull request that touches the native code, and every Monday, it
+runs everything but the uploads. Check a file with `gh attestation verify <file> --repo joslat/agent-memory-dotnet`.

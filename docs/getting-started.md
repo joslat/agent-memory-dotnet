@@ -6,7 +6,11 @@ After normal signature/lock/policy verification with `PackFamilies.LoadComposite
 may explicitly call `AgentMemory.Extensibility.Ampack.MindReader.Read(family)`. The result contains the
 validated job, deterministic core/hash, signed stage variants and requested tool/knowledge interfaces.
 Reading is inspection, not activation. The application must separately select a mode, validate its own
-handlers/grants and real knowledge, and attach instructions outside relevance ranking. There is no new
+handlers/grants and real knowledge, and attach instructions outside relevance ranking. `MindKnowledge.Bind(mind, loadedPacks, now)`
+checks the knowledge: for each need, the loaded pack whose `assets/knowledge-contract.json` meets it, or why none does; a
+host checks it before switching a Mind on in full, and again when its loaded knowledge changes. A Mind's relationship
+member is a definition pack, with no records for the importer to write, so its schema comes from applying the composed
+set (`ModuleMigrator.ApplyAsync`); until then every pack view in that composition reports its migrations pending. There is no new
 DI option or schema to activate, and existing applications incur no store/model calls or prompt changes.
 Unsupported conventions remain inspectable as verified data but cannot bind behaviour.
 

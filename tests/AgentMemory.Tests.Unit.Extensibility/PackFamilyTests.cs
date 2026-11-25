@@ -231,6 +231,30 @@ public sealed class PackFamilyTests : IDisposable
         store.Installed.Should().BeEmpty("nothing is written when a host would refuse it");
     }
 
+    /// <summary>
+    /// AMPACK-VERIFY-PINS (24 Nov 2026): a set whose family pins another member than the one it
+    /// carries (the same id and version, signed, other content) was verified by <c>ampack verify</c>, which checked the set
+    /// and each member on its own, and refused by the loader, which checks the pins. Verify refuses it, for the same reason.
+    /// </summary>
+    [Fact]
+    public void A_set_whose_family_pins_another_member_is_refused_by_verify_as_by_the_loader()
+    {
+        var (composite, members) = Family();
+        var other = FromManifest("CodeMap");
+        other["pack.json"] = Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(other["pack.json"]).Replace("\"io.agentmemory.packs.work\"", "\"io.agentmemory.packs.work\", \"io.agentmemory.packs.other\"", StringComparison.Ordinal));
+        var carried = new Dictionary<string, IReadOnlyDictionary<string, byte[]>>(StringComparer.Ordinal) { [CodingPack.Manifest.Id] = composite };
+        foreach (var member in members) carried[Id(member)] = Id(member) == CodeMapPack.Id ? Built(other) : member;
+        var set = Built(PackSets.Source("io.agentmemory.packs.coding-family", "0.1.0", carried));
+        var path = Save("coding-family", set);
+
+        FluentActions.Invoking(() => PackFamilies.LoadSet(File.ReadAllBytes(path), Trust())).Should().Throw<PackLoadException>()
+            .Which.Problems.Should().Contain(p => p.Contains($"pins {CodeMapPack.Id}", StringComparison.Ordinal));
+        var verdict = PackVerifier.VerifyWhole(PackReader.Read(path), Trust().Policy, DateTimeOffset.UtcNow);
+
+        verdict.IsVerified.Should().BeFalse("verify must refuse what the loader refuses");
+        verdict.Problems.Should().Contain(p => p.Contains($"pins {CodeMapPack.Id}", StringComparison.Ordinal));
+    }
+
     [Fact]
     public void A_member_changed_inside_a_set_is_refused_even_when_the_set_is_resigned()
     {

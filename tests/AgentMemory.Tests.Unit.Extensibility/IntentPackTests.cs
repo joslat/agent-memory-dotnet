@@ -151,6 +151,88 @@ public sealed class IntentPackTests : IDisposable
             .Should().Equal("IDEAS.md", "REQUIREMENTS.md", "a.feature", "docs/ideas/b.md", "docs/requirements/a.md", "openslo/x.yml", "ops/api.slo.yaml", "x.req.md");
     }
 
+    /// <summary>
+    /// CO-2f, test bed (a): a project that names its requirements by area and component ("REQ-PTR-parser-001"). The id is the
+    /// whole of it, in a requirement line, a parent mark and a scenario tag alike; a one-segment id ("REQ-12") reads as before.
+    /// </summary>
+    [Fact]
+    public void An_id_of_several_segments_is_read_whole()
+    {
+        Write("docs/requirements/pointers.md", """
+            - **REQ-PTR-core-001** The compiler shall accept a pointer type.
+            - REQ-PTR-parser-002: The parser shall read a pointer declaration. (parent: REQ-PTR-core-001)
+            - REQ-12: The tool shall keep its old ids.
+            """);
+        Write("features/pointers.feature", """
+            Feature: Pointers
+              @REQ-PTR-parser-002
+              Scenario: A pointer declaration
+                Given a declaration of a pointer
+            """);
+
+        var snapshot = Read(out _);
+
+        var parser = Record(snapshot, IntentPack.RequirementType, "REQ-PTR-parser-002");
+        parser.Links.Should().ContainSingle(l => l.Relation == IntentPack.Decomposes).Which.Target.Should().Be("REQ-PTR-core-001");
+        Record(snapshot, IntentPack.RequirementType, "REQ-PTR-core-001");
+        Record(snapshot, IntentPack.RequirementType, "REQ-12");
+        snapshot.Records.Single(r => r.Type == IntentPack.ScenarioType).Links.Should().Contain(l => l.Relation == IntentPack.Verifies && l.Target == "REQ-PTR-parser-002");
+    }
+
+    /// <summary>
+    /// CO-2f, test bed (a): requirements kept in design documents ("specs/design/pointers.md"), one per line led by its id, in
+    /// plain statements that do not say "shall". Read only when the host names the folder and asks for id-led lines; prose,
+    /// headings and lines without an id stay out.
+    /// </summary>
+    [Fact]
+    public void A_named_folder_and_id_led_lines_are_read_as_requirements_only_when_asked()
+    {
+        Write("specs/design/pointers.md", """
+            # REQ-PTR-core-000 is not a requirement heading
+
+            Pointers are useful, and the compiler handles them carefully.
+            - **REQ-PTR-core-001** The compiler accepts a pointer type.
+            - **REQ-PTR-core-002** A pointer to a pointer is refused.
+            - A plain bullet without an id.
+            """);
+        string[] files = ["specs/design/pointers.md", "src/a.rs"];
+
+        IntentReader.IntentFiles(files).Should().BeEmpty("a design folder is not a requirements document by default");
+        var options = new IntentReaderOptions { RequirementFolders = ["specs/design"], IdLedRequirements = true };
+        var named = IntentReader.IntentFiles(files, options);
+        named.Should().Equal("specs/design/pointers.md");
+        var snapshot = IntentReader.Read(_root, named, "scan", out var skipped, options);
+
+        skipped.Should().BeEmpty();
+        snapshot.Records.Where(r => r.Type == IntentPack.RequirementType).Select(r => r.Key).Should().Equal("REQ-PTR-core-001", "REQ-PTR-core-002");
+        Text(Record(snapshot, IntentPack.RequirementType, "REQ-PTR-core-002"), "text").Should().Be("A pointer to a pointer is refused.");
+        IntentReader.Read(_root, named, "scan", out _, options with { IdLedRequirements = false }).Records
+            .Should().NotContain(r => r.Type == IntentPack.RequirementType, "without id-led lines, only lines that say 'shall' are requirements");
+    }
+
+    /// <summary>
+    /// INTENT-LINE-NOT-IDENTITY (found by CO-2f on ironplc: 11,961 of 12,165 requirement versions were not text changes): a
+    /// requirement with an id is that id, and its line is provenance. An edit above it moves it down without changing what
+    /// the store compares, so it gets no new version and its links do not turn suspect; the excerpt still says where it is. A
+    /// requirement without an id is keyed by its place, as before.
+    /// </summary>
+    [Fact]
+    public void A_requirement_moved_by_an_edit_above_it_keeps_what_the_store_compares()
+    {
+        Write("docs/requirements/orders.md", "- REQ-1: The system shall keep every order.\n- The system shall log in.\n");
+        var before = Read(out _);
+        Write("docs/requirements/orders.md", "An introduction added later.\n\n- REQ-1: The system shall keep every order.\n- The system shall log in.\n");
+        var after = Read(out _);
+
+        string Compared(ModuleProposal r) => string.Join("|", r.Properties.OrderBy(p => p.Key).Select(p => p.Key + "=" + p.Value.GetRawText()));
+        var moved = Record(after, IntentPack.RequirementType, "REQ-1");
+        Compared(moved).Should().Be(Compared(Record(before, IntentPack.RequirementType, "REQ-1")));
+        Text(moved, "source").Should().Be("docs/requirements/orders.md");
+        moved.Source.Excerpt.Should().Be("docs/requirements/orders.md:3", "the excerpt still says where it is now");
+        Text(Record(after, IntentPack.RequirementType, "docs/requirements/orders.md:4"), "source").Should().Be("docs/requirements/orders.md:4",
+            "a requirement without an id is its place");
+    }
+
     [Fact]
     public void Reading_twice_gives_the_same_snapshot()
     {

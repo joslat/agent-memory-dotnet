@@ -35,13 +35,16 @@ public static partial class IntentReader
     public const int MaximumNodes = 100_000;
 
     /// <summary>The files worth reading, by name.</summary>
-    public static IReadOnlyList<string> IntentFiles(IEnumerable<string> repositoryFiles)
+    public static IReadOnlyList<string> IntentFiles(IEnumerable<string> repositoryFiles) => IntentFiles(repositoryFiles, null);
+
+    /// <summary>The files worth reading, by name, with the host's <paramref name="options"/> (its own requirement folders).</summary>
+    public static IReadOnlyList<string> IntentFiles(IEnumerable<string> repositoryFiles, IntentReaderOptions? options)
     {
         ArgumentNullException.ThrowIfNull(repositoryFiles);
-        return [.. repositoryFiles.Select(Normalize).Where(f => Kind(f) is not null).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)];
+        return [.. repositoryFiles.Select(Normalize).Where(f => Kind(f, options) is not null).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)];
     }
 
-    private static string? Kind(string path)
+    private static string? Kind(string path, IntentReaderOptions? options = null)
     {
         var name = Path.GetFileName(path).ToLowerInvariant();
         var folder = path.ToLowerInvariant();
@@ -50,6 +53,9 @@ public static partial class IntentReader
         {
             if (name == "ideas.md" || folder.Contains("docs/ideas/", StringComparison.Ordinal)) return "ideas";
             if (name.Contains("requirements", StringComparison.Ordinal) || name.EndsWith(".req.md", StringComparison.Ordinal) || folder.Contains("docs/requirements/", StringComparison.Ordinal)) return "requirements";
+            // CO-2f: a host's own requirement folders ("specs/design"), matched from the repository root.
+            if (options?.RequirementFolders.Any(f => Normalize(f).ToLowerInvariant() is { Length: > 0 } named && folder.StartsWith(named + "/", StringComparison.Ordinal)) == true)
+                return "requirements";
             return null;
         }
         if ((name.EndsWith(".yaml", StringComparison.Ordinal) || name.EndsWith(".yml", StringComparison.Ordinal))
@@ -58,7 +64,11 @@ public static partial class IntentReader
     }
 
     /// <summary>Reads the files into one snapshot; <paramref name="skipped"/> names each file left out and why.</summary>
-    public static ModuleSnapshot Read(string root, IReadOnlyList<string> files, string source, out IReadOnlyList<string> skipped)
+    public static ModuleSnapshot Read(string root, IReadOnlyList<string> files, string source, out IReadOnlyList<string> skipped) =>
+        Read(root, files, source, out skipped, null);
+
+    /// <summary>Reads the files into one snapshot with the host's <paramref name="options"/>; <paramref name="skipped"/> names each file left out and why.</summary>
+    public static ModuleSnapshot Read(string root, IReadOnlyList<string> files, string source, out IReadOnlyList<string> skipped, IntentReaderOptions? options)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(root);
         ArgumentNullException.ThrowIfNull(files);
@@ -73,9 +83,9 @@ public static partial class IntentReader
             if (!File.Exists(full)) { left.Add($"{file}: not found"); continue; }
             if (new FileInfo(full).Length > MaximumFileBytes) { left.Add($"{file}: larger than {MaximumFileBytes >> 20} MiB"); continue; }
             var text = File.ReadAllText(full).Replace("\r\n", "\n", StringComparison.Ordinal);
-            switch (Kind(file))
+            switch (Kind(file, options))
             {
-                case "requirements": requirements.AddRange(Requirements(file, text)); break;
+                case "requirements": requirements.AddRange(Requirements(file, text, options?.IdLedRequirements == true)); break;
                 case "gherkin":
                     if (Gherkin(file, text, out var feature, out var found) is { } problem) { left.Add($"{file}: {problem}"); break; }
                     features.Add(feature!);
@@ -126,6 +136,9 @@ public static partial class IntentReader
     {
         /// <summary>The parents a requirement names (CO-2b), in its line's order.</summary>
         internal IReadOnlyList<string> Parents { get; init; } = [];
+
+        /// <summary>Where it is now, for the proposal's excerpt, when its compared <c>source</c> leaves the line out.</summary>
+        internal string? Excerpt { get; init; }
     }
 
     private static ModuleProposal Proposal(Record record, IReadOnlyList<ProposedLink> links) => new()
@@ -134,41 +147,51 @@ public static partial class IntentReader
         Properties = record.Properties.Where(p => p.Value is not null and not (string { Length: 0 }))
             .ToDictionary(p => p.Key, p => JsonSerializer.SerializeToElement(p.Value is string s ? Clip(s, Limit(record.Type, p.Key)) : p.Value), StringComparer.Ordinal).AsReadOnly(),
         Links = links,
-        Source = new ProposalSource { Excerpt = Clip((string)record.Properties["source"]!, 512) },
+        Source = new ProposalSource { Excerpt = Clip(record.Excerpt ?? (string)record.Properties["source"]!, 512) },
     };
 
     private static int Limit(string type, string property) =>
         IntentPack.Manifest.Ontology!.Types.First(t => t.Name == type).Properties.TryGetValue(property, out var p) && p.MaxLength is { } max ? max : 512;
 
-    [GeneratedRegex(@"^\s*(?:[-*+]|\d+[.)])?\s*(?:\*\*|\[)?(?<id>[A-Z][A-Z0-9]*-\d+)(?:\*\*|\])?\s*[:.)\-–]?\s+(?<text>.+)$")]
+    // A requirement id: letters and digits led by a capital, then segments joined by "-", ending in a number ("REQ-12",
+    // "REQ-CF-001", "REQ-PTR-parser-001", CO-2f).
+    private const string IdPattern = @"[A-Z][A-Z0-9]*(?:-[A-Za-z0-9]+)*-\d+";
+
+    [GeneratedRegex(@"^\s*(?:[-*+]|\d+[.)])?\s*(?:\*\*|\[)?(?<id>" + IdPattern + @")(?:\*\*|\])?\s*[:.)\-–]?\s+(?<text>.+)$")]
     private static partial Regex IdLine();
 
     [GeneratedRegex(@"[\(\[](?<status>proposed|accepted|implemented|verified|rejected)[\)\]]", RegexOptions.IgnoreCase)]
     private static partial Regex StatusMark();
 
     // "(parent: REQ-1)", "[parent REQ-1]": the requirement this one refines (CO-2b).
-    [GeneratedRegex(@"\s*[\(\[]\s*parent\s*:?\s*(?<id>[A-Z][A-Z0-9]*-\d+)\s*[\)\]]", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"\s*[\(\[]\s*parent\s*:?\s*(?<id>" + IdPattern + @")\s*[\)\]]", RegexOptions.IgnoreCase)]
     private static partial Regex ParentMark();
 
-    // Lines that say "shall": the EARS form of a requirement, whatever its pattern.
-    internal static IEnumerable<Record> Requirements(string file, string text)
+    // Lines that say "shall": the EARS form of a requirement, whatever its pattern; with id-led lines asked for (CO-2f), also a
+    // line its id leads, though it does not say "shall".
+    internal static IEnumerable<Record> Requirements(string file, string text, bool idLed = false)
     {
         var lines = text.Split('\n');
         for (var i = 0; i < lines.Length; i++)
         {
             var line = lines[i].Trim();
-            if (!Regex.IsMatch(line, @"\bshall\b", RegexOptions.IgnoreCase) || line.StartsWith('#')) continue;
+            if (line.StartsWith('#')) continue;
             var match = IdLine().Match(line);
+            if (!Regex.IsMatch(line, @"\bshall\b", RegexOptions.IgnoreCase) && !(idLed && match.Success)) continue;
             var id = match.Success ? match.Groups["id"].Value : $"{file}:{i + 1}";
             var body = (match.Success ? match.Groups["text"].Value : line.TrimStart('-', '*', '+', ' ')).Trim();
             var parents = ParentMark().Matches(body).Select(m => m.Groups["id"].Value).ToList();
             body = ParentMark().Replace(body, "").Trim();
             var status = StatusMark().Match(body) is { Success: true } mark ? mark.Groups["status"].Value.ToLowerInvariant() : "proposed";
             body = StatusMark().Replace(body, "").Trim();
+            // INTENT-LINE-NOT-IDENTITY: a requirement with an id is that id, and its line is provenance (the excerpt), so an edit
+            // above it gives it no new version; one without an id is keyed by its place, line and all.
+            var place = $"{file}:{i + 1}";
             yield return new(IntentPack.RequirementType, id, new()
             {
-                ["reference"] = id, ["text"] = body, ["pattern"] = Pattern(body), ["status"] = status, ["file"] = file, ["source"] = $"{file}:{i + 1}",
-            }) { Parents = parents };
+                ["reference"] = id, ["text"] = body, ["pattern"] = Pattern(body), ["status"] = status, ["file"] = file,
+                ["source"] = match.Success ? file : place,
+            }) { Parents = parents, Excerpt = place };
         }
     }
 
@@ -194,7 +217,7 @@ public static partial class IntentReader
     {
         var value = tag.TrimStart('@');
         if (value.StartsWith("req:", StringComparison.OrdinalIgnoreCase)) value = value[4..];
-        return Regex.IsMatch(value, @"^[A-Za-z][A-Za-z0-9]*-\d+$") ? value : null;
+        return Regex.IsMatch(value, @"^[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*-\d+$") ? value : null;
     }
 
     private static readonly string[] StepKeywords = ["Given ", "When ", "Then ", "And ", "But ", "* "];
@@ -341,4 +364,22 @@ public static partial class IntentReader
     }
 
     private static string Clip(string value, int length) => value.Length <= length ? value : value[..(length - 1)].TrimEnd() + "…";
+}
+
+/// <summary>What a host tells the intent reader about its own repository (CO-2f): all off by default.</summary>
+[Experimental("AMEXT001")]
+public sealed record IntentReaderOptions
+{
+    /// <summary>
+    /// Folders whose Markdown files are requirement documents too, relative to the repository root ("specs/design"), for a
+    /// project that keeps its requirements in design documents. None by default.
+    /// </summary>
+    public IReadOnlyList<string> RequirementFolders { get; init; } = [];
+
+    /// <summary>
+    /// Whether a line in a requirement document led by an id ("**REQ-PTR-core-001** The compiler accepts a pointer type.")
+    /// is a requirement though it does not say "shall", for a project that writes its requirements as plain statements under
+    /// ids. Off by default: only lines that say "shall" are requirements.
+    /// </summary>
+    public bool IdLedRequirements { get; init; }
 }

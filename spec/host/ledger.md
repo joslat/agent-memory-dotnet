@@ -1,7 +1,7 @@
 # Host document: the ledger
 
 **Version 1, draft.** Format string: `agentmemory.pack.ledger/1.1`. Requirement ids: `R-HOST-nnn`, numbered across the
-three host documents. Key words as in Core §1.2.
+host documents. Key words as in Core §1.2.
 
 The ledger is a host's memory of what it installed and revoked. It implements Core §9.5. It survives uninstall, so a pack
 removed and offered again in an older version is still known.
