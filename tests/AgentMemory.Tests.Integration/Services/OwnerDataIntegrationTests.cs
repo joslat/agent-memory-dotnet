@@ -58,6 +58,54 @@ public sealed class OwnerDataIntegrationTests : IAsyncLifetime
         (await LiveCitiesAsync("bob")).Should().Equal(["Porto"]);
     }
 
+    // RVW-ERASE-CONVERSATIONS: the test above seeds its conversations with AddConversationAsync(userId), which no host
+    // path calls. The Agent Framework providers save messages inside an owner scope and nothing else; the erase must
+    // find those too.
+    [Fact]
+    public async Task An_erased_owner_s_messages_saved_in_an_owner_scope_go_with_them()
+    {
+        await SayInOwnerScopeAsync("ana", "c-ana-scoped", "I live in Bilbao.");
+        await SayInOwnerScopeAsync("bob", "c-bob-scoped", "I live in Porto.");
+
+        using var scope = _provider!.CreateScope();
+        var erasure = await scope.ServiceProvider.GetRequiredService<IMemoryOwnerDataService>().EraseAsync("ana");
+
+        (await ScalarAsync("MATCH (m:Message {conversation_id: 'c-ana-scoped'}) RETURN count(m)")).Should().Be(0,
+            "a message saved for an owner is erased with the owner");
+        (await ScalarAsync("MATCH (c:Conversation {id: 'c-ana-scoped'}) RETURN count(c)")).Should().Be(0);
+        erasure.Deleted.Should().ContainKeys("Message", "Conversation");
+        (await ScalarAsync("MATCH (m:Message {conversation_id: 'c-bob-scoped'}) RETURN count(m)")).Should().Be(1, "another owner keeps theirs");
+        (await ScalarAsync("MATCH (c:Conversation {id: 'c-bob-scoped'}) RETURN c.user_id = 'bob'")).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task A_conversation_one_owner_holds_takes_no_message_from_another_and_an_ownerless_one_is_adopted()
+    {
+        await SayInOwnerScopeAsync("ana", "c-held", "I live in Bilbao.");
+        var refused = () => SayInOwnerScopeAsync("bob", "c-held", "I live in Porto.");
+        await refused.Should().ThrowAsync<UnauthorizedAccessException>("bob may not write into ana's conversation");
+        (await ScalarAsync("MATCH (m:Message {conversation_id: 'c-held'}) RETURN count(m)")).Should().Be(1, "nothing of bob's was written");
+
+        await SayInOwnerScopeAsync(null, "c-open", "Hello.");
+        (await ScalarAsync("MATCH (c:Conversation {id: 'c-open'}) WHERE c.user_id IS NULL RETURN count(c)")).Should().Be(1,
+            "a write with no owner leaves the conversation without one, as before");
+        await SayInOwnerScopeAsync("ana", "c-open", "I live in Bilbao.");
+        (await ScalarAsync("MATCH (c:Conversation {id: 'c-open'}) RETURN c.user_id = 'ana'")).Should().Be(1,
+            "the first owned write adopts an ownerless conversation");
+    }
+
+    [Fact]
+    public async Task A_batch_into_a_conversation_another_owner_holds_is_refused_whole()
+    {
+        await SayInOwnerScopeAsync("ana", "c-held-batch", "I live in Bilbao.");
+        var refused = () => SayBatchInOwnerScopeAsync("bob", "c-held-batch", "One.", "Two.");
+        await refused.Should().ThrowAsync<UnauthorizedAccessException>();
+        (await ScalarAsync("MATCH (m:Message {conversation_id: 'c-held-batch'}) RETURN count(m)")).Should().Be(1);
+
+        await SayBatchInOwnerScopeAsync("bob", "c-bob-batch", "One.", "Two.");
+        (await ScalarAsync("MATCH (c:Conversation {id: 'c-bob-batch'}) RETURN c.user_id = 'bob'")).Should().Be(1);
+    }
+
     [Fact]
     public async Task An_export_imported_under_a_new_owner_gives_the_same_recall()
     {
@@ -138,6 +186,28 @@ public sealed class OwnerDataIntegrationTests : IAsyncLifetime
             Role = "user", Content = text, TimestampUtc = DateTimeOffset.UtcNow,
         });
         await pipeline.ExtractAsync(new ExtractionRequest { SessionId = $"s-{owner}", UserId = owner, Messages = [message] });
+    }
+
+    /// <summary>As the Agent Framework providers save a message: inside an owner scope, with no conversation call.</summary>
+    private async Task SayInOwnerScopeAsync(string? owner, string conversationId, string text)
+    {
+        using var scope = _provider!.CreateScope();
+        using var ownerScope = scope.ServiceProvider.GetRequiredService<IWritableMemoryOwnerContext>().BeginOwnerScope(owner);
+        await scope.ServiceProvider.GetRequiredService<IMemoryService>()
+            .AddMessageAsync($"s-{conversationId}", conversationId, "user", text);
+    }
+
+    private async Task SayBatchInOwnerScopeAsync(string owner, string conversationId, params string[] texts)
+    {
+        using var scope = _provider!.CreateScope();
+        using var ownerScope = scope.ServiceProvider.GetRequiredService<IWritableMemoryOwnerContext>().BeginOwnerScope(owner);
+        var at = DateTimeOffset.UtcNow;
+        await scope.ServiceProvider.GetRequiredService<IMemoryService>().AddMessagesAsync(
+            [.. texts.Select((text, i) => new Message
+            {
+                MessageId = $"m-{Guid.NewGuid():N}", ConversationId = conversationId, SessionId = $"s-{conversationId}",
+                Role = "user", Content = text, TimestampUtc = at.AddMilliseconds(i),
+            })]);
     }
 
     private static RecallRequest Question(string owner) => new()

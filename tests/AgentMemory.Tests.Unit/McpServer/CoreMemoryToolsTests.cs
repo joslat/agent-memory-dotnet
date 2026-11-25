@@ -17,6 +17,7 @@ public sealed class CoreMemoryToolsTests
     private readonly IIdGenerator _idGenerator = Substitute.For<IIdGenerator>();
     private readonly TimeProvider _clock = Substitute.For<TimeProvider>();
     private readonly IOptions<AgentMemoryMcpOptions> _options = Options.Create(new AgentMemoryMcpOptions());
+    private readonly IWritableMemoryOwnerContext _ownerContext = Substitute.For<IWritableMemoryOwnerContext>();
 
     // 25.2. The tool now starts from the host's CONFIGURED recall options rather than the static
     // default, so it needs them injected. Stock values here, so these tests keep asserting the
@@ -122,6 +123,56 @@ public sealed class CoreMemoryToolsTests
 
     // ── memory_store_message ──
 
+    // RVW-ERASE-CONVERSATIONS: the owner a message is stored for is the ambient owner while it is saved, so the store
+    // stamps the conversation with it (the owner erase finds it; no other owner sees it).
+    [Fact]
+    public async Task MemoryStoreMessage_WithAnOwner_SavesInsideThatOwnersScope()
+    {
+        _ownerContext.UserId = null;
+        string? seen = "unset";
+        _memoryService.AddMessageAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                seen = _ownerContext.UserId;
+                return new Message { MessageId = "m", ConversationId = "c", SessionId = "s", Role = "user", Content = "x", TimestampUtc = FixedTime };
+            });
+
+        await CoreMemoryTools.MemoryStoreMessage(_memoryService, _options, _ownerContext, "user", "hello", "ses-1", "conv-1", userId: "alice");
+
+        seen.Should().Be("alice");
+        _ownerContext.UserId.Should().BeNull("the scope ends with the call");
+    }
+
+    [Fact]
+    public async Task MemoryStoreMessage_WithAnOwnerAndNoSession_KeepsTheDefaultSessionTheirs()
+    {
+        _memoryService.AddMessageAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
+            .Returns(new Message { MessageId = "m", ConversationId = "c", SessionId = "s", Role = "user", Content = "x", TimestampUtc = FixedTime });
+
+        await CoreMemoryTools.MemoryStoreMessage(_memoryService, _options, _ownerContext, "user", "hello", userId: "alice");
+
+        await _memoryService.Received(1).AddMessageAsync("default:alice", "default:alice", "user", "hello",
+            Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task MemoryStoreMessage_IntoAConversationAnotherOwnerHolds_IsAnMcpErrorThatSaysWhy()
+    {
+        _memoryService.AddMessageAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
+            .Returns<Task<Message>>(_ => throw new UnauthorizedAccessException("Conversation 'conv-1' belongs to another owner; no message was added to it."));
+
+        var act = () => CoreMemoryTools.MemoryStoreMessage(_memoryService, _options, _ownerContext, "user", "hello", "ses-1", "conv-1", userId: "bob");
+
+        (await act.Should().ThrowAsync<ModelContextProtocol.McpException>()).WithMessage("*belongs to another owner*");
+    }
+
+
     [Fact]
     public async Task MemoryStoreMessage_CallsAddMessageAsyncWithCorrectParameters()
     {
@@ -139,7 +190,7 @@ public sealed class CoreMemoryToolsTests
                 Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
             .Returns(msg);
 
-        await CoreMemoryTools.MemoryStoreMessage(_memoryService, _options, "user", "hello", "ses-1", "conv-1");
+        await CoreMemoryTools.MemoryStoreMessage(_memoryService, _options, _ownerContext, "user", "hello", "ses-1", "conv-1");
 
         await _memoryService.Received(1).AddMessageAsync("ses-1", "conv-1", "user", "hello",
             Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>());
@@ -162,7 +213,7 @@ public sealed class CoreMemoryToolsTests
                 Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
             .Returns(msg);
 
-        await CoreMemoryTools.MemoryStoreMessage(_memoryService, _options, "system", "hello", "ses-1", "conv-1");
+        await CoreMemoryTools.MemoryStoreMessage(_memoryService, _options, _ownerContext, "system", "hello", "ses-1", "conv-1");
 
         await _memoryService.Received(1).AddMessageAsync("ses-1", "conv-1", "system", "hello",
             Arg.Is<IReadOnlyDictionary<string, object>?>(m => m != null && m.GetTrustLevel() == MemoryTrustLevel.ToolDerived),
@@ -186,7 +237,7 @@ public sealed class CoreMemoryToolsTests
                 Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
             .Returns(msg);
 
-        await CoreMemoryTools.MemoryStoreMessage(_memoryService, _options, "assistant", "hi");
+        await CoreMemoryTools.MemoryStoreMessage(_memoryService, _options, _ownerContext, "assistant", "hi");
 
         await _memoryService.Received(1).AddMessageAsync("default", "default", "assistant", "hi",
             Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>());
@@ -209,7 +260,7 @@ public sealed class CoreMemoryToolsTests
                 Arg.Any<IReadOnlyDictionary<string, object>?>(), Arg.Any<CancellationToken>())
             .Returns(msg);
 
-        var result = await CoreMemoryTools.MemoryStoreMessage(_memoryService, _options, "user", "hello", "ses-1", "conv-1");
+        var result = await CoreMemoryTools.MemoryStoreMessage(_memoryService, _options, _ownerContext, "user", "hello", "ses-1", "conv-1");
 
         var doc = JsonDocument.Parse(result);
         doc.RootElement.GetProperty("messageId").GetString().Should().Be("msg-1");

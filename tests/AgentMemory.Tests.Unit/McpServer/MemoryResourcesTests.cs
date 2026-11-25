@@ -299,7 +299,7 @@ public sealed class MemoryResourcesTests
         await ConversationListResource.GetConversations(_graphQueryService, IsolationPolicy, NoPin, userId: "alice");
 
         await _graphQueryService.Received(1).QueryAsync(
-            Arg.Is<string>(q => q.Contains("(c.user_id = $userId OR c.user_id IS NULL)")),
+            Arg.Is<string>(q => q.Contains("WHERE c.user_id = $userId") && !q.Contains("c.user_id IS NULL")), // RVW-ERASE-CONVERSATIONS: own only
             Arg.Is<IReadOnlyDictionary<string, object?>?>(p => p != null && (string?)p["userId"] == "alice"),
             Arg.Any<CancellationToken>());
     }

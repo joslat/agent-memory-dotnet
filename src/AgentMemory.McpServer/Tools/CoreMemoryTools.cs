@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Globalization;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
+using ModelContextProtocol;
 using ModelContextProtocol.Server;
 using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
@@ -102,13 +103,20 @@ internal sealed class CoreMemoryTools
     public static async Task<string> MemoryStoreMessage(
         IMemoryService memoryService,
         IOptions<AgentMemoryMcpOptions> options,
+        IWritableMemoryOwnerContext ownerContext,
         [Description("The role of the message sender (e.g., 'user', 'assistant', 'system')")] string role,
         [Description("The message content")] string content,
         [Description("Session identifier (optional, uses default if omitted)")] string? sessionId = null,
         [Description("Conversation identifier (optional, defaults to session ID)")] string? conversationId = null,
+        [Description("Owner/user identifier (optional). The conversation becomes that owner's: erased with them and shown to no other owner.")] string? userId = null,
         CancellationToken cancellationToken = default)
     {
-        var sid = sessionId ?? options.Value.DefaultSessionId;
+        // RVW-ERASE-CONVERSATIONS: the message is saved for its owner (the ambient owner the store stamps on the
+        // conversation). With an owner named per call, the default session is that owner's, so two owners using the
+        // defaults never meet in one conversation; a host that pins one owner keeps the plain default.
+        var owner = string.IsNullOrWhiteSpace(userId) ? null : userId;
+        var pinned = !string.IsNullOrWhiteSpace(options.Value.OwnerId);
+        var sid = sessionId ?? (owner is null || pinned ? options.Value.DefaultSessionId : $"{options.Value.DefaultSessionId}:{owner}");
         var cid = conversationId ?? sid;
 
         // #92 Phase 7: this tool accepts an unvalidated, caller-supplied role -- including "system"/"tool",
@@ -118,7 +126,18 @@ internal sealed class CoreMemoryTools
         // explicitly configures MinimumTrustForSystemRole low enough to admit it (see
         // RecalledMessageRoleGate, consulted by MafTypeMapper/MemoryContextFormatter/Neo4jTextSearch).
         var metadata = MemoryTrustMetadataExtensions.CreateWithTrustLevel(MemoryTrustLevel.ToolDerived);
-        var message = await memoryService.AddMessageAsync(sid, cid, role, content, metadata, cancellationToken).ConfigureAwait(false);
+        Message message;
+        using (owner is null ? null : ownerContext.BeginOwnerScope(owner))
+        {
+            try
+            {
+                message = await memoryService.AddMessageAsync(sid, cid, role, content, metadata, cancellationToken).ConfigureAwait(false);
+            }
+            catch (UnauthorizedAccessException refused)
+            {
+                throw new McpException(refused.Message);
+            }
+        }
         return ToolJsonContext.Serialize(new
         {
             message.MessageId,

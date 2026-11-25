@@ -23,6 +23,21 @@ internal static class MessageQueries
     /// message_id has a uniqueness constraint (SchemaQueries), so MERGE uses the backing index. Every
     /// existing caller is unaffected: nothing before this ever supplied a repeated id (fresh GUID each
     /// call), so this is purely additive infrastructure.</summary>
+    /// <summary>
+    /// RVW-ERASE-CONVERSATIONS: run first in a write that knows its owner. Creates each conversation for that owner, or
+    /// adopts one that has none, and returns every conversation's owner so the caller refuses one another owner holds
+    /// before any message is written. The owner erase finds an owner's messages through <c>Conversation.user_id</c>,
+    /// which only this ever stamps on the message paths.
+    /// </summary>
+    public const string ClaimConversations = @"
+            UNWIND $conversations AS c
+            MERGE (conv:Conversation {id: c.id})
+            ON CREATE SET conv.session_id = c.session_id,
+                          conv.created_at = datetime(c.timestamp),
+                          conv.updated_at = datetime(c.timestamp)
+            SET conv.user_id = coalesce(conv.user_id, $ownerId)
+            RETURN conv.id AS id, conv.user_id AS owner";
+
     public const string Add = @"
             MERGE (conv:Conversation {id: $conversationId})
             ON CREATE SET conv.session_id = $sessionId,

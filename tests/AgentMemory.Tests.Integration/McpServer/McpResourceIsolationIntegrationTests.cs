@@ -143,13 +143,14 @@ public class McpResourceIsolationIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task ConversationListResource_ScopedToUser_ExcludesOtherUsers()
     {
+        // RVW-ERASE-CONVERSATIONS: a conversation with no owner is no scoped caller's (a conversation is never shared).
         await SeedConversationAsync("conv-alice", "alice");
         await SeedConversationAsync("conv-bob", "bob");
         await SeedConversationAsync("conv-shared", null);
 
         var ids = NamesFrom(await ConversationListResource.GetConversations(_graph, CreatePolicy(), NoPin, userId: "alice"), "conversations", "id");
 
-        ids.Should().Contain("conv-alice").And.Contain("conv-shared").And.NotContain("conv-bob");
+        ids.Should().Contain("conv-alice").And.NotContain("conv-shared").And.NotContain("conv-bob");
     }
 
     [Fact]

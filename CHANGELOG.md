@@ -6,6 +6,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Fixed: erasing an owner now erases their conversations and messages.** A conversation was stamped with its owner only by
+  `IShortTermMemoryService.AddConversationAsync`, which no host path calls, so `IMemoryOwnerDataService.EraseAsync` left
+  every message the Agent Framework providers or the MCP server saved, and still reported success. A message saved while an
+  owner is in scope (`IWritableMemoryOwnerContext.BeginOwnerScope`, as the providers do) now creates its conversation for
+  that owner, or adopts it when it has none; a message for one owner into a conversation another owner holds is refused
+  with `UnauthorizedAccessException`, and nothing of that write is stored. A save with no owner is unchanged.
+  - **MCP.** `memory_store_message` takes an optional `userId` (and a pinned owner applies to it). With an owner named per
+    call and no session, the default session is that owner's (`default:<userId>`), so two owners using the defaults do not
+    meet in one conversation. A write into another owner's conversation is an MCP error that says so.
+  - **Behaviour change (MCP).** `memory_get_conversation`, `memory_list_sessions` and the `memory://conversations` resource
+    no longer show a scoped caller a conversation with no owner. A conversation is one person's dialogue, not shared
+    knowledge; before this fix every conversation an owned host wrote had no owner, so they were shown to every scoped
+    caller. A conversation written before this release is adopted by the first owner who writes to it again; until then a
+    scoped caller does not see it, and the owner erase does not remove it (erase such conversations by id, or wait for the
+    owner backfill planned next).
+
 - The coding packs link across layers (CO-2b, the coding ontology's slice 1, from the design the owner approved on 22 Nov
   2026). A link is stored by the pack whose source says it: a requirement that names its parent decomposes it
   (`INTENT_DECOMPOSES`, read from `(parent: REQ-1)` on the child's line); a test validates the requirement its own

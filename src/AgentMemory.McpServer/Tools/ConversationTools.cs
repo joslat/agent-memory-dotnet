@@ -38,8 +38,9 @@ internal sealed class ConversationTools
         if (!string.IsNullOrEmpty(resolvedUserId))
         {
             var conversation = await conversationRepo.GetByIdAsync(conversationId, cancellationToken).ConfigureAwait(false);
-            if (conversation is null ||
-                (conversation.UserId is not null && conversation.UserId != resolvedUserId))
+            // RVW-ERASE-CONVERSATIONS: one with no owner is no scoped caller's either. A conversation is one person's
+            // dialogue, never shared knowledge, and before the message path stamped owners every owned host left none.
+            if (conversation is null || conversation.UserId != resolvedUserId)
             {
                 return ToolJsonContext.Serialize(Array.Empty<object>());
             }
@@ -81,7 +82,7 @@ internal sealed class ConversationTools
         // R1: a session id is shareable/guessable, so a scoped caller sees only their own (or un-attributed)
         // conversations — never another owner's. null userId ⇒ unscoped (admin/single-tenant).
         if (!string.IsNullOrEmpty(resolvedUserId))
-            conversations = conversations.Where(c => c.UserId is null || c.UserId == resolvedUserId).ToList();
+            conversations = conversations.Where(c => c.UserId == resolvedUserId).ToList(); // RVW-ERASE-CONVERSATIONS: own only
 
         return ToolJsonContext.Serialize(conversations.Select(c => new
         {

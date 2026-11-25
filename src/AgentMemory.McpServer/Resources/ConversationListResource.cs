@@ -26,11 +26,12 @@ internal sealed class ConversationListResource
         userId = McpOwnerPin.ForResource(options.Value, userId);
         limit = Math.Clamp(limit, 1, 1000); // guard against negative (Neo4j error) / huge (resource-exhaustion) limits
 
-        // Conversations carry user_id (not owner_id). Scope to the user's own + un-attributed rows.
+        // Conversations carry user_id (not owner_id). Scope to the user's own: RVW-ERASE-CONVERSATIONS, one with no owner
+        // is no scoped caller's (a conversation is never shared knowledge).
         // Resolved through the central isolation policy (#100).
         var scope = isolationPolicy.ResolveReadScope(explicitScope: null, userId, "memory_conversations", MemoryOperationAccess.Tenant);
         var hasOwner = scope.HasOwnerFilter;
-        var whereClause = hasOwner ? "WHERE (c.user_id = $userId OR c.user_id IS NULL)" : "";
+        var whereClause = hasOwner ? "WHERE c.user_id = $userId" : "";
 
         var query = $"""
             MATCH (c:Conversation)

@@ -29,6 +29,28 @@ public sealed class McpToolListingTests
             .ToList();
     }
 
+    // RVW-ERASE-CONVERSATIONS: with the services a host registers, the store tool's owner context is bound from them,
+    // never offered to the caller as an argument.
+    [Fact]
+    public void The_store_tool_takes_its_owner_context_from_the_host_not_from_the_caller()
+    {
+        var services = new ServiceCollection();
+        services.AddMcpServer().AddAgentMemoryMcpTools(_ => { });
+        using var host = new ServiceCollection()
+            .AddSingleton(NSubstitute.Substitute.For<AgentMemory.Abstractions.Services.IMemoryService>())
+            .AddSingleton(NSubstitute.Substitute.For<AgentMemory.Abstractions.Services.IWritableMemoryOwnerContext>())
+            .BuildServiceProvider();
+        var tool = services
+            .Where(descriptor => descriptor.ServiceType == typeof(McpServerTool))
+            .Select(descriptor => descriptor.ImplementationFactory?.Invoke(host) as McpServerTool)
+            .Single(t => t?.ProtocolTool.Name == "memory_store_message")!;
+
+        var properties = tool.ProtocolTool.InputSchema.GetProperty("properties");
+        properties.TryGetProperty("ownerContext", out _).Should().BeFalse();
+        properties.TryGetProperty("memoryService", out _).Should().BeFalse();
+        properties.TryGetProperty("userId", out _).Should().BeTrue();
+    }
+
     private static IReadOnlyList<string> Listed(Action<AgentMemoryMcpOptions> configure) =>
         RegisteredTools(configure).Select(tool => tool.ProtocolTool.Name).ToList();
 
@@ -112,7 +134,9 @@ public sealed class McpToolListingTests
         McpOwnerPin.AcceptsOwner(tools["memory_search"].ProtocolTool.InputSchema).Should().BeTrue();
         McpOwnerPin.AcceptsOwner(tools["memory_add_fact"].ProtocolTool.InputSchema).Should().BeTrue();
         McpOwnerPin.AcceptsOwner(tools["memory_record_step"].ProtocolTool.InputSchema).Should().BeFalse();
-        McpOwnerPin.AcceptsOwner(tools["memory_store_message"].ProtocolTool.InputSchema).Should().BeFalse();
+        // RVW-ERASE-CONVERSATIONS: a stored message is its owner's, so the pin applies to it; the owner context it uses
+        // is a service, never an argument.
+        McpOwnerPin.AcceptsOwner(tools["memory_store_message"].ProtocolTool.InputSchema).Should().BeTrue();
         McpOwnerPin.AcceptsOwner(null).Should().BeFalse();
     }
 

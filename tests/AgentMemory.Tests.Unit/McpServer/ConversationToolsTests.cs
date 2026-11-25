@@ -126,9 +126,11 @@ public sealed class ConversationToolsTests
     }
 
     [Fact]
-    public async Task MemoryGetConversation_ScopedToSharedConversation_IsAllowed()
+    public async Task MemoryGetConversation_ScopedCaller_GetsNothingFromAConversationWithNoOwner()
     {
-        // An un-attributed (UserId == null) conversation is shared/global — visible to any scoped owner.
+        // RVW-ERASE-CONVERSATIONS: a conversation is one person's dialogue, never shared knowledge. Before the message
+        // path stamped owners, every conversation an owned host wrote had none, so "no owner = shared" showed everyone's
+        // conversations to every scoped caller. A conversation with no owner is not a scoped caller's.
         _conversationRepo.GetByIdAsync("conv-1", Arg.Any<CancellationToken>())
             .Returns(new Conversation
             {
@@ -144,7 +146,8 @@ public sealed class ConversationToolsTests
         var result = await ConversationTools.MemoryGetConversation(
             _shortTermMemory, _conversationRepo, _isolationPolicy, Options.Create(new AgentMemoryMcpOptions()), "conv-1", userId: "bob");
 
-        JsonDocument.Parse(result).RootElement.GetArrayLength().Should().Be(1);
+        JsonDocument.Parse(result).RootElement.GetArrayLength().Should().Be(0);
+        await _shortTermMemory.DidNotReceive().GetConversationMessagesAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     // ── memory_list_sessions ──
@@ -198,9 +201,9 @@ public sealed class ConversationToolsTests
     }
 
     [Fact]
-    public async Task MemoryListSessions_ScopedToOwner_ExcludesOtherOwnersAndKeepsShared()
+    public async Task MemoryListSessions_ScopedToOwner_ListsOnlyTheirOwn()
     {
-        // cycle-5 R1: a scoped caller sees only their own + un-attributed conversations, never another owner's.
+        // cycle-5 R1: never another owner's. RVW-ERASE-CONVERSATIONS: nor one with no owner (see above).
         _conversationRepo.GetBySessionAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new List<Conversation>
             {
@@ -213,8 +216,7 @@ public sealed class ConversationToolsTests
 
         var ids = JsonDocument.Parse(result).RootElement.EnumerateArray()
             .Select(e => e.GetProperty("conversationId").GetString()).ToList();
-        ids.Should().BeEquivalentTo(new[] { "mine", "shared" });
-        ids.Should().NotContain("theirs");
+        ids.Should().BeEquivalentTo(new[] { "mine" });
     }
 
     // ── #100 Stage 2: StrictMultiTenant fails closed for both tools too ──

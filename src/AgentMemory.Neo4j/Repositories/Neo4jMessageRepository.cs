@@ -25,17 +25,49 @@ internal sealed class Neo4jMessageRepository : IMessageRepository
     private readonly INeo4jTransactionRunner _tx;
     private readonly ILogger<Neo4jMessageRepository> _logger;
     private readonly bool _useOptimizedMessageBatchWrites;
+    /// <summary>RVW-ERASE-CONVERSATIONS: the ambient owner a message is saved for (the Agent Framework providers and the
+    /// MCP store tool set it). Absent or empty, a save stamps no owner, as before.</summary>
+    private readonly IMemoryOwnerContext? _ownerContext;
 
     public Neo4jMessageRepository(
         INeo4jTransactionRunner tx,
         ILogger<Neo4jMessageRepository> logger,
         IOptions<Neo4jOptions>? options = null,
-        TimeProvider? clock = null)
+        TimeProvider? clock = null,
+        IMemoryOwnerContext? ownerContext = null)
     {
         _tx = tx;
         _logger = logger;
         _useOptimizedMessageBatchWrites = options?.Value.UseOptimizedMessageBatchWrites ?? true;
         _clock = clock ?? TimeProvider.System;
+        _ownerContext = ownerContext;
+    }
+
+    /// <summary>
+    /// RVW-ERASE-CONVERSATIONS: with an owner known, every conversation the write touches is created for that owner or
+    /// adopted when it has none, and one another owner holds is refused before any message is written (the same
+    /// transaction, so a refusal leaves nothing). With no owner the write is unchanged.
+    /// </summary>
+    private async Task ClaimConversationsAsync(IAsyncQueryRunner runner, IReadOnlyList<Message> messages)
+    {
+        var owner = _ownerContext?.UserId;
+        if (string.IsNullOrEmpty(owner)) return;
+        var conversations = messages
+            .GroupBy(m => m.ConversationId, StringComparer.Ordinal)
+            .Select(g => g.OrderBy(m => m.TimestampUtc).First())
+            .Select(m => new Dictionary<string, object?>
+            {
+                ["id"] = m.ConversationId,
+                ["session_id"] = m.SessionId,
+                ["timestamp"] = m.TimestampUtc.ToString("O"),
+            })
+            .ToList();
+        var cursor = await runner.RunAsync(MessageQueries.ClaimConversations, new { conversations, ownerId = owner }).ConfigureAwait(false);
+        var rows = await cursor.ToListAsync().ConfigureAwait(false);
+        var held = rows.FirstOrDefault(row => !string.Equals(row["owner"] as string, owner, StringComparison.Ordinal));
+        if (held is not null)
+            throw new UnauthorizedAccessException(
+                $"Conversation '{held["id"].As<string>()}' belongs to another owner; no message was added to it.");
     }
 
     public async Task<Message> AddAsync(Message message, CancellationToken cancellationToken = default)
@@ -45,6 +77,7 @@ internal sealed class Neo4jMessageRepository : IMessageRepository
 
         return await _tx.WriteAsync(async runner =>
         {
+            await ClaimConversationsAsync(runner, [message]).ConfigureAwait(false);
             // Store embedding separately to handle null
             var createParams = new Dictionary<string, object?>
             {
@@ -112,6 +145,7 @@ internal sealed class Neo4jMessageRepository : IMessageRepository
         {
             return await _tx.WriteAsync(async runner =>
             {
+                await ClaimConversationsAsync(runner, ordered).ConfigureAwait(false);
                 var cursor = await runner.RunAsync(
                     MessageQueries.AddBatchOptimized,
                     new { messages = msgParams }).ConfigureAwait(false);
@@ -131,6 +165,7 @@ internal sealed class Neo4jMessageRepository : IMessageRepository
 
         return await _tx.WriteAsync(async runner =>
         {
+            await ClaimConversationsAsync(runner, ordered).ConfigureAwait(false);
             var cursor = await runner.RunAsync(MessageQueries.AddBatch, new { messages = msgParams }).ConfigureAwait(false);
             // consume result
             await cursor.ConsumeAsync().ConfigureAwait(false);
