@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Fixed: an identity review can no longer hide facts silently (evidence-based identity).** When a mention stayed an
+  open proposal, its observation was stored as an entity, and later mentions could be confirmed into it. Confirming the
+  first mention into another entity then hid that observation from identity lookups and people recall, with the later
+  mentions' facts still bound to it. `IIdentityDecisionRepository.ReviewAsync` now refuses such a review before writing
+  anything, naming the decisions confirmed into the observation; the host reviews or revokes those first.
+
 - **Fixed: recall no longer brings back forgotten, superseded or merged preferences and entities.** When an owner-scoped
   vector search and its widening return nothing, the preference and entity paths score the owner's own rows directly;
   that scan filtered the owner only, so a forgotten (`invalidated_at`) or merged (`merged_into`) item was recalled, and a

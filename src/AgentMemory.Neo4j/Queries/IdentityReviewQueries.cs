@@ -31,6 +31,25 @@ internal static class IdentityReviewQueries
         RETURN b.id AS id
         """;
 
+    /// <summary>
+    /// RVW-REVIEW-STRANDS: the other decisions confirmed into this decision's observation, by a fact binding or by the
+    /// decision itself. A review that resolves the observation elsewhere hides it from identity lookups, so those would
+    /// lose their facts with no signal.
+    /// </summary>
+    internal const string ConfirmedIntoObservation = """
+        CALL {
+            MATCH (b:IdentityFactBinding {owner_scope:$ownerScope})-[:RESOLVES_TO]->(:Entity {id:$observationId})
+            WHERE b.identity_decision_id <> $decisionId
+            RETURN b.identity_decision_id AS id
+            UNION
+            MATCH (d:IdentityDecision {owner_scope:$ownerScope})-[:RESOLVES_TO]->(:Entity {id:$observationId})
+            WHERE d.id <> $decisionId
+            RETURN d.id AS id
+        }
+        WITH DISTINCT id ORDER BY id LIMIT $limit
+        RETURN collect(id) AS decisions
+        """;
+
     internal const string SetDecisionTarget = """
         MATCH (d:IdentityDecision {id:$decisionId,owner_scope:$ownerScope}),(t:Entity {id:$targetId})
         WHERE t.invalidated_at IS NULL AND t.merged_into IS NULL AND

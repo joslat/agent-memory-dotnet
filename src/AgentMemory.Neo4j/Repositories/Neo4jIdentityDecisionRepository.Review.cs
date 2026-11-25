@@ -94,6 +94,8 @@ internal sealed partial class Neo4jIdentityDecisionRepository
             if(next.Status!=IdentityDecisionKind.Confirmed)
                 await MaterializeObservation(runner,next.Observation,next.ObservationKey,includeShared,cancellationToken).ConfigureAwait(false);
             var targetId=next.ConfirmedEntityId??next.Observation.EntityId;
+            if(!string.Equals(targetId,next.Observation.EntityId,StringComparison.Ordinal))
+                await RefuseHidingLaterConfirmations(runner,next,ownerId).ConfigureAwait(false);
             var targetCursor=await runner.RunAsync(IdentityReviewQueries.SetDecisionTarget,new
             { decisionId=next.DecisionId,ownerScope=Scope(ownerId),ownerId,includeShared,targetId }).ConfigureAwait(false);
             if((await targetCursor.ToListAsync().ConfigureAwait(false)).Count!=1)
@@ -173,6 +175,22 @@ internal sealed partial class Neo4jIdentityDecisionRepository
         // still-visible, live, type-compatible alternatives without a fresh deterministic veto.
         return candidates.Select(candidate=>candidate.Entity.EntityId)
             .Where(id=>!result.RejectedEntityIds.Contains(id,StringComparer.Ordinal)).Order(StringComparer.Ordinal).ToArray();
+    }
+
+    /// <summary>
+    /// RVW-REVIEW-STRANDS: resolving an observation to another entity hides the observation from identity lookups. Other
+    /// decisions confirmed into it would keep their facts on a hidden entity, so the review is refused, naming them, before
+    /// anything is written: the host reviews (or revokes) those first.
+    /// </summary>
+    private static async Task RefuseHidingLaterConfirmations(IAsyncQueryRunner runner,IdentityDecision decision,string? ownerId)
+    {
+        var cursor=await runner.RunAsync(IdentityReviewQueries.ConfirmedIntoObservation,new
+        { decisionId=decision.DecisionId,ownerScope=Scope(ownerId),observationId=decision.Observation.EntityId,limit=20L }).ConfigureAwait(false);
+        var others=(await cursor.SingleAsync().ConfigureAwait(false))["decisions"].As<List<string>>();
+        if(others.Count>0)
+            throw new InvalidOperationException(
+                $"Other decisions were confirmed into this decision's observation ({string.Join(", ",others)}); resolving it to another "
+                + "entity would hide their facts. Review or revoke those decisions first.");
     }
 
     private static async Task RewireReviewBindings(IAsyncQueryRunner runner,IdentityDecision decision,string targetId,

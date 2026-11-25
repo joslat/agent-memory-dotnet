@@ -561,6 +561,42 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
     }
 
     [Fact]
+    public async Task A_review_that_would_hide_an_observation_later_mentions_were_confirmed_into_is_refused_and_names_them()
+    {
+        // RVW-REVIEW-STRANDS: the first "Acme go live" stays an open proposal, so its observation is stored as an entity
+        // of its own; the next mention is confirmed into that observation. Confirming the first into another entity
+        // hides the observation from every identity lookup, and the later mention's facts would go with it, silently.
+        // Until such a review can move them, it is refused and names the decisions confirmed into the observation.
+        string? observationId = null;
+        var model = Substitute.For<IIdentityAdjudicator>();
+        model.GetDecisionAsync(Arg.Any<IdentityAdjudicationRequest>(), Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            return observationId is not null
+                ? "{\"decision\":\"same\",\"candidateId\":\"" + observationId + "\",\"evidence\":[{\"sourceId\":\"source-2\",\"quote\":\"Acme go live\"}]}"
+                : "{\"decision\":\"uncertain\"}";
+        });
+        using var host = Host(identityPolicy: new() { AllowContextualConfirmation = true }, adjudicator: model);
+        using var scope = host.CreateScope(); var services = scope.ServiceProvider;
+        await Seed(services, "Acme go-live");
+        await Ingest(services, Input());
+        var decisions = services.GetRequiredService<IIdentityDecisionRepository>();
+        var first = await StoredDecision();
+        first.Status.Should().Be(IdentityDecisionKind.Pending, "precondition: the first mention is an open proposal");
+        observationId = first.Observation.EntityId;
+        await fixture.TransactionRunner.WriteAsync(async runner => { await runner.RunAsync("MATCH (c:Conversation {id:'conversation'}) CREATE (m:Message {id:'source-2', conversation_id:'conversation', content:'The Acme go live is on December 12, 2026', session_id:'scenario'}), (c)-[:HAS_MESSAGE]->(m)"); });
+        await Ingest(services, Input(), messageId: "source-2");
+        (await Count($"(:IdentityFactBinding)-[:RESOLVES_TO]->(:Entity {{id:'{observationId}'}})")).Should().BeGreaterThan(1,
+            "precondition: the later mention was confirmed into the first mention's observation");
+
+        var review = () => decisions.ReviewAsync(new() { DecisionId = first.DecisionId, OperationId = "confirm-acme", ExpectedVersion = first.Version,
+            Action = IdentityReviewAction.Confirm, CandidateEntityId = "existing", Actor = "fixture:owner", Reason = "the same go-live" }, "pablito");
+
+        (await review.Should().ThrowAsync<InvalidOperationException>()).Which.Message.Should().Contain("confirmed into");
+        (await decisions.GetAsync(first.DecisionId, "pablito"))!.Status.Should().Be(IdentityDecisionKind.Pending, "nothing of the refused review is applied");
+        (await Count($"(:IdentityFactBinding)-[:RESOLVES_TO]->(:Entity {{id:'{observationId}'}})")).Should().BeGreaterThan(1);
+    }
+
+    [Fact]
     public async Task Owner_portability_brings_an_identity_store_back_whole()
     {
         // ILC-30: decisions, open proposals, fact bindings and evidence come back for the new owner, every reference
