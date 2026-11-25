@@ -286,7 +286,8 @@ public sealed class LlmMultiSessionUnifiedMemoryExtractorTests
             return new ExtractionRequest
             {
                 SessionId = session,
-                UserId = $"owner-{index:D2}",
+                // RVW-BATCH-OWNERS: one owner, so these tests measure batching itself (a batch is one owner's).
+                UserId = "owner-1",
                 Messages =
                 [
                     new Message

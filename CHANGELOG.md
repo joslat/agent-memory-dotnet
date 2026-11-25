@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Fixed: multi-session batch extraction never puts two owners' sessions in one prompt.** Each extracted item is filed
+  under the session the model names and saved as that session's owner's, so a batch holding two owners' sessions could
+  put one person's words in another person's memory when the model mis-filed an item or a message wrote its own session
+  tag. `IMultiSessionUnifiedMemoryExtractor.Plan` and `ExtractAsync` now batch each owner's sessions apart (a
+  `ShareWithEveryone` request is its own owner), keeping each owner's order; and a `source_session` tag inside a
+  message or a role is neutralised before the prompt (its bracket becomes `‹`). A host that batches many owners at once
+  makes one call per owner's batch instead of fewer mixed ones. Opt-in path (`UseUnifiedExtraction` with
+  `UseMultiSessionBatchExtraction`).
+
 - **Fixed: `MemoryOwnerScopingAgent` keeps the owner for the whole streamed run.** In `RunStreamingAsync` the owner and
   store scopes were begun once inside an async iterator, which resumes in its caller's context at every step, so after
   the first streamed update they were gone: a tool the model asked for after writing some text (run while the caller

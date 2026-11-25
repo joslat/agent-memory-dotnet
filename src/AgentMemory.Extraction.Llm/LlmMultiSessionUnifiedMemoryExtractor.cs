@@ -17,7 +17,7 @@ namespace AgentMemory.Extraction.Llm;
 /// accepted: a multi-session batch is split recursively, while an invalid single-session response
 /// fails the operation.
 /// </summary>
-internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifiedMemoryExtractor
+internal sealed partial class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifiedMemoryExtractor
 {
     private const string SystemPrompt =
         """
@@ -533,25 +533,32 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
         int maxSessionsPerBatch,
         int maxInputTokens)
     {
+        // RVW-BATCH-OWNERS: one batch is one owner's. Each extracted item is filed under the session the model names
+        // and saved as that session's owner's, so two owners' sessions in one prompt let a mis-filed item (or a message
+        // that wrote its own session tag) put one person's words in another person's memory. Owners keep their first
+        // appearance order, and each owner's sessions keep theirs.
         var batches = new List<IReadOnlyList<ExtractionRequest>>();
-        var current = new List<ExtractionRequest>();
-        foreach (var request in requests)
+        foreach (var owner in requests.GroupBy(request => (request.ShareWithEveryone, Owner: request.UserId ?? string.Empty)))
         {
-            if (EstimateInputTokens([request]) > maxInputTokens)
-                throw new InvalidOperationException(
-                    $"Source session '{request.SessionId}' exceeds the configured input-token budget.");
-
-            var candidate = current.Append(request).ToArray();
-            if (current.Count > 0 &&
-                (candidate.Length > maxSessionsPerBatch || EstimateInputTokens(candidate) > maxInputTokens))
+            var current = new List<ExtractionRequest>();
+            foreach (var request in owner)
             {
-                batches.Add(current.ToArray());
-                current.Clear();
+                if (EstimateInputTokens([request]) > maxInputTokens)
+                    throw new InvalidOperationException(
+                        $"Source session '{request.SessionId}' exceeds the configured input-token budget.");
+
+                var candidate = current.Append(request).ToArray();
+                if (current.Count > 0 &&
+                    (candidate.Length > maxSessionsPerBatch || EstimateInputTokens(candidate) > maxInputTokens))
+                {
+                    batches.Add(current.ToArray());
+                    current.Clear();
+                }
+                current.Add(request);
             }
-            current.Add(request);
+            if (current.Count > 0)
+                batches.Add(current.ToArray());
         }
-        if (current.Count > 0)
-            batches.Add(current.ToArray());
         return batches;
     }
 
@@ -588,12 +595,25 @@ internal sealed class LlmMultiSessionUnifiedMemoryExtractor : IMultiSessionUnifi
                         .Append((turn + 1).ToString(CultureInfo.InvariantCulture))
                         .Append("] ");
                 builder.Append(AgentMemory.Core.Extraction.ConversationTextBuilder.Stamp(message))
-                    .Append(message.Role).Append(": ").AppendLine(message.Content);
+                    .Append(WithoutSessionTags(message.Role)).Append(": ").AppendLine(WithoutSessionTags(message.Content));
             }
             builder.AppendLine("</source_session>");
         }
         return builder.ToString();
     }
+
+    /// <summary>
+    /// RVW-BATCH-OWNERS: a session tag written inside a message (or a caller-supplied role) is not a tag. Its opening
+    /// bracket becomes a look-alike, so the words still reach the model but cannot close the real session or open
+    /// another one.
+    /// </summary>
+    internal static string WithoutSessionTags(string text) =>
+        text.Contains("source_session", StringComparison.OrdinalIgnoreCase)
+            ? SessionTag().Replace(text, "\u2039$1")
+            : text;
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"<(\s*/?\s*source_session)", System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
+    private static partial System.Text.RegularExpressions.Regex SessionTag();
 
     private static string NormalizeType(string type) => type.ToUpperInvariant() switch
     {
