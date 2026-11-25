@@ -442,6 +442,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `ampack --json` (DIST-2): `lint`, `verify`, `inspect`, `diff`, `test`, `scan`, `install`, `uninstall` and `list` answer
+  with one JSON document on standard output, the same shape for every command, so a wrapper in another language and the
+  hub's checks read results without parsing text: `{"format": "ampack.result/1", "command", "ok", "exitCode",
+  "problems": [...], "result": {...}}`. A refusal and a usage error answer the same way, with their problems and no
+  result; `ok` is whether the exit code is 0. The document is written without reflection, so the native build stays
+  possible. **Changed:** `diff --json` now answers in this shape, its comparison under `result`. `install` and
+  `uninstall` also say (in text and in JSON) which packs they let go of (R-HOST-067).
 - A host switches a member of a nested family on or off, or gives it a priority, by its path (R-HOST-068): the ids of
   the families it sits in and then its own, joined by `CompositeOptions.PathSeparator` (`/`), as in
   `AddFamily(arts, o => o.Disable("io.example.styles/io.example.karate/io.example.shotokan"))`. Before, only a family's

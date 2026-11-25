@@ -23,7 +23,7 @@ internal static partial class Program
                [--publisher <WebID> --audience public|<WebID,…> [--purpose <text>]]
                                  start a pack folder (pack.json, a pack card, an ontology, a view, .gitattributes, and
                                  for a knowledge pack one record); with --publisher, a federated pack for that audience
-          lint <folder|file> [--policy <trust.json>] [--safety]
+          lint <folder|file> [--policy <trust.json>] [--safety] [--json]
                                  check paths, the JSON profile, pack.json and, once built, the files list; with
                                  --policy, load a .ampack as a host does and give advice on what a host will do with
                                  it later (no trial, no upgrade rule, links that need consent, validity ending soon);
@@ -31,9 +31,9 @@ internal static partial class Program
           build <folder> [--out <file.ampack>] [--key <private.pem>] [--role publisher] [--stored]
                                  write META/files.json, optionally sign, and pack; prints the digest
           sign <folder> --key <private.pem> [--role publisher|curator|assurer]
-          verify <folder|file> --policy <trust.json> [--revocations <file>] [--ledger <ledger.json>] [--record] [--allow-downgrade]
+          verify <folder|file> --policy <trust.json> [--revocations <file>] [--ledger <ledger.json>] [--record] [--allow-downgrade] [--json]
                  [--explain]       with --explain, every step in order: what it checked, whether it held, and why
-          inspect <folder|file>  identity, digest, files and signatures, without trusting them
+          inspect <folder|file> [--json]  identity, digest, files and signatures, without trusting them
           diff <a> <b> [--policy <trust.json>] [--json]
                                  what changed between two packs: identity, every declared value (ontology, views,
                                  walk, trial, ...), every record by type and key, every file; --policy verifies both first
@@ -63,12 +63,12 @@ internal static partial class Program
                                  a composite pack for a composite manifest (then: ampack lock, ampack build)
           set <out.ampack> <member.ampack>... --id <id> --version <v> --key <private.pem> --policy <trust.json> [--revocations <file>]
                                  one archive carrying complete packs side by side, signed as a whole
-          install <pack.ampack> --store <folder> --policy <trust.json> [--revocations <file>] [--allow-downgrade]
+          install <pack.ampack> --store <folder> --policy <trust.json> [--revocations <file>] [--allow-downgrade] [--json]
                                  verify a pack or pack set in full and install it in a host's pack store; the
                                  store's ledger refuses an older version or other content under a known version
-          uninstall <id> --store <folder>
+          uninstall <id> --store <folder> [--json]
                                  remove an installed pack (the ledger keeps it)
-          list --store <folder>  the installed packs
+          list --store <folder> [--json]  the installed packs
           serve [<pack.ampack>...] [--store <folder>] --policy <trust.json> [--revocations <file>]
                 [--http <http://localhost:5199/> [--allow-remote]] [--activations <folder> --host-key <host.pub.pem>]
                 [--grant <module>=<into>]...
@@ -86,7 +86,7 @@ internal static partial class Program
                                  the pack as its subject, the trial's tasks with and without it, the gate's decision,
                                  and the signed record itself; an assurer seals and signs it (agenteval aef seal
                                  --sealed-by ingest --key ...)
-          scan <folder|file> [--policy <trust.json>] [--aef <run-folder>]
+          scan <folder|file> [--policy <trust.json>] [--aef <run-folder>] [--json]
                                  look in every record and declaration for personal data, secrets and prompt-injection
                                  payloads; exit 1 when anything is found; with --policy, scan only a pack that
                                  verifies; with --aef, write the scan as an AEF run for an assurer to seal and sign
@@ -147,7 +147,7 @@ internal static partial class Program
           Solid commands log in with client credentials from AMPACK_SOLID_CLIENT_ID and AMPACK_SOLID_CLIENT_SECRET (a probe
           identity's from AMPACK_PROBE_CLIENT_ID and AMPACK_PROBE_CLIENT_SECRET, a stranger's from AMPACK_STRANGER_CLIENT_ID and
           AMPACK_STRANGER_CLIENT_SECRET); the token must name the WebID given; --allow-loopback-http for a local server.
-          test [<pack.ampack>...] [--store <folder>] --policy <trust.json> [--revocations <file>]
+          test [<pack.ampack>...] [--store <folder>] --policy <trust.json> [--revocations <file>] [--json]
                                  load the packs as a host does (every record checked), hold them in memory, and run
                                  each pack's own tests (evals/tests.json): views, searches and walks, offline;
                                  give a snapshot's definition pack beside it
@@ -168,6 +168,8 @@ internal static partial class Program
             if (options.Flag("help") || args.Skip(1).Contains("-h")) return CommandHelp(args[0]);
             CheckOptions(args[0], options);
             CheckPositionals(args[0], options);
+            // --json (DIST-2): the command answers with one JSON document, its refusals and usage errors too.
+            if (options.Flag("json")) _jsonCommand = args[0];
             return args[0] switch
             {
                 "init" => Init(options),
@@ -247,11 +249,11 @@ internal static partial class Program
     private static readonly Dictionary<string, HashSet<string>> CommandOptions = new Dictionary<string, string[]>
     {
         ["init"] = ["id", "version", "kind", "owner", "publisher", "audience", "purpose"],
-        ["lint"] = ["safety", .. TrustOptions],
+        ["lint"] = ["safety", "json", .. TrustOptions],
         ["build"] = ["out", "role", "stored", .. SignerOptions],
         ["sign"] = ["role", .. SignerOptions],
-        ["verify"] = ["ledger", "record", "allow-downgrade", "explain", .. TrustOptions],
-        ["inspect"] = [],
+        ["verify"] = ["ledger", "record", "allow-downgrade", "explain", "json", .. TrustOptions],
+        ["inspect"] = ["json"],
         ["diff"] = ["json", .. TrustOptions],
         ["keygen"] = ["out", "name", "prefix", "role", "protect", "passphrase-env", "policy"],
         ["revoke"] = ["digests", "keys", "expires", .. SignerOptions],
@@ -260,14 +262,14 @@ internal static partial class Program
         ["lock"] = [.. TrustOptions],
         ["migrate"] = ["out"],
         ["set"] = ["id", "version", "role", "stored", .. SignerOptions, .. TrustOptions],
-        ["test"] = ["store", .. TrustOptions],
+        ["test"] = ["store", "json", .. TrustOptions],
         ["evidence"] = ["activations", "host-key", "pack", "version", "out"],
-        ["scan"] = ["aef", .. TrustOptions],
+        ["scan"] = ["aef", "json", .. TrustOptions],
         ["countersign"] = ["out", "role", .. SignerOptions, .. TrustOptions],
         ["serve"] = ["store", "http", "allow-remote", "grant", "client-endpoint", "print-config", .. GateOptions, .. TrustOptions],
-        ["install"] = ["store", "allow-downgrade", .. TrustOptions],
-        ["uninstall"] = ["store"],
-        ["list"] = ["store"],
+        ["install"] = ["store", "allow-downgrade", "json", .. TrustOptions],
+        ["uninstall"] = ["store", "json"],
+        ["list"] = ["store", "json"],
         ["receipt"] = ["location", "audience", "access", "denied", "allowed", "out", .. SignerOptions, .. TrustOptions],
         ["certify"] = ["activations", "host-key", "evaluator", "task-source", "aef", "tool", "tool-version", "out", .. SignerOptions, .. TrustOptions],
         ["certificate"] = ["certificate", .. TrustOptions],
@@ -487,6 +489,8 @@ internal static partial class Program
         var inspection = AgentMemory.Extensibility.Ampack.PackInspection.Inspect(PackReader.ReadArchiveFile(target), Trust(o));
         if (!inspection.Loaded) return Report(inspection.Problems, "");
         var advice = AgentMemory.Extensibility.Ampack.PackAdvice.Of(inspection, DateTimeOffset.UtcNow);
+        if (Json)
+            return Answer(0, [], new JsonObject { ["advice"] = JsonList(advice.Select(a => (JsonNode?)new JsonObject { ["rule"] = a.Rule, ["pack"] = a.Pack, ["text"] = a.Text })) });
         Console.WriteLine(advice.Count == 0 ? "Lint passed; no advice." : $"Lint passed; {advice.Count} piece(s) of advice:");
         foreach (var item in advice) Console.WriteLine($"  {item.Rule,-20} {item.Pack}: {item.Text}");
         return 0;
@@ -543,6 +547,7 @@ internal static partial class Program
         AgentMemory.Extensibility.Ampack.PackScanReport report;
         try { report = AgentMemory.Extensibility.Ampack.PackScan.Scan(content.Files, verified: o.Value("policy") is not null); }
         catch (AgentMemory.Extensibility.Ampack.PackLoadException e) { return Report(e.Problems, ""); }
+        if (Json) return ScanJson(o, content, report);
         foreach (var finding in report.Findings)
             Console.WriteLine(Shown($"  {finding.Severity,-6} {finding.Rule,-34} {finding.File}{(finding.Line > 0 ? ":" + finding.Line : "")} {finding.Path}  {finding.Sample}", 2000));
         Console.WriteLine(report.Clean ? $"Clean: {report.Strings} strings in {report.Files} files." : $"{report.Findings.Count} finding(s) in {report.Strings} strings in {report.Files} files.");
@@ -610,6 +615,7 @@ internal static partial class Program
         var policy = Policy(o);
         var ledger = ledgerPath is null ? null : HostLedger.Load(ledgerPath);
         var content = PackReader.Read(target);
+        if (Json && o.Flag("explain")) throw new UsageException("--explain prints the verifier's steps as text: give it without --json.");
         Action<PackStep>? explain = o.Flag("explain") ? Explain : null;
         var result = PackVerifier.VerifyOne(content, policy, DateTimeOffset.UtcNow, ledger, o.Flag("allow-downgrade"), explain);
         if (!result.IsVerified) return Report(result.Problems, "");
@@ -623,6 +629,25 @@ internal static partial class Program
             if (!whole.IsVerified) return Report(whole.Problems, "");
             var refused = members.Where(m => !m.Value.IsVerified).SelectMany(m => m.Value.Problems.Select(p => $"packs/{m.Key}/: {p}")).ToList();
             if (refused.Count > 0) return Report(refused, "");
+            if (Json)
+            {
+                var recordedSet = o.Flag("record") && ledger is not null && ledgerPath is not null;
+                if (recordedSet)
+                {
+                    ledger!.Record(pack.Id, pack.Version, pack.Digest);
+                    foreach (var member in members.Values) ledger.Record(member.Pack!.Id, member.Pack.Version, member.Pack.Digest);
+                    ledger.Save(ledgerPath!);
+                }
+                return Answer(0, [], new JsonObject
+                {
+                    ["pack"] = VerifiedJson(pack),
+                    ["members"] = JsonList(members.OrderBy(m => m.Key, StringComparer.Ordinal).Select(m => (JsonNode?)new JsonObject
+                    {
+                        ["id"] = m.Key, ["version"] = m.Value.Pack!.Version, ["kind"] = m.Value.Pack.Manifest.Kind, ["digest"] = m.Value.Pack.Digest,
+                    })),
+                    ["ledger"] = recordedSet ? ledgerPath : null,
+                });
+            }
             Console.WriteLine($"Verified set {pack.Id} {pack.Version}\n  digest  {pack.Digest}");
             Console.WriteLine($"  profiles {Profiles(pack)}");
             foreach (var (id, member) in members.OrderBy(m => m.Key, StringComparer.Ordinal))
@@ -635,6 +660,16 @@ internal static partial class Program
                 Console.WriteLine($"  ledger  recorded the set and {members.Count} members in {ledgerPath}");
             }
             return 0;
+        }
+        if (Json)
+        {
+            var recorded = o.Flag("record") && ledger is not null && ledgerPath is not null;
+            if (recorded)
+            {
+                ledger!.Record(pack.Id, pack.Version, pack.Digest);
+                ledger.Save(ledgerPath!);
+            }
+            return Answer(0, [], new JsonObject { ["pack"] = VerifiedJson(pack), ["ledger"] = recorded ? ledgerPath : null });
         }
         Console.WriteLine($"Verified {pack.Id} {pack.Version}\n  digest  {pack.Digest}\n  kind    {pack.Manifest.Kind}, tier {pack.Manifest.Tier}");
         // The profiles it uses, by the registry's map (feature 01): a host must implement each to load it.
@@ -663,6 +698,7 @@ internal static partial class Program
     private static int Inspect(Options o)
     {
         var content = PackReader.Read(o.Positional(0, "folder or file"));
+        if (Json) return Answer(0, [], InspectJson(content));
         Console.WriteLine($"Source  {content.Source}");
         if (content.Files.TryGetValue(PackPaths.FilesList, out var listBytes) && FilesList.Parse(listBytes) is ({ } list, _))
         {
@@ -1088,6 +1124,18 @@ internal static partial class Program
         try
         {
             var (loaded, memory) = AgentMemory.Extensibility.Ampack.PackMemory.Mount(archives, trust);
+            if (Json)
+            {
+                var outcomes = new JsonArray();
+                foreach (var pack in loaded)
+                    foreach (var outcome in AgentMemory.Extensibility.Ampack.PackTests.RunAsync(pack, memory).GetAwaiter().GetResult())
+                        outcomes.Add(new JsonObject { ["pack"] = pack.Id, ["name"] = outcome.Name, ["passed"] = outcome.Passed, ["detail"] = outcome.Detail });
+                var failedTests = outcomes.Count(t => !(bool)t!["passed"]!);
+                return Answer(failedTests == 0 ? 0 : 1, [], new JsonObject
+                {
+                    ["packs"] = JsonStrings(loaded.Select(p => p.Id)), ["records"] = memory.Count, ["ran"] = outcomes.Count, ["failed"] = failedTests, ["tests"] = outcomes,
+                });
+            }
             Console.WriteLine($"Loaded {loaded.Count} pack(s), {memory.Count:N0} records in memory.");
             var failed = 0; var ran = 0;
             foreach (var pack in loaded)
@@ -1167,6 +1215,8 @@ internal static partial class Program
         try
         {
             var installed = store.Install(PackReader.ReadArchiveFile(path), Trust(o), o.Flag("allow-downgrade"));
+            if (Json) return Answer(0, [], new JsonObject { ["installed"] = InstalledJson(installed), ["released"] = JsonStrings(installed.Released) });
+            if (installed.Released.Count > 0) Console.WriteLine($"Let go of {string.Join(", ", installed.Released)}: no installed pack or set holds them now; remove their records from the host's store.");
             Console.WriteLine($"Installed {installed.Id} {installed.Version} ({installed.Kind})\n  digest  {installed.Digest}\n  file    {installed.File}");
             return 0;
         }
@@ -1177,14 +1227,17 @@ internal static partial class Program
     {
         var id = o.Positional(0, "pack id");
         var store = AgentMemory.Extensibility.Ampack.PackStore.Open(ExistingStore(o.Required("store")));
-        if (!store.Uninstall(id)) return Report([$"{id} is not installed."], "");
+        if (!store.Uninstall(id, out var released)) return Report([$"{id} is not installed."], "");
+        if (Json) return Answer(0, [], new JsonObject { ["removed"] = id, ["released"] = JsonStrings(released) });
         Console.WriteLine($"Removed {id}; the store's ledger keeps it.");
+        if (released.Count > 0) Console.WriteLine($"Let go of {string.Join(", ", released)}: no installed pack or set holds them now; remove their records from the host's store.");
         return 0;
     }
 
     private static int ListInstalled(Options o)
     {
         var store = AgentMemory.Extensibility.Ampack.PackStore.Open(ExistingStore(o.Required("store")));
+        if (Json) return Answer(0, [], new JsonObject { ["installed"] = JsonList(store.Installed.Select(p => (JsonNode?)InstalledJson(p))) });
         if (store.Installed.Count == 0) Console.WriteLine("No packs installed.");
         foreach (var p in store.Installed) Console.WriteLine($"  {p.Id} {p.Version} ({p.Kind})  {p.Digest[..23]}…  installed {p.InstalledAt:u}");
         return 0;
@@ -1209,14 +1262,13 @@ internal static partial class Program
         catch (AgentMemory.Extensibility.Ampack.PackLoadException e) { return Report(e.Problems, ""); }
         if (o.Flag("json"))
         {
-            Console.WriteLine(JsonSerializer.Serialize(new
+            return Answer(0, [], JsonSerializer.SerializeToNode(new
             {
                 before = new { id = diff.Before.Id, version = diff.Before.Version, digest = diff.Before.Digest },
                 after = new { id = diff.After.Id, version = diff.After.Version, digest = diff.After.Digest },
                 same = diff.Same, declarations = diff.Declarations, records = diff.Records, unchangedRecords = diff.UnchangedRecords, files = diff.Files,
             }, new JsonSerializerOptions { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
                 Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter(JsonNamingPolicy.CamelCase) } }));
-            return 0;
         }
         static string Mark(AgentMemory.Extensibility.Ampack.PackChange c) => c switch
         {
@@ -1271,6 +1323,7 @@ internal static partial class Program
     private static int Report(IEnumerable<string> problems, string success)
     {
         var list = problems.ToList();
+        if (Json) return Answer(list.Count == 0 ? 0 : 1, list, list.Count == 0 ? new JsonObject() : null);
         if (list.Count == 0) { Console.WriteLine(success); return 0; }
         foreach (var p in list) Console.Error.WriteLine("refused: " + Shown(p, 4000));
         return 1;
@@ -1278,6 +1331,7 @@ internal static partial class Program
 
     private static int Fail(string message, int code)
     {
+        if (Json) return Answer(code, [message], null);
         Console.Error.WriteLine(message);
         return code;
     }

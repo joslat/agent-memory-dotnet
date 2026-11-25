@@ -215,7 +215,60 @@ public sealed class AmpackCommandLineTests : IDisposable
             .And.Contain("~ MartialArtsKata 'shotokan/heian-shodan': meaning")
             .And.Contain("~1, ");
         Done("diff", "v1.ampack", "v1.ampack").Should().Contain("(the same pack)");
-        JsonNode.Parse(Done("diff", "v1.ampack", "v2.ampack", "--json"))!["records"]!.AsArray().Should().ContainSingle();
+        JsonNode.Parse(Done("diff", "v1.ampack", "v2.ampack", "--json"))!["result"]!["records"]!.AsArray().Should().ContainSingle();
+    }
+
+    // DIST-2: one JSON answer per command, read with no text parsing: the whole output is the document.
+    private JsonObject Answered(int exit, params string[] args)
+    {
+        var (code, output) = Ampack([.. args, "--json"]);
+        code.Should().Be(exit, "ampack " + string.Join(' ', args) + " --json printed: " + output);
+        var answer = JsonNode.Parse(output)!.AsObject();
+        answer["format"]!.GetValue<string>().Should().Be("ampack.result/1");
+        answer["command"]!.GetValue<string>().Should().Be(args[0]);
+        answer["exitCode"]!.GetValue<int>().Should().Be(exit);
+        answer["ok"]!.GetValue<bool>().Should().Be(exit == 0);
+        return answer;
+    }
+
+    [Fact]
+    public void Every_reading_command_answers_in_json_its_refusals_and_usage_errors_too()
+    {
+        Done("keygen", "--out", "keys", "--name", "publisher", "--prefix", "io.example", "--policy", "trust.json");
+        Done("init", "notes", "--id", "io.example.notes");
+        Directory.CreateDirectory(At("notes", "evals"));
+        File.WriteAllText(At("notes", "evals", "tests.json"),
+            """{"format":"agentmemory.pack.tests/1.2","tests":[{"name":"the note","view":"notes","search":"first note","expect":["note-1"]}]}""");
+        Done("build", "notes", "--out", "notes.ampack", "--key", At("keys", "publisher.key.pem"));
+
+        Answered(0, "lint", "notes")["result"]!.AsObject().Count.Should().Be(0);
+        var verified = Answered(0, "verify", "notes.ampack", "--policy", "trust.json", "--ledger", "ledger.json", "--record")["result"]!;
+        verified["pack"]!["id"]!.GetValue<string>().Should().Be("io.example.notes");
+        verified["pack"]!["kind"]!.GetValue<string>().Should().Be("knowledge");
+        verified["pack"]!["signatures"]!.AsArray().Should().ContainSingle().Which!["role"]!.GetValue<string>().Should().Be("publisher");
+        verified["ledger"]!.GetValue<string>().Should().Be("ledger.json");
+        var inspected = Answered(0, "inspect", "notes.ampack")["result"]!;
+        inspected["verified"]!.GetValue<bool>().Should().BeFalse();
+        inspected["pack"]!["version"]!.GetValue<string>().Should().Be("0.1.0");
+        inspected["signatures"]!.AsArray().Should().NotBeEmpty();
+        var tested = Answered(0, "test", "notes.ampack", "--policy", "trust.json")["result"]!;
+        tested["ran"]!.GetValue<int>().Should().Be(1);
+        tested["tests"]!.AsArray().Single()!["passed"]!.GetValue<bool>().Should().BeTrue();
+        Answered(0, "scan", "notes.ampack", "--policy", "trust.json")["result"]!["clean"]!.GetValue<bool>().Should().BeTrue();
+
+        Answered(0, "install", "notes.ampack", "--store", "store", "--policy", "trust.json")["result"]!["installed"]!["id"]!.GetValue<string>().Should().Be("io.example.notes");
+        Answered(0, "list", "--store", "store")["result"]!["installed"]!.AsArray().Should().ContainSingle();
+        var removed = Answered(0, "uninstall", "io.example.notes", "--store", "store")["result"]!;
+        removed["released"]!.AsArray().Select(r => r!.GetValue<string>()).Should().Equal("io.example.notes");
+
+        // A refusal: its problems, no result; a usage error: exit code 2 and its message, as JSON too.
+        var record = Directory.EnumerateFiles(At("notes", "records")).First();
+        File.WriteAllText(record, File.ReadAllText(record).Replace("\"", "'", StringComparison.Ordinal));
+        var refused = Answered(1, "verify", "notes", "--policy", "trust.json");
+        refused["result"].Should().BeNull();
+        refused["problems"]!.AsArray().Should().NotBeEmpty();
+        var usage = Answered(2, "verify", "notes.ampack", "--policy", "trust.json", "--explain");
+        usage["problems"]!.AsArray().Single()!.GetValue<string>().Should().Contain("--explain");
     }
 
     [Fact]
@@ -305,7 +358,7 @@ public sealed class AmpackCommandLineTests : IDisposable
         // ampack <command> --help and ampack --version.
         var (helpExit, help) = Ampack("verify", "--help");
         helpExit.Should().Be(0);
-        help.Should().Contain("verify <folder|file> --policy").And.Contain("Options: --allow-downgrade, --explain, --ledger");
+        help.Should().Contain("verify <folder|file> --policy").And.Contain("Options: --allow-downgrade, --explain, --json, --ledger");
         Ampack("--version").Output.Should().StartWith("ampack ").And.Contain("agentmemory.pack/1.2");
         // An unexpected failure is said in one line with exit 4, never a stack trace; malformed input is a refusal (1).
         File.WriteAllText(At("array.json"), "[]");
