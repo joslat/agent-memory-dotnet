@@ -25,8 +25,16 @@ public sealed class MemoryOwnerScopingAgentTests
     private sealed class FakeInnerAgent : AIAgent
     {
         private readonly Func<CancellationToken, Task> _simulatedToolCall;
+        private readonly bool _streamBeforeTheTool;
 
-        public FakeInnerAgent(Func<CancellationToken, Task> simulatedToolCall) => _simulatedToolCall = simulatedToolCall;
+        /// <param name="streamBeforeTheTool">RVW-STREAM-OWNER: stream an update first and call the tool after it, as a
+        /// model that writes some text and then asks for a tool does (FunctionInvokingChatClient runs the tool while
+        /// the caller is still enumerating).</param>
+        public FakeInnerAgent(Func<CancellationToken, Task> simulatedToolCall, bool streamBeforeTheTool = false)
+        {
+            _simulatedToolCall = simulatedToolCall;
+            _streamBeforeTheTool = streamBeforeTheTool;
+        }
 
         protected override async Task<AgentResponse> RunCoreAsync(
             IEnumerable<ChatMessage> messages,
@@ -47,6 +55,7 @@ public sealed class MemoryOwnerScopingAgentTests
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
             await Task.Yield();
+            if (_streamBeforeTheTool) yield return new AgentResponseUpdate(ChatRole.Assistant, "Let me check. ");
             await _simulatedToolCall(cancellationToken);
             yield return new AgentResponseUpdate(ChatRole.Assistant, "ok");
         }
@@ -116,6 +125,32 @@ public sealed class MemoryOwnerScopingAgentTests
         await foreach (var _ in scopedAgent.RunStreamingAsync("hello", SessionFor("bob"))) { }
 
         observedByTool.Should().Be("bob");
+    }
+
+    // RVW-STREAM-OWNER: an async iterator resumes in its caller's execution context at every MoveNextAsync, so an owner
+    // set once inside it is gone after the first yielded update, and a tool called after that ran with no owner.
+    [Fact]
+    public async Task RunStreamingAsync_ToolCalledAfterTheFirstStreamedUpdate_ObservesConfiguredOwner()
+    {
+        var ownerContext = new DefaultMemoryOwnerContext { UserId = "outer" };
+        string? observedByTool = "not-set";
+        var inner = new FakeInnerAgent(_ =>
+        {
+            observedByTool = ownerContext.UserId;
+            return Task.CompletedTask;
+        }, streamBeforeTheTool: true);
+        var scopedAgent = inner.WithMemoryOwnerScoping(ownerContext);
+
+        var updates = 0;
+        await foreach (var _ in scopedAgent.RunStreamingAsync("hello", SessionFor("bob")))
+        {
+            updates++;
+            ownerContext.UserId.Should().Be("outer", "the caller's own owner is untouched between updates");
+        }
+
+        updates.Should().Be(2);
+        observedByTool.Should().Be("bob");
+        ownerContext.UserId.Should().Be("outer");
     }
 
     [Fact]

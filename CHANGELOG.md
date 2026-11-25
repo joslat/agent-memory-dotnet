@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Fixed: `MemoryOwnerScopingAgent` keeps the owner for the whole streamed run.** In `RunStreamingAsync` the owner and
+  store scopes were begun once inside an async iterator, which resumes in its caller's context at every step, so after
+  the first streamed update they were gone: a tool the model asked for after writing some text (run while the caller
+  enumerates) recalled across owners and wrote to shared memory. Every step of the inner stream now runs inside the
+  scopes; the caller's own context is untouched between updates. `RunAsync` was not affected.
+
 - **Fixed: the HTTP MCP host refuses requests not addressed to it.** It has no authentication and is meant for localhost,
   but it checked neither `Host` nor `Origin`, so a web page could reach a local server through DNS rebinding (its own
   domain resolved to 127.0.0.1). A request now passes only when its `Host`, and its `Origin` when it has one, names

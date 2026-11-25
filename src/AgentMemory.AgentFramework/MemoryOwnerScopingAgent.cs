@@ -67,13 +67,42 @@ public sealed class MemoryOwnerScopingAgent : DelegatingAIAgent
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var identity = GetIdentity(session);
-        using var ownerScope = _ownerContext.BeginOwnerScope(identity.UserId);
-        using var storeScope = _storeContext?.BeginStoreScope(identity.ApplicationId);
-
-        await foreach (var update in base.RunCoreStreamingAsync(messages, session, options, cancellationToken)
-            .WithCancellation(cancellationToken).ConfigureAwait(false))
+        // RVW-STREAM-OWNER: an async iterator resumes in its CALLER's execution context at every MoveNextAsync, so
+        // scopes begun once here were gone after the first yielded update, and the tools FunctionInvokingChatClient
+        // runs while the caller enumerates (after a model streams some text and then asks for one) ran with no owner:
+        // recall read across owners and writes landed in shared memory. Every step of the inner stream now runs inside
+        // the scopes; the caller's own context is untouched between updates.
+        IAsyncEnumerator<AgentResponseUpdate> updates;
+        using (BeginScopes(identity))
+            updates = base.RunCoreStreamingAsync(messages, session, options, cancellationToken).GetAsyncEnumerator(cancellationToken);
+        try
         {
-            yield return update;
+            while (true)
+            {
+                bool more;
+                using (BeginScopes(identity))
+                    more = await updates.MoveNextAsync().ConfigureAwait(false);
+                if (!more) yield break;
+                yield return updates.Current;
+            }
+        }
+        finally
+        {
+            using (BeginScopes(identity))
+                await updates.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+
+    private Scopes BeginScopes(MemoryIdentity identity) =>
+        new(_ownerContext.BeginOwnerScope(identity.UserId), _storeContext?.BeginStoreScope(identity.ApplicationId));
+
+    /// <summary>The owner scope and the store scope, ended in reverse order.</summary>
+    private readonly struct Scopes(IDisposable owner, IDisposable? store) : IDisposable
+    {
+        public void Dispose()
+        {
+            store?.Dispose();
+            owner.Dispose();
         }
     }
 
