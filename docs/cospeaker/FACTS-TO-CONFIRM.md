@@ -1,0 +1,25 @@
+# Facts to confirm (the co-speaker's packs)
+
+Gathered on 2026-11-25 from the organisations' own pages. These are the claims that were left out of the packs, or kept with
+a date, because a page did not state them or two pages differ. Confirm, correct or drop each; the packs change only on your word.
+
+**The small duck robot's name:** Microduck (https://github.com/pollen-robotics/microduck), Pollen Robotics' own robot. The Open Duck Mini is a
+separate community project (https://github.com/apirrone/Open_Duck_Mini); the Reachy pack tells the two apart.
+
+| # | Pack | Claim | Why it is uncertain | Page |
+|---|---|---|---|---|
+| 1 | expert-pollen-robotics | Pollen Robotics headcount | Not stated. The about page only says the team is 'a diverse group of people'; no number on the pages checked. | https://www.pollen-robotics.com/about-us/ |
+| 2 | expert-pollen-robotics | Terms of the Hugging Face acquisition of Pollen Robotics (price, structure) | The announcement (April 14, 2025) states the acquisition and calls it Hugging Face's fifth, but gives no terms. Pollen's site says only 'Part of Hugging Face'. | https://huggingface.co/blog/hugging-face-pollen-robotics-acquisition |
+| 3 | expert-pollen-robotics | How many Reachy robots are deployed | Two official figures disagree: Pollen's about page says 'around 100 Reachy robots ... in about 20 countries'; Hugging Face's April 2025 post says 'hundreds of units deployed across more than 20 countries'. The pack uses Pollen's figure only. | https://huggingface.co/blog/hugging-face-pollen-robotics-acquisition |
+| 4 | expert-pollen-robotics | Current price of Reachy 2 | The 70,000 dollar figure comes from Hugging Face's April 2025 post. Pollen's Reachy 2 page states no price, so today's price is unconfirmed. The fact is kept with its date. | https://www.pollen-robotics.com/reachy-2/ |
+| 5 | expert-huggingface | Hugging Face total funding ('over $395 million to date') | Stated in the 'About Hugging Face' section of the April 2025 acquisition post; it is 19 months old and not restated on a current official page, so it is left out of the facts. | https://huggingface.co/blog/hugging-face-pollen-robotics-acquisition |
+| 6 | expert-huggingface | Hugging Face founding year and headquarters | Not stated on any official page checked; the acquisition post names the founders but gives no year or city. | https://huggingface.co/blog/hugging-face-pollen-robotics-acquisition |
+| 7 | expert-huggingface | Size of the Hugging Face user community | Official figures change over time: 'over 7 million users' (April 2025 acquisition post) versus 'the 10M users of the Hugging Face community' (July 2025 Reachy Mini post). The pack uses the later figure with its date. | https://huggingface.co/blog/reachy-mini |
+| 8 | expert-reachy-mini | Reachy Mini size and weight | The July 2025 blog says 28 cm tall, 16 cm wide (about 23 cm in sleep mode) and 1.5 kg; the current datasheet says 30x20x15.5 cm extended, 1.475 kg (Wireless) and 1.350 kg (Lite). The pack uses the datasheet. | https://huggingface.co/blog/reachy-mini |
+| 9 | expert-reachy-mini | Reachy Mini Control desktop app platform support | The setup docs recommend downloading it for Windows, macOS and Linux, but the desktop app's own README says macOS is fully supported while Windows and Linux are 'work in progress'. | https://github.com/pollen-robotics/reachy-mini-desktop-app |
+| 10 | expert-reachy-mini | Assembly time | Pollen's product page says about 2.5 hours; the official docs say 2 to 3 hours. Both are consistent; the pack quotes the product page. | https://huggingface.co/docs/reachy_mini/platforms/reachy_mini/get_started |
+| 11 | expert-reachy-mini | Number of Reachy Mini apps (540+) | A live count on Pollen's product page that changes over time (the July 2025 launch post said 15+ behaviours). Treat as 'more than 540 as of 2026-11-25'. | https://www.pollen-robotics.com/reachy-mini/ |
+| 12 | expert-duck | Microduck motor count | The microduck README ('fifteen servos') and Pollen's spec sheet ('15 Motors') agree, but the microduck_rl training README describes the simulated joint layout as '14 servos'. The pack uses 15. | https://github.com/pollen-robotics/microduck_rl |
+| 13 | expert-duck | Whether Microduck is derived from, or the successor of, Open Duck Mini | Neither the microduck repository nor Pollen's Microduck page mentions Open Duck Mini, and the Open Duck Mini repository does not mention Microduck. Open Duck Mini only thanks Hugging Face and Pollen Robotics for sponsorship. Any link between them is unconfirmed. | https://github.com/apirrone/Open_Duck_Mini |
+| 14 | expert-duck | Microduck shipping date and battery life | Pollen's Microduck page gives the pre-order date and price but no shipping date, battery capacity or run time. | https://www.pollen-robotics.com/microduck/ |
+| 15 | expert-duck | Microduck browser simulator Space | Pollen's page links a Hugging Face Space (pollen-robotics/microduck-simulator, titled 'Microduck Sandbox'), but its description did not load, so what it does is not stated. | https://huggingface.co/spaces/pollen-robotics/microduck-simulator |
