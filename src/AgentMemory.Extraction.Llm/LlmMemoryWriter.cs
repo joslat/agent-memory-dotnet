@@ -343,6 +343,28 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
             }
             else unknown.Add(name);
 
+        // 1c. IDENTITY-SHARED-NAME-FACTS (event-identity mode): a bare name may be the first name of other stored people too.
+        // The eighth paid check's statement 42 ("Valentina moved to the Madrid office"): the store's "Valentina" (a niece)
+        // was found and shown, the designer "Valentina Ríos" whose first name it is was not, so the writer could not refer
+        // to her and wrote a new person. Every stored person a bare name of the turn is a word of the name of is shown too,
+        // found by identity's own bounded lookup, at most three a name; which one is meant stays the writer's to say, from
+        // the facts shown with them, and identity's namesake guard still keeps a reference by a shared name for review.
+        var turnNames = MemoryWriterPrompt.Names(text);
+        var runs = turnNames.Where(n => n.Contains(' ')).ToList();
+        if (alsoCalled && _services.GetService<IIdentityCandidateProvider>() is { } candidates)
+            foreach (var name in turnNames.Where(n => !n.Contains(' ') && !runs.Any(run => AgentMemory.Core.Resolution.IdentityPolicy.HoldsName(run, n))))
+            {
+                var found = await candidates.FindApproximateCandidatesAsync(new IdentityCandidateQuery
+                {
+                    Name = name, Type = "PERSON", OwnerId = scope.OwnerId, IncludeShared = scope.OwnerId is null || scope.IncludeShared,
+                    UseFuzzyCandidates = true, Limit = 6,
+                }, null, cancellationToken).ConfigureAwait(false);
+                foreach (var entity in found.Candidates.Select(c => c.Entity)
+                             .Where(e => AgentMemory.Core.Resolution.IdentityPolicy.HoldsName(e.Name, name) && named.All(n => n.EntityId != e.EntityId))
+                             .Take(3))
+                    named.Add(entity);
+            }
+
         // 1a. IDENTITY-CONFIRMED-ALIAS (event-identity mode): a name the store does not know may be one identity has seen a
         // person under: the short form a confirmed reference gave them ("Vale" for Valentina Ríos, the fourth paid check's
         // statement 53), kept on the person, not as an alias identity matches on. At most three people a name.

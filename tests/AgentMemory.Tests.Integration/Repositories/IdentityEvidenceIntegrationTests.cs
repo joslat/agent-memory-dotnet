@@ -236,6 +236,27 @@ public sealed class IdentityEvidenceIntegrationTests : IAsyncLifetime
         plan.Candidates.Select(c => c.Entity.EntityId).Should().Contain([full.EntityId, bare.EntityId]);
     }
 
+    /// <summary>
+    /// IDENTITY-SHARED-NAME-FACTS: the writer's view asks identity's lookup which stored people a bare first name may mean.
+    /// On the real index, a bare name finds the person stored under it and the one whose first name it is, not others.
+    /// </summary>
+    [Fact]
+    public async Task A_bare_first_name_s_lookup_finds_the_stored_people_whose_first_name_it_is()
+    {
+        var full = await Seed("Nora Lindqvist");
+        var bare = await Seed("Nora");
+        await Seed("Marta");
+        await _fixture.TransactionRunner.ReadAsync(async runner => { await runner.RunAsync("CALL db.index.fulltext.awaitEventuallyConsistentIndexRefresh()"); });
+
+        var found = await _identity.FindApproximateCandidatesAsync(new IdentityCandidateQuery
+        {
+            Name = "Nora", Type = "PERSON", OwnerId = "pablito", IncludeShared = false, UseFuzzyCandidates = true, Limit = 6,
+        }, null);
+
+        found.Candidates.Select(c => c.Entity.EntityId).Should().Contain([full.EntityId, bare.EntityId]);
+        found.Candidates.Select(c => c.Entity.Name).Should().NotContain("Marta");
+    }
+
     private Task SeedSourceMessages() => _fixture.TransactionRunner.WriteAsync(async runner =>
     {
         await runner.RunAsync(
