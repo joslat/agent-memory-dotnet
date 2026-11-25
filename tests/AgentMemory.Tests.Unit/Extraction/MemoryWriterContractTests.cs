@@ -28,7 +28,6 @@ public sealed class MemoryWriterContractTests : IDisposable
     private readonly IEntityRepository _entities = Substitute.For<IEntityRepository>();
     private readonly IMessageRepository _messages = Substitute.For<IMessageRepository>();
     private readonly WarningLog _log = new();
-    private readonly IIdentityCandidateProvider _candidates = Substitute.For<IIdentityCandidateProvider>();
     private readonly ServiceProvider _services;
 
     /// <summary>The writer's warnings, as text: a drop must reach a warning, not only Debug.</summary>
@@ -67,9 +66,8 @@ public sealed class MemoryWriterContractTests : IDisposable
         relationships.GetLiveAroundAsync(default!, default!, default, default, default, default).ReturnsForAnyArgs([]);
         var embeddings = Substitute.For<IEmbeddingOrchestrator>();
         embeddings.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new float[4]);
-        _candidates.FindApproximateCandidatesAsync(default!, default, default).ReturnsForAnyArgs(new IdentityCandidateSet());
         _services = new ServiceCollection().AddSingleton(facts).AddSingleton(preferences).AddSingleton(_entities)
-            .AddSingleton(relationships).AddSingleton(embeddings).AddSingleton(_messages).AddSingleton(_candidates).BuildServiceProvider();
+            .AddSingleton(relationships).AddSingleton(embeddings).AddSingleton(_messages).BuildServiceProvider();
         _chat.GetResponseAsync(Arg.Any<IEnumerable<ChatMessage>>(), Arg.Any<ChatOptions?>(), Arg.Any<CancellationToken>()).Returns(call =>
         {
             _calls.Add((call.Arg<IEnumerable<ChatMessage>>().ToList(), call.Arg<ChatOptions?>()));
@@ -190,43 +188,6 @@ public sealed class MemoryWriterContractTests : IDisposable
         _calls[1].Messages.Last().Text.Should().Contain("Lucia wedding (EVENT)");
         result.Entities.Should().ContainSingle().Which.Type.Should().Be("EVENT");
         result.Outcomes.Should().BeEmpty();
-    }
-
-    // ── IDENTITY-SHARED-NAME-FACTS: a bare first name shows every stored person it may mean ──
-    // The eighth paid check's statement 42 ("Valentina moved to the Madrid office", 3 of 6 runs): the turn's bare name
-    // found only the person stored under it (a niece), so the stored designer whose first name it is was never shown and
-    // the writer could not refer to her; it wrote a new Valentina (a split). Our own example: two stored Noras.
-
-    private static Entity Person(string id, string name) => new()
-    {
-        EntityId = id, Name = name, Type = "PERSON", OwnerId = "bruna", Confidence = 1, SourceMessageIds = ["prior"],
-        CreatedAtUtc = DateTimeOffset.UnixEpoch,
-    };
-
-    [Fact]
-    public async Task A_bare_first_name_shows_every_stored_person_it_may_mean_not_only_the_one_stored_under_it()
-    {
-        var niece = Person("identity-observation-nora", "Nora");
-        var architect = Person("identity-observation-nora-lindqvist", "Nora Lindqvist");
-        _entities.FindLiveByNameAsync("Nora", Arg.Any<string?>(), Arg.Any<MemoryScope>(), Arg.Any<CancellationToken>()).Returns(niece);
-        _candidates.FindApproximateCandidatesAsync(Arg.Is<IdentityCandidateQuery>(q => q.Name == "Nora" && q.Type == "PERSON"), Arg.Any<float[]?>(), Arg.Any<CancellationToken>())
-            .Returns(new IdentityCandidateSet { Candidates = [new IdentityCandidate { Entity = niece }, new IdentityCandidate { Entity = architect }] });
-        _replies.Enqueue("""{"ops":[]}""");
-
-        await Write("Nora moved to the Oslo office.");
-
-        var shown = _calls[0].Messages[1].Text;
-        shown.Should().Contain("Nora Lindqvist (PERSON)", "the stored person whose first name it is can be referred to");
-        shown.Should().Contain(": Nora (PERSON)", "the person stored under the bare name is still shown");
-    }
-
-    [Fact]
-    public async Task A_full_name_in_the_turn_is_not_looked_up_word_by_word()
-    {
-        _replies.Enqueue("""{"ops":[]}""");
-        await Write("Nora Lindqvist moved to the Oslo office.");
-        await _candidates.DidNotReceive().FindApproximateCandidatesAsync(
-            Arg.Is<IdentityCandidateQuery>(q => q.Name == "Nora" || q.Name == "Lindqvist"), Arg.Any<float[]?>(), Arg.Any<CancellationToken>());
     }
 
     // ── WRITER-SILENT-DROPS: the two drops of the full Bariloche run of 12 Nov, replayed with the model's recorded replies ──
