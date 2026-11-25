@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Fixed: recall no longer brings back forgotten, superseded or merged preferences and entities.** When an owner-scoped
+  vector search and its widening return nothing, the preference and entity paths score the owner's own rows directly;
+  that scan filtered the owner only, so a forgotten (`invalidated_at`) or merged (`merged_into`) item was recalled, and a
+  single row embedded at another width (after an embedding-model change) made the whole search fail. It now applies what
+  the fact fallback applies (live rows only, the query's width only; shared entities by the indexed `owner_key`).
+  Merging an entity sets `merged_into` but not `invalidated_at`, so the indexed entity search now leaves merged entities
+  out as well.
+
 - **Fixed: multi-session batch extraction never puts two owners' sessions in one prompt.** Each extracted item is filed
   under the session the model names and saved as that session's owner's, so a batch holding two owners' sessions could
   put one person's words in another person's memory when the model mis-filed an item or a message wrote its own session

@@ -223,10 +223,16 @@ internal static class PreferenceQueries
         var owner = includeShared
             ? "(n.owner_id = $ownerId OR n.owner_id IS NULL)"
             : "n.owner_id = $ownerId";
+        // RVW-FALLBACK-FORGOTTEN: what the indexed search and the fact fallback apply. Without it a forgotten or merged
+        // preference came back whenever the indexed search found nothing, and one row embedded at another width (an
+        // embedding model changed) made the whole search fail.
         return $@"
             MATCH (n:Preference)
             WHERE {owner}
               AND n.embedding IS NOT NULL
+              AND size(n.embedding) = size($embedding)
+              AND n.invalidated_at IS NULL
+              AND n.merged_into IS NULL
             WITH n, vector.similarity.cosine(n.embedding, $embedding) AS score
             WHERE score >= $minScore
             RETURN n AS node, score

@@ -107,6 +107,8 @@ internal static class EntityQueries
                 : new CypherBuilder().WithVectorSearch("entity_embedding_idx", "$embedding", "node", topK))
                 .Where("score >= $minScore")
                 .And("node.invalidated_at IS NULL")
+                // RVW-FALLBACK-FORGOTTEN: a merge sets merged_into, not invalidated_at, so a merged-away entity was recalled.
+                .And("node.merged_into IS NULL")
                 .And(includeShared ? "(node.owner_id = $ownerId OR node.owner_id IS NULL)" : "node.owner_id = $ownerId", when: hasOwnerFilter && !filteredOwner)
                 .And("(($ownerKey = '*' AND node.owner_id IS NULL) OR ($ownerKey <> '*' AND node.owner_id = $ownerId))", when: filteredOwner),
             recencyRerank, omitEmbedding);
@@ -592,13 +594,19 @@ internal static class EntityQueries
     /// </remarks>
     public static string SearchByVectorOwnerScopedFallback(bool includeShared)
     {
+        // G-14 as in the fact fallback: shared rows by owner_key = '*' (indexed); `owner_id IS NULL` cannot be seeked.
         var owner = includeShared
-            ? "(n.owner_id = $ownerId OR n.owner_id IS NULL)"
+            ? "(n.owner_id = $ownerId OR (n.owner_key = '*' AND n.owner_id IS NULL))"
             : "n.owner_id = $ownerId";
+        // RVW-FALLBACK-FORGOTTEN: what the fact fallback applies. Without it a forgotten, superseded or merged entity
+        // came back whenever the indexed search found nothing, and one row embedded at another width made it fail.
         return $@"
             MATCH (n:Entity)
             WHERE {owner}
               AND n.embedding IS NOT NULL
+              AND size(n.embedding) = size($embedding)
+              AND n.invalidated_at IS NULL
+              AND n.merged_into IS NULL
             WITH n, vector.similarity.cosine(n.embedding, $embedding) AS score
             WHERE score >= $minScore
             RETURN n AS node, score
