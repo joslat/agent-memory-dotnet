@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Fixed: the HTTP MCP host refuses requests not addressed to it.** It has no authentication and is meant for localhost,
+  but it checked neither `Host` nor `Origin`, so a web page could reach a local server through DNS rebinding (its own
+  domain resolved to 127.0.0.1). A request now passes only when its `Host`, and its `Origin` when it has one, names
+  `localhost`, `127.0.0.1`, `::1`, the host in `--url`, or a host named in the new `--allowed-hosts`
+  (`AGENT_MEMORY_MCP_ALLOWED_HOSTS`); any other gets 403. Ports are not compared. **Behaviour change** for a server
+  reached through a proxy or a container network by another name: add that name to `--allowed-hosts`.
+
 - **Fixed: erasing an owner now erases their conversations and messages.** A conversation was stamped with its owner only by
   `IShortTermMemoryService.AddConversationAsync`, which no host path calls, so `IMemoryOwnerDataService.EraseAsync` left
   every message the Agent Framework providers or the MCP server saved, and still reported success. A message saved while an

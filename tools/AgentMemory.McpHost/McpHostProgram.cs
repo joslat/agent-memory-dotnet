@@ -157,14 +157,22 @@ internal static class McpHostProgram
                 + "does), or put it behind an authenticating proxy.");
 
         if (options.Transport == McpHostTransport.Http)
-        {
-            app.MapMcp();
-            app.Urls.Clear();
-            app.Urls.Add(options.HttpUrl);
-        }
+            MapHttp(app, options);
 
         await app.RunAsync().ConfigureAwait(false);
         return 0;
+    }
+
+    /// <summary>
+    /// The HTTP transport: the MCP endpoint on <see cref="McpHostOptions.HttpUrl"/>, behind the Host and Origin check
+    /// (RVW-MCP-ORIGIN, <see cref="McpHttpRequestGuard"/>).
+    /// </summary>
+    internal static void MapHttp(WebApplication app, McpHostOptions options)
+    {
+        McpHttpRequestGuard.Use(app, options);
+        app.MapMcp();
+        app.Urls.Clear();
+        app.Urls.Add(options.HttpUrl);
     }
 
     /// <summary>

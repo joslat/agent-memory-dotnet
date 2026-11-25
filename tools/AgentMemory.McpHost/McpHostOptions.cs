@@ -62,6 +62,13 @@ internal sealed record McpHostOptions
     internal string? OwnerId { get; init; }
 
     /// <summary>
+    /// RVW-MCP-ORIGIN: host names the HTTP server answers besides the loopback names and its own listener host, for a
+    /// proxy or a container network. A request whose Host, or whose Origin when it has one, names any other host is
+    /// refused, so a web page cannot reach a local server through DNS rebinding.
+    /// </summary>
+    internal IReadOnlyList<string> AllowedHosts { get; init; } = [];
+
+    /// <summary>
     /// Whether an HTTP server on <see cref="HttpUrl"/> can be reached from other machines. HTTP has no authentication.
     /// </summary>
     internal bool HttpIsExposed => Transport == McpHostTransport.Http && !IsLoopback(HttpUrl);
@@ -91,7 +98,7 @@ internal sealed record McpHostOptions
     private static readonly string[] Known =
     [
         "--transport", "--url", "--server-name", "--read-only", "--strict-recall", "--enable-graph-query",
-        "--no-bootstrap", "--log-level", "--owner", "--help", "-h", "/?",
+        "--no-bootstrap", "--log-level", "--owner", "--allowed-hosts", "--help", "-h", "/?",
     ];
 
     internal static McpHostOptions Parse(string[] args, Func<string, string?> environment)
@@ -175,6 +182,8 @@ internal sealed record McpHostOptions
             Bootstrap = !Flag("--no-bootstrap") && !Boolean(environment("AGENT_MEMORY_MCP_NO_BOOTSTRAP")),
             LogLevel = ParseLogLevel(Value("--log-level") ?? environment("AGENT_MEMORY_MCP_LOG_LEVEL")),
             OwnerId = FirstNonEmpty(Value("--owner"), environment("AGENT_MEMORY_MCP_OWNER"))?.Trim(),
+            AllowedHosts = FirstNonEmpty(Value("--allowed-hosts"), environment("AGENT_MEMORY_MCP_ALLOWED_HOSTS"))
+                ?.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries) ?? [],
             Memory = ParseMemory(environment),
         };
     }
@@ -268,6 +277,7 @@ internal sealed record McpHostOptions
           agent-memory-mcp [--transport stdio|http] [--url http://localhost:5233]
                            [--read-only] [--strict-recall] [--enable-graph-query] [--no-bootstrap]
                            [--owner <id>] [--server-name agent-memory] [--log-level information]
+                           [--allowed-hosts <host,host>]
           agent-memory-mcp --coding-config <private.json>
           agent-memory-mcp --coding-hook <private-client.json>  (configured client hook JSON on stdin)
 
@@ -310,6 +320,7 @@ internal sealed record McpHostOptions
           AGENT_MEMORY_MCP_NO_BOOTSTRAP      unset
           AGENT_MEMORY_MCP_LOG_LEVEL         information
           AGENT_MEMORY_MCP_OWNER             unset (the caller's userId; omitted = shared)
+          AGENT_MEMORY_MCP_ALLOWED_HOSTS     unset (HTTP answers localhost and its own host only)
 
         Memory tuning (environment only; defaults are the library's):
           AGENT_MEMORY_MCP_RECALL_FACTS      10
@@ -324,6 +335,10 @@ internal sealed record McpHostOptions
         --read-only removes every tool that writes from the server's tool list entirely, rather than
         refusing them when called: a tool a client can see is one a model will try. {0} of the {1}
         tools remain ({2} with --enable-graph-query).
+
+        HTTP answers only requests addressed to localhost, to the host in --url, or to a host named in
+        --allowed-hosts (a proxy's name, a container's): a request whose Host or Origin names another host is
+        refused, so a web page cannot reach this server through DNS rebinding.
 
         --strict-recall withholds recalled text that reads like an instruction unless its item is trusted
         enough; every recall result marks trustLevel and instructionLike and escapes angle brackets either way.

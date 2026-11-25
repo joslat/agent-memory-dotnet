@@ -71,6 +71,8 @@ services:
       - OPENAI_COMPATIBLE_API_KEY
       # Pin every call to one owner (recommended for a personal server).
       - AGENT_MEMORY_MCP_OWNER
+      # Host names besides localhost that requests may address (a proxy's), comma-separated.
+      - AGENT_MEMORY_MCP_ALLOWED_HOSTS
       # Set to true to expose only the tools that read.
       - AGENT_MEMORY_MCP_READ_ONLY
     ports:

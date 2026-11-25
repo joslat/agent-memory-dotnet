@@ -136,6 +136,12 @@ compose file publishes every port (the server's and Neo4j's) on `127.0.0.1` only
 at startup whenever it listens off localhost. To serve other machines, put it behind an authenticating
 proxy.
 
+The server answers only requests addressed to it: their `Host`, and their `Origin` when they have one,
+must name `localhost` (or `127.0.0.1`, `::1`), the host in `--url`, or a host named in `--allowed-hosts`
+(`AGENT_MEMORY_MCP_ALLOWED_HOSTS`, comma-separated, for a proxy's or a container network's name). Any
+other request gets 403, so a web page cannot reach a local server through DNS rebinding. Ports are not
+compared, so publishing the container on another local port works unchanged.
+
 ## Configuration
 
 ### Inference provider
@@ -185,6 +191,7 @@ The full contract, including pointing embeddings at a different host from chat, 
 | `AGENT_MEMORY_MCP_STRICT_RECALL` | unset | `--strict-recall` |
 | `AGENT_MEMORY_MCP_ENABLE_GRAPH_QUERY` | unset | `--enable-graph-query` |
 | `AGENT_MEMORY_MCP_OWNER` | unset (each call's `userId`) | `--owner` |
+| `AGENT_MEMORY_MCP_ALLOWED_HOSTS` | unset (localhost and the `--url` host) | `--allowed-hosts` |
 | `AGENT_MEMORY_MCP_NO_BOOTSTRAP` | unset | `--no-bootstrap` |
 | `AGENT_MEMORY_MCP_LOG_LEVEL` | `information` | `--log-level` |
 
