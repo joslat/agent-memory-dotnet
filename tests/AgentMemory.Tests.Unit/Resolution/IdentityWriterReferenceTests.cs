@@ -258,6 +258,43 @@ public sealed class IdentityWriterReferenceTests
         decision.Diagnostics.Should().Contain("writer_reference_ambiguous");
     }
 
+    /// <summary>
+    /// IDENTITY-FIRSTNAME-NAMESAKES (the fourth paid check, 24 Nov: its three wrong merges were one problem): the turn names a
+    /// person by a first name two stored people share, and the writer writes it out as one of them's full name ("Inés lost
+    /// her first tooth" as "Inés Varela"). The turn's own words say nothing of which one: the writer's guess is kept for
+    /// review, a split rather than a merge.
+    /// </summary>
+    [Fact]
+    public async Task A_first_name_the_writer_wrote_out_as_one_stored_person_s_full_name_is_not_confirmed_when_another_shares_it()
+    {
+        var decision = await Plan(new() { EntityId = "ines-varela", Quote = "Inés lost her first tooth" },
+            [Candidate("ines-varela", "Inés Varela", "PERSON"), Candidate("ines", "Inés", "PERSON")], withModel: false, type: "PERSON",
+            text: "Inés lost her first tooth yesterday.", name: "Inés Varela");
+
+        decision.Status.Should().NotBe(IdentityDecisionKind.Confirmed);
+        decision.Diagnostics.Should().Contain("writer_reference_ambiguous");
+    }
+
+    [Fact]
+    public async Task The_full_name_in_the_turn_still_confirms_beside_a_first_name_namesake()
+    {
+        var decision = await Plan(new() { EntityId = "ines-varela", Quote = "Inés Varela" },
+            [Candidate("ines-varela", "Inés Varela", "PERSON"), Candidate("ines", "Inés", "PERSON")], withModel: false, type: "PERSON",
+            text: "Inés Varela sent the drawings for the shop.", name: "Inés Varela");
+
+        decision.Status.Should().Be(IdentityDecisionKind.Confirmed, "the turn itself names which one");
+    }
+
+    [Fact]
+    public async Task A_first_name_no_other_candidate_shares_still_confirms_the_full_name_the_writer_gave()
+    {
+        var decision = await Plan(new() { EntityId = "ines-varela", Quote = "Inés sent" },
+            [Candidate("ines-varela", "Inés Varela", "PERSON"), Candidate("marta", "Marta", "PERSON")], withModel: false, type: "PERSON",
+            text: "Inés sent the drawings for the shop.", name: "Inés Varela");
+
+        decision.Status.Should().Be(IdentityDecisionKind.Confirmed, "only one stored person is called Inés");
+    }
+
     [Fact]
     public async Task A_name_that_holds_a_bare_namesake_s_name_still_confirms()
     {

@@ -54,6 +54,13 @@ internal static class IdentityWriterReference
         // IDENTITY-NICKNAME-SPLIT: a person the writer refers to under a short form ("Bea") comes under the stored name with
         // the short form as an alias; the turn names the alias, so its relation is read there too ("my niece Bea").
         var turnText = string.Join("\n", plan.Context.Sources.Where(fragment => roots.Contains(fragment.SourceId)).Select(fragment => fragment.Text));
+        // IDENTITY-FIRSTNAME-NAMESAKES (the fourth paid check, 24 Nov: its three wrong merges were one problem): the turn names the
+        // person only by words another stored person's name holds too, a first name two people share, and the writer wrote it out
+        // as one of them's full name ("Inés lost her first tooth" as "Inés Varela"). The turn says nothing of which one: the
+        // writer's guess is kept for review, a split rather than a merge. The full name, or a short form no other candidate
+        // holds, in the turn still decides.
+        if (NamedOnlyByShared(turnText, target, mention, plan.Candidates, result.RejectedEntityIds))
+            return Note("writer_reference_ambiguous");
         if (IdentityRelationCue.Disagree(IdentityRelationCue.InTurn(turnText, [mention.Name, target.Name, .. mention.Aliases]),
                 IdentityRelationCue.Known(targetCandidate!)))
             return Note("writer_reference_relation_conflict");
@@ -75,5 +82,24 @@ internal static class IdentityWriterReference
                 PendingEntityIds = [], CanAdjudicate = false, Reasons = reasons },
             Diagnostics = [.. plan.Diagnostics, "writer_reference_confirmed"], ContextualEvidence = evidence
         };
+    }
+
+    // Whether the turn names the target only by words another candidate of its type is also called by: the target's full name
+    // and the mention's short forms are looked for whole in the turn first; any of them no other candidate holds decides. With
+    // none there, the words of the target's name the turn does use are shared when another candidate's name holds them all. A
+    // turn that names neither (a pronoun the writer resolved) is left to the other checks.
+    private static bool NamedOnlyByShared(string turn, Entity target, ExtractedEntity mention, IReadOnlyList<IdentityCandidate> candidates,
+        IReadOnlyCollection<string> rejected)
+    {
+        var others = candidates.Where(candidate => candidate.Entity.EntityId != target.EntityId && !rejected.Contains(candidate.Entity.EntityId) &&
+            string.Equals(candidate.Entity.Type, target.Type, StringComparison.OrdinalIgnoreCase)).Select(candidate => candidate.Entity.Name).ToList();
+        if (others.Count == 0) return false;
+        static bool Called(string name, string words) =>
+            MemoryTripleCanonicalizer.CanonicalValue(name) == MemoryTripleCanonicalizer.CanonicalValue(words) || IdentityPolicy.HoldsName(name, words);
+        foreach (var form in mention.Aliases.Prepend(target.Name).Where(form => !string.IsNullOrWhiteSpace(form)))
+            if (IdentityPolicy.HoldsName(turn, form) && !others.Any(other => Called(other, form))) return false;
+        var spoken = target.Name.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(word => IdentityPolicy.HoldsName(turn, word)).ToList();
+        return spoken.Count > 0 && others.Any(other => spoken.All(word => Called(other, word)));
     }
 }

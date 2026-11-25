@@ -215,6 +215,27 @@ public sealed class IdentityEvidenceIntegrationTests : IAsyncLifetime
         plan.Result.CanAdjudicate.Should().BeTrue();
     }
 
+    /// <summary>
+    /// IDENTITY-FIRSTNAME-NAMESAKES against the real lookup: the writer wrote a first name out as one stored person's full name.
+    /// The lookup for that full name must bring the stored person called by the first name alone among the candidates, or the
+    /// writer-reference check (it reads the candidates, no I/O) could not see that the turn's words name two people.
+    /// </summary>
+    [Fact]
+    public async Task A_full_name_s_candidates_include_the_stored_person_called_by_its_first_name_alone()
+    {
+        var full = await Seed("Inés Varela");
+        var bare = await Seed("Inés");
+        await Seed("Marta");
+        await _fixture.TransactionRunner.ReadAsync(async runner => { await runner.RunAsync("CALL db.index.fulltext.awaitEventuallyConsistentIndexRefresh()"); });
+        var planner = new IdentityPlanner(_identity, Substitute.For<IEmbeddingOrchestrator>(), Substitute.For<IIdGenerator>(), TimeProvider.System,
+            IdentityConfiguration.Capture(new IdentityResolutionOptions { Enabled = true, MaxCandidates = 4 }), useSemanticCandidates: false);
+
+        var plan = await planner.PlanAsync(new ExtractedEntity { Name = "Inés Varela", Type = "PERSON", Confidence = 1 },
+            new EntityIdentityResolutionContext { SourceMessageIds = ["m"] }, MemoryScope.For("pablito", includeShared: false));
+
+        plan.Candidates.Select(c => c.Entity.EntityId).Should().Contain([full.EntityId, bare.EntityId]);
+    }
+
     private Task SeedSourceMessages() => _fixture.TransactionRunner.WriteAsync(async runner =>
     {
         await runner.RunAsync(
