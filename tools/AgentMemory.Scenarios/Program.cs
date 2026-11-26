@@ -197,6 +197,9 @@ if (ablation is not null && !(identityValidation && identityWriter && !legacyCom
     return 2;
 }
 var graphArms = Arms.Graph.Where(arm => armNames.Contains(arm.Name)).Select(arm => Arms.Ablate(arm, ablation)).ToList();
+// WRITER-QUOTES-REQUIRED's arm B: every graph arm's writer requires its quotes (LlmExtractionOptions.MemoryWriterRequireQuotes).
+if (args.Contains("--writer-require-quotes"))
+    graphArms = [.. graphArms.Select(arm => arm with { Extraction = o => { arm.Extraction(o); o.MemoryWriterRequireQuotes = true; } })];
 var budgetFrom = Argument("--budget-from") ?? graphArms.FirstOrDefault()?.Name;
 var stamp = DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
 var output = Path.GetFullPath(Argument("--output") ?? Path.Combine(root, "artifacts", "evaluation", "scenarios", $"{scenario.Name}-{stamp}"));

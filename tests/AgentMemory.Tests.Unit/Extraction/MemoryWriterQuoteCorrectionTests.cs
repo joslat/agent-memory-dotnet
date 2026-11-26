@@ -53,4 +53,27 @@ public sealed class MemoryWriterQuoteCorrectionTests
 
         MemoryWriterOps.UnresolvedReplacements(ops, shown).Select(o => o.Id).Should().Equal("F12", "F1", "fact-1");
     }
+
+    // WRITER-QUOTES-REQUIRED (off by default, measured before any default changes): with quotes required, a write without a
+    // quote is dropped as unsupported and a confirm's quote must be in the message; off, both are kept as before.
+    [Fact]
+    public void Required_quotes_drop_a_write_without_one_and_check_a_confirms()
+    {
+        const string message = "Ana moved to Lyon in March.";
+        IReadOnlyList<MemoryWriterOps.Op> answered =
+        [
+            new("add", "fact", "Ana | lives in | Lyon", null) { Index = 0, Quote = "Ana moved to Lyon" },
+            new("add", "fact", "Ana | works at | Contoso", null) { Index = 1 },
+            new("confirm", "fact", "", "F1") { Index = 2, Quote = "words nobody said" },
+            new("confirm", "fact", "", "F2") { Index = 3 },
+        ];
+
+        var (keptOff, droppedOff) = LlmMemoryWriter.Locate(answered, [], message);
+        keptOff.Select(o => o.Index).Should().Equal(0, 1, 2, 3);
+        droppedOff.Should().BeEmpty();
+
+        var (kept, dropped) = LlmMemoryWriter.Locate(answered, [], message, requireQuotes: true);
+        kept.Select(o => o.Index).Should().Equal(0, 3);
+        dropped.Select(d => (d.Index, d.Reason)).Should().Equal((1, MemoryWriterOps.DropReason.QuoteMissing), (2, MemoryWriterOps.DropReason.QuoteNotFound));
+    }
 }

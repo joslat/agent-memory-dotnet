@@ -1031,8 +1031,9 @@ services.Configure<IdentityResolutionOptions>(options =>
     options.MaxAdjudicationsPerIngestion = 2;
     options.ApplyConversationalPolicies(); // events, people, organisations: confirmable by checked contextual evidence
 });
-// Read context turns so "the cutover" said after "the go-live" is resolved with both turns.
-services.Configure<ExtractionOptions>(options => options.ExtractionContextTurns = 4);
+// Read context turns so "the cutover" said after "the go-live" is resolved with both turns. Extraction settings live
+// on MemoryOptions.Extraction: Core builds the extraction stage's options from it, so Configure<ExtractionOptions> has no effect.
+services.Configure<MemoryOptions>(options => options.Extraction.ExtractionContextTurns = 4);
 // Review queue: open proposals the policy left for a person or an operator.
 var queue = await provider.GetRequiredService<IIdentityDecisionRepository>().ListPendingAsync(ownerId, 50);
 services.Configure<LlmExtractionOptions>(options => { options.UseMemoryWriter = true; options.MemoryWriterEventIdentities = true; });

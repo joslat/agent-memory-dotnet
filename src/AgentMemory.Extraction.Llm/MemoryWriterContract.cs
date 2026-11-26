@@ -713,7 +713,7 @@ internal static class MemoryWriterContract
             return op.Kind == "entity" && op.Action == "add" && Canonical(EntityName(op.Text)) == Canonical(EntityName(kept.Text));
         // RVW-REST-WRITER (the review's writer-3): a quote that is not in the message is fixed only by a quote that is (the
         // correction is located before this merge). The same operation resent with an empty quote, or none, is not a fix.
-        if (issue.Reason == MemoryWriterOps.DropReason.QuoteNotFound)
+        if (issue.Reason is MemoryWriterOps.DropReason.QuoteNotFound or MemoryWriterOps.DropReason.QuoteMissing)
             return issue.Text is { Length: > 0 } quoted && Canonical(op.Text) == Canonical(quoted) && op.QuoteStart is not null;
         return issue.Text is { Length: > 0 } text && Canonical(op.Text) == Canonical(text);
     }
@@ -727,6 +727,7 @@ internal static class MemoryWriterContract
         MemoryWriterOps.DropReason.MissingText => "an add, replace or correct needs \"text\"",
         MemoryWriterOps.DropReason.MissingId => "a confirm needs the \"id\" of the stored memory it confirms",
         MemoryWriterOps.DropReason.QuoteNotFound => "its quote is not exact, contiguous words of the last message",
+        MemoryWriterOps.DropReason.QuoteMissing => "it has no quote: give the exact, contiguous words of the last message it comes from",
         MemoryWriterOps.DropReason.NotAnObject => "each operation must be a JSON object",
         MemoryWriterOps.DropReason.OverLimit => "it was beyond the most operations one answer may hold",
         MemoryWriterOps.DropReason.ConnectionEndEmpty => "a connection joins two names: each end must hold a name",

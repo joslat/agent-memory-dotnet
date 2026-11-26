@@ -90,7 +90,7 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
         // that is not is a claim the message does not make, and is dropped (and recorded, #250). A located quote's offsets
         // go to the stored memory's provenance. An operation without a quote is kept as it was, without offsets.
         var message = said[^1].Content;
-        var (ops, drops) = Locate(answered, dropped, message);
+        var (ops, drops) = Locate(answered, dropped, message, _options.MemoryWriterRequireQuotes);
         IReadOnlyList<IngestionItemOutcome> rejected = [];
         if (_operationFormat is not null)
         {
@@ -183,8 +183,8 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
     }
 
     /// <summary>Locates each quote in the message (#249); an operation whose quote is not there is dropped and recorded.</summary>
-    private static (List<MemoryWriterOps.Op> Ops, List<MemoryWriterOps.DroppedOp> Drops) Locate(
-        IReadOnlyList<MemoryWriterOps.Op> answered, IReadOnlyList<MemoryWriterOps.DroppedOp> dropped, string message)
+    internal static (List<MemoryWriterOps.Op> Ops, List<MemoryWriterOps.DroppedOp> Drops) Locate(
+        IReadOnlyList<MemoryWriterOps.Op> answered, IReadOnlyList<MemoryWriterOps.DroppedOp> dropped, string message, bool requireQuotes = false)
     {
         var ops = new List<MemoryWriterOps.Op>(answered.Count);
         var drops = new List<MemoryWriterOps.DroppedOp>(dropped);
@@ -209,7 +209,21 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
                 }
                 shaped = op with { Kind = "fact" };
             }
-            if (shaped.Action == "confirm" || shaped.Quote is null) { ops.Add(shaped); continue; }
+            // WRITER-QUOTES-REQUIRED (off by default): a confirm's quote is checked when it gives one, and a write without a
+            // quote is unsupported by the message.
+            if (shaped.Action == "confirm")
+            {
+                if (requireQuotes && shaped.Quote is not null && MemoryWriterQuotes.Locate(message, shaped.Quote) is null)
+                    drops.Add(new MemoryWriterOps.DroppedOp(op.Index, MemoryWriterOps.DropReason.QuoteNotFound, op.Text) { Kind = op.Kind });
+                else ops.Add(shaped);
+                continue;
+            }
+            if (shaped.Quote is null)
+            {
+                if (requireQuotes) drops.Add(new MemoryWriterOps.DroppedOp(op.Index, MemoryWriterOps.DropReason.QuoteMissing, op.Text) { Kind = op.Kind });
+                else ops.Add(shaped);
+                continue;
+            }
             if (MemoryWriterQuotes.Locate(message, shaped.Quote) is { } span) ops.Add(shaped with { QuoteStart = span.Start, QuoteEnd = span.End });
             else drops.Add(new MemoryWriterOps.DroppedOp(op.Index, MemoryWriterOps.DropReason.QuoteNotFound, op.Text) { Kind = op.Kind });
         }
@@ -241,7 +255,7 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
                      new ChatMessage(ChatRole.Assistant, reply), new ChatMessage(ChatRole.User, MemoryWriterContract.Request(correctable))],
                     _options.MemoryWriterMaxOutputTokens, _operationFormat!, cancellationToken).ConfigureAwait(false);
                 if (MemoryWriterOps.TryParse(response.Text, _options.MemoryWriterMaxOperations, out var fixes, out _))
-                    corrected = Locate(fixes, [], message).Ops;
+                    corrected = Locate(fixes, [], message, _options.MemoryWriterRequireQuotes).Ops;
                 else _logger.LogWarning("Memory writer: the correction reply held no JSON; {Count} problem(s) stay rejected.", correctable.Count);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
@@ -763,6 +777,9 @@ internal static class MemoryWriterOps
 
         /// <summary>A connection with an end that holds no word ("Ana -[LIKES]-> ..."): it names nothing.</summary>
         ConnectionEndEmpty,
+
+        /// <summary>An add, replace or correct with no quote of the message, when quotes are required (WRITER-QUOTES-REQUIRED).</summary>
+        QuoteMissing,
 
         /// <summary>
         /// A connection not stated as "A -[RELATION]-> B" and not a fact either (RVW-REST-WRITER, writer-4): it cannot be

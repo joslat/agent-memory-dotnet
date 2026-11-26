@@ -218,6 +218,14 @@ public sealed class LlmExtractionOptions
 
     public int MemoryWriterCandidates { get; set; } = 14;
 
+    /// <summary>
+    /// Requires the store-aware writer's quotes (WRITER-QUOTES-REQUIRED, from the review of main's writer-3): an add, replace
+    /// or correct without a quote of the last message is dropped as unsupported (under the identity contract it is sent back
+    /// once, and a located quote fixes it), and a confirm's quote, when it gives one, must be in the message. Default off,
+    /// and off is byte-identical: an operation without a quote is kept, and a confirm's quote is not read.
+    /// </summary>
+    public bool MemoryWriterRequireQuotes { get; set; }
+
     /// <summary>The most operations the writer may propose for one turn. 6, as measured.</summary>
 
     public int MemoryWriterMaxOperations { get; set; } = 6;

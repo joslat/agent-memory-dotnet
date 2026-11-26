@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **`LlmExtractionOptions.MemoryWriterRequireQuotes` (opt-in, default off):** the store-aware writer drops an add, replace or
+  correct without a quote of the message (under the identity contract it is sent back once), and a confirm whose quote is
+  not in the message. Measured before any default change (WRITER-QUOTES-REQUIRED): on GLM-5.3-Flash the writer quoted 1,351
+  of 1,352 writes, with or without the contract, so the default stays off; it is there for a host whose model omits quotes.
+  The scenario tool's `--writer-require-quotes` turns it on for every graph arm.
+
 - **Owners' identity ingestions no longer all wait on one shared lock** (review of main, identity-4, second half): an owner
   ingestion that included shared memory held the single shared identity scope lock to commit, so every owner's ingestion
   waited on every other's. It now holds its owner's scope and takes the shared one only when a decision involves a shared
