@@ -36,6 +36,21 @@ internal static class IdentityKindsScorer
 
     private sealed record Observation(string Identity, string Words, string Type, int Statement);
 
+    /// <summary>ER-KIT: why a real thing's extra identity was not joined to its first (h2h/split_causes.py, kept here).</summary>
+    internal static class SplitCause
+    {
+        /// <summary>The extra identity has another type than the first (both mapped to the key's five types).</summary>
+        public const string TypeChanged = "type-changed";
+        /// <summary>No name word in common with the first: a nickname, a role, a new name.</summary>
+        public const string OtherName = "other-name";
+        /// <summary>The same name words, its decision left Pending for review.</summary>
+        public const string PendingRepeat = "pending-repeat";
+        /// <summary>The same name words, decided New (no admissible candidate) or joined to an earlier duplicate.</summary>
+        public const string NewRepeat = "new-repeat";
+        /// <summary>The same name words, in a store without identity decisions (the old resolver's entities).</summary>
+        public const string SameName = "same-name";
+    }
+
     public static IdentityKindsScore Score(IdentityKindsGold gold, Scenario scenario, JsonElement store, string view)
     {
         var statements = scenario.Turns().Select(t => t.Text).ToList();
@@ -53,6 +68,8 @@ internal static class IdentityKindsScorer
         var observations = new List<Observation>();
         var pending = 0;
         var unplaced = 0;
+        // ER-KIT split causes: the status of each identity's first decision, in store order (0 Confirmed, 1 Pending, 2 New).
+        var firstStatus = new Dictionary<string, int>(StringComparer.Ordinal);
         if (view == IdentityGoldScorer.DecisionsView)
         {
             foreach (var decision in store.GetProperty("identity").GetProperty("decisions").EnumerateArray())
@@ -69,6 +86,7 @@ internal static class IdentityKindsScorer
                     ? confirmed.GetString()! : observation.GetProperty("EntityId").GetString() ?? "";
                 var name = observation.GetProperty("Name").GetString() ?? "";
                 var type = observation.GetProperty("Type").GetString() ?? "";
+                firstStatus.TryAdd(identity, status);
                 if (said.Length == 0) unplaced++;
                 observations.AddRange(said.Select(n => new Observation(identity, name, type, n)));
             }
@@ -120,6 +138,19 @@ internal static class IdentityKindsScorer
                 g.Count(m => labelled.Any(l => l.Statement == m.Statement && l.Thing == m.Thing)),
                 g.Count(m => Right(m.Thing) && labelled.Any(l => l.Statement == m.Statement && l.Thing == m.Thing))), StringComparer.Ordinal);
 
+        // ER-KIT: the field's clustering scores over the labelled mentions, the types the store gave each real thing, the
+        // identities that hold no thing of the key, and why each split's extra identities were not joined.
+        var clustering = Clustering(labelled);
+        var typing = gold.Things.Where(t => identitiesByThing[t.Id].Count > 0).GroupBy(t => t.Kind, StringComparer.Ordinal)
+            .OrderBy(g => g.Key, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => new IdentityKindsTyping(g.Count(),
+                g.Count(t => labelled.Where(l => l.Thing == t.Id).All(l => Kind(l.Type) == t.Type))), StringComparer.Ordinal);
+        var holding = labelled.Select(l => l.Identity).ToHashSet(StringComparer.Ordinal);
+        var outside = labels.Where(l => !holding.Contains(l.Identity)).GroupBy(l => l.Identity, StringComparer.Ordinal)
+            .OrderBy(g => g.Key, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First().Words, StringComparer.Ordinal);
+        var splitCauses = SplitCauses(gold, labelled, identitiesByThing, firstStatus, view);
+
         return new IdentityKindsScore(
             view,
             gold.Things.Count,
@@ -135,7 +166,74 @@ internal static class IdentityKindsScorer
             labelled.Count,
             labels.Count - labelled.Count,
             unplaced,
-            labels);
+            labels)
+        {
+            Clustering = clustering,
+            TypeByKind = typing,
+            IdentitiesOutsideTheKey = outside,
+            SplitCauses = splitCauses.Causes,
+            SplitCausesByKind = splitCauses.ByKind,
+        };
+    }
+
+    /// <summary>
+    /// B-cubed and pairwise precision, recall and F1 (Neo4j's resolution metric is B-cubed), over the labelled mentions: each
+    /// is an item, its identity the system's cluster and its real thing the key's. A wrong merge lowers precision, a split
+    /// recall. Mentions the store never made are not items; the levels' "found" counts measure them.
+    /// </summary>
+    internal static IdentityKindsClustering Clustering(IReadOnlyList<LabelledMention> labelled)
+    {
+        if (labelled.Count == 0) return new(0, 0, 0, 0, 0, 0, 0);
+        var byIdentity = labelled.GroupBy(l => l.Identity, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
+        var byThing = labelled.GroupBy(l => l.Thing!, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
+        var both = labelled.GroupBy(l => (l.Identity, l.Thing!)).ToDictionary(g => g.Key, g => g.Count());
+        double precision = 0, recall = 0;
+        foreach (var l in labelled)
+        {
+            var common = both[(l.Identity, l.Thing!)];
+            precision += (double)common / byIdentity[l.Identity];
+            recall += (double)common / byThing[l.Thing!];
+        }
+        precision /= labelled.Count; recall /= labelled.Count;
+        static long Pairs(int n) => (long)n * (n - 1) / 2;
+        var together = both.Values.Sum(Pairs);
+        var sameIdentity = byIdentity.Values.Sum(Pairs);
+        var sameThing = byThing.Values.Sum(Pairs);
+        var pairPrecision = sameIdentity == 0 ? 1 : (double)together / sameIdentity;
+        var pairRecall = sameThing == 0 ? 1 : (double)together / sameThing;
+        static double F1(double p, double r) => p + r == 0 ? 0 : 2 * p * r / (p + r);
+        return new(Math.Round(precision, 4), Math.Round(recall, 4), Math.Round(F1(precision, recall), 4),
+            Math.Round(pairPrecision, 4), Math.Round(pairRecall, 4), Math.Round(F1(pairPrecision, pairRecall), 4), labelled.Count);
+    }
+
+    /// <summary>
+    /// Each split thing's identities in the order the conversation first gave them; every one after the first is classified
+    /// against the first by <see cref="SplitCause"/>, in that order of precedence (type, then name words, then its decision).
+    /// </summary>
+    private static (IReadOnlyDictionary<string, int> Causes, IReadOnlyDictionary<string, IReadOnlyDictionary<string, int>> ByKind) SplitCauses(
+        IdentityKindsGold gold, IReadOnlyList<LabelledMention> labelled, IReadOnlyDictionary<string, List<string>> identitiesByThing,
+        IReadOnlyDictionary<string, int> firstStatus, string view)
+    {
+        var causes = new SortedDictionary<string, int>(StringComparer.Ordinal);
+        var byKind = new SortedDictionary<string, SortedDictionary<string, int>>(StringComparer.Ordinal);
+        foreach (var thing in gold.Things.Where(t => identitiesByThing[t.Id].Count > 1))
+        {
+            var order = labelled.Where(l => l.Thing == thing.Id).OrderBy(l => l.Statement)
+                .GroupBy(l => l.Identity, StringComparer.Ordinal).Select(g => g.First()).ToList();
+            var first = order[0];
+            foreach (var extra in order.Skip(1))
+            {
+                var cause = Kind(extra.Type) != Kind(first.Type) ? SplitCause.TypeChanged
+                    : !Words(extra.Words).Overlaps(Words(first.Words)) ? SplitCause.OtherName
+                    : view != IdentityGoldScorer.DecisionsView ? SplitCause.SameName
+                    : firstStatus.GetValueOrDefault(extra.Identity, -1) == 1 ? SplitCause.PendingRepeat
+                    : SplitCause.NewRepeat;
+                causes[cause] = causes.GetValueOrDefault(cause) + 1;
+                var kind = byKind.TryGetValue(thing.Kind, out var k) ? k : byKind[thing.Kind] = new(StringComparer.Ordinal);
+                kind[cause] = kind.GetValueOrDefault(cause) + 1;
+            }
+        }
+        return (causes, byKind.ToDictionary(p => p.Key, p => (IReadOnlyDictionary<string, int>)p.Value, StringComparer.Ordinal));
     }
 
     private static (string? Thing, string How) Label(Observation o, IReadOnlyList<string> candidates,
@@ -246,6 +344,13 @@ internal sealed record IdentityKindsTally(int Things, int Right, int Splits, int
 /// <summary>One level's mentions: how many, found in the store under their thing, and found under a right thing.</summary>
 internal sealed record IdentityKindsLevel(int Mentions, int Found, int Right);
 
+/// <summary>ER-KIT: B-cubed and pairwise precision, recall and F1 over the labelled mentions (how many: <see cref="Mentions"/>).</summary>
+internal sealed record IdentityKindsClustering(
+    double BCubedPrecision, double BCubedRecall, double BCubedF1, double PairwisePrecision, double PairwiseRecall, double PairwiseF1, int Mentions);
+
+/// <summary>ER-KIT: one kind's real things the store holds, and how many of them carry the key's type in every mention.</summary>
+internal sealed record IdentityKindsTyping(int Stored, int Typed);
+
 /// <summary>One mention of an identity in one statement, and the real thing it was labelled with (or why not).</summary>
 internal sealed record LabelledMention(string Identity, string Words, string Type, int Statement, string? Thing, string How);
 
@@ -265,4 +370,19 @@ internal sealed record IdentityKindsScore(
     int LabelledMentions,
     int UnlabelledMentions,
     int IdentitiesWithoutAStatement,
-    IReadOnlyList<LabelledMention> Mentions);
+    IReadOnlyList<LabelledMention> Mentions)
+{
+    /// <summary>ER-KIT: the field's clustering scores, beside ours.</summary>
+    public IdentityKindsClustering Clustering { get; init; } = new(0, 0, 0, 0, 0, 0, 0);
+    /// <summary>ER-KIT: per kind, the stored real things and how many carry the key's type.</summary>
+    public IReadOnlyDictionary<string, IdentityKindsTyping> TypeByKind { get; init; } = new Dictionary<string, IdentityKindsTyping>();
+    /// <summary>
+    /// ER-KIT: identities none of whose mentions names a thing of the key, with their first words. Spurious entities (words
+    /// that only look like names) are among them, and so are real things the key does not hold (the city a venue is in).
+    /// </summary>
+    public IReadOnlyDictionary<string, string> IdentitiesOutsideTheKey { get; init; } = new Dictionary<string, string>();
+    /// <summary>ER-KIT: why each split's extra identities were not joined to the first (<see cref="IdentityKindsScorer.SplitCause"/>).</summary>
+    public IReadOnlyDictionary<string, int> SplitCauses { get; init; } = new Dictionary<string, int>();
+    /// <summary>ER-KIT: the same, per kind.</summary>
+    public IReadOnlyDictionary<string, IReadOnlyDictionary<string, int>> SplitCausesByKind { get; init; } = new Dictionary<string, IReadOnlyDictionary<string, int>>();
+}

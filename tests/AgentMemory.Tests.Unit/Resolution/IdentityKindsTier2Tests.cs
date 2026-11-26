@@ -125,6 +125,121 @@ public sealed class IdentityKindsTier2Tests
         score.Mentions.Single(m => m.Identity == "e-ines").Thing.Should().BeNull();
         score.WrongMerges.Should().Be(0);
         score.Right.Should().Be(27);
+        score.IdentitiesOutsideTheKey.Should().Equal(new Dictionary<string, string> { ["e-ines"] = "Inés" });
+    }
+
+    // ER-KIT: the measurement kit's scores beside ours: B-cubed and pairwise (the field's), types, identities outside the
+    // key, and why repeats were split (h2h/split_causes.py, now in the scorer).
+
+    /// <summary>Unordered pairs among n items.</summary>
+    private static long Pairs(int n) => (long)n * (n - 1) / 2;
+
+    /// <summary>Pairs of the key's mentions of one thing, summed over the things: pairwise recall's denominator here.</summary>
+    private static long KeyPairs() => Key.Mentions.GroupBy(m => m.Thing).Sum(g => Pairs(g.Count()));
+
+    private static object Decision(string entity, string name, string type, int statement, int status, string? confirmed = null)
+    {
+        var id = "m" + statement.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        return new
+        {
+            Observation = new { EntityId = entity, Name = name, Type = type },
+            Context = new { SourceMessageIds = new[] { id }, Sources = new[] { new { SourceId = id, Text = WhosWho.Turns().Select(t => t.Text).ToList()[statement - 1] } } },
+            Status = status,
+            ConfirmedEntityId = confirmed,
+        };
+    }
+
+    private static JsonElement Decisions(params object[] decisions) =>
+        JsonSerializer.SerializeToElement(new { identity = new { decisions }, entities = new { entities = Array.Empty<object>(), sameAs = Array.Empty<object>() } });
+
+    [Fact]
+    public void A_perfect_store_scores_one_on_b_cubed_and_pairwise_types_every_thing_right_and_holds_nothing_outside_the_key()
+    {
+        var score = IdentityKindsScorer.Score(Key, WhosWho, Store(PerfectEntities()), IdentityGoldScorer.EntitiesView);
+
+        score.Clustering.Should().Be(new IdentityKindsClustering(1, 1, 1, 1, 1, 1, 70));
+        score.TypeByKind.Values.Sum(t => t.Stored).Should().Be(27);
+        score.TypeByKind.Values.Should().OnlyContain(t => t.Typed == t.Stored);
+        score.IdentitiesOutsideTheKey.Should().BeEmpty();
+        score.SplitCauses.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void A_wrong_merge_lowers_precision_and_leaves_recall_whole()
+    {
+        var entities = PerfectEntities().Where(e => ((dynamic)e).id is not ("e-T05" or "e-T06")).Append(
+            Entity("e-luna", "Luna", "OBJECT", StatementsOf("T05").Concat(StatementsOf("T06")).Distinct().Order())).ToArray();
+
+        var clustering = IdentityKindsScorer.Score(Key, WhosWho, Store(entities), IdentityGoldScorer.EntitiesView).Clustering;
+
+        clustering.BCubedPrecision.Should().BeLessThan(1);
+        clustering.PairwisePrecision.Should().BeLessThan(1);
+        clustering.BCubedRecall.Should().Be(1);
+        clustering.PairwiseRecall.Should().Be(1);
+        clustering.BCubedF1.Should().BeInRange(clustering.BCubedPrecision, 1);
+    }
+
+    [Fact]
+    public void A_split_lowers_recall_by_exactly_the_pairs_it_separates_and_is_another_name_when_no_name_word_is_shared()
+    {
+        var statements = StatementsOf("T01");
+        var entities = PerfectEntities().Where(e => ((dynamic)e).id != "e-T01").Concat(
+        [
+            Entity("e-vale-1", "Valentina Ríos", "PERSON", statements.Take(1)),
+            Entity("e-vale-2", "Vale", "PERSON", statements.Skip(1)),
+        ]).ToArray();
+
+        var score = IdentityKindsScorer.Score(Key, WhosWho, Store(entities), IdentityGoldScorer.EntitiesView);
+
+        score.Clustering.BCubedPrecision.Should().Be(1);
+        score.Clustering.PairwisePrecision.Should().Be(1);
+        // The first mention is apart from the other n - 1: those n - 1 pairs are the ones lost.
+        score.Clustering.PairwiseRecall.Should().BeApproximately(1 - (double)(statements.Length - 1) / KeyPairs(), 0.0001);
+        score.Clustering.BCubedRecall.Should().BeLessThan(1);
+        score.SplitCauses.Should().Equal(new Dictionary<string, int> { [IdentityKindsScorer.SplitCause.OtherName] = 1 });
+        score.SplitCausesByKind["person"].Should().Equal(new Dictionary<string, int> { [IdentityKindsScorer.SplitCause.OtherName] = 1 });
+    }
+
+    [Fact]
+    public void A_thing_stored_under_another_type_is_not_typed_right_and_a_split_across_types_is_a_type_change()
+    {
+        var statements = StatementsOf("T05");
+        var perfect = IdentityKindsScorer.Score(Key, WhosWho, Store(PerfectEntities()), IdentityGoldScorer.EntitiesView);
+        var retyped = PerfectEntities().Where(e => ((dynamic)e).id != "e-T05").Append(Entity("e-T05", "Luna", "PERSON", statements)).ToArray();
+        var split = PerfectEntities().Where(e => ((dynamic)e).id != "e-T05").Concat(
+        [
+            Entity("e-luna-1", "Luna", "OBJECT", statements.Take(1)),
+            Entity("e-luna-2", "Luna", "PERSON", statements.Skip(1)),
+        ]).ToArray();
+
+        var typed = IdentityKindsScorer.Score(Key, WhosWho, Store(retyped), IdentityGoldScorer.EntitiesView);
+        var across = IdentityKindsScorer.Score(Key, WhosWho, Store(split), IdentityGoldScorer.EntitiesView);
+
+        typed.TypeByKind["animal"].Should().Be(perfect.TypeByKind["animal"] with { Typed = perfect.TypeByKind["animal"].Typed - 1 });
+        across.SplitCauses.Should().Equal(new Dictionary<string, int> { [IdentityKindsScorer.SplitCause.TypeChanged] = 1 });
+    }
+
+    [Fact]
+    public void With_identity_decisions_a_same_name_repeat_is_pending_or_new_by_its_first_decision()
+    {
+        var at = StatementsOf("T01");
+        at.Length.Should().BeGreaterThanOrEqualTo(4);
+        var store = Decisions(
+        [
+            Decision("p1", "Valentina Ríos", "PERSON", at[0], status: 2),
+            Decision("p2", "Valentina Ríos", "PERSON", at[1], status: 1),
+            Decision("p3", "Valentina", "PERSON", at[2], status: 2),
+            .. at.Skip(3).Select(n => Decision("o" + n, "Valentina Ríos", "PERSON", n, status: 0, confirmed: "p1")),
+        ]);
+
+        var score = IdentityKindsScorer.Score(Key, WhosWho, store, IdentityGoldScorer.DecisionsView);
+
+        score.SplitThings["T01"].Should().Be(3);
+        score.SplitCauses.Should().Equal(new Dictionary<string, int>
+        {
+            [IdentityKindsScorer.SplitCause.NewRepeat] = 1,
+            [IdentityKindsScorer.SplitCause.PendingRepeat] = 1,
+        });
     }
 
     /// <summary>
