@@ -107,6 +107,9 @@ internal sealed record StoredFact(
 {
     public string Text => $"{Subject} {Predicate} {Object}";
 
+    /// <summary>ER-KIT: the statements the fact was extracted from, as the store links them (empty in older reports).</summary>
+    public IReadOnlyList<string> Sources { get; init; } = [];
+
     /// <summary>The day it happens or begins.</summary>
     public DateOnly? Starts => OccurredOn ?? ValidFrom;
 

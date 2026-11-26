@@ -378,8 +378,9 @@ try
             {
                 // IKB-2: each stored thing mapped to real things through the statements its mentions came from.
                 var view = graph.Arm.Identity is null ? IdentityGoldScorer.EntitiesView : IdentityGoldScorer.DecisionsView;
+                // ER-KIT: the snapshot too, so its facts' source statements score fact attribution.
                 var kinds = IdentityKindsScorer.Score(kindsGold, scenario,
-                    JsonSerializer.SerializeToElement(new { identity = identitySnapshot, entities = entitySnapshot }), view);
+                    JsonSerializer.SerializeToElement(new { identity = identitySnapshot, entities = entitySnapshot, snapshot }), view);
                 kindsScores[graph.Arm.Writes] = kinds;
                 if (kinds.WrongMerges > 0) acceptanceFailures.Add($"identity-kinds: {kinds.WrongMerges} wrong merge(s)");
                 Console.WriteLine($"  identity kinds ({view}): {kinds.Right}/{kinds.Things} real things right, {kinds.WrongMerges} wrong merges, " +

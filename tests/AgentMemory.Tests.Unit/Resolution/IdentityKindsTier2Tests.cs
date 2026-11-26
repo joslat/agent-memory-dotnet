@@ -220,6 +220,38 @@ public sealed class IdentityKindsTier2Tests
     }
 
     [Fact]
+    public void A_fact_bound_to_the_identity_of_a_thing_its_statement_does_not_mention_is_misattributed()
+    {
+        var texts = WhosWho.Turns().Select(t => t.Text).ToList();
+        var vale = StatementsOf("T01");
+        var elsewhere = Key.Mentions.Select(m => m.Statement).Distinct().First(n => !Key.Mentions.Any(m => m.Statement == n && m.Thing == "T01"));
+        object Decided(string id, string entity, int statement, int status, string? confirmed = null) => new
+        {
+            DecisionId = id,
+            Observation = new { EntityId = entity, Name = "Valentina Ríos", Type = "PERSON" },
+            Context = new { SourceMessageIds = new[] { "m" + id }, Sources = new[] { new { SourceId = "m" + id, Text = texts[statement - 1] } } },
+            Status = status,
+            ConfirmedEntityId = confirmed,
+        };
+        object Fact(string id, params int[] statements) => new { FactId = id, Sources = statements.Select(n => texts[n - 1]).ToArray() };
+        object Binding(string fact, string decision) => new { factId = fact, role = "Subject", decisionId = decision };
+        var store = JsonSerializer.SerializeToElement(new
+        {
+            identity = new
+            {
+                decisions = new[] { Decided("d1", "p1", vale[0], status: 2), Decided("d2", "o2", vale[1], status: 0, confirmed: "p1") },
+                bindings = new[] { Binding("said-of-vale", "d2"), Binding("said-elsewhere", "d1"), Binding("no-source", "d1"), Binding("no-decision", "d9") },
+            },
+            snapshot = new { Facts = new[] { Fact("said-of-vale", vale[1]), Fact("said-elsewhere", elsewhere), Fact("no-source") } },
+            entities = new { entities = Array.Empty<object>(), sameAs = Array.Empty<object>() },
+        });
+
+        var attribution = IdentityKindsScorer.Score(Key, WhosWho, store, IdentityGoldScorer.DecisionsView).FactAttribution;
+
+        attribution.Should().Be(new IdentityKindsFactAttribution(Bindings: 4, Right: 1, Wrong: 1, ToAMergedIdentity: 0, Unscored: 2));
+    }
+
+    [Fact]
     public void With_identity_decisions_a_same_name_repeat_is_pending_or_new_by_its_first_decision()
     {
         var at = StatementsOf("T01");

@@ -150,6 +150,7 @@ internal static class IdentityKindsScorer
             .OrderBy(g => g.Key, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.First().Words, StringComparer.Ordinal);
         var splitCauses = SplitCauses(gold, labelled, identitiesByThing, firstStatus, view);
+        var attribution = view == IdentityGoldScorer.DecisionsView ? FactAttribution(store, Numbers, inStatement, thingsByIdentity) : null;
 
         return new IdentityKindsScore(
             view,
@@ -173,7 +174,43 @@ internal static class IdentityKindsScorer
             IdentitiesOutsideTheKey = outside,
             SplitCauses = splitCauses.Causes,
             SplitCausesByKind = splitCauses.ByKind,
+            FactAttribution = attribution,
         };
+    }
+
+    /// <summary>
+    /// ER-KIT fact attribution: each fact's subject or object bound to an identity (the store's identity bindings) against the
+    /// real things the fact's own statements mention. Right: the identity holds one real thing and the statement mentions
+    /// it. Wrong: it holds one real thing the statement does not mention (a namesake's, say). Merged: it holds several.
+    /// Unscored: the identity holds no thing of the key, or the fact has no source statement (reports before ER-KIT).
+    /// </summary>
+    private static IdentityKindsFactAttribution? FactAttribution(JsonElement store, Func<IEnumerable<string?>, int[]> numbers,
+        IReadOnlyDictionary<int, List<string>> inStatement, IReadOnlyDictionary<string, List<string>> thingsByIdentity)
+    {
+        if (!store.TryGetProperty("snapshot", out var snapshot) || snapshot.ValueKind != JsonValueKind.Object
+            || !snapshot.TryGetProperty("Facts", out var facts) || !store.GetProperty("identity").TryGetProperty("bindings", out var bindings))
+            return null;
+        var statementsOf = facts.EnumerateArray().Where(f => f.TryGetProperty("FactId", out var id) && id.ValueKind == JsonValueKind.String)
+            .ToDictionary(f => f.GetProperty("FactId").GetString()!,
+                f => f.TryGetProperty("Sources", out var s) && s.ValueKind == JsonValueKind.Array ? numbers(s.EnumerateArray().Select(x => x.GetString())) : [],
+                StringComparer.Ordinal);
+        var identityOf = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var d in store.GetProperty("identity").GetProperty("decisions").EnumerateArray())
+            if (d.TryGetProperty("DecisionId", out var decisionId) && decisionId.GetString() is { Length: > 0 } key)
+                identityOf.TryAdd(key, d.GetProperty("Status").GetInt32() == 0 && d.TryGetProperty("ConfirmedEntityId", out var c) && c.ValueKind == JsonValueKind.String
+                    ? c.GetString()! : d.GetProperty("Observation").GetProperty("EntityId").GetString() ?? "");
+        int total = 0, right = 0, wrong = 0, merged = 0, unscored = 0;
+        foreach (var binding in bindings.EnumerateArray())
+        {
+            total++;
+            var statements = statementsOf.GetValueOrDefault(binding.GetProperty("factId").GetString() ?? "") ?? [];
+            var held = identityOf.TryGetValue(binding.GetProperty("decisionId").GetString() ?? "", out var identity)
+                ? thingsByIdentity.GetValueOrDefault(identity) ?? [] : [];
+            if (statements.Length == 0 || held.Count == 0) { unscored++; continue; }
+            if (held.Count > 1) { merged++; continue; }
+            if (statements.Any(n => inStatement.GetValueOrDefault(n)?.Contains(held[0]) == true)) right++; else wrong++;
+        }
+        return new(total, right, wrong, merged, unscored);
     }
 
     /// <summary>
@@ -351,6 +388,9 @@ internal sealed record IdentityKindsClustering(
 /// <summary>ER-KIT: one kind's real things the store holds, and how many of them carry the key's type in every mention.</summary>
 internal sealed record IdentityKindsTyping(int Stored, int Typed);
 
+/// <summary>ER-KIT: the store's fact bindings, each scored against the real things its fact's statements mention.</summary>
+internal sealed record IdentityKindsFactAttribution(int Bindings, int Right, int Wrong, int ToAMergedIdentity, int Unscored);
+
 /// <summary>One mention of an identity in one statement, and the real thing it was labelled with (or why not).</summary>
 internal sealed record LabelledMention(string Identity, string Words, string Type, int Statement, string? Thing, string How);
 
@@ -385,4 +425,6 @@ internal sealed record IdentityKindsScore(
     public IReadOnlyDictionary<string, int> SplitCauses { get; init; } = new Dictionary<string, int>();
     /// <summary>ER-KIT: the same, per kind.</summary>
     public IReadOnlyDictionary<string, IReadOnlyDictionary<string, int>> SplitCausesByKind { get; init; } = new Dictionary<string, IReadOnlyDictionary<string, int>>();
+    /// <summary>ER-KIT: facts bound to the right identity (decisions view only; null for the entities view).</summary>
+    public IdentityKindsFactAttribution? FactAttribution { get; init; }
 }

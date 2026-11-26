@@ -220,12 +220,16 @@ internal sealed class GraphMemory : IMemory
         var facts = await RowsAsync(driver, """
             MATCH (f:Fact {owner_id: $owner})
             WHERE f.invalidated_at IS NULL
+            // ER-KIT fact attribution: the statements a fact was extracted from (its EXTRACTED_FROM messages).
+            OPTIONAL MATCH (f)-[:EXTRACTED_FROM]->(m:Message)
+            WITH f, [text IN collect(DISTINCT m.content) WHERE text IS NOT NULL] AS sources
             RETURN f.id AS factId, f.subject AS subject, f.predicate AS predicate, f.object AS object, f.category AS category,
-                   toString(f.occurred_on) AS occurred, toString(f.valid_from) AS validFrom, toString(f.valid_until) AS validUntil
+                   toString(f.occurred_on) AS occurred, toString(f.valid_from) AS validFrom, toString(f.valid_until) AS validUntil, sources
             ORDER BY f.created_at
             """, row => new StoredFact(
                 row["subject"].As<string>(), row["predicate"].As<string>(), row["object"].As<string>(),
-                Day(row["occurred"]), Day(row["validFrom"]), Day(row["validUntil"]), row["category"].As<string?>(), row["factId"].As<string>())).ConfigureAwait(false);
+                Day(row["occurred"]), Day(row["validFrom"]), Day(row["validUntil"]), row["category"].As<string?>(), row["factId"].As<string>())
+            { Sources = row["sources"].As<List<string>>() }).ConfigureAwait(false);
 
         var closed = await RowsAsync(driver, """
             MATCH (f:Fact {owner_id: $owner})
