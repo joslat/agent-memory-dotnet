@@ -6,6 +6,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Packs: erasures, imports, removals and expiry hold in the cases the review found open** (review of main, extensibility):
+  - *An erasure reaches a record of a type the current version no longer declares* (extensibility-0): a later version that
+    dropped a type keeps its records as history, and an erasure naming one deleted nothing and left no tombstone.
+  - *Two imports of one pack run one at a time* (extensibility-1): each whole-pack import, removal or erasure takes the pack's
+    lock before it reads what the pack holds. Before, a second import read the live records before the first committed, and
+    both versions' records could stay live.
+  - *The same signed pack reached by two routes at different priorities is held by each* (extensibility-2, R-HOST-067): a
+    nested family, a member priority or the pack also on its own was refused as "already added". It takes the lowest priority
+    of the routes that hold it, whatever their order. Other content under the same id is still refused.
+  - *A snapshot pack's records leave the host once it expires* (extensibility-3): `UsePackPolicy`, the host's declaration of a
+    snapshot pack, now holds the pack's end (its validUntil or its signing key's), and no view or walk offers its records after
+    it, as `ampack serve` already did.
+  - *Removing a pack by a manifest whose types the store never held closes the version it holds* (extensibility-4), read
+    from the namespace ledger as a removal by id; it reported success and closed nothing.
+  - *A definition pack's publisher cannot erase what the host built* (extensibility-5): a definition pack carries no records,
+    so its erasures are not held; a host-built snapshot record under its id was hidden from every view and walk.
+  - *An upgrade that changed no record still refuses an older version* (extensibility-6): the store's version is the higher
+    of its records' stamps and the version last imported, so an import between the two needs `allowDowngrade`.
+- **Packs: a ledger's revocation freshness, inspect and the gate's judges are bounded as the review asked** (review of main, packs):
+  - *A pack loaded beside its host's ledger is valid no longer than the ledger's revocation list* (packs-0): its validity was
+    read from the trust alone, so with the list kept only in the ledger the pack stayed served after the list went stale, and a
+    later revocation of it was not looked for. The same for sets and families.
+  - *`ampack inspect` bounds what nobody verified before reading it* (packs-1): listing a pack's vectors parsed every record
+    line with no bound; it now refuses oversized content first, as lint, diff and scan do (the rule registry names the door).
+  - *Every memory-gate judge answer has a byte bound* (packs-2): the gate's own judge client read answers whole; a client now
+    reads at most 1 MiB unless its caller names another bound (the applicability judge keeps its 128 KiB).
+- **Behaviour change, module ingestion test:** since conversations belong to the owner who writes them (RVW-ERASE-CONVERSATIONS),
+  a native host's turn under an owner is a source of that owner's module records even without an explicit
+  `AddConversationAsync`; the integration test that pinned the earlier refusal now pins the adoption.
+
 - **The store-aware writer no longer loses turns without a trace** (review of main, writer):
   - *A reply in another shape is read as the answer, or asked again* (writer-1): a bare list of operations, `Ops` or
     `operations`, or one operation object are read as the answer; `{}` is an empty one; any other shape is no answer, so

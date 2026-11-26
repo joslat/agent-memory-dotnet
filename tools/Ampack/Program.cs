@@ -698,6 +698,9 @@ internal static partial class Program
     private static int Inspect(Options o)
     {
         var content = PackReader.Read(o.Positional(0, "folder or file"));
+        // RVW-REST-PACKS (the review's packs-1): inspect reads what nobody verified, and listing a pack's vectors parsed every
+        // record line, so the one bound for such content comes first, as for lint, diff and scan (a 60 MiB line cost 1 GiB).
+        if (PackContentBounds.Problems(content.Files, verified: false) is { Count: > 0 } unverified) return Report(unverified, "");
         if (Json) return Answer(0, [], InspectJson(content));
         Console.WriteLine($"Source  {content.Source}");
         if (content.Files.TryGetValue(PackPaths.FilesList, out var listBytes) && FilesList.Parse(listBytes) is ({ } list, _))

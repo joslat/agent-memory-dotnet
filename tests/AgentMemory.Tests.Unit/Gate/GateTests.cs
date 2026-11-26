@@ -543,6 +543,21 @@ public sealed class GateTests
         ["m1"] = new("Should memory m1 be put in front of the assistant?", "yes", "no"),
     };
 
+    // RVW-REST-PACKS (the review's packs-2): the gate's own judge client read an answer whole, with no bound; only the
+    // applicability judge's client had one. Every client is bounded now: an oversized answer fails the call, as any other.
+    [Fact]
+    public async Task A_judge_answer_over_the_bound_fails_the_call_instead_of_being_read_whole()
+    {
+        var oversized = "{\"answers\":{},\"pad\":\"" + new string('x', SystemOneClient.DefaultMaximumResponseBytes) + "\"}";
+        var server = new Server(_ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(oversized, Encoding.UTF8, "application/json") });
+        var client = new SystemOneClient(new HttpClient(server));
+
+        (await FluentActions.Awaiting(() => client.AskAsync(Jev, new { turn = "t" }, OneQuestion, new MemoryGateOptions(), default))
+            .Should().ThrowAsync<InvalidDataException>()).Which.Message.Should().Contain("exceeds its bound");
+        var small = new SystemOneClient(new HttpClient(new Server(call => Answer(call, 0.7))));
+        (await small.AskAsync(Jev, new { turn = "t" }, OneQuestion, new MemoryGateOptions(), default)).Should().NotBeEmpty("an answer within it is read");
+    }
+
     [Fact]
     public async Task A_judge_that_keeps_failing_is_left_out_for_its_cooldown_then_asked_once()
     {

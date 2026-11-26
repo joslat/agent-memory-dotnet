@@ -85,11 +85,11 @@ public sealed partial class ModuleRecordWriteIntegrationTests
         reports.Should().HaveCount(2);
         if (!ownedConversation)
         {
-            rows.Should().BeEmpty();
-            reports.SelectMany(r => r.Providers).Should().OnlyContain(r => r.Status == ProviderIngestionStatus.Refused);
-            reports.SelectMany(r => r.Providers).SelectMany(r => r.Proposals).SelectMany(r => r.Errors)
-                .Should().OnlyContain(e => e.Contains("Source message is absent"));
-            return;
+            // RVW-ERASE-CONVERSATIONS (d679b406): a message saved under an owner creates its conversation for that owner, so a
+            // conversation the host never set up is the writer's, its messages verify as that owner's sources, and the records
+            // are stored as in the owned arms. Before, it stayed ownerless and every proposal was refused ("Source message is
+            // absent"); that refusal is pinned at the store (ActualSourceMembershipAndContentAreRequiredNotJustClaimedIds).
+            (await Rows($"MATCH (c:Conversation {{id:'{prefix}-conversation'}}) RETURN c.user_id AS owner")).Single()["owner"].Should().Be("owner");
         }
         reports.SelectMany(r => r.Providers).Should().OnlyContain(r => r.Status == ProviderIngestionStatus.Succeeded,
             JsonSerializer.Serialize(reports));

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 using System.Reflection;
 using AgentMemory.Extensibility.Capabilities;
 using AgentMemory.Extensibility.Ingestion;
@@ -28,6 +29,12 @@ public sealed class ModuleSetBuilder
     /// <summary>The ids of packs a second route brought and the builder held once (R-HOST-067), in order, for the pack layer's checks.</summary>
     internal List<string> HeldAgain { get; } = [];
     private readonly Dictionary<string, int> _priorities = new(StringComparer.Ordinal);
+    // RVW-REST-EXTENSIBILITY (the review's extensibility-2): a module's own contributors' priority, shared by them and read
+    // when they are built, so a pack held by several routes takes the strongest (lowest) of theirs, whatever their order.
+    private readonly Dictionary<string, StrongBox<int>> _routePriority = new(StringComparer.Ordinal);
+
+    /// <summary>The priority a module's own contributors take: the lowest of the routes that hold it (extensibility-2).</summary>
+    internal int? RoutePriority(string moduleId) => _routePriority.TryGetValue(moduleId, out var held) ? held.Value : null;
 
     internal ModuleSetBuilder() { }
 
@@ -104,6 +111,15 @@ public sealed class ModuleSetBuilder
     // governed by a policy not here is withheld.
     internal List<(string Digest, Func<string, DateTimeOffset, bool> Allows)> PackPolicies { get; } = [];
 
+    // RVW-REST-EXTENSIBILITY (the review's extensibility-3): the snapshot packs whose records this host imported, each with the
+    // end of its validity (its validUntil or its signing key's, null for none). A snapshot pack is never a module, so its end
+    // went unasked and its records stayed offered once it expired. Held by every copy given: the latest end, none over any.
+    internal Dictionary<string, DateTimeOffset?> CarrierEnds { get; } = new(StringComparer.Ordinal);
+
+    internal void HoldCarrier(string packId, DateTimeOffset? validUntil) =>
+        CarrierEnds[packId] = !CarrierEnds.TryGetValue(packId, out var held) ? validUntil
+            : held is not { } before || validUntil is not { } given ? null : before > given ? before : given;
+
     /// <summary>
     /// Leaves out of every view and walk the records whose effective confidence (feature 09, R-CORE-137) is below
     /// <paramref name="micro"/> millionths. A record nothing caps has full confidence.
@@ -174,8 +190,10 @@ public sealed class ModuleSetBuilder
         ArgumentNullException.ThrowIfNull(pack);
         return Add(pack.Manifest, builder =>
         {
+            // The routes' lowest priority, read when the contributor is built (extensibility-2).
+            var routePriority = _routePriority[pack.Manifest.Id];
             foreach (var view in pack.Manifest.Views.Where(v => v.Search is not null))
-                builder.AddContextContributor(c => new Contributors.ViewContributor(c.Resolution, c.Reader, view.Id, priority));
+                builder.AddContextContributor(c => new Contributors.ViewContributor(c.Resolution, c.Reader, view.Id, routePriority.Value));
         }, "knowledge-pack; digest=" + pack.Digest + "; signer=" + pack.Bundle.Signer.ToString().ToLowerInvariant(), priority, pack.Digest, validUntil);
     }
 
@@ -204,6 +222,17 @@ public sealed class ModuleSetBuilder
         return this;
     }
 
+    /// <summary>
+    /// A family's priority for its member (extensibility-2): as <see cref="Prioritize"/> for a module this route added; for a
+    /// pack another route holds as well, the lowest of the routes' priorities, so the order the routes come in never decides.
+    /// </summary>
+    internal ModuleSetBuilder PrioritizeRoute(string moduleId, int priority)
+    {
+        if (HeldAgain.Contains(moduleId) && _routePriority.TryGetValue(moduleId, out var held))
+            priority = Math.Min(priority, _priorities.TryGetValue(moduleId, out var given) ? Math.Min(given, held.Value) : held.Value);
+        return Prioritize(moduleId, priority);
+    }
+
     private ModuleSetBuilder Add(ModuleManifest manifest, Action<IModuleBuilder> configure, string implementation, int traversalPriority = 100,
         string? packDigest = null, DateTimeOffset? validUntil = null)
     {
@@ -211,11 +240,17 @@ public sealed class ModuleSetBuilder
         if (_modules.FirstOrDefault(m => string.Equals(m.Manifest.Id, manifest.Id, StringComparison.Ordinal)) is { } existing)
         {
             // The same signed pack reached by a second route, as the values pack every Mind set carries: composed once, held by
-            // each route (the host lifecycle, R-HOST-067), when the route brings it exactly as the first did (its fingerprint and
-            // priority). Other content under one id, or the same content added otherwise, is still refused.
+            // each route (the host lifecycle, R-HOST-067), when the route brings it as the first did (its fingerprint). Other
+            // content under one id, or the same content added otherwise, is still refused. A route at another priority (a nested
+            // family, a member priority, the pack also on its own) was refused too (extensibility-2): the pack now takes the
+            // lowest priority of the routes that hold it.
             if (packDigest is not null && string.Equals(existing.PackDigest, packDigest, StringComparison.Ordinal)
-                && _addedAs.TryGetValue(manifest.Id, out var first) && first == (implementation, traversalPriority))
+                && _addedAs.TryGetValue(manifest.Id, out var first) && first.Implementation == implementation)
             {
+                var lowest = _routePriority[manifest.Id];
+                lowest.Value = Math.Min(lowest.Value, traversalPriority);
+                if (_priorities.TryGetValue(manifest.Id, out var prioritized)) _priorities[manifest.Id] = Math.Min(prioritized, traversalPriority);
+                _addedAs[manifest.Id] = (implementation, lowest.Value);
                 // Valid while any route that holds it is: the later end, and no end over any, so the order of the routes
                 // never decides (review 8, W3; review 11, R11-1).
                 existing.ValidUntil = existing.ValidUntil is not { } held || validUntil is not { } given ? null : held > given ? held : given;
@@ -225,10 +260,11 @@ public sealed class ModuleSetBuilder
             throw new ArgumentException($"Module '{manifest.Id}' is already added.", nameof(manifest));
         }
         var registration = new ModuleRegistration(manifest, implementation, packDigest) { ValidUntil = validUntil };
+        var routePriority = _routePriority[manifest.Id] = new StrongBox<int>(traversalPriority);
         configure(registration);
         // CMP-1: a module that declares traversal gets its share of the turn's walk, with no code of its own.
         if (manifest.Traversal is not null)
-            registration.AddContextContributor(c => new Contributors.TraversalContributor(c.Module.Manifest, c.ModuleSet.TraversalFor(c.Module.Manifest.Id, c.Services), traversalPriority));
+            registration.AddContextContributor(c => new Contributors.TraversalContributor(c.Module.Manifest, c.ModuleSet.TraversalFor(c.Module.Manifest.Id, c.Services), routePriority.Value));
         registration.Freeze();
         _modules.Add(registration);
         if (packDigest is not null) _addedAs[manifest.Id] = (implementation, traversalPriority);

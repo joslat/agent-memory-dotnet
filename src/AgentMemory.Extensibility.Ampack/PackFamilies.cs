@@ -135,7 +135,7 @@ public static partial class PackFamilies
         ArgumentNullException.ThrowIfNull(family);
         var added = builder.AddComposite(family.Manifest, members => AddMembers(members, family), configure);
         // What AddPack does for a pack, for every member too (review F10, H2): its erasures and its usage policy.
-        foreach (var member in family.AllMembers) added.UseErasures(member.Erasures).UsePackPolicy(member);
+        foreach (var member in family.AllMembers) added.UseErasures(PackLoader.ErasuresOnHost(member)).UsePackPolicy(member);
         return added;
     }
 
@@ -259,7 +259,7 @@ public static partial class PackFamilies
         var composites = new Dictionary<string, Opened>(StringComparer.Ordinal);
         var packs = new Dictionary<string, LoadedPack>(StringComparer.Ordinal);
         // The set's own validity caps every pack in it (red team 7).
-        var setValidUntil = PackLoader.ValidUntil(outer, trust.Policy);
+        var setValidUntil = PackLoader.ValidUntil(outer, PackLoader.Applied(trust, ledger));
         foreach (var (id, files) in members.OrderBy(m => m.Key, StringComparer.Ordinal))
         {
             var memberContent = new PackContent(files, content.Source + "#" + id);
@@ -337,7 +337,8 @@ public static partial class PackFamilies
 
     private static string Short(string digest) => digest[..Math.Min(digest.Length, 23)] + "…";
 
-    private sealed record Opened(VerifiedPack Pack, CompositeManifest Manifest, IReadOnlyList<LockEntry> Lock);
+    // ValidUntil: the composite's own validity under the trust it verified under, its ledger included (packs-0).
+    private sealed record Opened(VerifiedPack Pack, CompositeManifest Manifest, IReadOnlyList<LockEntry> Lock, DateTimeOffset? ValidUntil);
 
     private static Opened OpenComposite(PackContent content, PackTrust trust, PackInstallLedger? ledger, bool allowDowngrade = false)
     {
@@ -351,7 +352,7 @@ public static partial class PackFamilies
         if (manifest.Validate() is { Count: > 0 } invalid) throw new PackLoadException(invalid);
         var (entries, problem) = PackLock.Parse(pack.Files[PackPaths.LockFile]);
         if (entries is null) throw new PackLoadException([problem!]);
-        return new Opened(pack, manifest, entries);
+        return new Opened(pack, manifest, entries, PackLoader.ValidUntil(pack, PackLoader.Applied(trust, ledger)));
     }
 
     // Exactly the pinned members, each at the pinned version and digest: a pack, or a composite assembled the same way one
@@ -369,7 +370,7 @@ public static partial class PackFamilies
                     if (composites.TryGetValue(pin.Id, out var deeper)) below.Enqueue(deeper);
             return null;
         }
-        var validUntil = PackLoader.Earliest([PackLoader.ValidUntil(composite.Pack, trust.Policy), cap]);
+        var validUntil = PackLoader.Earliest([composite.ValidUntil, cap]);
         var leaves = new Dictionary<string, LoadedPack>(StringComparer.Ordinal);
         var nested = new Dictionary<string, LoadedFamily>(StringComparer.Ordinal);
         var failed = false;

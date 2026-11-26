@@ -102,6 +102,9 @@ public sealed class Neo4jModuleStore : IModuleStore
             return await _runner.WriteAsync(async transaction =>
             {
                 await ReadyAsync(transaction, cancellationToken).ConfigureAwait(false);
+                // extensibility-1: a concurrent import of another version read the live set before this one committed and
+                // never closed what this one wrote; the pack's lock comes first, so it reads after.
+                await PackGateAsync(transaction, module.Id, cancellationToken).ConfigureAwait(false);
                 // A record a tombstone names is never written again (feature 08, R-CORE-134), from any version or copy.
                 var tombstones = await TombstonesAsync(transaction, module.Id, cancellationToken).ConfigureAwait(false);
                 var proposals = WithoutErased(module, pack.Proposals, tombstones);
@@ -132,6 +135,9 @@ public sealed class Neo4jModuleStore : IModuleStore
                 if (drops.Types.Count > 0)
                     closed += await PackOwnership.CloseLiveAsync(transaction, module.Id, drops.Types, atUtc.ToString("O", CultureInfo.InvariantCulture),
                         cancellationToken).ConfigureAwait(false);
+                // extensibility-6: the version this import wrote, whether or not a record changed.
+                await RowsAsync(transaction, ModuleRecordQueries.PackImported, new { gate = Gate(module.Id), version = pack.Version, digest = pack.Digest },
+                    cancellationToken).ConfigureAwait(false);
                 return new KnowledgePackImportResult { PackId = pack.Id, Version = pack.Version, Digest = pack.Digest,
                     Created = created, Changed = changed, Unchanged = unchanged, Closed = closed, Dropped = drops };
             }, cancellationToken).ConfigureAwait(false);
@@ -173,19 +179,26 @@ public sealed class Neo4jModuleStore : IModuleStore
         return await _runner.WriteAsync(async transaction =>
         {
             await ReadyAsync(transaction, cancellationToken).ConfigureAwait(false);
+            await PackGateAsync(transaction, module.Id, cancellationToken).ConfigureAwait(false);
             var erased = 0;
             var tombstones = 0;
-            foreach (var type in module.Ontology!.Types)
+            // RVW-REST-EXTENSIBILITY (the review's extensibility-0): an erasure may name a type this version no longer
+            // declares (a later version dropped it; its records stay as history), so the types visited are the manifest's
+            // and the erasures' own. A named type is a label only when it is one by the manifest's own rule.
+            var types = module.Ontology!.Types.Select(t => t.Name)
+                .Concat(erasures.SelectMany(e => e.Records.Select(r => r.Type)).Where(name => name is not null && ErasableLabel.IsMatch(name)))
+                .Distinct(StringComparer.Ordinal).ToList();
+            foreach (var typeName in types)
             {
-                var named = erasures.SelectMany(e => e.Records.Where(r => r.Type == type.Name).Select(r => (Erasure: e, Record: r))).ToList();
+                var named = erasures.SelectMany(e => e.Records.Where(r => r.Type == typeName).Select(r => (Erasure: e, Record: r))).ToList();
                 if (named.Count == 0) continue;
-                var cursor = await transaction.RunAsync("MATCH (n:`" + type.Name + "`) WHERE coalesce(n.source_carrier, n.source_pack)=$pack RETURN DISTINCT n.key AS key",
+                var cursor = await transaction.RunAsync("MATCH (n:`" + typeName + "`) WHERE coalesce(n.source_carrier, n.source_pack)=$pack RETURN DISTINCT n.key AS key",
                     new Dictionary<string, object?> { ["pack"] = packId }).ConfigureAwait(false);
                 var keys = (await cursor.ToListAsync(cancellationToken).ConfigureAwait(false)).Select(r => r["key"].As<string>()).ToList();
-                var gone = keys.Where(k => named.Any(n => n.Erasure.Erases(type.Name, k))).ToList();
+                var gone = keys.Where(k => named.Any(n => n.Erasure.Erases(typeName, k))).ToList();
                 if (gone.Count > 0)
                 {
-                    await transaction.RunAsync("MATCH (n:`" + type.Name + "`) WHERE coalesce(n.source_carrier, n.source_pack)=$pack AND n.key IN $keys "
+                    await transaction.RunAsync("MATCH (n:`" + typeName + "`) WHERE coalesce(n.source_carrier, n.source_pack)=$pack AND n.key IN $keys "
                         + "OPTIONAL MATCH (k:ModuleKey {id:n.key_id}) DETACH DELETE n, k",
                         new Dictionary<string, object?> { ["pack"] = packId, ["keys"] = gone }).ConfigureAwait(false);
                     erased += gone.Count;
@@ -197,7 +210,7 @@ public sealed class Neo4jModuleStore : IModuleStore
                         + "ON CREATE SET t.salt=$salt, t.erasure=$erasure, t.reason=$reason, t.erased_at=datetime($at)",
                         new Dictionary<string, object?>
                         {
-                            ["pack"] = packId, ["type"] = type.Name, ["hash"] = record.KeyHash ?? erasure.HashOf(record.Key!), ["salt"] = erasure.Salt,
+                            ["pack"] = packId, ["type"] = typeName, ["hash"] = record.KeyHash ?? erasure.HashOf(record.Key!), ["salt"] = erasure.Salt,
                             ["erasure"] = erasure.Statement, ["reason"] = erasure.Reason, ["at"] = atUtc.ToString("O", CultureInfo.InvariantCulture),
                         }).ConfigureAwait(false);
                     tombstones++;
@@ -206,6 +219,9 @@ public sealed class Neo4jModuleStore : IModuleStore
             return new KnowledgePackEraseResult { PackId = packId, Erased = erased, Tombstones = tombstones };
         }, cancellationToken).ConfigureAwait(false);
     }
+
+    /// <summary>A type name an erasure may name: a label by the manifest's own rule (ModuleManifestValidator).</summary>
+    private static readonly System.Text.RegularExpressions.Regex ErasableLabel = new(@"\A[A-Z][A-Za-z0-9]*\z", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
     /// <summary>Records one snapshot transaction writes; a first code map is far larger than one transaction should hold.</summary>
     internal const int SnapshotBatch = 400;
@@ -366,6 +382,7 @@ public sealed class Neo4jModuleStore : IModuleStore
             return await _runner.WriteAsync(async transaction =>
             {
                 await ReadyAsync(transaction, cancellationToken).ConfigureAwait(false);
+                await PackGateAsync(transaction, module.Id, cancellationToken).ConfigureAwait(false);
                 var live = await PackLiveAsync(transaction, module, cancellationToken).ConfigureAwait(false);
                 var closed = 0;
                 foreach (var key in live.Keys.OrderBy(k => KeyId(module.Id, k.Type, null, k.Key), StringComparer.Ordinal))
@@ -443,6 +460,17 @@ public sealed class Neo4jModuleStore : IModuleStore
             if (matches.Length != 1) throw new ModuleRecordRefusal("Source message is absent or does not match the resolved owner/session, role and content.");
         }
     }
+
+    /// <summary>Takes the pack's lock (extensibility-1): held to commit, so whole-pack writes of one module run one at a time.</summary>
+    private static Task PackGateAsync(IAsyncQueryRunner runner, string module, CancellationToken cancellationToken) =>
+        RowsAsync(runner, ModuleRecordQueries.PackGate, new { gate = Gate(module) }, cancellationToken);
+
+    private static string Gate(string module) => "pack-gate:" + module;
+
+    /// <summary>The version a pack import last wrote (extensibility-6); null when none did since the lock was kept.</summary>
+    internal static async Task<string?> ImportedVersionAsync(IAsyncQueryRunner runner, string module, CancellationToken cancellationToken) =>
+        (await RowsAsync(runner, ModuleRecordQueries.PackImportedVersion, new { gate = Gate(module) }, cancellationToken).ConfigureAwait(false))
+            .SingleOrDefault()?["version"]?.As<string>();
 
     private static async Task<Dictionary<string, object>> LockAsync(IAsyncQueryRunner runner, string module,
         ModuleType type, string key, string? owner, CancellationToken cancellationToken)

@@ -146,6 +146,7 @@ public sealed class ModuleSet
             registrations, switchedOff)
         {
             ChatClient = builder.ChatClient, Priorities = priorities.AsReadOnly(), Erasures = [.. builder.Erasures], MinimumConfidenceMicro = builder.MinimumConfidenceMicro,
+            CarrierEnds = builder.CarrierEnds.Where(c => c.Value is not null).ToDictionary(c => c.Key, c => c.Value!.Value, StringComparer.Ordinal),
             Endpoint = builder.Endpoint, Shadows = new Dictionary<string, (IShadowRecorder, Func<ContextItem, string?>?)>(builder.Shadows, StringComparer.Ordinal), PackPolicies = builder.PackPolicies.ToDictionary(p => p.Digest, p => p.Allows, StringComparer.Ordinal),
             Slots = [.. builder.Modules.SelectMany(m => Enumerable.Repeat(m.Manifest.Id, m.Contributors.Count))],
             Layers = builder.Layers.Count == 0 ? null : builder.Layers.ToDictionary(l => l.Key, l => l.Value, StringComparer.Ordinal).AsReadOnly(),
@@ -251,7 +252,8 @@ public sealed class ModuleSet
         // A view may read its dependencies' types: an expired dependency's records leave its answers too (review 2, M2's twin).
         // Every read also keeps only the records live in world time at its pin (feature 07).
         var clock = services.GetService<TimeProvider>() ?? TimeProvider.System;
-        return new LiveReader(reader, Live(services, dark: Shadows.ContainsKey(moduleId)), clock, r => Erased(r) || Withheld(r, clock.GetUtcNow()), MinimumConfidenceMicro);
+        return new LiveReader(reader, Live(services, dark: Shadows.ContainsKey(moduleId)), clock,
+            r => Erased(r) || Withheld(r, clock.GetUtcNow()) || CarrierExpired(r, clock.GetUtcNow()), MinimumConfidenceMicro);
     }
 
     // Drops the records of modules that are not live now, and the records not live in world time at the read's valid-time pin
@@ -282,6 +284,14 @@ public sealed class ModuleSet
     internal bool Withheld(ModuleRecord record, DateTimeOffset now) =>
         record.Source?.Pack?.UsagePolicy is { } policy
         && (!PackPolicies.TryGetValue(policy, out var allows) || !allows("read", now) || !allows(RehydrateVerb, now));
+
+    /// <summary>The ends of the snapshot packs whose records this host imported, by pack id; a pack with no end is not here.</summary>
+    internal IReadOnlyDictionary<string, DateTimeOffset> CarrierEnds { get; init; } = new Dictionary<string, DateTimeOffset>();
+
+    // Whether the snapshot pack that carried the record has expired (extensibility-3): its records go with it, as a knowledge
+    // pack's contributors go silent after its end. A record no snapshot carried, or one whose carrier has no end, never does.
+    internal bool CarrierExpired(ModuleRecord record, DateTimeOffset now) =>
+        record.Source?.Pack?.Carrier?.Id is { } carrier && CarrierEnds.TryGetValue(carrier, out var end) && now > end;
 
     // Whether an erasure this host holds names the record (feature 08, R-CORE-134), whatever the store still holds.
     internal bool Erased(ModuleRecord record) => ErasedBy(Erasures, record);
@@ -334,6 +344,7 @@ public sealed class ModuleSet
         new Context.Traversal.TraversalService(Resolution, Store?.CreateTraversalReader(s, Resolution), Live(s, dark),
             s.GetService<TimeProvider>() ?? TimeProvider.System,
             r => !Erased(r) && !Withheld(r, (s.GetService<TimeProvider>() ?? TimeProvider.System).GetUtcNow())
+                && !CarrierExpired(r, (s.GetService<TimeProvider>() ?? TimeProvider.System).GetUtcNow())
                 && Packs.ModuleConfidence.Clears(r.ConfidenceMicro, MinimumConfidenceMicro),
             MinimumConfidenceMicro, _registrations.Any(r => r.AdmittedParts is not null) ? Admitted : null, Layers);
 

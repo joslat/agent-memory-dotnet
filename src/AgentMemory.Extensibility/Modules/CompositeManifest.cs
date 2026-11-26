@@ -340,7 +340,9 @@ public sealed class CompositeMembers
     internal CompositeMembers AddDefinitionPack(ModuleManifest manifest, string digest, string signers, DateTimeOffset? validUntil = null)
     {
         ArgumentNullException.ThrowIfNull(manifest);
-        if (Admit(manifest) is { } priority) _builder.AddDefinitionPack(manifest, digest, signers, validUntil: validUntil).Prioritize(manifest.Id, priority);
+        // The member's priority is its traversal's as well, as for a knowledge pack: a pack held by several routes takes the
+        // lowest of theirs (extensibility-2). The host-facing priority below decides it either way.
+        if (Admit(manifest) is { } priority) _builder.AddDefinitionPack(manifest, digest, signers, priority, validUntil).PrioritizeRoute(manifest.Id, priority);
         return this;
     }
 
@@ -348,7 +350,7 @@ public sealed class CompositeMembers
     internal CompositeMembers AddKnowledgePack(Packs.KnowledgePack pack, DateTimeOffset? validUntil)
     {
         ArgumentNullException.ThrowIfNull(pack);
-        if (Admit(pack.Manifest) is { } priority) _builder.AddKnowledgePack(pack, priority, validUntil).Prioritize(pack.Id, priority);
+        if (Admit(pack.Manifest) is { } priority) _builder.AddKnowledgePack(pack, priority, validUntil).PrioritizeRoute(pack.Id, priority);
         return this;
     }
 
@@ -356,7 +358,7 @@ public sealed class CompositeMembers
     public CompositeMembers AddKnowledgePack(Packs.KnowledgePack pack)
     {
         ArgumentNullException.ThrowIfNull(pack);
-        if (Admit(pack.Manifest) is { } priority) _builder.AddKnowledgePack(pack, priority).Prioritize(pack.Id, priority);
+        if (Admit(pack.Manifest) is { } priority) _builder.AddKnowledgePack(pack, priority).PrioritizeRoute(pack.Id, priority);
         return this;
     }
 

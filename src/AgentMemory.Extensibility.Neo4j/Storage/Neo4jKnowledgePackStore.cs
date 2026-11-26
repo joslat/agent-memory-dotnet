@@ -39,9 +39,16 @@ public sealed class Neo4jKnowledgePackStore : IKnowledgePackStore
         // Never imported: no schema, so nothing to read.
         if (plan.Applied.Count == 0) return new KnowledgePackState { PackId = pack.Id };
         var store = new Neo4jModuleStore(_runner, resolution);
-        var live = await _runner.ReadAsync(transaction => store.PackLiveAsync(transaction, resolution.Modules.Single(), cancellationToken), cancellationToken)
+        var (live, imported) = await _runner.ReadAsync(async transaction =>
+            (await store.PackLiveAsync(transaction, resolution.Modules.Single(), cancellationToken).ConfigureAwait(false),
+             await Neo4jModuleStore.ImportedVersionAsync(transaction, pack.Id, cancellationToken).ConfigureAwait(false)), cancellationToken)
             .ConfigureAwait(false);
-        var version = live.Values.Where(v => v is not null).Select(v => ModuleVersion.Parse(v!)).Max();
+        // extensibility-6: an upgrade that changed no record left every record's stamp at the older version, so an import between
+        // the two passed the downgrade check. The version last imported counts as well, while the pack has live records (every
+        // removal path leaves none, so none of them has to clear it).
+        var stamps = live.Values.Where(v => v is not null).Select(v => ModuleVersion.Parse(v!));
+        if (live.Count > 0 && imported is not null && ModuleVersion.TryParse(imported, out var last)) stamps = stamps.Append(last);
+        var version = stamps.Max();
         return new KnowledgePackState { PackId = pack.Id, Version = version?.Value, LiveRecords = live.Count };
     }
 
@@ -101,7 +108,11 @@ public sealed class Neo4jKnowledgePackStore : IKnowledgePackStore
         Task<T> Step<T>(string step, Func<Task<T>> work) =>
             PackOperationTrace.StepAsync(PackOperations.Remove, step, pack.Id, pack.Version.Value, null, work, cancellationToken, RefusalKind);
         var plan = await Step(PackSteps.State, () => new ModuleMigrator(_runner, resolution, _clock).PlanAsync(cancellationToken)).ConfigureAwait(false);
-        if (plan.Applied.Count == 0) return new KnowledgePackImportResult { PackId = pack.Id };
+        // RVW-REST-EXTENSIBILITY (the review's extensibility-4): no step of this manifest was applied, so it never imported here,
+        // but another version of the id may have (one whose types this one renamed): what the id owns is read from the
+        // namespace ledger instead, as a removal by id reads it. Before, that version's records stayed live and the removal
+        // reported success.
+        if (plan.Applied.Count == 0) return await RemoveByIdAsync(pack.Id, atUtc, cancellationToken).ConfigureAwait(false);
         var removed = await Step(PackSteps.Records, () => new Neo4jModuleStore(_runner, resolution).RemovePackAsync(pack.Id, atUtc.ToUniversalTime(), cancellationToken))
             .ConfigureAwait(false);
         // Closed records keep no vector (feature 19).

@@ -22,15 +22,22 @@ internal sealed class SystemOneClient
     private readonly HttpClient _http;
     private readonly TimeProvider _time;
     private readonly ILogger _logger;
-    private readonly int? _maximumResponseBytes;
+    private readonly int _maximumResponseBytes;
     private readonly Dictionary<string, Health> _health = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The bound on a judge's answer when the caller names none (RVW-REST-PACKS, the review's packs-2): the gate's own client
+    /// read its judges' answers whole, with no bound, so one oversized answer per memory type and judge, asked in parallel,
+    /// could take the host out of memory. An answer is a probability per question: a mebibyte holds far more than any.
+    /// </summary>
+    internal const int DefaultMaximumResponseBytes = 1 << 20;
 
     public SystemOneClient(HttpClient http, TimeProvider? time = null, ILogger? logger = null, int? maximumResponseBytes = null)
     {
         _http = http;
         _time = time ?? TimeProvider.System;
         _logger = logger ?? NullLogger.Instance;
-        _maximumResponseBytes = maximumResponseBytes;
+        _maximumResponseBytes = maximumResponseBytes ?? DefaultMaximumResponseBytes;
     }
 
     internal void TimedOut(SystemOneEndpoint endpoint, MemoryGateOptions options)
@@ -185,18 +192,14 @@ internal sealed class SystemOneClient
             };
             if (key is not null)
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
-            using var response = _maximumResponseBytes is not null
-                ? await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false)
-                : await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
             if ((response.StatusCode == HttpStatusCode.TooManyRequests || (int)response.StatusCode >= 500) && attempt == 0)
             {
                 await Task.Delay(TimeSpan.FromMilliseconds(250), cancellationToken).ConfigureAwait(false);
                 continue;
             }
             response.EnsureSuccessStatusCode();
-            var text = _maximumResponseBytes is { } maximum
-                ? await ReadBoundedAsync(response.Content, maximum, cancellationToken).ConfigureAwait(false)
-                : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            var text = await ReadBoundedAsync(response.Content, _maximumResponseBytes, cancellationToken).ConfigureAwait(false);
             return Parse(text, questions.Keys);
         }
     }
@@ -209,7 +212,7 @@ internal sealed class SystemOneClient
         {
             var read = await stream.ReadAsync(buffer.AsMemory(0, Math.Min(buffer.Length, maximum - (int)output.Length + 1)), cancellationToken).ConfigureAwait(false);
             if (read == 0) break;
-            if (output.Length + read > maximum) throw new InvalidDataException("The applicability response exceeds its byte bound.");
+            if (output.Length + read > maximum) throw new InvalidDataException($"The judge's answer exceeds its bound of {maximum:N0} bytes.");
             output.Write(buffer, 0, read);
         }
         var bytes = output.GetBuffer(); var length = (int)output.Length;

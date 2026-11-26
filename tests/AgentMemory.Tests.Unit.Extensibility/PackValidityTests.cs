@@ -67,6 +67,25 @@ public sealed class PackValidityTests : IDisposable
         PackLoader.Load(Archive(validUntil: soon), Trust(keyNotAfter: later)).ValidUntil.Should().Be(soon);
     }
 
+    // RVW-REST-PACKS (the review's packs-0): a host that opens its trust without a revocation list and its ledger beside it
+    // verifies under the ledger's kept list, but the pack's validity was read from the trust alone, so the list's expiry
+    // never bounded it and the pack stayed served after its revocation information went stale.
+    [Fact]
+    public void The_ledgers_revocation_freshness_bounds_a_pack_and_a_set_loaded_beside_it()
+    {
+        var path = Path.Combine(_root, "ledger.json");
+        var now = DateTimeOffset.UtcNow;
+        var expires = Second(now.AddDays(2));
+        Trust().WithRevocations(Revocations.Sign([], [], now.AddMinutes(-1), expires, _revoker.PrivateKeyPem), PackInstallLedger.Open(path));
+
+        PackLoader.Load(Archive(), Trust()).ValidUntil.Should().BeNull("no list and no ledger: nothing expires");
+        PackLoader.Load(Archive(), Trust(), PackInstallLedger.Open(path)).ValidUntil.Should().Be(expires, "the ledger's list goes stale then");
+        var set = PackAuthoring.BuildSet("io.example.dojo-set", "1.0.0", [Archive()], _key.PrivateKeyPem, Trust());
+        var loaded = PackFamilies.LoadSet(set, Trust(), PackInstallLedger.Open(path));
+        loaded.ValidUntil.Should().Be(expires);
+        loaded.Packs.Should().ContainSingle().Which.ValidUntil.Should().Be(expires);
+    }
+
     [Fact]
     public void A_sets_validity_caps_every_pack_in_it()
     {

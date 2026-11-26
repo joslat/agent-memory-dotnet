@@ -56,6 +56,28 @@ public sealed class AmpackCommandLineTests : IDisposable
         return (process.ExitCode, output.Result + error.Result);
     }
 
+    // RVW-REST-PACKS (the review's packs-1): inspect, the command for packs nobody verified yet, listed a pack's vectors by
+    // parsing every record line with no bound once the pack held an embeddings folder. It refuses oversized content first, as
+    // lint does, in both its forms.
+    [Fact]
+    public void Inspect_refuses_an_unverified_pack_whose_content_is_over_the_bound_before_reading_its_vectors()
+    {
+        Done("keygen", "--out", "keys", "--name", "publisher", "--prefix", "io.example");
+        Done("init", "notes", "--id", "io.example.notes");
+        Done("build", "notes", "--out", "notes.ampack", "--key", At("keys", "publisher.key.pem"));
+        // The archive as a pack writer would write it, with a record line over the bound and a vectors folder beside it.
+        var files = StrictZip.Read(File.ReadAllBytes(At("notes.ampack")), PackLimits.Default);
+        files["records/huge.jsonl"] = Encoding.UTF8.GetBytes("[" + string.Join(",", Enumerable.Repeat("0", 1_100_000)) + "]\n");
+        files["embeddings/a.st"] = [0];
+        files["embeddings/a.json"] = Encoding.UTF8.GetBytes("{}");
+        File.WriteAllBytes(At("notes.ampack"), StrictZip.Write(files));
+
+        var (exit, output) = Ampack("inspect", "notes.ampack");
+        exit.Should().NotBe(0);
+        output.Should().Contain("has a line longer than 1 MiB");
+        Ampack("inspect", "notes.ampack", "--json").Exit.Should().NotBe(0);
+    }
+
     [Fact]
     public void Lint_reports_what_the_scan_finds_as_an_error_when_asked_and_for_a_curated_pack()
     {

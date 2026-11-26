@@ -24,6 +24,14 @@ internal static class ModuleRecordQueries
         REMOVE k.lock_token
         RETURN properties(k) AS row
         """;
+    // RVW-REST-EXTENSIBILITY (the review's extensibility-1): the whole-pack lock an import, removal or erasure takes before
+    // it reads what the pack holds, so a second one reads after the first commits. A ModuleKey node (its unique id
+    // serializes the first MERGE) under an id no record key takes: record keys are "module:<hash>".
+    internal const string PackGate = "MERGE (k:ModuleKey {id:$gate}) SET k.lock_token=true REMOVE k.lock_token RETURN k.id AS id";
+    // extensibility-6: the version a pack import last wrote, kept on the pack's lock node: an import that changed no record
+    // leaves every record's own stamp at the version that wrote it.
+    internal const string PackImported = "MATCH (k:ModuleKey {id:$gate}) SET k.pack_version=$version, k.pack_digest=$digest RETURN k.id AS id";
+    internal const string PackImportedVersion = "MATCH (k:ModuleKey {id:$gate}) RETURN k.pack_version AS version";
     internal const string SetCurrent = "MATCH (k:ModuleKey {id:$keyId}) SET k.version=$version, k.current_id=$id RETURN k.id AS id";
     internal static string Current(ModuleType type) => "MATCH (n:`" + type.Name + "` {id:$id}) RETURN properties(n) AS row, n.invalidated_at IS NULL AS live, "
         + (type.Properties.Count == 0 ? "true" : string.Join(" AND ", type.Properties.Select(p => "coalesce(n.`" + p.Key + "`=" + Value(p.Key, p.Value.Type)

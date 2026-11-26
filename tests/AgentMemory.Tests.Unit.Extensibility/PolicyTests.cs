@@ -95,6 +95,72 @@ public sealed class PolicyTests
         Compose(m => m.AddPack(pack)).Withheld(free, Now).Should().BeFalse("no policy governs it, as a host-built record (review F10, M3)");
     }
 
+    // RVW-REST-EXTENSIBILITY (the review's extensibility-3): a snapshot pack is never a module, so its end went unasked and
+    // the records it carried stayed in every view and walk once it expired. The host's declaration of the snapshot pack
+    // (UsePackPolicy) now holds its end too; each copy holds it, so the latest end decides, and a copy with none keeps it.
+    // RVW-REST-EXTENSIBILITY (the review's extensibility-5): a definition pack carries no records, so an erasure its publisher
+    // signs can name only records the host built (no carrier, the definition's id); they stay. A knowledge pack's reach its own.
+    [Fact]
+    public void A_definition_packs_publisher_cannot_erase_what_the_host_built()
+    {
+        var definition = Load("""{"format":"agentmemory.pack.policy/1","rules":[{"allow":["read","rehydrate:external"],"audience":["*"]}]}""", definition: true);
+        var knowledge = Load("""{"format":"agentmemory.pack.policy/1","rules":[{"allow":["read","rehydrate:external"],"audience":["*"]}]}""");
+        AgentMemory.Extensibility.Packs.ModuleErasure Erasing(LoadedPack pack) => new()
+        {
+            PackId = pack.Id, Statement = "sha256:" + new string('e', 64), IssuedAt = Now, Reason = "withdrawn",
+            Salt = "0123456789abcdef0123456789abcdef", Records = [new("LanternNote", "a", null)],
+        };
+        ModuleSet Compose(Action<ModuleSetBuilder> add)
+        {
+            var services = new ServiceCollection();
+            services.AddAgentMemoryModules(add);
+            return services.BuildServiceProvider().GetRequiredService<ModuleSet>();
+        }
+        ModuleRecord Of(LoadedPack pack) => new()
+        {
+            ModuleId = pack.Id, Type = "LanternNote", Id = "a", Key = "a", CreatedAtUtc = DateTimeOffset.UnixEpoch, SourceSessionId = "pack",
+            Source = new ProposalSource { Excerpt = "a", Pack = new PackSource { Id = pack.Id, Version = pack.Version, Digest = pack.Digest, File = "", Line = 0 } },
+        };
+
+        Compose(m => m.AddPack(definition with { Erasures = [Erasing(definition)] })).Erased(Of(definition)).Should().BeFalse("the host built it");
+        // A knowledge pack's erasures, and a snapshot pack's, are still held: they name the records the pack carried.
+        PackLoader.ErasuresOnHost(knowledge with { Erasures = [Erasing(knowledge)] }).Should().ContainSingle();
+        PackLoader.ErasuresOnHost(definition with { Kind = "snapshot", Erasures = [Erasing(definition)] }).Should().ContainSingle();
+        PackLoader.ErasuresOnHost(definition with { Erasures = [Erasing(definition)] }).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void A_snapshot_packs_records_leave_the_host_once_it_expires()
+    {
+        var definition = Load("""{"format":"agentmemory.pack.policy/1","rules":[{"allow":["read","rehydrate:external"],"audience":["*"]}]}""", definition: true);
+        var snapshot = definition with { Kind = "snapshot", Id = "com.example.lantern-snapshot", ValidUntil = Now.AddDays(1) };
+        ModuleSet Compose(Action<ModuleSetBuilder> add)
+        {
+            var services = new ServiceCollection();
+            services.AddAgentMemoryModules(add);
+            return services.BuildServiceProvider().GetRequiredService<ModuleSet>();
+        }
+        var record = new ModuleRecord
+        {
+            ModuleId = definition.Id, Type = "LanternNote", Id = "a", Key = "a", CreatedAtUtc = DateTimeOffset.UnixEpoch, SourceSessionId = "pack",
+            Source = new ProposalSource
+            {
+                Excerpt = "a",
+                Pack = new PackSource { Id = definition.Id, Version = definition.Version, Digest = definition.Digest, File = "records/notes.jsonl", Line = 1,
+                    Carrier = new PackCarrier { Id = snapshot.Id, Version = snapshot.Version, Digest = snapshot.Digest, Signer = "publisher" } },
+            },
+        };
+
+        var held = Compose(m => m.AddPack(definition).UsePackPolicy(snapshot));
+        held.CarrierExpired(record, Now).Should().BeFalse("within its end");
+        held.CarrierExpired(record, Now.AddDays(2)).Should().BeTrue("past it: its records go with it");
+        Compose(m => m.AddPack(definition).UsePackPolicy(snapshot).UsePackPolicy(snapshot with { ValidUntil = null }))
+            .CarrierExpired(record, Now.AddDays(2)).Should().BeFalse("a copy with no end keeps it, whatever the order");
+        Compose(m => m.AddPack(definition)).CarrierExpired(record, Now.AddDays(2)).Should().BeFalse("an end the host was never given is not guessed");
+        var hostBuilt = record with { Source = record.Source with { Pack = record.Source.Pack! with { Carrier = null } } };
+        held.CarrierExpired(hostBuilt, Now.AddDays(2)).Should().BeFalse("a record no snapshot carried");
+    }
+
     [Fact]
     public void Read_is_a_condition_of_every_other_verb_and_the_loader_names_the_policy_on_every_record()
     {

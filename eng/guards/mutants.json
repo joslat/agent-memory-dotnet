@@ -134,7 +134,7 @@
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
    "filter": "FullyQualifiedName~Review8GuardTests.W2",
-   "sha256": "f8153e5f9ad844e3acc69cfae700ec7ff6af35574b155c89a423cf929e189b6a"
+   "sha256": "dda1ca911f0605329610142f77f29a42456bc846383b16e62c21195662e43e27"
   },
   {
    "id": "golden-drift",
@@ -297,6 +297,21 @@
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
    "filter": "FullyQualifiedName~PackDoorMatrixTests.Every_command|FullyQualifiedName~PackDoorMatrixTests.Review8_lint_bounds",
    "sha256": "e1978b932dcf474248eb09c703756e14491cee37b74f6b88bb717e57ea0079fa"
+  },
+  {
+   "id": "unverified-at-inspect",
+   "rule": "UNVERIFIED-BOUNDED",
+   "door": "inspect",
+   "file": "tools/Ampack/Program.cs",
+   "edits": [
+    {
+     "old": "if (PackContentBounds.Problems(content.Files, verified: false) is { Count: > 0 } unverified) return Report(unverified, \"\");",
+     "new": ""
+    }
+   ],
+   "project": "tests/AgentMemory.Tests.Unit.Extensibility",
+   "filter": "FullyQualifiedName~AmpackCommandLineTests.Inspect_refuses_an_unverified_pack",
+   "sha256": "e4f55057bd8e5b84ccb64c4215b4271cdefa7c96df769194f8bdace6f46ec56f"
   },
   {
    "id": "writer-minor-at-sign",
@@ -630,7 +645,7 @@
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
    "filter": "FullyQualifiedName~Review8GuardTests.W2",
-   "sha256": "06bc9feb7edb87af68275e85d1dd8020c77336669897bb0e36dfaaaafe871363"
+   "sha256": "5a64b457d4d1bcd056c27253b5f7ddfc42e60705e7f5747259d108b38c0ab8ee"
   },
   {
    "id": "walk-isolates-a-read",
@@ -1693,13 +1708,13 @@
    "file": "src/AgentMemory.Extensibility.Ampack/PackLoader.cs",
    "edits": [
     {
-     "old": "            Erasures = PackErasures.Read(pack, ledger is null ? trust.Policy : ledger.Ledger.Apply(trust.Policy), DateTimeOffset.UtcNow),\n",
+     "old": "            Erasures = PackErasures.Read(pack, applied, DateTimeOffset.UtcNow),\n",
      "new": ""
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
    "filter": "FullyQualifiedName~ErasureTests",
-   "sha256": "eea3129f690f1eb9d81636560aa8f7157654be100444206258b8f5585cc18640"
+   "sha256": "783c22ac60a2bcce50ee9708a7ffed46ae16c5b6ac05ccf727eddf6404e909dc"
   },
   {
    "id": "python-issued-any-digit",
@@ -2503,13 +2518,13 @@
    "file": "src/AgentMemory.Extensibility.Ampack/PackFamilies.cs",
    "edits": [
     {
-     "old": "        foreach (var member in family.AllMembers) added.UseErasures(member.Erasures).UsePackPolicy(member);\n",
+     "old": "        foreach (var member in family.AllMembers) added.UseErasures(PackLoader.ErasuresOnHost(member)).UsePackPolicy(member);\n",
      "new": ""
     }
    ],
    "project": "tests/AgentMemory.Tests.Unit.Extensibility",
    "filter": "FullyQualifiedName~A_family_member_s_usage_policy",
-   "sha256": "3dc164f3040d9112be7a8a4716ef5ef412a891730510a60bc6f246ac79ad453a"
+   "sha256": "1c0b9386a9d96a3e5515646746bfdadce61a4d175971c579d1416f72268d5610"
   },
   {
    "id": "set-policy-allowed",

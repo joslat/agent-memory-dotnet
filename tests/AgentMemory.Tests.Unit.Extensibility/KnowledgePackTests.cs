@@ -185,6 +185,35 @@ public sealed class KnowledgePackTests
         PackFailure.Of(refused.Which).Should().BeEquivalentTo(new { Code = "pack.transfer.store.failed", PackId = pack.Id, Operation = PackOperations.Transfer });
     }
 
+    // RVW-REST-EXTENSIBILITY (the review's extensibility-2): the same signed pack reached by two routes at different priorities
+    // (a nested family, a member priority, the pack also on its own) was refused as "already added"; R-HOST-067 holds it by
+    // each route. It takes the lowest of their priorities, whatever order the routes come in.
+    [Theory]
+    [InlineData(100, 200)]
+    [InlineData(200, 100)]
+    public void APackReachedByTwoRoutesAtDifferentPrioritiesIsHeldByEachAtTheLowest(int first, int second)
+    {
+        var pack = KnowledgePack.Open(Signed(), Trust());
+        var builder = new ModuleSetBuilder();
+
+        builder.AddKnowledgePack(pack, first);
+        FluentActions.Invoking(() => builder.AddKnowledgePack(pack, second)).Should().NotThrow();
+
+        builder.Modules.Should().ContainSingle();
+        builder.HeldAgain.Should().Equal(pack.Id);
+        builder.RoutePriority(pack.Id).Should().Be(100);
+        builder.PrioritizeRoute(pack.Id, 300).Priorities[pack.Id].Should().Be(100, "a third route at 300 holds it too; the lowest stays");
+    }
+
+    [Fact]
+    public void AnotherCopyUnderThePacksIdIsStillRefusedAtAnyPriority()
+    {
+        var pack = KnowledgePack.Open(Signed(), Trust());
+        var other = KnowledgePack.Open(Signed(seed: Seed.Select(line => line.Replace("8th kyu", "Eighth kyu", StringComparison.Ordinal))), Trust());
+        var builder = new ModuleSetBuilder().AddKnowledgePack(pack, 100);
+        FluentActions.Invoking(() => builder.AddKnowledgePack(other, 200)).Should().Throw<ArgumentException>().WithMessage("*already added*");
+    }
+
     private sealed class Store : IKnowledgePackStore
     {
         public required KnowledgePackState State { get; init; }

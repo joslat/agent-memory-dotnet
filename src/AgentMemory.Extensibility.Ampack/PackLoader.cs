@@ -332,7 +332,11 @@ public static class PackLoader
             if (knowledge is not null)
                 knowledge = knowledge.WithProposals([.. knowledge.Proposals.Select(r => r with { Source = r.Source with { Pack = r.Source.Pack! with { UsagePolicy = policyDigest } } })]);
         }
-        var validUntil = ValidUntil(pack, trust.Policy);
+        // RVW-REST-PACKS (the review's packs-0): the policy the pack verified under, the ledger's included. Its validity was read
+        // from the trust alone, so a revocation list's freshness this host kept in its ledger never bounded it: the pack stayed
+        // served after the list went stale, and a later revocation of it was not looked for.
+        var applied = Applied(trust, ledger);
+        var validUntil = ValidUntil(pack, applied);
         if (knowledge is not null) knowledge.ValidUntil = validUntil;
         return new LoadedPack
         {
@@ -342,8 +346,8 @@ public static class PackLoader
             Card = PackCardInfo.Of(pack.Files),
             // Read under the same trust the pack verified under: what this host revoked before (its ledger) holds for evaluator
             // keys too (review 1, H2).
-            Certificates = PackCertificates.Read(pack, ledger is null ? trust.Policy : ledger.Ledger.Apply(trust.Policy), DateTimeOffset.UtcNow),
-            Erasures = PackErasures.Read(pack, ledger is null ? trust.Policy : ledger.Ledger.Apply(trust.Policy), DateTimeOffset.UtcNow),
+            Certificates = PackCertificates.Read(pack, applied, DateTimeOffset.UtcNow),
+            Erasures = PackErasures.Read(pack, applied, DateTimeOffset.UtcNow),
             HasDerivation = pack.Files.ContainsKey(PackDerivation.FileName),
             Derivation = derivation is null ? null : PackDerivationInfo.Of(derivation),
             Assets = pack.Files.Where(f => f.Key.StartsWith("assets/", StringComparison.Ordinal))
@@ -354,6 +358,9 @@ public static class PackLoader
             Tests = pack.Files.TryGetValue(PackTests.FileName, out var tests) ? new ReadOnlyMemory<byte>(tests) : (ReadOnlyMemory<byte>?)null,
         };
     }
+
+    /// <summary>The trust a pack verifies under: the host's, with what its ledger kept (revocations and their freshness).</summary>
+    internal static TrustPolicy Applied(PackTrust trust, PackInstallLedger? ledger) => ledger is null ? trust.Policy : ledger.Ledger.Apply(trust.Policy);
 
     /// <summary>
     /// When a verified pack stops being valid here: its own validUntil, the revocation list's expiry, and for each required role
@@ -406,6 +413,13 @@ public static class PackLoader
         [.. PackProfiles.Used(pack.Files.Keys, pack.Manifest).Where(p => !p.Implemented).Select(p => PackProfiles.Refusal(p, pack.Manifest))];
 
     /// <summary>
+    /// The erasures a host holds for a pack (RVW-REST-EXTENSIBILITY, the review's extensibility-5): a knowledge or snapshot pack's,
+    /// which name the records it carried. A definition pack carries none: a record under its id with no carrier is one the host
+    /// built, and its publisher's erasure hid it from every view and walk, against ModuleErasure.Names' own rule.
+    /// </summary>
+    internal static IReadOnlyList<ModuleErasure> ErasuresOnHost(LoadedPack pack) => pack.Kind == "definition" ? [] : pack.Erasures;
+
+    /// <summary>
     /// Asks a pack's usage policy before any view or walk offers the records it carried (feature 10, R-CORE-139): for a snapshot
     /// pack whose records a host imports, as <see cref="AddPack"/> does for the packs it adds. A pack with no policy changes nothing.
     /// </summary>
@@ -415,6 +429,9 @@ public static class PackLoader
         ArgumentNullException.ThrowIfNull(pack);
         if (pack.PolicyDigest is { } digest && builder.PackPolicies.All(p => p.Digest != digest))
             builder.PackPolicies.Add((digest, (verb, now) => PolicyGate.Allows(pack, verb, now)));
+        // extensibility-3: a snapshot pack's end is asked too. Its records leave every view and walk once it expires, as a
+        // knowledge pack's contributors go silent and as `ampack serve` drops them.
+        if (pack.Kind == "snapshot") builder.HoldCarrier(pack.Id, pack.ValidUntil);
         return builder;
     }
 
@@ -433,7 +450,7 @@ public static class PackLoader
         var added = pack.Knowledge is { } knowledge ? builder.AddKnowledgePack(knowledge, priority, pack.ValidUntil)
             : builder.AddDefinitionPack(pack.Manifest, pack.Digest, string.Join(", ", pack.Signers), priority, pack.ValidUntil);
         // The pack's verified erasures: no view or walk offers what they name (feature 08).
-        if (pack.Erasures.Count != 0) added.UseErasures(pack.Erasures);
+        if (ErasuresOnHost(pack) is { Count: > 0 } erasures) added.UseErasures(erasures);
         // Its usage policy: no view or walk offers its records to a model it keeps them from (feature 10).
         added.UsePackPolicy(pack);
         // The latest certificate this host trusts now, as it loaded the pack: a decision it made from a certificate counts only
