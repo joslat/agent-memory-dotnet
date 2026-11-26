@@ -43,6 +43,11 @@ internal static class IdentityKindsBenchmark
         var start = new DateTimeOffset(2026, 11, 2, 9, 0, 0, TimeSpan.Zero);
         var logs = new ConcurrentQueue<string>();
         var scripted = new Scripted();
+        // ER-KIT: every arm starts on an empty store. Each case writes under its own owner, but recall and identity read
+        // shared (ownerless) memory too, so whatever an arm run before left there was a candidate for the next one: the rules
+        // arm's open proposals were 236 alone and 210 after the other arms in one test process (xUnit does not promise the
+        // order of a theory's rows), and the recorded 2.3.1 baseline had 235.
+        await Q(driver, "MATCH (n) DETACH DELETE n", new { });
         await using var sp = Services(uri, user, password, arm != "previous", scripted, logs);
         await sp.GetRequiredService<ISchemaBootstrapper>().BootstrapAsync();
         await Q(driver, "CALL db.awaitIndexes(120)", new { });

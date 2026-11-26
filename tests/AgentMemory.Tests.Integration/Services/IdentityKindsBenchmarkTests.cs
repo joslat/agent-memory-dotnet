@@ -8,7 +8,7 @@ namespace AgentMemory.Tests.Integration.Services;
 
 /// <summary>
 /// The Identity Kinds Benchmark, tier 1, on the repository's own code (IKB-1): 134 scripted cases in each of three arms,
-/// each case's verdict compared with the recorded baseline (2.3.1, reproduced unchanged on main). No model is called.
+/// each case's verdict compared with the recorded baseline (version 2: each arm on an empty store; 2.3.1's in its about note). No model is called.
 /// The pass rule that holds whatever the baseline says: an arm with evidence-based identity merges no two real things.
 /// A change that moves a row, for the better or the worse, updates the baseline file with its reason.
 /// </summary>
@@ -25,6 +25,13 @@ public sealed class IdentityKindsBenchmarkTests(IdentityKindsNeo4jFixture fixtur
     [MemberData(nameof(Arms))]
     public async Task Tier1_reproduces_the_recorded_baseline_case_by_case(string arm)
     {
+        // What an arm run before this one left in the store (each arm now starts on an empty store; ER-KIT).
+        await using (var session = fixture.Driver.AsyncSession())
+        {
+            var left = await (await session.RunAsync(
+                "MATCH (n) RETURN count(n) AS nodes, count(CASE WHEN n:Entity AND n.owner_id IS NULL THEN 1 END) AS ownerless")).SingleAsync();
+            output.WriteLine($"before {arm}: {left["nodes"].As<long>()} nodes in the store, {left["ownerless"].As<long>()} of them ownerless entities");
+        }
         var rows = await IdentityKindsBenchmark.RunArmAsync(arm, fixture.Uri, IdentityKindsNeo4jFixture.User, IdentityKindsNeo4jFixture.Password, fixture.Driver);
 
         using var baseline = JsonDocument.Parse(await File.ReadAllTextAsync(BaselinePath()));
@@ -51,6 +58,17 @@ public sealed class IdentityKindsBenchmarkTests(IdentityKindsNeo4jFixture fixtur
                 moved.Add($"{row.Case}: was {before}, now {now} [{string.Join(", ", row.Decisions)}]");
         }
         foreach (var line in moved) output.WriteLine("  moved " + line);
+        // Re-recording, only when asked: IKB_TIER1_RECORD=<folder> writes this arm's rows there, in the baseline's shape.
+        if (Environment.GetEnvironmentVariable("IKB_TIER1_RECORD") is { Length: > 0 } record)
+        {
+            Directory.CreateDirectory(record);
+            await File.WriteAllTextAsync(Path.Combine(record, arm + ".json"), JsonSerializer.Serialize(rows.Select(r => new
+            {
+                @case = r.Case, arm = r.Arm, realThings = r.RealThings, separateThings = r.SeparateThings, verdict = r.Verdict,
+                wrongMerges = r.WrongMerges, lastMentionJoinedToTheRightThing = r.LastMentionJoinedToTheRightThing, openProposals = r.OpenProposals,
+                timesNamedInProfileBlock = r.TimesNamedInProfileBlock, entitiesRecalledForTheName = r.EntitiesRecalledForTheName, decisions = r.Decisions,
+            })));
+        }
 
         rows.Select(r => r.Case).Should().BeEquivalentTo(expected.Keys);
         if (arm != "previous")
