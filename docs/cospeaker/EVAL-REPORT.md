@@ -14,6 +14,24 @@ Run 2026-11-26T00:00 UTC, DemoBrain show `shows/cospeaker-eval.json` (75 questio
 
 By pack: cospeakerhf 15/15, cospeakerpollen 14/15, cospeakerreachy 15/15, agentmemoryfacts 13/15; longest reply 48 words.
 
+## Faster, and still the right pack (same 75 questions, 26 Nov)
+
+The first words took p90 3.3 s. The traces say why: the memory gate's online judge took about 2 s on every turn (the
+local judge, Laya, is not running on this machine). Three configurations on the same questions:
+
+| Configuration | The right pack | Within 40 words | First words p50 / p90 | Cost |
+|---|---|---|---|---|
+| Online judge (round 1 above) | 57/60 | 69/75 (max 48) | 1.6 s / 3.3 s | USD 0.08 |
+| Similarity floor | 38/60 (Reachy pack 0/15) | 69/75 | 1.2 s / 1.8 s | USD 0.08 |
+| **Floor, packs interleaved, a slim AgentMemory pack** | **60/60** | **75/75 (max 35)** | **1.2 s / 1.7 s** | USD 0.08 |
+
+Without a judge, kept items followed pack priority order, so the first packs filled the eight places and the sixth pack
+(Reachy) never reached the prompt. The library now has an opt-in `ModuleSelectionOptions.InterleaveContributorsWithoutJudge`:
+every pack's best item first, then every pack's second. The co-speaker also carries a slim AgentMemory pack (38 facts) in
+place of the advocate's 185 records, whose lines it does not need. Off topic and out of pack stayed 10/10 on reading, with no
+invented figure. The co-speaker launcher now runs this configuration. Spoken first words still add the first sentence's
+synthesis; that is measured next.
+
 ## What the misses are, read one by one
 
 - **Off topic, 10 of 10 on reading.** The two the word check missed are proper declines: the joke about the speaker
