@@ -24,6 +24,7 @@ local judge, Laya, is not running on this machine). Three configurations on the 
 | Online judge (round 1 above) | 57/60 | 69/75 (max 48) | 1.6 s / 3.3 s | USD 0.08 |
 | Similarity floor | 38/60 (Reachy pack 0/15) | 69/75 | 1.2 s / 1.8 s | USD 0.08 |
 | **Floor, packs interleaved, a slim AgentMemory pack** | **60/60** | **75/75 (max 35)** | **1.2 s / 1.7 s** | USD 0.08 |
+| Online judge alone (JEV, Laya not asked), the slim pack | 58/60 | 69/75 (max 57) | 1.4 s / 2.2 s | USD 0.08 |
 
 Without a judge, kept items followed pack priority order, so the first packs filled the eight places and the sixth pack
 (Reachy) never reached the prompt. The library now has an opt-in `ModuleSelectionOptions.InterleaveContributorsWithoutJudge`:
@@ -31,6 +32,14 @@ every pack's best item first, then every pack's second. The co-speaker also carr
 place of the advocate's 185 records, whose lines it does not need. Off topic and out of pack stayed 10/10 on reading, with no
 invented figure. The co-speaker launcher now runs this configuration. Spoken first words still add the first sentence's
 synthesis; that is measured next.
+
+**The judge again, JEV alone (26 Nov, 15:52 UTC).** Round 1 asked both judges, and with Laya not running here each judged
+turn could wait about 2 s for the refused connection, so its p90 of 3.3 s was not JEV's alone. With JEV the only judge, on
+the slim pack and the same 75 questions, first words took p50 1.4 s and p90 2.2 s: most of round 1's tail was Laya's refused
+connection. JEV still costs time. The memory gate's own span took p50 724 ms, p90 917 ms (largest 2.9 s) against 8 ms and
+54 ms on the floor, and that does not fit the voice's 450 ms deadline from this PC. It was also no better at choosing:
+the right pack 58/60 against 60/60, and 69/75 within 40 words against 75/75 (one reply of 57 words). The launcher keeps
+the floor with packs interleaved. Evidence: `cos-eval-round1d-judge-jev-20261126.json` beside round 1's.
 
 ## What the misses are, read one by one
 
