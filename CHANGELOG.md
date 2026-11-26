@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Evidence-based identity's exact lookup reads by index, not by scanning the store** (review of main, identity-4).
+  Every mention's exact lookup (by name, calendar key, key assertion or alias assertion), run at planning, at
+  revalidation and on replay, was one WHERE no index could serve: with shared memory included (the default) the planner
+  scanned every Entity in the store each time. Each way of naming is now its own index-backed branch, with visibility and
+  type checked on what they find; the same entities come back.
+
 - **An extraction with no owner reads shared memory only** (review of main, identity-3). A write that names no owner
   is stored as shared; under the default `SingleTenant` (and `WarnOnUnscoped`) isolation it nevertheless read with the
   Global scope, so entity resolution could match another owner's private entity and write the shared message's aliases

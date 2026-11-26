@@ -9,17 +9,32 @@ internal static class IdentityEvidenceQueries
         + "WHERE decision.identity_observation_key=e.identity_observation_key AND "
         + "decision.owner_scope=CASE WHEN e.owner_id IS NULL THEN 'shared' ELSE 'owned:'+e.owner_id END AND resolved.id<>e.id } ";
 
+    /// <summary>
+    /// The entities a mention names exactly: by name, by calendar key, or through a key or alias assertion. RVW-REST-IDENTITY
+    /// (the review's identity-4): one index-backed branch per way of naming, then the visibility and type checks on what
+    /// they found. As a single WHERE (name OR key OR EXISTS) no index could serve it: the owner's entities came by the
+    /// owner index, but with shared memory included every Entity in the store was scanned, on every mention. The
+    /// 'namespace' assertion (surface = the entity's own name = the mention) is covered by the name branch.
+    /// </summary>
     internal const string ExactIds = """
-        MATCH (e:Entity)
+        CALL () {
+            MATCH (e:Entity) WHERE e.name = $name RETURN e
+            UNION
+            MATCH (e:Entity) WHERE $calendarKey IS NOT NULL AND e.identity_calendar_key = $calendarKey RETURN e
+            UNION
+            MATCH (a:IdentityEvidenceAssertion) WHERE a.lookup_key IN $keyLookups
+            MATCH (e:Entity)-[:HAS_IDENTITY_EVIDENCE]->(a)
+            WHERE a.assertion_kind = 'key' AND a.owner_scope IN $evidenceScopes
+            RETURN e
+            UNION
+            MATCH (a:IdentityEvidenceAssertion) WHERE a.namespace = $namespace AND a.surface = $name
+            MATCH (e:Entity)-[:HAS_IDENTITY_EVIDENCE]->(a)
+            WHERE a.assertion_kind = 'alias' AND a.owner_scope IN $evidenceScopes
+            RETURN e
+        }
+        WITH e
         WHERE
         """ + Visible + " AND " + Typed + """
-        AND (e.name = $name OR ($calendarKey IS NOT NULL AND e.identity_calendar_key = $calendarKey) OR EXISTS {
-            MATCH (e)-[:HAS_IDENTITY_EVIDENCE]->(a:IdentityEvidenceAssertion)
-            WHERE a.owner_scope IN $evidenceScopes AND
-              ((a.assertion_kind = 'key' AND a.lookup_key IN $keyLookups) OR
-               (a.assertion_kind = 'alias' AND a.namespace = $namespace AND a.surface = $name) OR
-               (a.assertion_kind = 'namespace' AND a.namespace = $namespace AND a.surface = e.name AND e.name = $name))
-        })
         RETURN DISTINCT e.id AS id ORDER BY id LIMIT $sentinelLimit
         """;
 
