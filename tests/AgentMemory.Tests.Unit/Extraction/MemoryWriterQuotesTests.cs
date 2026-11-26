@@ -90,4 +90,18 @@ public sealed class MemoryWriterQuotesTests
             .And.Contain(new KeyValuePair<string, object>("source_quote_end", 12));
         SourceQuoteMetadata.With(metadata, null, null).Should().BeSameAs(metadata);
     }
+
+    // RVW-REST-WRITER (the review's writer-5): a re-assertion replaces the record's source messages, so offsets carried
+    // over from an earlier message pointed into the wrong one. A write without a located quote of its own drops them.
+    [Fact]
+    public void A_write_without_a_quote_of_its_own_drops_the_offsets_an_earlier_message_left()
+    {
+        var earlier = new Dictionary<string, object> { ["trust"] = "x", ["source_quote_start"] = 0, ["source_quote_end"] = 16 };
+
+        var written = SourceQuoteMetadata.With(earlier, null, null);
+
+        written.Should().NotContainKey("source_quote_start").And.NotContainKey("source_quote_end");
+        written.Should().Contain(new KeyValuePair<string, object>("trust", "x"));
+        SourceQuoteMetadata.With(earlier, 3, 9).Should().Contain(new KeyValuePair<string, object>("source_quote_start", 3));
+    }
 }

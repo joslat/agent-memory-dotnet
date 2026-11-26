@@ -50,7 +50,9 @@ internal static class MemoryWriterContract
     /// a new name could fix it), and a person reference the conversation's relation words refuse (nothing is left to decide).
     /// </summary>
     internal static bool ReportedOnly(MemoryWriterOps.DropReason reason) => reason is MemoryWriterOps.DropReason.OverLimit
-        or MemoryWriterOps.DropReason.ConnectionEndEmpty or MemoryWriterOps.DropReason.ReferenceRelationConflict;
+        or MemoryWriterOps.DropReason.ConnectionEndEmpty or MemoryWriterOps.DropReason.ReferenceRelationConflict
+        // writer-4: only a rewrite could fix it, and a correction is accepted for the same text: reported at once.
+        or MemoryWriterOps.DropReason.RelationshipFormatInvalid;
 
     /// <summary>The stored types a writer's ref can confirm (IdentityResolutionOptions' conversational set, events aside).</summary>
     private static readonly HashSet<string> RefConfirmable = new(["PERSON", "ORGANIZATION"], StringComparer.Ordinal);
@@ -709,6 +711,10 @@ internal static class MemoryWriterContract
         }
         if (issue.Kept is { } kept)
             return op.Kind == "entity" && op.Action == "add" && Canonical(EntityName(op.Text)) == Canonical(EntityName(kept.Text));
+        // RVW-REST-WRITER (the review's writer-3): a quote that is not in the message is fixed only by a quote that is (the
+        // correction is located before this merge). The same operation resent with an empty quote, or none, is not a fix.
+        if (issue.Reason == MemoryWriterOps.DropReason.QuoteNotFound)
+            return issue.Text is { Length: > 0 } quoted && Canonical(op.Text) == Canonical(quoted) && op.QuoteStart is not null;
         return issue.Text is { Length: > 0 } text && Canonical(op.Text) == Canonical(text);
     }
 
@@ -724,6 +730,7 @@ internal static class MemoryWriterContract
         MemoryWriterOps.DropReason.NotAnObject => "each operation must be a JSON object",
         MemoryWriterOps.DropReason.OverLimit => "it was beyond the most operations one answer may hold",
         MemoryWriterOps.DropReason.ConnectionEndEmpty => "a connection joins two names: each end must hold a name",
+        MemoryWriterOps.DropReason.RelationshipFormatInvalid => "a connection is written \"A -[RELATION]-> B\" (or, as a fact, \"subject | predicate | object\")",
         _ => reason.ToString(),
     };
 

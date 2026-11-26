@@ -111,6 +111,15 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
                     string.Join(" ; ", drops.Select(d => $"#{d.Index} {d.Reason}{(d.Text is null ? "" : ": " + d.Text)}")));
         }
 
+        // writer-6: a replacement whose target cannot be found is written as an addition; say so instead of nothing.
+        var unresolved = MemoryWriterOps.UnresolvedReplacements(ops, stored);
+        if (unresolved.Count > 0)
+        {
+            activity?.SetTag("memory.write.replacement_unresolved", unresolved.Count);
+            _logger.LogWarning(
+                "Memory writer: {Count} replacement(s) name no memory of their kind shown in this call and are written as additions; the memory each meant stays live: {Ops}.",
+                unresolved.Count, string.Join(" ; ", unresolved.Select(o => $"{o.Action} {o.Id} {o.Kind}: {o.Text}")));
+        }
         var result = MemoryWriterOps.ToResult(ops, stored, owner, _operationFormat is null ? null : message);
         if (_options.DatesFromText)
         {
@@ -188,8 +197,20 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
                 drops.Add(new MemoryWriterOps.DroppedOp(op.Index, MemoryWriterOps.DropReason.ConnectionEndEmpty, op.Text) { Kind = op.Kind });
                 continue;
             }
-            if (op.Action == "confirm" || op.Quote is null) { ops.Add(op); continue; }
-            if (MemoryWriterQuotes.Locate(message, op.Quote) is { } span) ops.Add(op with { QuoteStart = span.Start, QuoteEnd = span.End });
+            // writer-4: a connection that is not "A -[RELATION]-> B" was thrown away at the end with no trace. Kept as the
+            // fact it states when it is one, else dropped and recorded (and, under the identity contract, sent back).
+            var shaped = op;
+            if (op.Action != "confirm" && op.Kind == "relationship" && !MemoryWriterOps.IsConnection(op.Text))
+            {
+                if (!MemoryWriterOps.IsFactText(op.Text))
+                {
+                    drops.Add(new MemoryWriterOps.DroppedOp(op.Index, MemoryWriterOps.DropReason.RelationshipFormatInvalid, op.Text) { Kind = op.Kind });
+                    continue;
+                }
+                shaped = op with { Kind = "fact" };
+            }
+            if (shaped.Action == "confirm" || shaped.Quote is null) { ops.Add(shaped); continue; }
+            if (MemoryWriterQuotes.Locate(message, shaped.Quote) is { } span) ops.Add(shaped with { QuoteStart = span.Start, QuoteEnd = span.End });
             else drops.Add(new MemoryWriterOps.DroppedOp(op.Index, MemoryWriterOps.DropReason.QuoteNotFound, op.Text) { Kind = op.Kind });
         }
         return (ops, drops);
@@ -744,6 +765,12 @@ internal static class MemoryWriterOps
         ConnectionEndEmpty,
 
         /// <summary>
+        /// A connection not stated as "A -[RELATION]-> B" and not a fact either (RVW-REST-WRITER, writer-4): it cannot be
+        /// stored as one. A fact-shaped one ("Ana | sister of | user") is kept as the fact it states.
+        /// </summary>
+        RelationshipFormatInvalid,
+
+        /// <summary>
         /// An entity add without "ref" named and typed exactly as a shown stored entity that is not an event
         /// (IDENTITY-WRITER-COVERAGE): the same thing needs its ref, a different one a name that tells it apart. Asked
         /// once; when neither comes, the entity is kept as written.
@@ -850,6 +877,25 @@ internal static class MemoryWriterOps
     internal static bool TryParse(string? reply, int max, out IReadOnlyList<Op> ops) => TryParse(reply, max, out ops, out _);
 
     /// <summary>
+    /// RVW-REST-WRITER (the review's writer-1): the entries of an answer, or null for a reply that is not one. The answer is
+    /// {"ops": [...]}; a model also answers with a bare list, "Ops" or "operations", or one op object, and those are read as
+    /// what they are. "{}" is an empty answer. Any other shape is not an answer (null), so the writer asks again and can
+    /// fall back; before, it read as a successful empty answer and the turn was lost with no retry, log or outcome.
+    /// </summary>
+    private static IEnumerable<JsonElement>? Entries(JsonElement root)
+    {
+        // A bare list is the answer when it holds ops (objects); a list of anything else is not one.
+        if (root.ValueKind == JsonValueKind.Array)
+            return root.EnumerateArray().Any(e => e.ValueKind == JsonValueKind.Object) ? root.EnumerateArray().ToList() : null;
+        if (root.ValueKind != JsonValueKind.Object) return null;
+        foreach (var property in root.EnumerateObject())
+            if (property.Name.Equals("ops", StringComparison.OrdinalIgnoreCase) || property.Name.Equals("operations", StringComparison.OrdinalIgnoreCase))
+                return property.Value.ValueKind == JsonValueKind.Array ? property.Value.EnumerateArray().ToList() : null;
+        if (root.TryGetProperty("op", out _)) return [root];
+        return root.EnumerateObject().Any() ? null : [];
+    }
+
+    /// <summary>
     /// As <see cref="TryParse(string?, int, out IReadOnlyList{Op})"/>, with the entries it did not keep and why (#250): a
     /// reply whose facts are real but mis-shaped no longer loses them without a trace.
     /// </summary>
@@ -857,17 +903,16 @@ internal static class MemoryWriterOps
     {
         ops = [];
         dropped = [];
-        var json = LlmExtractionRunner.ExtractJson(reply);
+        var json = LlmExtractionRunner.ExtractJson(reply, firstContainer: true);
         if (json is null) return false;
         try
         {
             using var doc = JsonDocument.Parse(json);
-            if (doc.RootElement.ValueKind != JsonValueKind.Object) return false;
-            if (!doc.RootElement.TryGetProperty("ops", out var list) || list.ValueKind != JsonValueKind.Array) return true;
+            if (Entries(doc.RootElement) is not { } entries) return false;
             var kept = new List<Op>();
             var lost = new List<DroppedOp>();
             var index = -1;
-            foreach (var o in list.EnumerateArray())
+            foreach (var o in entries)
             {
                 index++;
                 var kind = o.ValueKind == JsonValueKind.Object ? Str(o, "kind")?.Trim().ToLowerInvariant() : null;
@@ -908,6 +953,33 @@ internal static class MemoryWriterOps
     }
 
     private static readonly Regex Connection = new(@"^\s*(?<s>.+?)\s*-\[\s*(?<r>[^\]]+?)\s*\]->\s*(?<t>.+?)\s*$", RegexOptions.Compiled);
+
+    /// <summary>
+    /// RVW-REST-WRITER (the review's writer-6): the replace and correct operations whose id names no memory of their kind
+    /// shown in this call (an id the writer was not shown, a stored id instead of its label, or a memory of another kind).
+    /// Each is written as a plain addition and the memory it meant stays live; this names them so the writer can say so.
+    /// </summary>
+    internal static IReadOnlyList<Op> UnresolvedReplacements(IReadOnlyList<Op> ops, IReadOnlyList<Stored> stored)
+    {
+        var byLabel = stored.ToDictionary(s => s.Label, StringComparer.OrdinalIgnoreCase);
+        return [.. ops.Where(op => op.Action is "replace" or "correct" && op.Id is not null
+            && !(byLabel.TryGetValue(op.Id, out var target) && ReplaceableBy(op.Kind, target.Letter)))];
+    }
+
+    private static bool ReplaceableBy(string kind, char letter) => kind switch
+    {
+        "preference" => letter == 'P',
+        "relationship" => letter == 'R',
+        "entity" => letter == 'E',
+        _ => letter is 'F' or 'R',
+    };
+
+    /// <summary>Whether the text is a connection, "A -[RELATION]-> B" (writer-4).</summary>
+    internal static bool IsConnection(string text) => Connection.IsMatch(text);
+
+    /// <summary>Whether the text is a fact, "subject | predicate | object" with three non-empty parts (writer-4).</summary>
+    internal static bool IsFactText(string text) =>
+        text.Split('|', StringSplitOptions.TrimEntries) is { Length: 3 } parts && parts.All(part => part.Length > 0);
     private static readonly Regex Named = new(@"^\s*(?<n>.+?)\s*\(\s*(?<t>[A-Za-z_ ]+)\s*\)\s*$", RegexOptions.Compiled);
 
     /// <summary>

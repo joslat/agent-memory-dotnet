@@ -241,30 +241,30 @@ internal sealed class ExtractionStage : IExtractionStage
         else
         {
             entityRun = typesToExtract.HasFlag(ExtractionTypes.Entities)
-                ? RunExtractorsAsync(_entityExtractors, e => window.HasContext
+                ? RunExtractorsAsync(_entityExtractors, e => Uncontained(e, window.HasContext ? window : ExtractionWindow.ForTargets(messages), () => window.HasContext
                         ? e.ExtractWithContextAsync(window, cancellationToken)
-                        : e.ExtractAsync(messages, cancellationToken),
+                        : e.ExtractAsync(messages, cancellationToken), cancellationToken),
                     strategy, MergeStrategyFactory.CreateEntityStrategy, "entity",
                     MemoryItemKind.Entity, MemoryErrorCodes.EntityExtractionFailed, cancellationToken)
                 : EmptyRun<ExtractedEntity>();
             factRun = typesToExtract.HasFlag(ExtractionTypes.Facts)
-                ? RunExtractorsAsync(_factExtractors, f => window.HasContext
+                ? RunExtractorsAsync(_factExtractors, f => Uncontained(f, window.HasContext ? window : ExtractionWindow.ForTargets(messages), () => window.HasContext
                         ? f.ExtractWithContextAsync(window, cancellationToken)
-                        : f.ExtractAsync(messages, cancellationToken),
+                        : f.ExtractAsync(messages, cancellationToken), cancellationToken),
                     strategy, MergeStrategyFactory.CreateFactStrategy, "fact",
                     MemoryItemKind.Fact, MemoryErrorCodes.FactExtractionFailed, cancellationToken)
                 : EmptyRun<ExtractedFact>();
             prefRun = typesToExtract.HasFlag(ExtractionTypes.Preferences)
-                ? RunExtractorsAsync(_preferenceExtractors, p => window.HasContext
+                ? RunExtractorsAsync(_preferenceExtractors, p => Uncontained(p, window.HasContext ? window : ExtractionWindow.ForTargets(messages), () => window.HasContext
                         ? p.ExtractWithContextAsync(window, cancellationToken)
-                        : p.ExtractAsync(messages, cancellationToken),
+                        : p.ExtractAsync(messages, cancellationToken), cancellationToken),
                     strategy, MergeStrategyFactory.CreatePreferenceStrategy, "preference",
                     MemoryItemKind.Preference, MemoryErrorCodes.PreferenceExtractionFailed, cancellationToken)
                 : EmptyRun<ExtractedPreference>();
             relRun = typesToExtract.HasFlag(ExtractionTypes.Relationships)
-                ? RunExtractorsAsync(_relationshipExtractors, r => window.HasContext
+                ? RunExtractorsAsync(_relationshipExtractors, r => Uncontained(r, window.HasContext ? window : ExtractionWindow.ForTargets(messages), () => window.HasContext
                         ? r.ExtractWithContextAsync(window, cancellationToken)
-                        : r.ExtractAsync(messages, cancellationToken),
+                        : r.ExtractAsync(messages, cancellationToken), cancellationToken),
                     strategy, MergeStrategyFactory.CreateRelationshipStrategy, "relationship",
                     MemoryItemKind.Relationship, MemoryErrorCodes.RelationshipExtractionFailed, cancellationToken)
                 : EmptyRun<ExtractedRelationship>();
@@ -588,6 +588,15 @@ internal sealed class ExtractionStage : IExtractionStage
 
     /// <summary>How much of a skipped item's text its Validation outcome carries.</summary>
     private const int MaxValidationSourceKeyLength = 120;
+
+    /// <summary>
+    /// RVW-REST-WRITER (writer-2): an extractor built on <see cref="ExtractorBase{T}"/> is run without its own containment, so
+    /// a failure reaches <see cref="ExtractSafeAsync"/> (a Failed outcome; FailFast stops) instead of reading as an empty
+    /// success. Any other extractor runs as it always did.
+    /// </summary>
+    private static Task<IReadOnlyList<T>> Uncontained<T>(object extractor, ExtractionWindow window, Func<Task<IReadOnlyList<T>>> otherwise,
+        CancellationToken cancellationToken) =>
+        extractor is ExtractorBase<T> based ? based.ExtractUncontainedAsync(window, cancellationToken) : otherwise();
 
     private static Task<(IReadOnlyList<T> Items, IReadOnlyList<IngestionItemOutcome> Outcomes)> EmptyRun<T>() where T : class =>
         Task.FromResult<(IReadOnlyList<T>, IReadOnlyList<IngestionItemOutcome>)>(

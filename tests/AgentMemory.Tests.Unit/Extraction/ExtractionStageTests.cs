@@ -749,6 +749,40 @@ public sealed class ExtractionStageTests
             o.ErrorCode == MemoryErrorCodes.RelationshipValidationFailed && o.SourceKey == "Alice->Acme");
     }
 
+    // RVW-REST-WRITER (the review's writer-2): ExtractorBase contains a provider failure for its direct callers (an empty
+    // list), so in the pipeline a per-kind extractor that threw read as a successful turn that stored nothing, and
+    // FailFast never fired. The stage takes the uncontained path: the failure is a Failed outcome, and FailFast stops.
+    private sealed class ProviderFails : ExtractorBase<ExtractedFact>, IFactExtractor
+    {
+        public ProviderFails() : base(Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance) { }
+        protected override Task<IReadOnlyList<ExtractedFact>> ExtractCoreAsync(IReadOnlyList<Message> messages, CancellationToken cancellationToken) =>
+            throw new HttpRequestException("401 Unauthorized");
+    }
+
+    [Fact]
+    public async Task ExtractAsync_ABaseClassExtractorWhoseProviderFails_RecordsAFailedOutcome()
+    {
+        var sut = CreateSut(factExtractors: new IFactExtractor[] { new ProviderFails() });
+
+        var result = await sut.ExtractAsync(TestMessages, ExtractionTypes.All);
+
+        result.Outcomes.Should().ContainSingle(o =>
+            o.Kind == MemoryItemKind.Fact && o.Stage == IngestionStage.Extraction && o.Status == IngestionItemStatus.Failed &&
+            o.ErrorCode == MemoryErrorCodes.FactExtractionFailed && o.ErrorMessage == "401 Unauthorized");
+        (await new ProviderFails().ExtractAsync(TestMessages)).Should().BeEmpty("a direct caller still gets the contained, empty result");
+    }
+
+    [Fact]
+    public async Task ExtractAsync_ABaseClassExtractorWhoseProviderFails_StopsUnderFailFast()
+    {
+        var sut = CreateSut(factExtractors: new IFactExtractor[] { new ProviderFails() },
+            options: new ExtractionOptions { FailureMode = IngestionFailureMode.FailFast });
+
+        var act = () => sut.ExtractAsync(TestMessages, ExtractionTypes.All);
+
+        await act.Should().ThrowAsync<MemoryIngestionException>();
+    }
+
     [Fact]
     public async Task ExtractAsync_EntityFailsValidation_RecordsSkippedOutcome()
     {

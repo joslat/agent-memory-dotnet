@@ -86,4 +86,13 @@ public abstract class ExtractorBase<T>
             return Array.Empty<T>();
         }
     }
+
+    /// <summary>
+    /// RVW-REST-WRITER (the review's writer-2): the same extraction without the containment, for the extraction stage. A
+    /// direct caller keeps the contained result (an empty list on failure); the stage, which contains each kind's failure
+    /// itself, sees the exception, records it as a Failed outcome and stops under FailFast. Through the contained path a
+    /// provider failure read as a successful turn that stored nothing.
+    /// </summary>
+    internal Task<IReadOnlyList<T>> ExtractUncontainedAsync(ExtractionWindow window, CancellationToken cancellationToken) =>
+        window.Targets.Count == 0 ? Task.FromResult<IReadOnlyList<T>>(Array.Empty<T>()) : ExtractCoreWithContextAsync(window, cancellationToken);
 }

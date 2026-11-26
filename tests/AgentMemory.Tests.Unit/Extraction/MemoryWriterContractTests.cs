@@ -643,6 +643,28 @@ public sealed class MemoryWriterContractTests : IDisposable
         result.Outcomes.Should().ContainSingle().Which.ErrorMessage.Should().Contain(nameof(MemoryWriterOps.DropReason.ConnectionEndEmpty));
     }
 
+    // RVW-REST-WRITER (the review's writer-4): a connection not stated as "A -[RELATION]-> B" was thrown away at the end,
+    // with no fact, no connection and no trace. A fact-shaped one is kept as the fact it states; any other is reported.
+    [Fact]
+    public async Task A_connection_written_as_a_fact_is_kept_as_that_fact()
+    {
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"relationship","text":"Ana | sister of | user","quote":"Ana is my sister"}]}""");
+        var result = await Write("Ana is my sister.");
+        result.Facts.Should().ContainSingle().Which.Should().BeEquivalentTo(new { Subject = "Ana", Predicate = "sister of" }, o => o.ExcludingMissingMembers());
+        result.Outcomes.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_connection_that_is_neither_form_is_reported_when_dropped()
+    {
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"relationship","text":"Ana is my sister","quote":"Ana is my sister"}]}""");
+        var result = await Write("Ana is my sister.");
+        _calls.Should().HaveCount(1, "only a rewrite could fix it: reported at once, not sent back");
+        result.Facts.Should().BeEmpty();
+        result.Relationships.Should().BeEmpty();
+        result.Outcomes.Should().ContainSingle().Which.ErrorMessage.Should().Contain(nameof(MemoryWriterOps.DropReason.RelationshipFormatInvalid));
+    }
+
     [Fact]
     public async Task An_empty_end_never_takes_the_correction_meant_for_another_operation()
     {

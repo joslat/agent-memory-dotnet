@@ -521,7 +521,10 @@ internal sealed class LlmExtractionRunner
     /// string literals, so trailing prose or a brace inside a string value cannot over-capture.
     /// Returns null when no balanced container is present.
     /// </summary>
-    internal static string? ExtractJson(string? raw)
+    /// <param name="raw">The model's reply.</param>
+    /// <param name="firstContainer">Take the container that opens first, object or array, instead of preferring an object
+    /// anywhere: a reply that is a bare list then keeps every element (RVW-REST-WRITER, writer-1).</param>
+    internal static string? ExtractJson(string? raw, bool firstContainer = false)
     {
         if (string.IsNullOrWhiteSpace(raw)) return null;
         var text = raw.Trim();
@@ -548,8 +551,10 @@ internal sealed class LlmExtractionRunner
         int objStart = text.IndexOf('{');
         int arrStart = text.IndexOf('[');
 
-        // Prefer an object (the DTO shape); fall back to an array.
-        int start = objStart >= 0 ? objStart : arrStart;
+        // Prefer an object (the DTO shape); fall back to an array. Or the first that opens, when asked.
+        int start = firstContainer && arrStart >= 0 && (objStart < 0 || arrStart < objStart)
+            ? arrStart
+            : objStart >= 0 ? objStart : arrStart;
         if (start < 0) return null;
 
         int end = FindMatchingClose(text, start);

@@ -151,6 +151,31 @@ public sealed class MemoryWriterTests
         }, o => o.WithStrictOrdering());
     }
 
+    // RVW-REST-WRITER (the review's writer-1): a reply with no "ops" list was read as a successful empty answer, so the
+    // turn was lost with no retry, log or outcome. A bare list, "Ops" or "operations", or a lone op object are the
+    // answer; "{}" is an empty one; any other shape is no answer, so the writer asks again (and can fall back).
+    [Theory]
+    [InlineData("[{\"op\": \"add\", \"text\": \"user | lives in | Madrid\", \"quote\": \"I live in Madrid\"}]")]
+    [InlineData("```json\n[{\"op\": \"add\", \"text\": \"user | lives in | Madrid\"}]\n```")]
+    [InlineData("{\"Ops\": [{\"op\": \"add\", \"text\": \"user | lives in | Madrid\"}]}")]
+    [InlineData("{\"operations\": [{\"op\": \"add\", \"text\": \"user | lives in | Madrid\"}]}")]
+    [InlineData("{\"op\": \"add\", \"text\": \"user | lives in | Madrid\"}")]
+    public void Other_shapes_of_the_answer_are_read_as_the_answer(string reply)
+    {
+        MemoryWriterOps.TryParse(reply, 6, out var ops).Should().BeTrue();
+
+        ops.Should().ContainSingle().Which.Text.Should().Be("user | lives in | Madrid");
+    }
+
+    [Fact]
+    public void An_empty_object_is_an_empty_answer_and_any_other_shape_is_no_answer()
+    {
+        MemoryWriterOps.TryParse("{}", 6, out var none).Should().BeTrue();
+        none.Should().BeEmpty();
+        MemoryWriterOps.TryParse("{\"facts\": [\"user | lives in | Madrid\"]}", 6, out _).Should().BeFalse();
+        MemoryWriterOps.TryParse("{\"ops\": \"none\"}", 6, out _).Should().BeFalse();
+    }
+
     [Fact]
     public void Only_the_first_entries_up_to_the_cap_are_read()
     {
@@ -170,13 +195,13 @@ public sealed class MemoryWriterTests
         MemoryWriterOps.TryParse(reply, 6, out _).Should().BeFalse();
     }
 
-    [Theory]
-    [InlineData("{}")]
-    [InlineData("{\"kinds\": [\"fact\"]}")]
-    [InlineData("{\"ops\": \"none\"}")]
-    public void A_JSON_object_without_an_ops_list_is_nothing_to_keep_as_the_harness_read_it(string reply)
+    // RVW-REST-WRITER (writer-1): only "{}" is an empty answer now; an object of another shape ({"kinds": [...]},
+    // {"ops": "none"}) was read "as the harness read it", as nothing to keep, which lost the turn silently. It is no
+    // answer, so the writer asks again (An_empty_object_is_an_empty_answer_and_any_other_shape_is_no_answer).
+    [Fact]
+    public void An_empty_JSON_object_is_nothing_to_keep()
     {
-        MemoryWriterOps.TryParse(reply, 6, out var ops).Should().BeTrue();
+        MemoryWriterOps.TryParse("{}", 6, out var ops).Should().BeTrue();
         ops.Should().BeEmpty();
     }
 

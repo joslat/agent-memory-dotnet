@@ -6,6 +6,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **The store-aware writer no longer loses turns without a trace** (review of main, writer):
+  - *A reply in another shape is read as the answer, or asked again* (writer-1): a bare list of operations, `Ops` or
+    `operations`, or one operation object are read as the answer; `{}` is an empty one; any other shape is no answer, so
+    the writer asks again and can fall back. Before, a reply without an `ops` list was a successful empty answer: the
+    turn stored nothing, with no retry, log or outcome.
+  - *An extractor's provider failure is a Failed outcome* (writer-2): `ExtractorBase` keeps returning an empty list to
+    its direct callers, but the extraction stage now sees the exception, records it, and stops under `FailFast`; a
+    per-kind extraction that failed (or a writer fallback to it) read as a successful turn that stored nothing.
+  - *A quote that is not in the message is not "fixed" by dropping it* (writer-3): under the identity contract, an
+    operation dropped for its quote and sent back with an empty quote was accepted and the unsupported memory written.
+  - *A connection not written as "A -[RELATION]-> B" is not thrown away silently* (writer-4): kept as the fact it states
+    when it is one ("Ana | sister of | user"), otherwise reported (`RelationshipFormatInvalid`).
+  - *A re-assertion without a quote drops the earlier message's quote offsets* (writer-5), which pointed into the wrong
+    message once the fact's sources were replaced.
+  - *A replacement whose target was not shown is named* (writer-6): written as an addition, as before, with a warning and
+    a span tag (`memory.write.replacement_unresolved`) instead of nothing.
+
 - **Storage fixes from the review of main** (storage):
   - *A restated fact in other casing no longer writes its whole batch twice* (storage-2): the fused batch returns the
     stored node with its stored text, and persistence matched results on the raw text, so "user | likes | coffee"
