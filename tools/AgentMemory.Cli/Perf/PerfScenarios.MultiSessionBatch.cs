@@ -9,11 +9,19 @@ public static partial class PerfScenarios
 {
     private const int MultiSessionBatchUnitCount = 8;
     private const int MultiSessionBatchTokenBudget = 100_000;
-    private const int MultiSessionEmbeddingRequestCount = 25;
-    private const int MultiSessionEmbeddingItemCount = 56;
-    private const int MultiSessionQueryCount = 185;
-    private const int MultiSessionReadTransactionCount = 24;
-    private const int MultiSessionWriteTransactionCount = 49;
+    // Re-pinned 26 Nov 2026 (PERF-W11-ONE-OWNER), measured on the hermetic profile; last pinned 4 Aug 2026. Since then:
+    // one owner per run (entity resolution reads each type's snapshot once per owner: 2 reads, was 16 with an owner per
+    // source); the working-memory block is rebuilt after each source's commit (5 reads and 1 write each); each source's
+    // commit runs one more entity and one more fact statement; every source's names are distinct texts (17 embedding
+    // requests: the messages in one, then two per source; 40 items: 8 messages, 16 entities, 8 facts, 8 preferences).
+    private const int MultiSessionEmbeddingRequestCount = 17;
+    private const int MultiSessionEmbeddingItemCount = 40;
+    private const int MultiSessionQueryCount = 227;
+    private const int MultiSessionReadTransactionCount = 58;
+    private const int MultiSessionWriteTransactionCount = 57;
+    private const int MultiSessionCoalescedQueryCount = 99;
+    private const int MultiSessionCoalescedReadTransactionCount = 42;
+    private const int MultiSessionCoalescedWriteTransactionCount = 17;
     private const int MultiSessionPersistedItemCount = 8;
 
     private static async Task RunMultiSessionBatchAsync(ScenarioContext context, int batchSize)
@@ -38,16 +46,14 @@ public static partial class PerfScenarios
 
         // Deliberately reverse the requests. The product batch pipeline must restore source chronology
         // before model batching and before the sequential resolution/persistence commits.
-        var requests = messages.AsEnumerable().Reverse().Select((message, reverseIndex) =>
+        var requests = messages.AsEnumerable().Reverse().Select(message => new ExtractionRequest
         {
-            var unit = MultiSessionBatchUnitCount - reverseIndex - 1;
-            return new ExtractionRequest
-            {
-                Messages = [message],
-                SessionId = message.SessionId,
-                UserId = MultiSessionOwnerId(batchSize, context.Phase, context.Iteration, unit),
-                TypesToExtract = ExtractionTypes.All,
-            };
+            Messages = [message],
+            SessionId = message.SessionId,
+            // PERF-W11-ONE-OWNER: one owner for the run. Batches are formed per owner (RVW-BATCH-OWNERS), so an owner
+            // per source would measure one-session batches whatever the batch size.
+            UserId = MultiSessionOwnerId(batchSize, context.Phase, context.Iteration),
+            TypesToExtract = ExtractionTypes.All,
         }).ToArray();
 
         var pipeline = scope.ServiceProvider.GetRequiredService<IMemoryExtractionPipeline>();
@@ -71,11 +77,11 @@ public static partial class PerfScenarios
             result.SourceMessageIds.Count == 1);
         var orderExact = returnedSessions.SequenceEqual(chronologicalSessions, StringComparer.Ordinal);
         var expectedReads = context.Profile.UseCoalescedPersistenceTransactions
-            ? 16 : MultiSessionReadTransactionCount;
+            ? MultiSessionCoalescedReadTransactionCount : MultiSessionReadTransactionCount;
         var expectedWrites = context.Profile.UseCoalescedPersistenceTransactions
-            ? 9 : MultiSessionWriteTransactionCount;
+            ? MultiSessionCoalescedWriteTransactionCount : MultiSessionWriteTransactionCount;
         var expectedQueries = context.Profile.UseCoalescedPersistenceTransactions
-            ? 57 : MultiSessionQueryCount;
+            ? MultiSessionCoalescedQueryCount : MultiSessionQueryCount;
         var callsExact =
             context.Turn.Counter("llm.calls") == expectedCalls &&
             context.Turn.Counter("llm.unified_batch.calls") == expectedCalls &&
@@ -122,10 +128,16 @@ public static partial class PerfScenarios
         ScenarioVerificationContext context,
         int batchSize)
     {
+        // PERF-W11-ONE-OWNER: every source shares the run's owner, so each unit is read back through its own source
+        // message (what was extracted from it), then the owner as a whole (nothing folded across units, nothing crossed
+        // owners), and only then is anything cleaned.
+        var ownerId = MultiSessionOwnerId(batchSize, context.Phase, context.Iteration);
+        var sessionIds = Enumerable.Range(0, MultiSessionBatchUnitCount)
+            .Select(unit => MultiSessionSessionId(batchSize, context.Phase, context.Iteration, unit)).ToArray();
+        await using var session = context.Profile.Driver.AsyncSession();
         for (var unit = 0; unit < MultiSessionBatchUnitCount; unit++)
         {
-            var sessionId = MultiSessionSessionId(batchSize, context.Phase, context.Iteration, unit);
-            var ownerId = MultiSessionOwnerId(batchSize, context.Phase, context.Iteration, unit);
+            var sessionId = sessionIds[unit];
             var messageId = $"{sessionId}-message";
             const string verifyCypher = """
                 CALL {
@@ -133,31 +145,30 @@ public static partial class PerfScenarios
                     RETURN count(m) AS messages,
                            count(CASE WHEN size(m.embedding) = $dimensions THEN 1 END) AS messageVectors
                 }
-                CALL { MATCH (e:Entity {owner_id: $ownerId}) RETURN count(e) AS entities }
-                CALL { MATCH (f:Fact {owner_id: $ownerId}) RETURN count(f) AS facts }
-                CALL { MATCH (p:Preference {owner_id: $ownerId}) RETURN count(p) AS preferences }
+                CALL {
+                    MATCH (e:Entity {owner_id: $ownerId})-[:EXTRACTED_FROM]->(:Message {id: $messageId})
+                    RETURN count(DISTINCT e) AS entities
+                }
+                CALL {
+                    MATCH (f:Fact {owner_id: $ownerId})-[:EXTRACTED_FROM]->(:Message {id: $messageId})
+                    RETURN count(DISTINCT f) AS facts
+                }
+                CALL {
+                    MATCH (p:Preference {owner_id: $ownerId})-[:EXTRACTED_FROM]->(:Message {id: $messageId})
+                    RETURN count(DISTINCT p) AS preferences
+                }
                 CALL {
                     MATCH (:Entity {owner_id: $ownerId})-[r:RELATED_TO]->(:Entity {owner_id: $ownerId})
-                    WHERE r.owner_id = $ownerId AND r.relation_type = 'WORKS_AT'
-                    RETURN count(r) AS relationships,
-                           count(CASE WHEN $messageId IN r.source_message_ids THEN 1 END) AS relationshipSources
+                    WHERE r.owner_id = $ownerId AND r.relation_type = 'WORKS_AT' AND $messageId IN r.source_message_ids
+                    RETURN count(r) AS relationships
                 }
                 CALL {
                     MATCH (memory)-[:EXTRACTED_FROM]->(:Message {id: $messageId})
                     WHERE memory.owner_id = $ownerId
                     RETURN count(*) AS provenance
                 }
-                CALL {
-                    MATCH (source:Entity)-[r:RELATED_TO]->(target:Entity)
-                    WHERE r.owner_id = $ownerId
-                      AND (source.owner_id <> $ownerId OR target.owner_id <> $ownerId)
-                    RETURN count(r) AS crossOwnerEdges
-                }
-                RETURN messages, messageVectors, entities, facts, preferences, relationships,
-                       relationshipSources, provenance, crossOwnerEdges
+                RETURN messages, messageVectors, entities, facts, preferences, relationships, provenance
                 """;
-
-            await using var session = context.Profile.Driver.AsyncSession();
             var cursor = await session.RunAsync(
                 verifyCypher,
                 new { sessionId, ownerId, messageId, dimensions = context.Profile.Dimensions })
@@ -170,35 +181,62 @@ public static partial class PerfScenarios
                 record["facts"].As<long>() == 1 &&
                 record["preferences"].As<long>() == 1 &&
                 record["relationships"].As<long>() == 1 &&
-                record["relationshipSources"].As<long>() == 1 &&
-                record["provenance"].As<long>() == 4 &&
-                record["crossOwnerEdges"].As<long>() == 0;
+                record["provenance"].As<long>() == 4;
             if (!exact)
                 throw new InvalidOperationException(
-                    $"PERF-W-11-B{batchSize:D2} graph/provenance/isolation failed for source session {unit}.");
-
-            const string cleanupCypher = """
-                MATCH (n)
-                WHERE n.owner_id = $ownerId
-                   OR n.session_id = $sessionId
-                   OR n.id = $conversationId
-                DETACH DELETE n
-                WITH count(n) AS deleted
-                OPTIONAL MATCH (remaining)
-                WHERE remaining.owner_id = $ownerId
-                   OR remaining.session_id = $sessionId
-                   OR remaining.id = $conversationId
-                RETURN deleted, count(remaining) AS remaining
-                """;
-            var cleanup = await session.RunAsync(
-                cleanupCypher,
-                new { sessionId, ownerId, conversationId = $"{sessionId}-conversation" })
-                .ConfigureAwait(false);
-            var cleanupRecord = await cleanup.SingleAsync().ConfigureAwait(false);
-            if (cleanupRecord["deleted"].As<long>() == 0 || cleanupRecord["remaining"].As<long>() != 0)
-                throw new InvalidOperationException(
-                    $"PERF-W-11-B{batchSize:D2} did not clean source session {unit}.");
+                    $"PERF-W-11-B{batchSize:D2} graph/provenance failed for source session {unit} (messages/vectors/entities/" +
+                    $"facts/preferences/relationships/provenance={record["messages"]}/{record["messageVectors"]}/" +
+                    $"{record["entities"]}/{record["facts"]}/{record["preferences"]}/{record["relationships"]}/{record["provenance"]}).");
         }
+
+        const string ownerCypher = """
+            CALL { MATCH (e:Entity {owner_id: $ownerId}) RETURN count(e) AS entities }
+            CALL { MATCH (f:Fact {owner_id: $ownerId}) RETURN count(f) AS facts }
+            CALL { MATCH (p:Preference {owner_id: $ownerId}) RETURN count(p) AS preferences }
+            CALL {
+                MATCH (:Entity)-[r:RELATED_TO]->(:Entity)
+                WHERE r.owner_id = $ownerId
+                RETURN count(r) AS relationships
+            }
+            CALL {
+                MATCH (source:Entity)-[r:RELATED_TO]->(target:Entity)
+                WHERE r.owner_id = $ownerId
+                  AND (source.owner_id <> $ownerId OR target.owner_id <> $ownerId)
+                RETURN count(r) AS crossOwnerEdges
+            }
+            RETURN entities, facts, preferences, relationships, crossOwnerEdges
+            """;
+        var owner = await (await session.RunAsync(ownerCypher, new { ownerId }).ConfigureAwait(false))
+            .SingleAsync().ConfigureAwait(false);
+        if (owner["entities"].As<long>() != MultiSessionBatchUnitCount * 2 ||
+            owner["facts"].As<long>() != MultiSessionBatchUnitCount ||
+            owner["preferences"].As<long>() != MultiSessionBatchUnitCount ||
+            owner["relationships"].As<long>() != MultiSessionBatchUnitCount ||
+            owner["crossOwnerEdges"].As<long>() != 0)
+            throw new InvalidOperationException(
+                $"PERF-W-11-B{batchSize:D2} owner shape/isolation failed (entities/facts/preferences/relationships/cross=" +
+                $"{owner["entities"]}/{owner["facts"]}/{owner["preferences"]}/{owner["relationships"]}/{owner["crossOwnerEdges"]}).");
+
+        const string cleanupCypher = """
+            MATCH (n)
+            WHERE n.owner_id = $ownerId
+               OR n.session_id IN $sessionIds
+               OR n.id IN $conversationIds
+            DETACH DELETE n
+            WITH count(n) AS deleted
+            OPTIONAL MATCH (remaining)
+            WHERE remaining.owner_id = $ownerId
+               OR remaining.session_id IN $sessionIds
+               OR remaining.id IN $conversationIds
+            RETURN deleted, count(remaining) AS remaining
+            """;
+        var cleanup = await session.RunAsync(
+            cleanupCypher,
+            new { ownerId, sessionIds, conversationIds = sessionIds.Select(id => $"{id}-conversation").ToArray() })
+            .ConfigureAwait(false);
+        var cleanupRecord = await cleanup.SingleAsync().ConfigureAwait(false);
+        if (cleanupRecord["deleted"].As<long>() == 0 || cleanupRecord["remaining"].As<long>() != 0)
+            throw new InvalidOperationException($"PERF-W-11-B{batchSize:D2} did not clean its owner and sources.");
     }
 
     private static Message MultiSessionMessage(int batchSize, string phase, int iteration, int unit)
@@ -218,6 +256,6 @@ public static partial class PerfScenarios
     private static string MultiSessionSessionId(int batchSize, string phase, int iteration, int unit) =>
         $"perf-w11-b{batchSize:D2}-{phase}-{iteration}-session-{unit:D2}";
 
-    private static string MultiSessionOwnerId(int batchSize, string phase, int iteration, int unit) =>
-        $"perf-w11-b{batchSize:D2}-{phase}-{iteration}-owner-{unit:D2}";
+    private static string MultiSessionOwnerId(int batchSize, string phase, int iteration) =>
+        $"perf-w11-b{batchSize:D2}-{phase}-{iteration}-owner";
 }

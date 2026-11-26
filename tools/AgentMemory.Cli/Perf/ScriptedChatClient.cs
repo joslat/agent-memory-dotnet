@@ -105,8 +105,11 @@ public sealed class ScriptedChatClient : IChatClient
             return MultiSessionPayload(prompt, useLexicalIdentity: true, useCapacityLabels: true);
         if (prompt.Contains("LAB-X1 source", StringComparison.Ordinal))
             return MultiSessionPayload(prompt, useLexicalIdentity: true);
+        // PERF-W11-ONE-OWNER: the batch arms put all eight sources under one owner (batches are per owner), so their
+        // people need names the resolver keeps apart: "Person 00"/"Person 01" and "Person amber"/"Person ember" are
+        // fuzzy matches it folds; the capacity labels are generated to stay apart.
         if (prompt.Contains("LAB-B1 source", StringComparison.Ordinal))
-            return MultiSessionPayload(prompt, useLexicalIdentity: false);
+            return MultiSessionPayload(prompt, useLexicalIdentity: true, useCapacityLabels: true);
 
         foreach (var rule in _rules)
         {

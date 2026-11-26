@@ -83,18 +83,21 @@ public sealed class ScriptedChatClientTests
             .Should().Equal("Person amber", "Person birch", "Person cobalt", "Person dahlia");
     }
 
+    // PERF-W11-ONE-OWNER: the batch arms put their eight sources under one owner, where "Person 06" and "Person 07" are a
+    // fuzzy match the resolver folds into one person; they take the capacity arm's generated labels instead.
     [Fact]
-    public void AliasKeyedBatchBatch_UsesUnitDigitsIdentity()
+    public void AliasKeyedBatchBatch_UsesTheCapacityLabelsSoOneOwnersPeopleStayApart()
     {
-        using var document = Respond(AliasBatch("B1", 2, 6, 7));
-        var root = document.RootElement;
+        using var batch = Respond(AliasBatch("B1", 2, 6, 7));
+        using var capacity = Respond(AliasBatch("N1", 2, 6, 7));
+        static string[] Subjects(JsonDocument document) =>
+            [.. document.RootElement.GetProperty("facts").EnumerateArray().Select(fact => fact.GetProperty("subject").GetString()!)];
 
-        root.GetProperty("processed_source_sessions")
+        batch.RootElement.GetProperty("processed_source_sessions")
             .EnumerateArray().Select(value => value.GetString())
             .Should().Equal("s1", "s2");
-        root.GetProperty("facts").EnumerateArray()
-            .Select(fact => fact.GetProperty("subject").GetString()!)
-            .Should().Equal("Person 06", "Person 07");
+        Subjects(batch).Should().Equal(Subjects(capacity));
+        Subjects(batch).Should().OnlyHaveUniqueItems().And.NotContain(["Person 06", "Person 07"]);
     }
 
     [Fact]

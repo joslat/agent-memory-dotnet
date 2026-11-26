@@ -252,7 +252,7 @@ public sealed class PerfScenarioCatalogTests
             scenario.Description.Should().ContainEquivalentOf("multi-session");
             scenario.Description.Should().ContainEquivalentOf($"batch size {batchSize}");
             scenario.SupportsInterleavedAb.Should().BeFalse(
-                "each arm persists eight owner-isolated source sessions");
+                "each arm persists eight source sessions of one owner, batched per owner");
             scenario.SetupAsync.Should().BeNull();
             scenario.VerifyAsync.Should().NotBeNull(
                 "graph shape, per-session provenance, ordering, and isolation must be read back");
