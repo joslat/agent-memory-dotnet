@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Names that say they are different things are never offered for review** (ER-CANNOT-LINK, the entity study's R14):
+  evidence-based identity rejects a candidate, whatever its fuzzy or semantic score, when both names carry numbers (digits,
+  or roman II to XVI) and neither's are among the other's ("invoice batch 6" and "invoice batch 1", 0.93 fuzzy), both name
+  a month with none in common, the words differ only by a negation ("non-smoking room"), or one name is two letters or
+  fewer, not the same letters and not a whole word of the other ("Al" and "Ali"). Rejected, it cannot be confirmed by the
+  writer's reference or the adjudicator either; a host-verified key, or an alias equal to the mention, still decides. A
+  prefix is not a reason ("Priya" for "Priya Nair", "Kansas" and "Kansas City" stay reviewable). On the Identity Kinds tier
+  1, the six numbered filler batches of each S02-later case are no longer proposed to each other: 70 fewer open proposals in
+  each identity arm (247 to 177, 214 to 144), no verdict moved (baseline version 4).
+
 - **Two ways a writer's reference merged namesakes are closed** (IDENTITY-THING-NAMESAKES; traced in the sealed who's-who
   v4, where the writer's reference made 9 of the 10 confirmations into a wrong identity):
   - *A rediscovered exact candidate no longer takes a namesake's slot.* The approximate routes find the exact candidates

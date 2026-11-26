@@ -117,6 +117,12 @@ internal static class IdentityPolicy
                 confirmed.Add(id);
                 reasons[id] = pairs.Count > 0 ? "verified_key_equal" : uniqueName ? "unique_name_in_namespace" : "verified_alias";
             }
+            else if (!entity.Aliases.Any(alias => SameName(alias, mention.Name)) && CannotLink(mention.Name, entity.Name) is { } cannot)
+            {
+                // ER-CANNOT-LINK: the names say they are different things, so nothing later may confirm them.
+                rejected.Add(id);
+                reasons[id] = cannot;
+            }
             else if (exactName || entity.Aliases.Any(alias => SameName(alias, mention.Name)) ||
                 candidate.VerifiedAliases.Any(alias => SameName(alias.Surface, mention.Name)) ||
                 candidate.Signals.FuzzySimilarity >= policy.FuzzyReviewThreshold ||
@@ -242,6 +248,57 @@ internal static class IdentityPolicy
 
     private static bool InRange(double? value, double min, double max) =>
         !value.HasValue || double.IsFinite(value.Value) && value >= min && value <= max;
+
+    private static readonly HashSet<string> Months = new(StringComparer.Ordinal)
+    {
+        "january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december",
+        "jan", "feb", "apr", "jun", "jul", "aug", "sept", "oct", "nov", "dec",
+    };
+
+    private static readonly HashSet<string> RomanNumerals = new(StringComparer.Ordinal)
+    { "ii", "iii", "iv", "vi", "vii", "viii", "ix", "xi", "xii", "xiii", "xiv", "xv", "xvi" };
+
+    private static readonly HashSet<string> Negations = new(StringComparer.Ordinal) { "non", "not", "no", "anti", "ex", "former" };
+
+    /// <summary>
+    /// ER-CANNOT-LINK (the entity study's R14): the reason two names are different things whatever a similarity score says,
+    /// or null. Each rule fires only when both names say it: both carry numbers (digits, or roman II to XVI) and neither's
+    /// are among the other's ("invoice batch 6" and "invoice batch 1"; "Q3 report" and "Q3 2026 report" pass); both name a
+    /// month and none in common; the words differ only by a negation ("non-smoking room"); or one is two letters or fewer,
+    /// not the same letters and not a whole word of the other ("Al" and "Ali"; "UK" and "U.K.", "Jo" and "Jo Smith" pass). A prefix is not a reason: "Priya" is often
+    /// "Priya Nair".
+    /// </summary>
+    internal static string? CannotLink(string mention, string stored)
+    {
+        if (SameName(mention, stored)) return null;
+        static List<string> Words(string name) =>
+            [.. System.Text.RegularExpressions.Regex.Matches(name.ToLowerInvariant(), @"[\p{L}\p{N}]+").Select(match => match.Value)];
+        static List<string> Numbers(List<string> words) =>
+            [.. words.SelectMany(word => System.Text.RegularExpressions.Regex.Matches(word, @"\d+").Select(match => match.Value.TrimStart('0').PadLeft(1, '0')))
+                .Concat(words.Where(RomanNumerals.Contains)).Order(StringComparer.Ordinal)];
+        static bool Within(List<string> part, List<string> whole)
+        {
+            var left = whole.GroupBy(x => x).ToDictionary(g => g.Key, g => g.Count());
+            foreach (var x in part)
+            {
+                if (!left.TryGetValue(x, out var n) || n == 0) return false;
+                left[x] = n - 1;
+            }
+            return true;
+        }
+        var a = Words(mention);
+        var b = Words(stored);
+        var (na, nb) = (Numbers(a), Numbers(b));
+        if (na.Count > 0 && nb.Count > 0 && !Within(na, nb) && !Within(nb, na)) return "cannot_link_numbers";
+        var (ma, mb) = (a.Where(Months.Contains).ToHashSet(), b.Where(Months.Contains).ToHashSet());
+        if (ma.Count > 0 && mb.Count > 0 && !ma.Overlaps(mb)) return "cannot_link_dates";
+        var differ = a.Except(b).Concat(b.Except(a)).ToList();
+        if (differ.Count > 0 && differ.All(Negations.Contains)) return "cannot_link_negation";
+        var (la, lb) = (string.Concat(a.Where(w => w.All(char.IsLetter))), string.Concat(b.Where(w => w.All(char.IsLetter))));
+        if (Math.Min(la.Length, lb.Length) is > 0 and <= 2 && la != lb && !HoldsName(stored, mention) && !HoldsName(mention, stored))
+            return "cannot_link_very_short_name";
+        return null;
+    }
 
     private static bool SameName(string left, string right) =>
         string.Equals(string.Join(" ", left.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)),
