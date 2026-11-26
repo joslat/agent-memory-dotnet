@@ -45,10 +45,13 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
         services.Configure<MemoryOptions>(options =>
         {
             options.WorkingMemory.Enabled = false;
-            // Core builds the extraction stage's options from MemoryOptions.Extraction.
+            // Core builds the extraction stage's options from MemoryOptions.Extraction (RVW-TEST-IDENTITY-HOST-OPTIONS: these three
+            // were set on a separate Configure<ExtractionOptions>, which nothing reads, so the class ran with all of them off).
+            options.Extraction.CanonicalFactSubjects = true;
+            options.Extraction.LinkFactsToEntities = true;
+            options.Extraction.DeduplicateWithinExtraction = true;
             if (!extractedItemCaps) options.Extraction.ItemValidation.MaxFactObjectLength = 0;
         });
-        services.Configure<ExtractionOptions>(options => { options.CanonicalFactSubjects = true; options.LinkFactsToEntities = true; options.DeduplicateWithinExtraction = true; });
         services.Configure<IdentityResolutionOptions>(options =>
         { options.Enabled = enabled; options.MaxAdjudicationsPerIngestion = adjudicator is null ? 0 : 2; if (identityPolicy is not null) options.Policies["EVENT"] = identityPolicy;
           if (conversationalPolicies) options.ApplyConversationalPolicies(); });
@@ -75,6 +78,18 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
     { var cursor = await runner.RunAsync("MATCH " + pattern + " RETURN count(*) AS n"); return ValueExtensions.As<long>((await cursor.SingleAsync())["n"]); });
     private static Task<Entity> Seed(IServiceProvider services, string name, string type = "EVENT") => services.GetRequiredService<IEntityRepository>().UpsertAsync(new()
     { EntityId = "existing", Name = name, Type = type, OwnerId = "pablito", Confidence = 1, CreatedAtUtc = DateTimeOffset.UnixEpoch });
+
+    // RVW-TEST-IDENTITY-HOST-OPTIONS: the host meant these three on, but set them on a Configure<ExtractionOptions> that nothing
+    // reads (Core builds the stage's options from MemoryOptions.Extraction), so the class ran with all of them off.
+    [Fact]
+    public void The_host_s_extraction_options_reach_the_extraction_stage()
+    {
+        using var host = Host();
+        var options = host.GetRequiredService<IOptions<ExtractionOptions>>().Value;
+        options.CanonicalFactSubjects.Should().BeTrue();
+        options.LinkFactsToEntities.Should().BeTrue();
+        options.DeduplicateWithinExtraction.Should().BeTrue();
+    }
 
     [Fact]
     public async Task Similarity_preserves_original_fact_and_existing_identity_and_stores_pending_support()
