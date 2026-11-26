@@ -52,6 +52,24 @@ public sealed class SharedWriteIntegrationTests : IAsyncLifetime
         (await RecalledAsync(provider, "ana")).Should().Equal(["Bilbao", "Porto"]);
     }
 
+    // RVW-REST-IDENTITY (the review's identity-3): a write with no owner reads shared memory only, so it never resolves
+    // into (and writes its aliases and sources onto) another owner's private entity.
+    [Fact]
+    public async Task A_write_with_no_owner_does_not_resolve_into_another_owners_private_entity()
+    {
+        var provider = Build(MemoryIsolationMode.SingleTenant);
+
+        await ExtractAsync(provider, owner: "bob", "Dana Whitfield joined Contoso.");
+        await ExtractAsync(provider, owner: null, "Dana Whitfield joined Contoso.");
+
+        (await CountAsync("MATCH (e:Entity {name: 'Dana Whitfield', owner_id: 'bob'}) RETURN count(e)")).Should().Be(1);
+        (await CountAsync("MATCH (e:Entity {name: 'Dana Whitfield'}) WHERE e.owner_id IS NULL RETURN count(e)")).Should().Be(1,
+            "the ownerless mention is its own shared entity");
+        (await CountAsync("MATCH (e:Entity {name: 'Dana Whitfield', owner_id: 'bob'}) RETURN size(e.source_message_ids)")).Should().Be(1,
+            "bob's entity carries only bob's message");
+        (await CountAsync("MATCH (e:Entity {name: 'Dana Whitfield', owner_id: 'bob'})-[:EXTRACTED_FROM]->(m:Message) RETURN count(m)")).Should().BeLessThanOrEqualTo(1);
+    }
+
     [Fact]
     public async Task Strict_isolation_still_stores_a_deliberately_shared_write_as_shared()
     {
@@ -91,6 +109,7 @@ public sealed class SharedWriteIntegrationTests : IAsyncLifetime
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton<IFactExtractor, ScriptedFacts>();
+        services.AddSingleton<IEntityExtractor, ScriptedEntities>();
         services.AddNeo4jAgentMemory(
             configureMemory: o => o.Isolation.Mode = mode,
             configureNeo4j: o =>
@@ -155,7 +174,16 @@ public sealed class SharedWriteIntegrationTests : IAsyncLifetime
             {
                 "The office is in Bilbao." => new ExtractedFact { Subject = "office", Predicate = "located in", Object = "Bilbao", Confidence = 0.95 },
                 "I live in Porto." => new ExtractedFact { Subject = "user", Predicate = "lives in", Object = "Porto", Confidence = 0.95 },
+                "Dana Whitfield joined Contoso." => new ExtractedFact { Subject = "Dana Whitfield", Predicate = "works at", Object = "Contoso", Confidence = 0.95 },
                 _ => throw new InvalidOperationException($"No script for '{m.Content}'."),
             })]);
+    }
+
+    private sealed class ScriptedEntities : IEntityExtractor
+    {
+        public Task<IReadOnlyList<ExtractedEntity>> ExtractAsync(IReadOnlyList<Message> messages, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<ExtractedEntity>>([.. messages
+                .Where(m => m.Content.Contains("Dana Whitfield", StringComparison.Ordinal))
+                .Select(_ => new ExtractedEntity { Name = "Dana Whitfield", Type = "PERSON", Confidence = 0.95 })]);
     }
 }

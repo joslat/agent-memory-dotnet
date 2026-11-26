@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **An extraction with no owner reads shared memory only** (review of main, identity-3). A write that names no owner
+  is stored as shared; under the default `SingleTenant` (and `WarnOnUnscoped`) isolation it nevertheless read with the
+  Global scope, so entity resolution could match another owner's private entity and write the shared message's aliases
+  and sources onto it (and supersession and deduplication saw every owner's facts). It now reads shared-only, as a
+  `ShareWithEveryone` request and the evidence-based identity path already did (G-15). A store whose memories all
+  have no owner sees no change.
+- **A model's "same" verdict no longer binds an owner's mention to shared knowledge** (review of main, identity-6).
+  With evidence-based identity and contextual confirmation on (PERSON, ORGANIZATION and EVENT under the
+  conversational policies), the assessor's verdict could confirm a person's mention as a shared entity on the strength
+  of that entity's own source text, which anyone who writes shared memory controls and which can address the assessor.
+  Such a verdict now leaves the proposal for review (`contextual_same_shared_requires_review`), the boundary the
+  previous resolver keeps (36.3); the owner's own candidates are confirmed on context as before.
+
 - **An explicit supersession needs a winner that meets a bar** (threat TT-13). `SupersedeFactAsync`,
   `SupersedePreferenceAsync` and the MCP tool `memory_supersede` refuse, with the new `MemorySupersessionRefusedException`
   (the tool returns `superseded: false` and `refused` with the reason), when the winner has no source message and the

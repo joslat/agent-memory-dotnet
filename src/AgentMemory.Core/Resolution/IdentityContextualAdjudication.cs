@@ -129,6 +129,12 @@ internal sealed class IdentityContextualAdjudication(
         if (!configuration.PolicyFor(mention.Type).AllowContextualConfirmation)
             return Keep("contextual_same_requires_review") with { ContextualEvidence = parsed };
         var selected = candidates.Single(candidate => candidate.Entity.EntityId == parsed.CandidateId).Entity;
+        // RVW-REST-IDENTITY (the review's identity-6): a model's "same" never binds an owner's mention to shared knowledge.
+        // The shared candidate's sources are text anyone who writes shared memory controls, and they can address the
+        // assessor; as the previous resolver's boundary has it (36.3), crossing into shared memory takes more than
+        // context, so the proposal stays for review.
+        if (ownerId is not null && selected.OwnerId is null)
+            return Keep("contextual_same_shared_requires_review") with { ContextualEvidence = parsed };
         var reasons = plan.Result.Reasons.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
         reasons[selected.EntityId] = "contextual_confirmation";
         return plan with

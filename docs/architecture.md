@@ -1251,6 +1251,15 @@ speculative field in `Metadata` until its shape proves stable — see the backlo
   every trace at creation (`ReasoningMemoryService.cs:93`, `.WithTrustLevel(_options.DefaultTraceTrustLevel)`).
   Safe at shipped defaults, since `ModelGenerated` does not reach the `ApplicationTrusted` bypass
   threshold (CHANGELOG: "Reasoning traces carry a trust level").
+- **The previous resolver does not serialize one owner's concurrent ingestions** (review of main, 25 Nov 2026,
+  identity-5, closed as a documented limit). `CompositeEntityResolver`, used when evidence-based identity is off, reads
+  its candidates, then writes a merged entity's full alias and source lists. Two ingestions for the same owner running
+  at once (inline extraction, two app instances, or direct concurrent `ExtractAsync` calls) can each create the same
+  new person (two unlinked entities), or each merge into one entity from a stale copy, so the later write drops the
+  earlier one's alias and source. The in-process background queue serializes per owner within one process, and the
+  evidence-based identity path takes owner scope locks for its writes. Hosts that ingest one owner from several
+  processes at once should use evidence-based identity or the background queue. A union-on-match upsert is not a fix:
+  name correction removes an alias through the same upsert.
 - **Trust is monotonic for entities**: entity resolution (auto-merge/SAME_AS) can hand `PersistenceStage` an
   *existing*, previously-persisted entity — already carrying its own prior `Metadata`/trust level — as the
   resolved match for a brand-new, unrelated mention. `PersistenceStage` takes the higher of the entity's

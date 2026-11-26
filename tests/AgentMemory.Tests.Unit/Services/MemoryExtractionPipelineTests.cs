@@ -159,7 +159,7 @@ public sealed class MemoryExtractionPipelineTests
     }
 
     [Fact]
-    public async Task ExtractAsync_WithoutUserId_ResolvesUnscoped()
+    public async Task ExtractAsync_WithoutUserId_ReadsSharedMemoryOnlyAndWritesShared()
     {
         _extractionStage.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<ExtractionTypes>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
             .Returns(MakeStageResult());
@@ -169,14 +169,15 @@ public sealed class MemoryExtractionPipelineTests
         var sut = CreateSut();
         await sut.ExtractAsync(MakeRequest()); // no UserId
 
-        // The isolation policy (#100) now resolves "unscoped" to MemoryScope.Global rather than a bare
-        // null (so every call site gets an unambiguous, always-valid scope) -- assert the meaningful
-        // property (no owner filter), not literal reference nullity.
+        // RVW-REST-IDENTITY (the review's identity-3): a write with no owner is shared, so it reads shared memory only
+        // (G-15), never every owner's (the policy's Global read let it resolve into another owner's private entity).
         await _extractionStage.Received(1).ExtractAsync(
             Arg.Any<IReadOnlyList<Message>>(),
             Arg.Any<ExtractionTypes>(),
-            Arg.Is<MemoryScope?>(s => s != null && !s.HasOwnerFilter),
+            Arg.Is<MemoryScope?>(s => s != null && s.OwnerId == MemoryExtractionPipeline.SharedResolutionOwner && s.IncludeShared),
             Arg.Any<CancellationToken>());
+        await _persistenceStage.Received(1).PersistAsync(
+            Arg.Any<ExtractionStageResult>(), null, Arg.Any<MemoryTrustLevel>(), Arg.Any<CancellationToken>());
     }
 
     // ── #101: overall IngestionStatus derivation ────────────────────────────

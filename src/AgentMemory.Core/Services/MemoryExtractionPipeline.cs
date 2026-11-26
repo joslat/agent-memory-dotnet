@@ -95,7 +95,14 @@ internal sealed partial class MemoryExtractionPipeline : IMemoryExtractionPipeli
         if (!request.ShareWithEveryone)
         {
             var scope = _isolationPolicy.ResolveReadScope(explicitScope: null, request.UserId, operation, MemoryOperationAccess.Tenant);
-            return (scope, _isolationPolicy.ResolveWriteOwner(request.UserId, operation, MemoryOperationAccess.Tenant));
+            var owner = _isolationPolicy.ResolveWriteOwner(request.UserId, operation, MemoryOperationAccess.Tenant);
+            // RVW-REST-IDENTITY (the review's identity-3): a write with no owner is shared, so, as G-15 has it for a
+            // shared request and the evidence path's planner, it reads shared memory only. With the policy's Global
+            // read it resolved into (and wrote aliases and sources onto) another owner's private entity, and its
+            // supersession and deduplication saw every owner's facts.
+            if (owner is null && scope.OwnerId is null)
+                scope = _isolationPolicy.ResolveReadScope(SharedScopes.SharedOnly, null, operation, MemoryOperationAccess.Tenant);
+            return (scope, owner);
         }
         ValidateShared(request);
         // Through the policy, so a custom IMemoryIsolationPolicy sees (and may refuse) the shared read too.

@@ -55,6 +55,36 @@ public sealed class IdentityContextualAdjudicationTests
         original.Entity.EntityId.Should().Be("new");
     }
 
+    // RVW-REST-IDENTITY (the review's identity-6): a shared candidate's sources are text anyone writing shared memory
+    // controls; a model's "same" alone never binds an owner's mention to shared knowledge.
+    private static IdentityResolutionPlan WithCandidateOwner(string? owner)
+    {
+        var plan = Plan();
+        return plan with { Candidates = [new IdentityCandidate { Entity = plan.Candidates[0].Entity with { OwnerId = owner } }] };
+    }
+
+    [Fact]
+    public async Task A_models_same_verdict_does_not_bind_an_owners_mention_to_a_shared_candidate()
+    {
+        _options.Policies["PERSON"] = new() { AllowContextualConfirmation = true };
+
+        var result = await Sut().ApplyAsync(Mention, WithCandidateOwner(null), new IdentityAdjudicationBudget(2), ownerId: "owner");
+
+        result.Entity.EntityId.Should().Be("new");
+        result.Result.Decision.Should().Be(IdentityDecisionKind.Pending, "it stays for review");
+        result.Diagnostics.Should().Contain("contextual_same_shared_requires_review");
+    }
+
+    [Fact]
+    public async Task The_owners_own_candidate_is_still_confirmed_on_context()
+    {
+        _options.Policies["PERSON"] = new() { AllowContextualConfirmation = true };
+
+        var result = await Sut().ApplyAsync(Mention, WithCandidateOwner("owner"), new IdentityAdjudicationBudget(2), ownerId: "owner");
+
+        result.Result.ConfirmedEntityId.Should().Be("a");
+    }
+
     [Theory]
     [InlineData("{\"decision\":\"same\",\"candidateId\":\"invented\",\"evidence\":[]}")]
     [InlineData("{\"decision\":\"same\",\"candidateId\":\"a\",\"evidence\":[{\"sourceId\":\"m\",\"quote\":\"fabricated\"}]}")]
