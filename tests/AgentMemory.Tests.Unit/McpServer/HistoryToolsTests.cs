@@ -30,6 +30,23 @@ public sealed class HistoryToolsTests
 
     // ── memory_recall_as_of ──
 
+    // RVW-REST-HOSTS (the review's hosts-5): a model-chosen maxResults sized the vector searches (2,000,000,000 asked
+    // Neo4j for every neighbour, after an int overflow); each section is held to 1..100.
+    [Theory]
+    [InlineData(int.MaxValue, 100)]
+    [InlineData(0, 1)]
+    [InlineData(-5, 1)]
+    public async Task RecallAsOf_HoldsMaxResultsToTheSectionCap(int asked, int used)
+    {
+        await HistoryTools.MemoryRecallAsOf(_memory, Options.Create(new AgentMemoryMcpOptions()), Options.Create(new MemoryOptions()),
+            "where do I live?", "2026-03-15", userId: "alice", maxResults: asked);
+
+        await _memory.Received(1).RecallAsOfAsync(
+            Arg.Is<RecallRequest>(r => r.Options!.MaxFacts == used && r.Options.MaxEntities == used && r.Options.MaxPreferences == used
+                && r.Options.MaxRecentMessages == used && r.Options.MaxRelevantMessages == used),
+            Arg.Any<DateTimeOffset>(), Arg.Any<DateTimeOffset?>(), Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public async Task RecallAsOf_PassesBothClocks_AndTheConfiguredRecallOptions()
     {

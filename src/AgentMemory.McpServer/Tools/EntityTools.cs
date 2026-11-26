@@ -116,6 +116,7 @@ internal sealed class EntityTools
         [Description("Owner/user identifier (optional). Null = shared/global, visible to every tenant; set it in multi-tenant deployments to scope the relationship to its creator (R1), consistent with the entity/fact/preference create tools.")] string? userId = null,
         CancellationToken cancellationToken = default)
     {
+        if (McpConfidence.Refusal(confidence) is { } refusal) return refusal;
         var relationship = new Relationship
         {
             RelationshipId = idGenerator.GenerateId(),

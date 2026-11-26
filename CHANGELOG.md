@@ -6,6 +6,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Agent Framework and MCP host fixes from the review of main** (hosts):
+  - *Users of one agent no longer share a memory session* (hosts-2). Without a session id the providers used the agent's
+    id as the session, so every user of one agent instance had the others' recent turns replayed into their requests.
+    The fallback is now the agent's id qualified by the owner (`agentId:userId`). Behaviour change: a host that relied on
+    the bare agent id with a user id set reads a new, per-user session.
+  - *A caller's message id cannot pull in another conversation's message* (hosts-3). Client ids such as "1", "2" were
+    global keys: a colliding id linked the other conversation's message into this one, overwrote its vector and handed
+    its text back as this turn's. Such a message is now written under its id qualified by its conversation
+    (`id@conversation`), in the single, batch and optimized batch writes alike; every component writing it still
+    converges on one node.
+  - *The providers keep the owner the host set around the run* (hosts-4). Under the documented
+    `using (ownerContext.BeginOwnerScope(userId)) { await agent.RunAsync(...) }`, a session without a user id replaced
+    that owner with none: recall read every owner's memory and the turn was stored as shared. `MemoryOwnerScopingAgent`
+    still makes the session the authority (a session without an owner clears it).
+  - *`memory_search` and `memory_recall_as_of` hold `maxResults` to 1..100 per section* (hosts-5); the vector over-fetch
+    arithmetic saturates instead of overflowing.
+  - *The MCP add tools refuse a confidence outside 0..1* (hosts-6): `memory_add_entity`, `memory_add_fact`,
+    `memory_add_preference` and `memory_create_relationship` return an error instead of storing 1000000.
+  - *A failed native open leaves no context behind* (hosts-9): the context is published only after its writer starts.
+
 - **Evidence-based identity's exact lookup reads by index, not by scanning the store** (review of main, identity-4).
   Every mention's exact lookup (by name, calendar key, key assertion or alias assertion), run at planning, at
   revalidation and on replay, was one WHERE no index could serve: with shared memory included (the default) the planner

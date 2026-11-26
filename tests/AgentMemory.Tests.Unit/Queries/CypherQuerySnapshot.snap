@@ -906,11 +906,14 @@ MATCH (m)
             RETURN count(m) AS violations, collect(m.id)[..5] AS examples
 
 ## MessageQueries.Add
-MERGE (conv:Conversation {id: $conversationId})
+OPTIONAL MATCH (held:Message {id: $id})
+            WITH CASE WHEN held IS NOT NULL AND held.conversation_id <> $conversationId
+                      THEN $id + '@' + $conversationId ELSE $id END AS id
+            MERGE (conv:Conversation {id: $conversationId})
             ON CREATE SET conv.session_id = $sessionId,
                           conv.created_at = datetime($timestamp),
                           conv.updated_at = datetime($timestamp)
-            MERGE (m:Message {id: $id})
+            MERGE (m:Message {id: id})
             ON CREATE SET
                 m.conversation_id = $conversationId,
                 m.session_id      = $sessionId,
@@ -919,20 +922,20 @@ MERGE (conv:Conversation {id: $conversationId})
                 m.timestamp       = datetime($timestamp),
                 m.tool_call_ids   = $toolCallIds,
                 m.metadata        = $metadata
-            WITH conv, m, m { .* } AS persisted
+            WITH conv, m, id, m { .* } AS persisted
             SET m.embedding = CASE
                 WHEN $embedding IS NOT NULL THEN $embedding
                 ELSE m.embedding
             END
             MERGE (conv)-[:HAS_MESSAGE]->(m)
-            WITH conv, m, persisted
+            WITH conv, m, id, persisted
             OPTIONAL MATCH (conv)-[:FIRST_MESSAGE]->(first:Message)
             FOREACH (_ IN CASE WHEN first IS NULL THEN [1] ELSE [] END |
                 MERGE (conv)-[:FIRST_MESSAGE]->(m)
             )
-            WITH conv, m, persisted
+            WITH conv, m, id, persisted
             OPTIONAL MATCH (conv)-[:HAS_MESSAGE]->(prev:Message)
-            WHERE prev.id <> $id
+            WHERE prev.id <> id
             WITH m, persisted, prev ORDER BY prev.timestamp DESC
             WITH m, persisted, head(collect(prev)) AS prev
             FOREACH (_ IN CASE WHEN prev IS NULL THEN [] ELSE [1] END |
@@ -942,11 +945,14 @@ MERGE (conv:Conversation {id: $conversationId})
 
 ## MessageQueries.AddBatch
 UNWIND $messages AS msg
+            OPTIONAL MATCH (held:Message {id: msg.id})
+            WITH msg, CASE WHEN held IS NOT NULL AND held.conversation_id <> msg.conversation_id
+                           THEN msg.id + '@' + msg.conversation_id ELSE msg.id END AS id
             MERGE (conv:Conversation {id: msg.conversation_id})
             ON CREATE SET conv.session_id = msg.session_id,
                           conv.created_at = datetime(msg.timestamp),
                           conv.updated_at = datetime(msg.timestamp)
-            MERGE (m:Message {id: msg.id})
+            MERGE (m:Message {id: id})
             ON CREATE SET
                 m.conversation_id = msg.conversation_id,
                 m.session_id      = msg.session_id,
@@ -956,7 +962,7 @@ UNWIND $messages AS msg
                 m.tool_call_ids   = msg.tool_call_ids,
                 m.metadata        = msg.metadata
             MERGE (conv)-[:HAS_MESSAGE]->(m)
-            RETURN m
+            RETURN msg.id AS requested, id AS used
 
 ## MessageQueries.ClaimConversations
 UNWIND $conversations AS c

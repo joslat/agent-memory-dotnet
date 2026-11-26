@@ -141,6 +141,9 @@ internal sealed class Neo4jMessageRepository : IMessageRepository
         }).ToList();
 
         var embeddingMap = ordered.ToDictionary(m => m.MessageId, m => m.Embedding);
+        // RVW-REST-HOSTS (hosts-3): a message whose id another conversation holds is written under the qualified id.
+        foreach (var m in ordered)
+            embeddingMap.TryAdd(Services.MessageIds.ConversationQualified(m.MessageId, m.ConversationId), m.Embedding);
         if (_useOptimizedMessageBatchWrites)
         {
             return await _tx.WriteAsync(async runner =>
@@ -167,15 +170,19 @@ internal sealed class Neo4jMessageRepository : IMessageRepository
         {
             await ClaimConversationsAsync(runner, ordered).ConfigureAwait(false);
             var cursor = await runner.RunAsync(MessageQueries.AddBatch, new { messages = msgParams }).ConfigureAwait(false);
-            // consume result
-            await cursor.ConsumeAsync().ConfigureAwait(false);
+            // RVW-REST-HOSTS (hosts-3): the id each message was written under (qualified when another conversation held
+            // the one it came with); every statement below works on those.
+            var used = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var row in await cursor.ToListAsync().ConfigureAwait(false))
+                used[row["requested"].As<string>()] = row["used"].As<string>();
+            string Used(Message m) => used.TryGetValue(m.MessageId, out var id) ? id : m.MessageId;
 
             // Set embeddings — only for messages with a real (non-empty) vector.
             foreach (var msg in ordered.Where(m => m.Embedding is { Length: > 0 }))
             {
                 await runner.RunAsync(
                     SharedFragments.SetMessageEmbedding,
-                    new { id = msg.MessageId, embedding = msg.Embedding!.ToList() }).ConfigureAwait(false);
+                    new { id = Used(msg), embedding = msg.Embedding!.ToList() }).ConfigureAwait(false);
             }
 
             // Create NEXT_MESSAGE chain within batch
@@ -183,7 +190,7 @@ internal sealed class Neo4jMessageRepository : IMessageRepository
             {
                 await runner.RunAsync(
                     MessageQueries.CreateNextMessageLink,
-                    new { prevId = ordered[i - 1].MessageId, nextId = ordered[i].MessageId }).ConfigureAwait(false);
+                    new { prevId = Used(ordered[i - 1]), nextId = Used(ordered[i]) }).ConfigureAwait(false);
             }
 
             // Connect first batch message to any existing last message in the conversation
@@ -194,15 +201,15 @@ internal sealed class Neo4jMessageRepository : IMessageRepository
                     new
                     {
                         conversationId = ordered[0].ConversationId,
-                        batchIds       = ordered.Select(m => m.MessageId).ToList(),
-                        firstId        = ordered[0].MessageId
+                        batchIds       = ordered.Select(Used).ToList(),
+                        firstId        = Used(ordered[0])
                     }).ConfigureAwait(false);
             }
 
             // Re-read all created messages
             var readCursor = await runner.RunAsync(
                 MessageQueries.GetByIds,
-                new { ids = ordered.Select(m => m.MessageId).ToList() }).ConfigureAwait(false);
+                new { ids = ordered.Select(Used).ToList() }).ConfigureAwait(false);
             var records = await readCursor.ToListAsync().ConfigureAwait(false);
 
             return records.Select(r =>

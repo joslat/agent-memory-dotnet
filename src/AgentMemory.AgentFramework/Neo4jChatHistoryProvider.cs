@@ -264,11 +264,8 @@ public sealed class Neo4jChatHistoryProvider : ChatHistoryProvider
             identity = default;
         }
 
-        var sessionId = identity.SessionId ?? agent?.Id ?? Guid.NewGuid().ToString("N");
-        // Fall back to sessionId (not a new GUID) to preserve cross-turn correlation.
-        var conversationId = identity.ConversationId ?? sessionId;
-
-        return (sessionId, conversationId, identity.UserId, identity.ApplicationId);
+        // RVW-REST-HOSTS (hosts-2, hosts-4): the ambient owner when the session names none; an owner-qualified fallback session.
+        return MemoryIdentityResolution.Resolve(identity, agent?.Id, _ownerContext?.UserId);
     }
 
     // Routes the memory store for this scope when an application_id is supplied and a writable store

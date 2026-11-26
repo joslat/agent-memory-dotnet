@@ -84,4 +84,12 @@ public sealed class OwnerVectorOverFetchTests
         OwnerVectorOverFetch.EscalatedTopK(int.MaxValue / 2)
             .Should().Be(OwnerVectorOverFetch.MaxTopK);
     }
+
+    // RVW-REST-HOSTS (the review's hosts-5): a huge limit saturates instead of wrapping around.
+    [Fact]
+    public void A_huge_limit_saturates_instead_of_overflowing()
+    {
+        OwnerVectorOverFetch.InitialTopK(2_000_000_000, hasOwner: true).Should().Be(int.MaxValue);
+        OwnerVectorOverFetch.InitialTopK(int.MaxValue, hasOwner: true).Should().Be(int.MaxValue);
+    }
 }

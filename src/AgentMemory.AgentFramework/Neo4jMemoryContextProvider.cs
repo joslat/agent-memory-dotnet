@@ -1001,7 +1001,13 @@ public partial class Neo4jMemoryContextProvider : AIContextProvider
             return one;
         }
         var byId = stored.GroupBy(m => m.MessageId, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
-        return turn.Select(m => byId.TryGetValue(m.MessageId, out var persisted) ? persisted : m).ToList();
+        // RVW-REST-HOSTS (hosts-3): a message whose id another conversation already held was stored under that id
+        // qualified by this conversation ("id@conversation", the store's rule); the turn, and its extraction's
+        // provenance, follow the stored message, never the other conversation's.
+        return turn.Select(m =>
+            byId.TryGetValue(m.MessageId, out var persisted) ? persisted
+            : byId.TryGetValue($"{m.MessageId}@{m.ConversationId}", out var qualified) ? qualified
+            : m).ToList();
     }
 
     /// <summary>
@@ -1071,11 +1077,8 @@ public partial class Neo4jMemoryContextProvider : AIContextProvider
             identity = default;
         }
 
-        var sessionId = identity.SessionId ?? agent?.Id ?? Guid.NewGuid().ToString("N");
-        // P2-4: Fall back to sessionId (not a new GUID) to preserve cross-turn correlation.
-        var conversationId = identity.ConversationId ?? sessionId;
-
-        return (sessionId, conversationId, identity.UserId, identity.ApplicationId);
+        // RVW-REST-HOSTS (hosts-2, hosts-4): the ambient owner when the session names none; an owner-qualified fallback session.
+        return MemoryIdentityResolution.Resolve(identity, agent?.Id, _ownerContext?.UserId);
     }
 
     // Routes the memory store for this scope when an application_id is supplied and a writable store

@@ -60,7 +60,8 @@ internal static class OwnerVectorOverFetch
 
     /// <summary>The first, ordinary width. Identical to the expression it replaces.</summary>
     internal static int InitialTopK(int limit, bool hasOwner) =>
-        hasOwner ? Math.Max(limit * Factor, limit + Floor) : limit;
+        // Saturating: a huge limit (a model-chosen one reached this once) must not wrap to a negative or tiny topK.
+        hasOwner ? (int)Math.Min(int.MaxValue, Math.Max((long)limit * Factor, (long)limit + Floor)) : limit;
 
     /// <summary>
     /// Whether a second, wider query is worth issuing.

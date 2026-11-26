@@ -51,11 +51,11 @@ internal sealed class CoreMemoryTools
             // overridden.
             Options = memoryOptions.Value.Recall with
             {
-                MaxRecentMessages = maxResults,
-                MaxRelevantMessages = maxResults,
-                MaxEntities = maxResults,
-                MaxPreferences = maxResults,
-                MaxFacts = maxResults,
+                MaxRecentMessages = McpRecallLimits.Section(maxResults),
+                MaxRelevantMessages = McpRecallLimits.Section(maxResults),
+                MaxEntities = McpRecallLimits.Section(maxResults),
+                MaxPreferences = McpRecallLimits.Section(maxResults),
+                MaxFacts = McpRecallLimits.Section(maxResults),
             },
         };
 
@@ -163,6 +163,7 @@ internal sealed class CoreMemoryTools
         [Description("Owner/user identifier (optional). Null = shared/global knowledge visible to everyone.")] string? userId = null,
         CancellationToken cancellationToken = default)
     {
+        if (McpConfidence.Refusal(confidence) is { } refusal) return refusal;
         var confidenceValue = confidence ?? options.Value.DefaultConfidence;
         var entity = new Entity
         {
@@ -204,6 +205,7 @@ internal sealed class CoreMemoryTools
         [Description("Owner/user identifier (optional). Null = shared/global knowledge visible to everyone.")] string? userId = null,
         CancellationToken cancellationToken = default)
     {
+        if (McpConfidence.Refusal(confidence) is { } refusal) return refusal;
         var confidenceValue = confidence ?? options.Value.DefaultConfidence;
         var preference = new Preference
         {
@@ -247,6 +249,7 @@ internal sealed class CoreMemoryTools
         [Description("Additional metadata as a JSON object string, e.g. {\"source\":\"crm\"} (optional)")] string? metadataJson = null,
         CancellationToken cancellationToken = default)
     {
+        if (McpConfidence.Refusal(confidence) is { } refusal) return refusal;
         var confidenceValue = confidence ?? options.Value.DefaultConfidence;
         // #92 Phase 3: trust_level is a framework-reserved metadata key -- strip any caller-supplied value
         // (a caller must never be able to self-assign ApplicationTrusted and bypass the admission policy's

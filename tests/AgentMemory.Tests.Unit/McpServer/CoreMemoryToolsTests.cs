@@ -47,6 +47,23 @@ public sealed class CoreMemoryToolsTests
 
     // ── memory_search ──
 
+    // RVW-REST-HOSTS (the review's hosts-5): a model-chosen maxResults is held to 1..100 per section.
+    [Theory]
+    [InlineData(int.MaxValue, 100)]
+    [InlineData(2_000_000_000, 100)]
+    [InlineData(0, 1)]
+    public async Task MemorySearch_HoldsMaxResultsToTheSectionCap(int asked, int used)
+    {
+        _memoryService.RecallAsync(Arg.Any<RecallRequest>(), Arg.Any<CancellationToken>()).Returns(CreateRecallResult());
+
+        await CoreMemoryTools.MemorySearch(_memoryService, _options, _memoryOptions, "query", maxResults: asked);
+
+        await _memoryService.Received(1).RecallAsync(
+            Arg.Is<RecallRequest>(r => r.Options!.MaxFacts == used && r.Options.MaxEntities == used && r.Options.MaxPreferences == used
+                && r.Options.MaxRecentMessages == used && r.Options.MaxRelevantMessages == used),
+            Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public async Task MemorySearch_CallsRecallAsyncWithCorrectParameters()
     {
@@ -269,6 +286,43 @@ public sealed class CoreMemoryToolsTests
     }
 
     // ── memory_add_entity ──
+
+    // RVW-REST-HOSTS (the review's hosts-6): a per-call confidence outside 0..1 (or not a number) is refused and
+    // nothing is stored; before, 1000000 was stored and ranked first for good.
+    [Theory]
+    [InlineData(1_000_000d)]
+    [InlineData(-0.1)]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    public async Task The_add_tools_refuse_a_confidence_outside_zero_to_one(double confidence)
+    {
+        var results = new[]
+        {
+            await CoreMemoryTools.MemoryAddEntity(_longTermMemory, _idGenerator, _clock, _options, _longTermOptions,
+                "Alice", "Person", "A developer", confidence: confidence),
+            await CoreMemoryTools.MemoryAddFact(_longTermMemory, _idGenerator, _clock, _options, _longTermOptions,
+                "Alice", "works_at", "Microsoft", confidence: confidence),
+            await CoreMemoryTools.MemoryAddPreference(_longTermMemory, _idGenerator, _clock, _options, _longTermOptions,
+                "style", "dark mode", "IDE", confidence: confidence),
+        };
+
+        results.Should().AllSatisfy(json => JsonDocument.Parse(json).RootElement.GetProperty("error").GetString()
+            .Should().StartWith("confidence must be between 0 and 1"));
+        _longTermMemory.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(0d)]
+    [InlineData(1d)]
+    public async Task The_add_tools_accept_the_ends_of_the_range(double confidence)
+    {
+        _longTermMemory.AddFactAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>()).Returns(ci => ci.Arg<Fact>());
+
+        var json = await CoreMemoryTools.MemoryAddFact(_longTermMemory, _idGenerator, _clock, _options, _longTermOptions,
+            "Alice", "works_at", "Microsoft", confidence: confidence);
+
+        JsonDocument.Parse(json).RootElement.TryGetProperty("error", out _).Should().BeFalse();
+    }
 
     [Fact]
     public async Task MemoryAddEntity_CallsAddEntityAsyncWithCorrectProperties()

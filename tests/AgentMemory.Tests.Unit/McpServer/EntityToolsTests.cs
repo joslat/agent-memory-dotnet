@@ -247,6 +247,17 @@ public sealed class EntityToolsTests
 
     // ── memory_create_relationship ──
 
+    // RVW-REST-HOSTS (the review's hosts-6): the relationship tool refuses a confidence outside 0..1 too.
+    [Fact]
+    public async Task MemoryCreateRelationship_RefusesAConfidenceOutsideZeroToOne()
+    {
+        var json = await EntityTools.MemoryCreateRelationship(_longTermMemory, _idGenerator, _clock, _options,
+            "e-1", "e-2", "WORKS_FOR", confidence: 42);
+
+        System.Text.Json.JsonDocument.Parse(json).RootElement.GetProperty("error").GetString().Should().StartWith("confidence must be between 0 and 1");
+        _longTermMemory.ReceivedCalls().Should().BeEmpty();
+    }
+
     [Fact]
     public async Task MemoryCreateRelationship_CallsAddRelationshipAsyncWithCorrectProperties()
     {

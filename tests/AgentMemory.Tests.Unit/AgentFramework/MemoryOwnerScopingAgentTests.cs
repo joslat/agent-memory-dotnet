@@ -77,6 +77,23 @@ public sealed class MemoryOwnerScopingAgentTests
 
     private sealed class TestAgentSession : AgentSession;
 
+    // RVW-REST-HOSTS (the review's hosts-4): the providers fall back to the ambient owner when the session names none;
+    // this wrapper makes the session the authority (a session without an owner clears it, below), and a session's own
+    // owner always wins over the ambient one.
+    [Fact]
+    public async Task RunAsync_ASessionsOwnStillWinsOverTheAmbientOne()
+    {
+        var ownerContext = new DefaultMemoryOwnerContext();
+        string? observedByTool = "not-set";
+        var scopedAgent = new FakeInnerAgent(_ => { observedByTool = ownerContext.UserId; return Task.CompletedTask; })
+            .WithMemoryOwnerScoping(ownerContext);
+
+        using (ownerContext.BeginOwnerScope("alice"))
+            await scopedAgent.RunAsync("hello", SessionFor("bob"));
+
+        observedByTool.Should().Be("bob");
+    }
+
     [Fact]
     public async Task RunAsync_SimulatedToolCallAfterGenuineSuspend_ObservesConfiguredOwner()
     {

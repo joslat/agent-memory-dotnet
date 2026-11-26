@@ -48,11 +48,11 @@ internal sealed class HistoryTools
             Query = query,
             Options = memoryOptions.Value.Recall with
             {
-                MaxRecentMessages = maxResults,
-                MaxRelevantMessages = maxResults,
-                MaxEntities = maxResults,
-                MaxPreferences = maxResults,
-                MaxFacts = maxResults,
+                MaxRecentMessages = McpRecallLimits.Section(maxResults),
+                MaxRelevantMessages = McpRecallLimits.Section(maxResults),
+                MaxEntities = McpRecallLimits.Section(maxResults),
+                MaxPreferences = McpRecallLimits.Section(maxResults),
+                MaxFacts = McpRecallLimits.Section(maxResults),
             },
         };
 

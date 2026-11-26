@@ -85,9 +85,12 @@ internal static class ContextRegistry
                 : new WriteCoordinator(journal, provider, config.Memory, config.FixedOwner!, config.MaxQueuedWrites,
                     () => context?.BumpRevision(), appliedOnce: config.Profile == MemoryProfile.Learning);
             context = new NativeContext(handle, config, provider, embeddings, writes, journal);
-            Contexts[handle] = context;
-            // Queued writes from before (accepted, never started) run now, in acceptance order.
+            // Queued writes from before (accepted, never started) run now, in acceptance order. Start can fail (a full
+            // disk or read-only state directory refuses its journal records) before its loop begins.
             writes?.Start();
+            // RVW-REST-HOSTS (the review's hosts-9): published only once nothing can fail, so a failed open (handle 0,
+            // provider and journal disposed) leaves no context in the process-wide registry.
+            Contexts[handle] = context;
             lock (AuthorityGate)
             {
                 Authorities[authority] = handle;

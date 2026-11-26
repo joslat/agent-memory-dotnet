@@ -38,12 +38,22 @@ internal static class MessageQueries
             SET conv.user_id = coalesce(conv.user_id, $ownerId)
             RETURN conv.id AS id, conv.user_id AS owner";
 
+    /// <remarks>
+    /// RVW-REST-HOSTS (the review's hosts-3): a caller-supplied id is only unique within what its caller sees (a client
+    /// numbering messages "1", "2"; another user's id, known or guessed). An id another conversation already holds is not
+    /// this message: merged on it, the write linked the other conversation's message into this one, overwrote its vector
+    /// and read it back as this turn's. Such a write takes the id qualified by its own conversation (<c>id@conversation</c>),
+    /// the same for every component writing it, so they still converge on one node; the read-back carries the id used.
+    /// </remarks>
     public const string Add = @"
+            OPTIONAL MATCH (held:Message {id: $id})
+            WITH CASE WHEN held IS NOT NULL AND held.conversation_id <> $conversationId
+                      THEN $id + '@' + $conversationId ELSE $id END AS id
             MERGE (conv:Conversation {id: $conversationId})
             ON CREATE SET conv.session_id = $sessionId,
                           conv.created_at = datetime($timestamp),
                           conv.updated_at = datetime($timestamp)
-            MERGE (m:Message {id: $id})
+            MERGE (m:Message {id: id})
             ON CREATE SET
                 m.conversation_id = $conversationId,
                 m.session_id      = $sessionId,
@@ -52,20 +62,20 @@ internal static class MessageQueries
                 m.timestamp       = datetime($timestamp),
                 m.tool_call_ids   = $toolCallIds,
                 m.metadata        = $metadata
-            WITH conv, m, m { .* } AS persisted
+            WITH conv, m, id, m { .* } AS persisted
             SET m.embedding = CASE
                 WHEN $embedding IS NOT NULL THEN $embedding
                 ELSE m.embedding
             END
             MERGE (conv)-[:HAS_MESSAGE]->(m)
-            WITH conv, m, persisted
+            WITH conv, m, id, persisted
             OPTIONAL MATCH (conv)-[:FIRST_MESSAGE]->(first:Message)
             FOREACH (_ IN CASE WHEN first IS NULL THEN [1] ELSE [] END |
                 MERGE (conv)-[:FIRST_MESSAGE]->(m)
             )
-            WITH conv, m, persisted
+            WITH conv, m, id, persisted
             OPTIONAL MATCH (conv)-[:HAS_MESSAGE]->(prev:Message)
-            WHERE prev.id <> $id
+            WHERE prev.id <> id
             WITH m, persisted, prev ORDER BY prev.timestamp DESC
             WITH m, persisted, head(collect(prev)) AS prev
             FOREACH (_ IN CASE WHEN prev IS NULL THEN [] ELSE [1] END |
@@ -106,11 +116,14 @@ internal static class MessageQueries
     /// to guard against since nothing does this.</summary>
     public const string AddBatch = @"
             UNWIND $messages AS msg
+            OPTIONAL MATCH (held:Message {id: msg.id})
+            WITH msg, CASE WHEN held IS NOT NULL AND held.conversation_id <> msg.conversation_id
+                           THEN msg.id + '@' + msg.conversation_id ELSE msg.id END AS id
             MERGE (conv:Conversation {id: msg.conversation_id})
             ON CREATE SET conv.session_id = msg.session_id,
                           conv.created_at = datetime(msg.timestamp),
                           conv.updated_at = datetime(msg.timestamp)
-            MERGE (m:Message {id: msg.id})
+            MERGE (m:Message {id: id})
             ON CREATE SET
                 m.conversation_id = msg.conversation_id,
                 m.session_id      = msg.session_id,
@@ -120,7 +133,7 @@ internal static class MessageQueries
                 m.tool_call_ids   = msg.tool_call_ids,
                 m.metadata        = msg.metadata
             MERGE (conv)-[:HAS_MESSAGE]->(m)
-            RETURN m";
+            RETURN msg.id AS requested, id AS used";
 
     /// <summary>
     /// One-query batch write preserving <see cref="AddBatch"/>'s behavior: first-write-wins message
@@ -128,8 +141,14 @@ internal static class MessageQueries
     /// the prior conversation tail, and ordered read-back. The input must already be timestamp ordered.
     /// </summary>
     public static string AddBatchOptimized { get; } = @"
-            WITH $messages AS messages,
-                 [msg IN $messages | msg.id] AS batchIds
+            UNWIND range(0, size($messages) - 1) AS i
+            WITH i, $messages[i] AS raw
+            OPTIONAL MATCH (held:Message {id: raw.id})
+            WITH i, raw, held
+            ORDER BY i
+            WITH collect(raw {.*, id: CASE WHEN held IS NOT NULL AND held.conversation_id <> raw.conversation_id
+                                          THEN raw.id + '@' + raw.conversation_id ELSE raw.id END}) AS messages
+            WITH messages, [msg IN messages | msg.id] AS batchIds
             UNWIND messages AS msg
             MERGE (conv:Conversation {id: msg.conversation_id})
             ON CREATE SET conv.session_id = msg.session_id,
