@@ -29,6 +29,8 @@ using Testcontainers.Neo4j;
 //   ... --scenario scenarios/identity-kinds/whos-who-v1.json --identity-validation --identity-writer [--legacy-comparison]
 //   ... --identity-kinds-score --report <report.json> --scenario <scenario.json> [--gold <gold.json>]   (no model: re-score)
 //   ... --identity-kinds-sessions <n>: the first n sessions only and the key's mentions in them (a trial; not comparable)
+//   ... --identity-kinds-other <scenario.json>: a second owner's conversation (its key beside it), written into the same store after
+//       the first and scored with its own key; an identity holding both owners' things is an isolation failure (ER-KIT)
 //
 // Models come from the environment, as AgentMemory.Inference resolves them (docs/configuration/inference-providers.md).
 // The Recommended arm's judge is JEV and needs TYPESAFE_API_KEY.
@@ -160,6 +162,20 @@ if (kindsSessions is { } keep)
     };
     kindsGold.CheckAgainst(scenario);
 }
+// ER-KIT isolation pair: a second owner's conversation, with its own key, written into the same store after the first.
+Scenario? otherScenario = null;
+IdentityKindsGold? otherGold = null;
+if (Argument("--identity-kinds-other") is { } otherPath)
+{
+    otherScenario = Scenario.Load(otherPath);
+    otherGold = IdentityKindsGold.BesideScenario(otherPath) is { } otherKey ? IdentityKindsGold.Load(otherKey) : null;
+    if (kindsGold is null || otherGold is null || kindsSessions is not null || otherScenario.Owner == scenario.Owner)
+    {
+        Console.Error.WriteLine("--identity-kinds-other needs an Identity Kinds scenario (no --identity-kinds-sessions), and another owner's scenario with its key beside it.");
+        return 2;
+    }
+    otherGold.CheckAgainst(otherScenario);
+}
 if (kindsGold is not null && !identityWriter)
 {
     Console.Error.WriteLine("An Identity Kinds scenario runs with the store-aware writer: add --identity-writer (and --legacy-comparison for the old resolver).");
@@ -187,7 +203,7 @@ if (identityValidation && !(armNames.Length == 1 && armNames[0] == validationArm
     return 2;
 }
 
-var maxCalls = int.Parse(Argument("--max-calls") ?? (gold is not null || kindsGold is not null ? (scenario.Turns().Count() * 5 / 2 + 20).ToString(CultureInfo.InvariantCulture) : identityFullScenario ? (scenario.Turns().Count() > 49 ? "320" : "120") : identityValidation ? "60" : "400"), CultureInfo.InvariantCulture);
+var maxCalls = int.Parse(Argument("--max-calls") ?? (gold is not null || kindsGold is not null ? ((scenario.Turns().Count() + (otherScenario?.Turns().Count() ?? 0)) * 5 / 2 + 20).ToString(CultureInfo.InvariantCulture) : identityFullScenario ? (scenario.Turns().Count() > 49 ? "320" : "120") : identityValidation ? "60" : "400"), CultureInfo.InvariantCulture);
 var answers = !args.Contains("--no-answers");
 // ILC-21 ablation: one identity component off, same arm otherwise; recorded in the report fingerprint.
 var ablation = Argument("--identity-ablation");
@@ -297,6 +313,10 @@ var asked = new List<object>();
 var scoreboard = new Dictionary<string, List<string>>();
 var goldScores = new Dictionary<string, IdentityGoldScore>();
 var kindsScores = new Dictionary<string, IdentityKindsScore>();
+var otherMemories = new List<GraphMemory>();
+var otherKindsScores = new Dictionary<string, IdentityKindsScore>();
+var otherStores = new Dictionary<string, object>();
+var isolation = new Dictionary<string, object>();
 try
 {
     // ── The memories ───────────────────────────────────────────────────────
@@ -308,6 +328,8 @@ try
     {
         var owner = $"{scenario.Owner}-{arm.Writes}-{run}";
         memories.Add(await GraphMemory.CreateAsync(arm, memoryChat, embeddings, clock, neo4j, owner, writers.Contains(arm.Name), log, ledger, identityChat: bounded?.Adjudicator));
+        if (otherScenario is not null && writers.Contains(arm.Name))
+            otherMemories.Add(await GraphMemory.CreateAsync(arm, memoryChat, embeddings, clock, neo4j, $"{otherScenario.Owner}-{arm.Writes}-{run}", true, log, ledger, identityChat: bounded?.Adjudicator));
     }
 
     // ── Writing: every memory hears the same statements, each at its moment ─
@@ -341,6 +363,31 @@ try
         {
             failures.Add($"the run reached its cap of {maxCalls} model calls at statement {i + 1} of {turns.Count}, and stopped");
             break;
+        }
+    }
+
+    if (otherScenario is not null && !ledger.Exhausted && bounded?.Exhausted != true)
+    {
+        var otherTurns = otherScenario.Turns().ToList();
+        Console.WriteLine();
+        for (var i = 0; i < otherTurns.Count; i++)
+        {
+            clock.UtcNow = otherTurns[i].At;
+            foreach (var memory in otherMemories)
+            {
+                spans.Scope = log.Scope = $"write {memory.Name} other owner {i + 1}";
+                try { await memory.RememberAsync(otherTurns[i]); }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    failures.Add($"write {memory.Name} (other owner) turn {i + 1}: {exception.Message}");
+                }
+            }
+            Console.Write($"\r  other owner {i + 1}/{otherTurns.Count}  {otherTurns[i].At:yyyy-MM-dd}  model calls so far: {ledger.Calls}   ");
+            if (ledger.Exhausted || bounded?.Exhausted == true)
+            {
+                failures.Add($"the run reached its cap of {maxCalls} model calls at the other owner's statement {i + 1} of {otherTurns.Count}, and stopped");
+                break;
+            }
         }
     }
 
@@ -392,6 +439,29 @@ try
                           $"holds {held.Count(h => h.Held)}/{held.Count} checked facts; {firstPerson} facts with 'user' as subject");
         foreach (var miss in held.Where(h => !h.Held))
             Console.WriteLine($"      ✗ {miss.Fact}{(miss.SameWords.Count > 0 ? $"  (same words, other dates: {string.Join(" | ", miss.SameWords.Take(2))})" : "")}");
+    }
+
+    // ER-KIT isolation pair: the second owner's store against its own key, and any identity that holds labelled mentions of
+    // both owners (two owners' namesakes merged across owners: Neo4j agent-memory's global MERGE failure).
+    foreach (var other in otherMemories)
+    {
+        var otherSnapshot = await other.SnapshotAsync();
+        var otherIdentity = await other.IdentitySnapshotAsync();
+        var otherEntities = await other.EntitySnapshotAsync();
+        var view = other.Arm.Identity is null ? IdentityGoldScorer.EntitiesView : IdentityGoldScorer.DecisionsView;
+        var otherKinds = IdentityKindsScorer.Score(otherGold!, otherScenario!,
+            JsonSerializer.SerializeToElement(new { identity = otherIdentity, entities = otherEntities, snapshot = otherSnapshot }), view);
+        otherKindsScores[other.Arm.Writes] = otherKinds;
+        otherStores[other.Arm.Writes] = new { owner = other.Owner, snapshot = otherSnapshot, identity = otherIdentity, entities = otherEntities };
+        var first = kindsScores.TryGetValue(other.Arm.Writes, out var firstKinds)
+            ? firstKinds.Mentions.Where(m => m.Thing is not null).Select(m => m.Identity).ToHashSet(StringComparer.Ordinal) : [];
+        var shared = otherKinds.Mentions.Where(m => m.Thing is not null && first.Contains(m.Identity)).Select(m => m.Identity)
+            .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
+        isolation[other.Arm.Writes] = new { otherOwner = other.Owner, sharedIdentities = shared.Count, identities = shared };
+        if (otherKinds.WrongMerges > 0) acceptanceFailures.Add($"identity-kinds (other owner): {otherKinds.WrongMerges} wrong merge(s)");
+        if (shared.Count > 0) acceptanceFailures.Add($"identity-kinds isolation: {shared.Count} identity(ies) hold both owners' things");
+        Console.WriteLine($"  other owner ({view}): {otherKinds.Right}/{otherKinds.Things} real things right, {otherKinds.WrongMerges} wrong merges, " +
+                          $"{otherKinds.Splits} splits, {otherKinds.Missed} never stored; {shared.Count} identities hold both owners' things");
     }
 
     // ── Asking: a new conversation on the scenario's day ───────────────────
@@ -564,6 +634,7 @@ async Task WriteReportAsync()
         warnings = log.Warnings,
         arms = memories.Select(m => new { m.Name, m.How, seconds = Math.Round(took.GetValueOrDefault(m.Name).TotalSeconds, 1), writes = m is not GraphMemory g || g.Writes }),
         stores,
+        otherOwnerStores = otherScenario is null ? null : otherStores,
         eventDetailProbes,
         asked,
         scoreboard,
@@ -591,6 +662,7 @@ async Task WriteReportAsync()
         scenario = scenario.Name, scenarioSha256 = scenario.Sha256, arms = armNames, sessions = kindsSessions, comparable = kindsSessions is null,
         rule = "Wrong merges must stay 0; splits are reported per kind and must not rise; right is a real thing held by exactly one identity that holds nothing else; no model judges.",
         scores = kindsScores,
+        otherOwner = otherScenario is null ? null : new { scenario = otherScenario.Name, scenarioSha256 = otherScenario.Sha256, key = otherGold!.Name, scores = otherKindsScores, isolation },
     }, IdentityGold.Json));
     if (bounded is not null) await File.WriteAllTextAsync(Path.Combine(output,"identity-budget.json"),
         JsonSerializer.Serialize(new { plan=identityPlan,summary=bounded.Summary },new JsonSerializerOptions { WriteIndented=true }));
