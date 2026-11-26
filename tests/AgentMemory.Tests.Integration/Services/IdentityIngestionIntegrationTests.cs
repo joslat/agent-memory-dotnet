@@ -34,7 +34,7 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
     public Task DisposeAsync() => Task.CompletedTask;
 
     private ServiceProvider Host(bool enabled = true, bool extension = true, IIdentityContextProvider? hostContext = null, EntityIdentityPolicy? identityPolicy = null, IIdentityAdjudicator? adjudicator = null,
-        bool conversationalPolicies = false)
+        bool conversationalPolicies = false, bool extractedItemCaps = true)
     {
         var services = new ServiceCollection(); services.AddLogging();
         services.AddSingleton<INeo4jTransactionRunner>(fixture.TransactionRunner);
@@ -42,7 +42,12 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
         embeddings.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new float[] { 1, 0, 0, 0 });
         services.AddSingleton(embeddings);
         services.AddAgentMemoryCore(_ => { });
-        services.Configure<MemoryOptions>(options => options.WorkingMemory.Enabled = false);
+        services.Configure<MemoryOptions>(options =>
+        {
+            options.WorkingMemory.Enabled = false;
+            // Core builds the extraction stage's options from MemoryOptions.Extraction.
+            if (!extractedItemCaps) options.Extraction.ItemValidation.MaxFactObjectLength = 0;
+        });
         services.Configure<ExtractionOptions>(options => { options.CanonicalFactSubjects = true; options.LinkFactsToEntities = true; options.DeduplicateWithinExtraction = true; });
         services.Configure<IdentityResolutionOptions>(options =>
         { options.Enabled = enabled; options.MaxAdjudicationsPerIngestion = adjudicator is null ? 0 : 2; if (identityPolicy is not null) options.Policies["EVENT"] = identityPolicy;
@@ -125,7 +130,8 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
     [Fact]
     public async Task Failed_later_fact_rolls_back_original_observation_decision_and_earlier_fact()
     {
-        using var host = Host(); using var scope = host.CreateScope();
+        // The oversized object makes the later fact fail in persistence; TT-05's length cap would skip it before, so it is off here.
+        using var host = Host(extractedItemCaps: false); using var scope = host.CreateScope();
         var input = Input();
         var action = () => Ingest(scope.ServiceProvider, input with { Facts = [input.Facts[0], input.Facts[0] with { Object = new string('x', 40000) }] });
         var failure = await action.Should().ThrowAsync<MemoryIngestionException>();

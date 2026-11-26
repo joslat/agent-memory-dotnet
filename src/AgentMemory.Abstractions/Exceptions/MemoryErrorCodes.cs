@@ -71,6 +71,15 @@ public static class MemoryErrorCodes
     /// <summary>An extracted entity candidate failed <c>EntityValidator</c> validation.</summary>
     public const string EntityValidationFailed       = "MEMORY_ENTITY_VALIDATION_FAILED";
 
+    /// <summary>An extracted fact had an empty required field, a field over its cap or a control character (TT-05/TT-06).</summary>
+    public const string FactValidationFailed         = "MEMORY_FACT_VALIDATION_FAILED";
+
+    /// <summary>An extracted preference had an empty required field, a field over its cap or a control character (TT-05/TT-06).</summary>
+    public const string PreferenceValidationFailed   = "MEMORY_PREFERENCE_VALIDATION_FAILED";
+
+    /// <summary>An extracted relationship had an empty required field, a field over its cap or a control character (TT-05/TT-06).</summary>
+    public const string RelationshipValidationFailed = "MEMORY_RELATIONSHIP_VALIDATION_FAILED";
+
     /// <summary>Entity resolution (matching/deduplication) threw for one candidate.</summary>
     public const string EntityResolutionFailed       = "MEMORY_ENTITY_RESOLUTION_FAILED";
 

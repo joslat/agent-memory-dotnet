@@ -95,6 +95,10 @@ internal static class EntityValidator
         if (name.Length < options.MinNameLength)
             return false;
 
+        // TT-05/TT-06: an oversized name, or one with a control character, is not a name.
+        if (!ExtractedItemValidator.NameFits(name, options.MaxNameLength))
+            return false;
+
         if (options.RejectNumericOnly && IsNumericOnly(name))
             return false;
 

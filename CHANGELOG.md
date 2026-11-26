@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Extracted facts, preferences, relationships and entity names pass length caps and content checks before they are
+  stored** (threats TT-05 and TT-06). An item with an empty required field (a fact's subject, predicate or object; a
+  preference's text; a relationship's endpoints or type), a field over its cap, a control character (tab and line
+  breaks aside) or a broken surrogate pair is skipped with a Validation outcome (`MEMORY_FACT_VALIDATION_FAILED`,
+  `MEMORY_PREFERENCE_VALIDATION_FAILED`, `MEMORY_RELATIONSHIP_VALIDATION_FAILED`, or the existing entity code) instead of
+  stored; the stage result's raw lists still show what the model returned. The caps are configurable
+  (`ExtractionOptions.ItemValidation`, `EntityValidationOptions.MaxNameLength`; 0 turns one off) and sit well above
+  real output: the longest values in 151,632 facts, 36,217 preferences, 62,656 entities and 41,514 relationships
+  extracted in the LongMemEval and HaluMem runs were 377 characters for a fact object (566 in a DemoBrain store), 293
+  for a preference, 100 for an entity name and 153 for a relationship description; the defaults are 2,000, 2,000, 200
+  and 2,000. Behaviour change: an item with an empty required field, which real extraction returns now and then (96
+  empty predicates in those 151,632 facts), is no longer stored.
+
 - **Conversations written before owners were stamped can get their owner back** (`agentmemory owner
   backfill-conversations [--apply]`, `Neo4jConversationOwnerBackfill`). Message writes now stamp the conversation's owner,
   but older conversations have none, so the owner erase (which finds an owner's messages through their conversation)

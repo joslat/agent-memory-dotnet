@@ -701,6 +701,54 @@ public sealed class ExtractionStageTests
             o.ErrorCode == MemoryErrorCodes.EntityExtractionFailed);
     }
 
+    // TT-05/TT-06: an oversized or malformed fact, preference or relationship is skipped with a Validation outcome before
+    // resolution or storage; the raw lists still show what the model returned.
+    [Fact]
+    public async Task ExtractAsync_OversizedOrMalformedItems_AreSkippedWithValidationOutcomes()
+    {
+        var entityExt = Substitute.For<IEntityExtractor>();
+        entityExt.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { MakeEntity("Alice"), MakeEntity("Acme") });
+        var factExt = Substitute.For<IFactExtractor>();
+        factExt.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new ExtractedFact { Subject = "Alice", Predicate = "works at", Object = "Acme", Confidence = 0.9 },
+                new ExtractedFact { Subject = "Alice", Predicate = "said", Object = new string('x', 50_000), Confidence = 0.9 },
+            });
+        var prefExt = Substitute.For<IPreferenceExtractor>();
+        prefExt.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new ExtractedPreference { Category = "style", PreferenceText = "short answers", Confidence = 0.9 },
+                new ExtractedPreference { Category = "style", PreferenceText = "  ", Confidence = 0.9 },
+            });
+        var relExt = Substitute.For<IRelationshipExtractor>();
+        relExt.ExtractAsync(Arg.Any<IReadOnlyList<Message>>(), Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new ExtractedRelationship { SourceEntity = "Alice", TargetEntity = "Acme", RelationshipType = "WORKS_AT", Confidence = 0.9 },
+                new ExtractedRelationship { SourceEntity = "Alice", TargetEntity = "Acme", RelationshipType = "OWNS" + (char)0x07, Confidence = 0.9 },
+            });
+
+        var sut = CreateSut(new[] { entityExt }, new[] { factExt }, new[] { prefExt }, new[] { relExt });
+        var result = await sut.ExtractAsync(TestMessages, ExtractionTypes.All);
+
+        result.FilteredFacts.Should().ContainSingle().Which.Object.Should().Be("Acme");
+        result.FilteredPreferences.Should().ContainSingle().Which.PreferenceText.Should().Be("short answers");
+        result.FilteredRelationships.Should().ContainSingle().Which.RelationshipType.Should().Be("WORKS_AT");
+        result.RawFacts.Should().HaveCount(2, "the raw lists still show what the model returned");
+        result.Outcomes.Should().Contain(o =>
+            o.Kind == MemoryItemKind.Fact && o.Stage == IngestionStage.Validation && o.Status == IngestionItemStatus.Skipped &&
+            o.ErrorCode == MemoryErrorCodes.FactValidationFailed && o.SourceKey!.Length <= 121 && o.ErrorMessage!.Contains("50000 characters"));
+        result.Outcomes.Should().Contain(o =>
+            o.Kind == MemoryItemKind.Preference && o.Stage == IngestionStage.Validation &&
+            o.ErrorCode == MemoryErrorCodes.PreferenceValidationFailed && o.ErrorMessage == "The preference is empty.");
+        result.Outcomes.Should().Contain(o =>
+            o.Kind == MemoryItemKind.Relationship && o.Stage == IngestionStage.Validation &&
+            o.ErrorCode == MemoryErrorCodes.RelationshipValidationFailed && o.SourceKey == "Alice->Acme");
+    }
+
     [Fact]
     public async Task ExtractAsync_EntityFailsValidation_RecordsSkippedOutcome()
     {

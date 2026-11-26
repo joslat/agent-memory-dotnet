@@ -10,6 +10,11 @@ public sealed class ExtractionOptions
     public EntityResolutionOptions EntityResolution { get; set; } = new();
     /// <summary>Entity validation filter options.</summary>
     public EntityValidationOptions Validation { get; set; } = new();
+    /// <summary>
+    /// Threats TT-05 and TT-06: length caps and content checks on extracted facts, preferences and relationships, so
+    /// oversized or malformed model output is skipped (with a Validation outcome) instead of stored.
+    /// </summary>
+    public ExtractedItemValidationOptions ItemValidation { get; set; } = new();
     /// <summary>Merge strategy when multiple extractors are registered.</summary>
     public MergeStrategyType MergeStrategy { get; set; } = MergeStrategyType.Union;
     /// <summary>Minimum confidence to accept an extracted entity.</summary>
@@ -432,5 +437,41 @@ public sealed class EntityValidationOptions
     public bool RejectPunctuationOnly { get; set; } = true;
     /// <summary>Reject entities whose names are common stop-words.</summary>
     public bool UseStopwordFilter { get; set; } = true;
+    /// <summary>
+    /// Threats TT-05/TT-06: the longest entity name accepted, in characters. The longest of 62,656 names extracted in the
+    /// LongMemEval and HaluMem runs had 100. Names with control characters (other than tab and line breaks) are rejected
+    /// too. 0 turns the cap off.
+    /// </summary>
+    public int MaxNameLength { get; set; } = 200;
 
+}
+
+/// <summary>
+/// Threats TT-05 (memory poisoning) and TT-06 (malicious extraction output): checks on extracted facts, preferences and
+/// relationships before they are stored. An item with a required field empty, a field over its cap, or a control
+/// character (other than tab and line breaks) or broken surrogate pair is skipped with a Validation outcome. The caps
+/// sit well above what real extraction produces: in the LongMemEval and HaluMem runs (151,632 facts, 36,217
+/// preferences, 41,514 relationships) the longest fact object had 377 characters (566 in a DemoBrain store), the
+/// longest preference 293 and the longest relationship description 153. A cap of 0 turns that cap off.
+/// </summary>
+public sealed class ExtractedItemValidationOptions
+{
+    /// <summary>The longest fact subject accepted (longest seen: 90).</summary>
+    public int MaxFactSubjectLength { get; set; } = 300;
+    /// <summary>The longest fact predicate accepted (longest seen: 190).</summary>
+    public int MaxFactPredicateLength { get; set; } = 300;
+    /// <summary>The longest fact object accepted (longest seen: 566).</summary>
+    public int MaxFactObjectLength { get; set; } = 2000;
+    /// <summary>The longest preference text, or its context, accepted (longest seen: 293).</summary>
+    public int MaxPreferenceLength { get; set; } = 2000;
+    /// <summary>The longest preference category accepted (longest seen: 34).</summary>
+    public int MaxPreferenceCategoryLength { get; set; } = 100;
+    /// <summary>The longest relationship type accepted (longest seen: 61).</summary>
+    public int MaxRelationshipTypeLength { get; set; } = 100;
+    /// <summary>The longest relationship endpoint (an entity name) accepted (longest name seen: 100).</summary>
+    public int MaxRelationshipEndpointLength { get; set; } = 200;
+    /// <summary>The longest relationship description accepted (longest seen: 153).</summary>
+    public int MaxRelationshipDescriptionLength { get; set; } = 2000;
+    /// <summary>Reject a field with a control character (other than tab and line breaks) or a broken surrogate pair.</summary>
+    public bool RejectControlCharacters { get; set; } = true;
 }

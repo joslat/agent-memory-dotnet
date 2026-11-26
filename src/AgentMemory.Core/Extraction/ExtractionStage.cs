@@ -284,6 +284,17 @@ internal sealed class ExtractionStage : IExtractionStage
         outcomes.AddRange(prefOutcomes);
         outcomes.AddRange(relOutcomes);
 
+        // TT-05/TT-06: an oversized or malformed fact, preference or relationship never reaches resolution or storage.
+        // The raw lists stay as the model returned them (the result reports them); everything after works on the valid ones.
+        var itemRules = _options.ItemValidation;
+        var validFacts = Validated(rawFacts, fact => ExtractedItemValidator.Fact(fact, itemRules), MemoryItemKind.Fact,
+            fact => $"{fact.Subject} {fact.Predicate} {fact.Object}", MemoryErrorCodes.FactValidationFailed, outcomes);
+        var validPreferences = Validated(rawPreferences, preference => ExtractedItemValidator.Preference(preference, itemRules),
+            MemoryItemKind.Preference, preference => preference.PreferenceText, MemoryErrorCodes.PreferenceValidationFailed, outcomes);
+        var validRelationships = Validated(rawRelationships, relationship => ExtractedItemValidator.Relationship(relationship, itemRules),
+            MemoryItemKind.Relationship, relationship => $"{relationship.SourceEntity}->{relationship.TargetEntity}",
+            MemoryErrorCodes.RelationshipValidationFailed, outcomes);
+
         // FailFast (#101): the four extractor categories above already ran concurrently to completion --
         // in-flight extractor tasks can't be pre-empted -- so "stop at the first failure" is honored at
         // the first point after that where sequential, stoppable work begins: here, and again inside the
@@ -296,7 +307,7 @@ internal sealed class ExtractionStage : IExtractionStage
 
         // Freeze relationship data and reject unsupported storage before identity candidate/model awaits.
         var identityRelationships = _identity?.Enabled == true
-            ? _identity.PrepareRelationshipObservations(rawRelationships
+            ? _identity.PrepareRelationshipObservations(validRelationships
                 .Where(relationship => !(relationship.Confidence < _options.MinConfidenceThreshold)).ToArray(),
                 sourceMessageIds, AgentMemory.Core.Services.SharedScopes.WriteOwner(scope))
             : Array.Empty<IdentityRelationshipObservation>();
@@ -416,7 +427,7 @@ internal sealed class ExtractionStage : IExtractionStage
                     resolvedEntityMap.Add(group.Single().Decision.Observation.Name, group.Single().Decision.Observation);
 
         // 3. Confidence-filter facts.
-        var filteredFacts = rawFacts
+        var filteredFacts = validFacts
             .Where(f =>
             {
                 if (f.Confidence >= _options.MinConfidenceThreshold) return true;
@@ -428,7 +439,7 @@ internal sealed class ExtractionStage : IExtractionStage
             .ToList();
 
         // 4. Confidence-filter preferences.
-        var filteredPrefs = rawPreferences
+        var filteredPrefs = validPreferences
             .Where(p =>
             {
                 if (p.Confidence >= _options.MinConfidenceThreshold) return true;
@@ -443,7 +454,7 @@ internal sealed class ExtractionStage : IExtractionStage
         var filteredRels = _identity?.Enabled == true
             ? identityRelationships.Select(observation => observation.Observation).ToList()
             : new List<ExtractedRelationship>();
-        foreach (var extracted in _identity?.Enabled == true ? Array.Empty<ExtractedRelationship>() : rawRelationships)
+        foreach (var extracted in _identity?.Enabled == true ? Array.Empty<ExtractedRelationship>() : validRelationships)
         {
             if (extracted.Confidence < _options.MinConfidenceThreshold)
             {
@@ -541,6 +552,42 @@ internal sealed class ExtractionStage : IExtractionStage
     }
 
     // ── Multi-extractor runner (ported from MultiExtractorPipeline) ──
+
+    /// <summary>
+    /// TT-05/TT-06: the items that pass <paramref name="check"/>; each that does not is skipped with a Validation outcome
+    /// (its source key shortened, since an oversized field is the usual reason).
+    /// </summary>
+    private IReadOnlyList<T> Validated<T>(IReadOnlyList<T> items, Func<T, string?> check, MemoryItemKind kind,
+        Func<T, string?> sourceKey, string errorCode, List<IngestionItemOutcome> outcomes)
+    {
+        List<T>? kept = null;
+        for (var i = 0; i < items.Count; i++)
+        {
+            var reason = check(items[i]);
+            if (reason is null)
+            {
+                kept?.Add(items[i]);
+                continue;
+            }
+            kept ??= [.. items.Take(i)];
+            var key = sourceKey(items[i]) ?? string.Empty;
+            if (key.Length > MaxValidationSourceKeyLength) key = key[..MaxValidationSourceKeyLength] + "…";
+            _logger.LogWarning("Skipping extracted {Kind} '{Key}' — {Reason}", kind, key, reason);
+            outcomes.Add(new IngestionItemOutcome
+            {
+                Kind = kind,
+                Stage = IngestionStage.Validation,
+                Status = IngestionItemStatus.Skipped,
+                SourceKey = key,
+                ErrorCode = errorCode,
+                ErrorMessage = reason,
+            });
+        }
+        return kept is null ? items : kept.AsReadOnly();
+    }
+
+    /// <summary>How much of a skipped item's text its Validation outcome carries.</summary>
+    private const int MaxValidationSourceKeyLength = 120;
 
     private static Task<(IReadOnlyList<T> Items, IReadOnlyList<IngestionItemOutcome> Outcomes)> EmptyRun<T>() where T : class =>
         Task.FromResult<(IReadOnlyList<T>, IReadOnlyList<IngestionItemOutcome>)>(
