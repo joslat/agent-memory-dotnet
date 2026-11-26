@@ -93,6 +93,10 @@ public sealed partial class ModuleContextSelection
     {
         var eligible = entries.Where(e => e.Disposition is null);
         if (judge == ModuleJudgeOutcome.Applied) eligible = eligible.OrderByDescending(e => e.Score);
+        else if (_options.InterleaveContributorsWithoutJudge)
+            // Each contributor's rank first, then the original (priority) order: a stable round robin over the packs.
+            eligible = eligible.Select((entry, order) => (entry, order))
+                .OrderBy(x => x.entry.Candidate.ItemIndex).ThenBy(x => x.order).Select(x => x.entry);
         var kept = new List<ModuleContextCandidate>();
         var rendered = string.Empty; var bytes = 0;
         foreach (var entry in eligible)

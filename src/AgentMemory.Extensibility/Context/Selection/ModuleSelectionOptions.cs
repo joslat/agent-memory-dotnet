@@ -19,6 +19,13 @@ public sealed record ModuleSelectionOptions
     public IReadOnlyDictionary<string, int> ContributorItemLimits { get; init; } = new Dictionary<string, int>().AsReadOnly();
     /// <summary>Maximum whole unique items in the selected output.</summary>
     public int MaxItems { get; init; } = 16;
+    /// <summary>
+    /// Without a judge's decision, items are kept in contributor (pack priority) order, so the first packs can fill
+    /// <see cref="MaxItems"/> and a later pack's best item never reaches the prompt. When true, the contributors are
+    /// interleaved by rank instead: every contributor's first item, then every second item, each round in priority order.
+    /// A judge's decision still orders by its scores. Off by default: priority order is a host's deliberate choice.
+    /// </summary>
+    public bool InterleaveContributorsWithoutJudge { get; init; }
     /// <summary>Maximum raw UTF-8 bytes of one candidate before host admission.</summary>
     public int MaxCandidateUtf8Bytes { get; init; } = 8192;
     /// <summary>Maximum total candidate-text UTF-8 bytes offered to the optional judge, excluding conversation.</summary>

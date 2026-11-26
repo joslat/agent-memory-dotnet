@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Module selection can interleave packs when no judge decides** (`ModuleSelectionOptions.InterleaveContributorsWithoutJudge`,
+  off by default). Without a judge's decision, kept items follow contributor (pack priority) order, so the first packs fill
+  `MaxItems` and a later pack's best item never reaches the prompt: in the co-speaker evaluation (seven packs, eight items)
+  the sixth pack was kept 0 times in 15 questions about it. Interleaving keeps every pack's first item, then every second
+  item, each round in priority order; a judge's decision still orders by its scores. Measured on the co-speaker's 75
+  questions with the similarity floor: the right pack answered 60 of 60 (0 of 15 for the starved pack before), against 57
+  of 60 with the online judge, at p90 1.7 s to the first words instead of 3.3 s.
+
 - **Fixed: the default entity resolver no longer folds a near name of another kind into a stored entity.** A fuzzy or
   semantic match between `SameAsThreshold` (0.85) and `AutoMergeThreshold` (0.95) resolved to the stored entity with no
   alias and no link (the SAME_AS relationship the option described was never written), so "Australia" (0.875 against

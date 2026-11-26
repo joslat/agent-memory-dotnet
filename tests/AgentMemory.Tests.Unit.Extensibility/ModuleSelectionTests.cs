@@ -295,6 +295,27 @@ public sealed class ModuleSelectionTests
     };
     private static MemoryGateDecision Complete(MemoryGateRequest request, double score) => new(request.Candidates.ToDictionary(c => c.Key, _ => score), "fixture");
     private sealed record Spec(string Module, string Name, IReadOnlyList<ContextItem> Items);
+    // COS-LATENCY (26 Nov): without a judge, items stay in pack priority order, so the first packs fill the item limit and a
+    // later pack's best item never reaches the prompt (the co-speaker's Reachy pack, 6th of 7, was kept 0 times in 15). The
+    // opt-in interleave gives every pack's best item a place before any pack's second; the default keeps priority order.
+    [Fact]
+    public async Task WithoutAJudgeInterleavingGivesEveryPacksBestItemAPlaceAndTheDefaultKeepsPriorityOrder()
+    {
+        var specs = new[]
+        {
+            new Spec(Module, "a", [new("a1", "first"), new("a2", "second"), new("a3", "third"), new("a4", "fourth")]),
+            new Spec("com.example.other", "b", [new("b1", "other best"), new("b2", "other next")]),
+        };
+
+        // The harness puts com.example.other first in priority; with two slots it takes both and the other pack gets none.
+        var priority = await new ModuleContextSelection(new() { MaxItems = 2 }).SelectAsync(await Envelope(specs), new Renderer());
+        var interleaved = await new ModuleContextSelection(new() { MaxItems = 2, InterleaveContributorsWithoutJudge = true })
+            .SelectAsync(await Envelope(specs), new Renderer());
+
+        priority.RenderedText.Should().Be("[other best|other next]");
+        interleaved.RenderedText.Should().Be("[other best|first]");
+    }
+
     private static async Task<ContextEnvelope> Envelope(params Spec[] specs)
     {
         var resolution = ModuleResolver.Resolve(specs.Select(s => s.Module).Distinct().Select(id => ModuleManifest.Parse(JsonSerializer.Serialize(new
