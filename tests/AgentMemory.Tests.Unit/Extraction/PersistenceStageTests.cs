@@ -1013,6 +1013,48 @@ public sealed class PersistenceStageTests
             o.ErrorCode == MemoryErrorCodes.ProvenancePersistenceFailed);
     }
 
+    // TT-12 (provenance loss): a repository that writes the edge in a call of its own (no IUpsertPersistsProvenance) may
+    // store the record and fail the edge; the caller is told, for facts and preferences as for entities above.
+    [Fact]
+    public async Task PersistAsync_FactExtractedFromFails_RecordsProvenanceFailure_SeparateFromPersistenceSuccess()
+    {
+        _idGen.GenerateId().Returns("fact-1");
+        _factRepo.CreateExtractedFromRelationshipAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new Exception("DB connection failed")));
+        var extraction = EmptyResult() with
+        {
+            FilteredFacts = new[] { new ExtractedFact { Subject = "Alice", Predicate = "likes", Object = "coffee", Confidence = 0.9 } }
+        };
+
+        var result = await CreateSut().PersistAsync(extraction);
+
+        result.Outcomes.Should().Contain(o =>
+            o.Kind == MemoryItemKind.Fact && o.Stage == IngestionStage.Persistence && o.Status == IngestionItemStatus.Succeeded);
+        result.Outcomes.Should().Contain(o =>
+            o.Kind == MemoryItemKind.Fact && o.Stage == IngestionStage.Provenance && o.Status == IngestionItemStatus.Failed &&
+            o.ErrorCode == MemoryErrorCodes.ProvenancePersistenceFailed && o.PersistedId == "fact-1");
+    }
+
+    [Fact]
+    public async Task PersistAsync_PreferenceExtractedFromFails_RecordsProvenanceFailure_SeparateFromPersistenceSuccess()
+    {
+        _idGen.GenerateId().Returns("preference-1");
+        _prefRepo.CreateExtractedFromRelationshipAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new Exception("DB connection failed")));
+        var extraction = EmptyResult() with
+        {
+            FilteredPreferences = new[] { new ExtractedPreference { Category = "style", PreferenceText = "dark mode", Confidence = 0.9 } }
+        };
+
+        var result = await CreateSut().PersistAsync(extraction);
+
+        result.Outcomes.Should().Contain(o =>
+            o.Kind == MemoryItemKind.Preference && o.Stage == IngestionStage.Persistence && o.Status == IngestionItemStatus.Succeeded);
+        result.Outcomes.Should().Contain(o =>
+            o.Kind == MemoryItemKind.Preference && o.Stage == IngestionStage.Provenance && o.Status == IngestionItemStatus.Failed &&
+            o.ErrorCode == MemoryErrorCodes.ProvenancePersistenceFailed && o.PersistedId == "preference-1");
+    }
+
     [Fact]
     public async Task PersistAsync_FactSucceeds_RecordsSucceededOutcome()
     {
