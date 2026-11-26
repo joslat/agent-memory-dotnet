@@ -52,6 +52,13 @@ public sealed class SystemOneEndpoint
     /// that answered, so one judge down leaves the other's score, not a smaller one.
     /// </summary>
     public double Weight { get; set; } = 1.0;
+
+    /// <summary>
+    /// The bar a memory must reach when this judge alone answered its memory type (the other judges failed or were late),
+    /// for a judge measured alone at a bar of its own. Null: <see cref="MemoryGateOptions.Threshold"/>. Measured: Laya
+    /// alone at 0.01 (JEV alone, and the pair, at 0.23).
+    /// </summary>
+    public double? Threshold { get; set; }
 }
 
 /// <summary>
@@ -76,8 +83,12 @@ public sealed class MemoryGateOptions
     public int WideLimit { get; set; } = 50;
 
     /// <summary>
-    /// How long judging may take. Without a completed baseline, timeout falls back to <see cref="MemoryGateMode.Floor"/>.
-    /// Compound planning and part judging share the remaining time and preserve the completed baseline on timeout.
+    /// The judges' deadline. The judges are asked at once; at the deadline the gate keeps whoever answered: each memory type
+    /// is judged by the judges that answered it in time (both blended, or one alone at its own
+    /// <see cref="SystemOneEndpoint.Threshold"/>), a memory type no judge answered in time takes the similarity floor's
+    /// memories of that type, and when no judge answered at all recall is <see cref="MemoryGateMode.Floor"/>. A late judge
+    /// is not counted as a failure. A gate other than the System One gate is cancelled at the deadline and recall takes the
+    /// floor. Compound planning and part judging share the remaining time and preserve the completed baseline on timeout.
     /// </summary>
     public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(3);
 

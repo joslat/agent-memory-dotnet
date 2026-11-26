@@ -2811,13 +2811,13 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
         await using var session = fixture.Driver.AsyncSession();
         var cursor = await session.RunAsync("PROFILE " + query, parameters);
         var summary = await cursor.ConsumeAsync();
-        static IEnumerable<IProfiledPlan> All(IProfiledPlan plan) => plan.Children.SelectMany(All).Prepend(plan);
-        var steps = All(summary.Profile).ToArray();
+        static IEnumerable<IQueryProfile> All(IQueryProfile plan) => plan.Children.SelectMany(All).Prepend(plan);
+        var steps = All(summary.QueryProfile).ToArray();
         // The three costliest steps and where the plan started (its leaves), to say where the hits went when a bound fails.
-        static string Show(IProfiledPlan step) =>
+        static string Show(IQueryProfile step) =>
             $"{step.OperatorType} {(step.Arguments.TryGetValue("Details", out var details) ? details : "")} = {step.DbHits}";
         var costliest = string.Join("; ", steps.OrderByDescending(step => step.DbHits).Take(3).Select(Show))
             + " | started from: " + string.Join("; ", steps.Where(step => step.Children.Count == 0).Select(Show));
-        return (steps.Sum(step => step.DbHits), costliest);
+        return (steps.Sum(step => step.DbHits ?? 0), costliest);
     }
 }

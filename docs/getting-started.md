@@ -543,10 +543,18 @@ builder.Services.AddAgentMemoryGate(gate =>
 {
     gate.ApplyRecommended();
     gate.Judges.Add(new SystemOneEndpoint { Name = "jev", Endpoint = new Uri("https://api.typesafe.ai/v1/systemone"), KeyVariable = "TYPESAFE_API_KEY", Weight = 0.8 });
-    gate.Judges.Add(new SystemOneEndpoint { Name = "laya", Endpoint = new Uri("http://127.0.0.1:8765/v1/systemone"), Weight = 0.2 });
+    gate.Judges.Add(new SystemOneEndpoint { Name = "laya", Endpoint = new Uri("http://127.0.0.1:8765/v1/systemone"), Weight = 0.2, Threshold = 0.01 });
     gate.UpdateJudgeName = "jev";
 });
 ```
+
+The judges are asked at once and have `gate.Timeout` (three seconds by default; a voice host sets what is left of its
+turn budget). At that deadline the gate keeps whoever has answered: a memory type both judges answered is blended, a type
+one judge answered is that judge's alone, held to its own `SystemOneEndpoint.Threshold` when it has one (Laya was measured
+alone at 0.01, JEV and the pair at 0.23), and a type no judge answered in time takes the similarity floor's memories of
+that type. Only when no judge answered anything is the whole recall the floor. A late judge is not counted as a failure:
+it is asked again on the next turn. The trace (`MemoryGateTrace.LateJudges`, `FloorTypes`) and the `memory.gate` span
+(`memory.gate.late`, `memory.gate.floor_types`) say who was late and which types took the floor.
 
 What it adds to the Conversational preset:
 

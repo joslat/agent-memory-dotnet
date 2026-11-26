@@ -28,7 +28,11 @@ internal static class CompoundGateCoordinator
         (MemoryGateDecision, CompoundQuestionTrace) Finish(string outcome, string? reason = null)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return (completed == 0 ? baseline : new MemoryGateDecision(scores, string.Join("+", answered.Order(StringComparer.Ordinal))),
+            // The baseline's own bars and late judges stay with the union of scores.
+            return (completed == 0 ? baseline : baseline with
+                {
+                    Probabilities = scores, AnsweredBy = string.Join("+", answered.Order(StringComparer.Ordinal)),
+                },
                 new CompoundQuestionTrace
                 {
                     Outcome = outcome, Reason = reason, PlannedParts = planned, CompletedParts = completed,

@@ -42,6 +42,8 @@ public static class GateServiceCollectionExtensions
             .Validate(o => Enum.IsDefined(o.Mode), "MemoryGateOptions.Mode must be Floor, Judge or Everything.")
             .Validate(o => o.Threshold is >= 0 and <= 1, "MemoryGateOptions.Threshold must be between 0 and 1.")
             .Validate(o => o.Timeout > TimeSpan.Zero, "MemoryGateOptions.Timeout must be positive.")
+            .Validate(o => o.Judges.All(j => j.Threshold is null or (>= 0 and <= 1)),
+                "SystemOneEndpoint.Threshold must be between 0 and 1, or not set.")
             .Validate(o => o.WideLimit > 0, "MemoryGateOptions.WideLimit must be positive.")
             .Validate(o => o.UpdateJudgeName is null || (!string.IsNullOrWhiteSpace(o.UpdateJudgeName)
                 && o.Judges.Count(j => j.Name == o.UpdateJudgeName && j.Endpoint is not null) == 1),

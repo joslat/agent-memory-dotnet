@@ -118,7 +118,9 @@ public sealed class GatedMemoryContextAssembler : IMemoryContextAssembler
         try
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeout.CancelAfter(o.Timeout);
+            // The System One gate keeps its own deadline (o.Timeout) and returns what its judges answered by then: it is given
+            // a moment past it to blend. Any other gate is cancelled at the deadline, and recall takes the floor.
+            timeout.CancelAfter(_gate is SystemOneMemoryGate ? o.Timeout + DeadlineGrace : o.Timeout);
             var gateRequest = new MemoryGateRequest(
                 request.Query, Conversation(wide, request.Query), _clock?.GetUtcNow() ?? DateTimeOffset.UtcNow,
                 [.. candidates.Select(c => c.Candidate), .. companions]);
@@ -131,20 +133,47 @@ public sealed class GatedMemoryContextAssembler : IMemoryContextAssembler
             if (o.CompoundQuestions)
                 (decision, compound) = await CompoundGateCoordinator.ExpandAsync(
                     gateRequest, decision, _gate, _questionPlanner, timeout.Token, cancellationToken).ConfigureAwait(false);
-            var unanswered = candidates.Count(c => !decision.Probabilities.ContainsKey(c.Candidate.Key));
+            // A memory type no judge answered before the deadline (none of its memories has a probability) takes the
+            // similarity floor's memories of that type: the recall without the gate, asked only when it is needed.
+            var floorTypes = candidates
+                .GroupBy(c => c.Candidate.MemoryType, StringComparer.Ordinal)
+                .Where(type => type.All(c => !decision.Probabilities.ContainsKey(c.Candidate.Key)))
+                .Select(type => type.Key)
+                .Order(StringComparer.Ordinal)
+                .ToList();
+            var floorKept = new HashSet<string>(StringComparer.Ordinal);
+            if (floorTypes.Count > 0)
+            {
+                var floorContext = await _inner.AssembleContextAsync(request, cancellationToken).ConfigureAwait(false);
+                floorKept.UnionWith(GateCandidates.Of(floorContext)
+                    .Where(e => floorTypes.Contains(e.Candidate.MemoryType, StringComparer.Ordinal)).Select(e => e.ItemId));
+                _logger.LogInformation("Memory gate: no judge answered {Types} in time; {Count} of their memories are the similarity floor's.",
+                    string.Join(", ", floorTypes), floorKept.Count);
+            }
+            var unanswered = candidates.Count(c => !decision.Probabilities.ContainsKey(c.Candidate.Key)
+                && !floorTypes.Contains(c.Candidate.MemoryType, StringComparer.Ordinal));
             if (unanswered > 0)
                 _logger.LogWarning("Memory gate: the judges left {Unanswered} of {Offered} memories unanswered; they are left out.",
                     unanswered, candidates.Count);
+            // Each memory is held to its own bar when the gate set one (one judge alone, measured at a bar of its own).
+            double Bar(string key) => decision.Thresholds is { } bars && bars.TryGetValue(key, out var bar) ? bar : o.Threshold;
             var kept = candidates
-                .Where(c => decision.Probabilities.TryGetValue(c.Candidate.Key, out var p) && p >= o.Threshold)
+                .Where(c => decision.Probabilities.TryGetValue(c.Candidate.Key, out var p)
+                    ? p >= Bar(c.Candidate.Key)
+                    : floorKept.Contains(c.ItemId) && floorTypes.Contains(c.Candidate.MemoryType, StringComparer.Ordinal))
                 .Select(c => c.ItemId)
                 .ToHashSet(StringComparer.Ordinal);
             List<MemoryGateTraceItem> items = [.. candidates.Select(c => Item(c,
                 decision.Probabilities.TryGetValue(c.Candidate.Key, out var p) ? p : null, kept.Contains(c.ItemId)))];
             _logger.LogInformation("Memory gate: kept {Kept} of {Offered} memories at P >= {Threshold} (judged by {Judges} in {Ms} ms).",
                 items.Count(i => i.Kept), items.Count, o.Threshold, decision.AnsweredBy, watch.ElapsedMilliseconds);
-            var result = Mark(GateCandidates.Keep(wide, kept), o, span, "judge", null, items, decision.AnsweredBy, watch.ElapsedMilliseconds,
-                (RecallCompanions.JudgedByMetadataKey, decision.AnsweredBy), ("gate.ms", (int)watch.ElapsedMilliseconds));
+            List<(string Key, object Value)> more =
+                [(RecallCompanions.JudgedByMetadataKey, decision.AnsweredBy), ("gate.ms", (int)watch.ElapsedMilliseconds)];
+            if (decision.Late.Count > 0) more.Add(("gate.late", string.Join("+", decision.Late)));
+            if (floorTypes.Count > 0) more.Add(("gate.floorTypes", string.Join(",", floorTypes)));
+            var result = WithDeadline(
+                Mark(GateCandidates.Keep(wide, kept), o, span, "judge", null, items, decision.AnsweredBy, watch.ElapsedMilliseconds, [.. more]),
+                span, decision.Late, floorTypes);
             if (companions.Count > 0)
             {
                 // The caller owns companions: their scores go back whole, and it applies its own threshold and bounds.
@@ -168,6 +197,13 @@ public sealed class GatedMemoryContextAssembler : IMemoryContextAssembler
             _logger.LogWarning("Memory gate: {Reason}; recall falls back to the similarity floor.", reason);
         }
         catch (OperationCanceledException) { throw; }
+        catch (TimeoutException) when (!cancellationToken.IsCancellationRequested)
+        {
+            // The gate's own deadline came and no judge had answered anything.
+            reason = $"the judges did not answer within {o.Timeout.TotalMilliseconds:0} ms";
+            span?.SetTag(MemoryGateTelemetry.Fallback, "timeout");
+            _logger.LogWarning("Memory gate: {Reason}; recall falls back to the similarity floor.", reason);
+        }
         catch (JudgeCoolingDownException ex)
         {
             reason = ex.Message;
@@ -184,6 +220,28 @@ public sealed class GatedMemoryContextAssembler : IMemoryContextAssembler
         var fallback = Floor(floor, o, span, "floor (fallback)", reason, watch.ElapsedMilliseconds);
         // Companions the failed call carried were offered to a judge, though none decided them.
         return companionsSent > 0 ? WithCompanionsOffered(fallback, companionsSent) : fallback;
+    }
+
+    /// <summary>
+    /// How long past <see cref="MemoryGateOptions.Timeout"/> the System One gate, which keeps its own deadline, is given to
+    /// blend what its judges answered before the call is cancelled as a whole.
+    /// </summary>
+    internal static readonly TimeSpan DeadlineGrace = TimeSpan.FromMilliseconds(250);
+
+    /// <summary>The trace and the span say who was late at the deadline and which memory types took the floor.</summary>
+    private static MemoryContext WithDeadline(MemoryContext context, Activity? span, IReadOnlyList<string> late, IReadOnlyList<string> floorTypes)
+    {
+        if (late.Count == 0 && floorTypes.Count == 0) return context;
+        if (late.Count > 0) span?.SetTag(MemoryGateTelemetry.Late, string.Join("+", late));
+        if (floorTypes.Count > 0) span?.SetTag(MemoryGateTelemetry.FloorTypes, string.Join(",", floorTypes));
+        var trace = (MemoryGateTrace)context.Metadata[MemoryGateTrace.MetadataKey];
+        return context with
+        {
+            Metadata = new Dictionary<string, object>(context.Metadata, StringComparer.Ordinal)
+            {
+                [MemoryGateTrace.MetadataKey] = trace with { LateJudges = [.. late], FloorTypes = [.. floorTypes] },
+            },
+        };
     }
 
     private static MemoryContext WithCompanionsOffered(MemoryContext context, int count) => context with

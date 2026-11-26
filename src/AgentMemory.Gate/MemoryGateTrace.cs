@@ -32,6 +32,15 @@ public sealed record MemoryGateTrace(
 {
     /// <summary>The metadata key the trace is stored under on the recalled context.</summary>
     public const string MetadataKey = "gate.trace";
+
+    /// <summary>The judges that had not answered at the deadline and were left out (judge only; empty when none was late).</summary>
+    public IReadOnlyList<string> LateJudges { get; init; } = [];
+
+    /// <summary>
+    /// The memory types no judge answered before the deadline: their memories are the similarity floor's (the recall
+    /// without the gate), the others are judged. Empty when every type was judged.
+    /// </summary>
+    public IReadOnlyList<string> FloorTypes { get; init; } = [];
 }
 
 /// <summary>One memory the retrieval router considered.</summary>
@@ -77,4 +86,10 @@ public static class MemoryGateTelemetry
 
     /// <summary>How many companions (<c>RecallRequest.Companions</c>, such as module items) were judged with core memories.</summary>
     public const string CompanionsJudged = "memory.gate.companions_judged";
+
+    /// <summary>The judges that had not answered at the deadline and were left out, joined with <c>+</c>.</summary>
+    public const string Late = "memory.gate.late";
+
+    /// <summary>The memory types no judge answered in time, which took the similarity floor, joined with <c>,</c>.</summary>
+    public const string FloorTypes = "memory.gate.floor_types";
 }

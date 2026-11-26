@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **The memory gate keeps whoever has answered by its deadline** (GATE-DEADLINE-WHOEVER): the judges are still asked at
+  once, but `MemoryGateOptions.Timeout` is no longer all or nothing. At the deadline each memory type is judged by the
+  judges that answered it in time (both blended, or one alone), a type no judge answered in time takes the similarity
+  floor's memories of that type, and only when no judge answered at all is the whole recall the floor. Before, a judge
+  still working at the deadline sent everything to the floor, discarding the other judge's finished answer. A judge that
+  answers alone can be held to its own bar, `SystemOneEndpoint.Threshold` (Laya was measured alone at 0.01; JEV and the
+  pair at 0.23). A late judge is no longer counted toward the cool-down. New: `MemoryGateDecision.Thresholds` and `Late`,
+  `MemoryGateTrace.LateJudges` and `FloorTypes`, span attributes `memory.gate.late` and `memory.gate.floor_types`. A
+  custom `IMemoryGate` is unchanged: cancelled at the deadline, the floor.
+
 - **`LlmExtractionOptions.MemoryWriterRequireQuotes` (opt-in, default off):** the store-aware writer drops an add, replace or
   correct without a quote of the message (under the identity contract it is sent back once), and a confirm whose quote is
   not in the message. Measured before any default change (WRITER-QUOTES-REQUIRED): on GLM-5.3-Flash the writer quoted 1,351

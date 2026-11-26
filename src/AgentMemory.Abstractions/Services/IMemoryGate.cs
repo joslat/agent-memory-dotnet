@@ -18,6 +18,12 @@ namespace AgentMemory.Abstractions.Services;
 /// the caller falls back to the recall it would have made without a gate. It must never return a partial decision as if
 /// it were whole.
 /// </para>
+/// <para>
+/// A gate with a deadline of its own may answer for some memory types and not others: what its judges answered in time is
+/// kept, and a memory type no judge answered in time is left out of <see cref="MemoryGateDecision.Probabilities"/> as a
+/// whole (none of its candidates has a probability), so the caller takes its fallback for that type only. Leaving part of a
+/// memory type unanswered is not allowed.
+/// </para>
 /// </remarks>
 public interface IMemoryGate
 {
@@ -58,7 +64,20 @@ public sealed record MemoryGateRequest(
     string Turn, IReadOnlyList<MemoryGateTurn> Conversation, DateTimeOffset Now, IReadOnlyList<MemoryGateCandidate> Candidates);
 
 /// <summary>The gate's answer.</summary>
-/// <param name="Probabilities">P(the reply needs it), by candidate key; every candidate has one.</param>
+/// <param name="Probabilities">
+/// P(the reply needs it), by candidate key; every candidate has one, except the candidates of a memory type that no judge
+/// answered before the gate's deadline (see <see cref="IMemoryGate"/>).
+/// </param>
 /// <param name="AnsweredBy">Which judges answered (for diagnostics): one name, or several joined.</param>
 
-public sealed record MemoryGateDecision(IReadOnlyDictionary<string, double> Probabilities, string AnsweredBy);
+public sealed record MemoryGateDecision(IReadOnlyDictionary<string, double> Probabilities, string AnsweredBy)
+{
+    /// <summary>
+    /// The bar a key must reach where it differs from the caller's threshold: a memory type answered by one judge alone,
+    /// when that judge was measured alone at a bar of its own. Null, or a key missing: the caller's threshold.
+    /// </summary>
+    public IReadOnlyDictionary<string, double>? Thresholds { get; init; }
+
+    /// <summary>The judges that did not answer before the gate's deadline (for diagnostics); empty when none was late.</summary>
+    public IReadOnlyList<string> Late { get; init; } = [];
+}
