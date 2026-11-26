@@ -41,6 +41,10 @@ internal sealed partial class Neo4jIdentityDecisionRepository
                     var locked=await runner.RunAsync(IdentityDecisionQueries.LockScope,new { ownerScope=scope }).ConfigureAwait(false);
                     await locked.ConsumeAsync().ConfigureAwait(false);
                 }
+            // RVW-IDENTITY-SHARED-LOCK: a review inside an ingestion's lease, with shared memory included, takes the shared scope
+            // the lease deferred: it may confirm into, or propose, a shared entity.
+            else if(includeShared)
+                await HoldShared(runner,cancellationToken).ConfigureAwait(false);
             var currentCursor=await runner.RunAsync(IdentityRelationshipQueries.ReadEndpointDecision,
                 new { decisionId=frozen.DecisionId,ownerScope=Scope(ownerId) }).ConfigureAwait(false);
             var currentRows=await currentCursor.ToListAsync().ConfigureAwait(false);

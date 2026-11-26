@@ -68,6 +68,9 @@ internal static class IdentityDecisionQueries
         MATCH (d:IdentityDecision {id: $decisionId, owner_scope: $ownerScope}) RETURN d.identity_record_json AS identity_record_json
         """;
 
+    // RVW-IDENTITY-SHARED-LOCK: whether any of these entities is shared, so an owner ingestion takes the shared scope first.
+    internal const string SharedAmong = "MATCH (e:Entity) WHERE e.id IN $ids AND e.owner_id IS NULL RETURN count(e) AS shared";
+
     internal const string LockCandidates = """
         UNWIND $ids AS id
         MATCH (e:Entity {id: id})

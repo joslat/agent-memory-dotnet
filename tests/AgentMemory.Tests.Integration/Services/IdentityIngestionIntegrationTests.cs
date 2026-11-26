@@ -2723,6 +2723,60 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
             $"(costliest steps: {hits["details"].Costliest})");
     }
 
+    // RVW-IDENTITY-SHARED-LOCK: an owner ingestion that included shared memory held the one shared scope lock to commit, so every
+    // owner's ingestion waited on every other's. The shared scope is now taken only by a step that reads or writes a shared
+    // entity: an owner whose ingestion touches none goes on while another owner's ingestion is open.
+    [Fact]
+    public async Task An_owner_ingestion_that_touches_no_shared_entity_does_not_wait_on_another_owner()
+    {
+        using var host = Host();
+        var decisions = host.GetRequiredService<IIdentityDecisionRepository>();
+        var opened = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var holding = Task.Run(() => decisions.ExecuteScopedAsync("other-owner", true, [], async _ =>
+        { opened.TrySetResult(); await release.Task.WaitAsync(TimeSpan.FromSeconds(60)); return 0; }));
+        await opened.Task.WaitAsync(TimeSpan.FromSeconds(20));
+        try
+        {
+            using var scope = host.CreateScope();
+            var ingesting = Task.Run(() => Ingest(scope.ServiceProvider, Input(), MemoryScope.For("pablito", true)));
+            (await Task.WhenAny(ingesting, Task.Delay(TimeSpan.FromSeconds(20)))).Should().BeSameAs(ingesting,
+                "pablito's ingestion involves no shared entity, so it does not wait for other-owner's to commit");
+            await ingesting;
+        }
+        finally { release.TrySetResult(); }
+        await holding;
+        (await Count("(:IdentityDecision {owner_id:'pablito'})")).Should().Be(1);
+    }
+
+    // The other side: a decision that involves a shared entity still runs under the shared scope, so it waits for a shared
+    // writer (an ownerless ingestion) to commit, and then sees the shared entity as it was left.
+    [Fact]
+    public async Task An_owner_ingestion_with_a_shared_candidate_still_waits_for_a_shared_writer()
+    {
+        await fixture.TransactionRunner.WriteAsync(async runner => { await runner.RunAsync(
+            "CREATE (:Entity {id:'shared-acme', name:'Acme go live', type:'EVENT', owner_key:'*', confidence:1.0})"); });
+        using var host = Host();
+        var decisions = host.GetRequiredService<IIdentityDecisionRepository>();
+        var opened = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var holding = Task.Run(() => decisions.ExecuteScopedAsync(null, true, [], async _ =>
+        { opened.TrySetResult(); await release.Task.WaitAsync(TimeSpan.FromSeconds(60)); return 0; }));
+        await opened.Task.WaitAsync(TimeSpan.FromSeconds(20));
+        Task<PersistenceResult> ingesting;
+        using var scope = host.CreateScope();
+        try
+        {
+            ingesting = Task.Run(() => Ingest(scope.ServiceProvider, Input(), MemoryScope.For("pablito", true)));
+            (await Task.WhenAny(ingesting, Task.Delay(TimeSpan.FromSeconds(3)))).Should().NotBeSameAs(ingesting,
+                "pablito's mention has a shared candidate, so its decision waits for the shared writer");
+        }
+        finally { release.TrySetResult(); }
+        await holding;
+        await ingesting.WaitAsync(TimeSpan.FromSeconds(30));
+        (await Count("(:IdentityDecision {owner_id:'pablito'})")).Should().Be(1);
+    }
+
     private static UnifiedExtractionResult People(string prefix, int count) => new()
     {
         Entities = [.. Enumerable.Range(0, count).Select(i => new ExtractedEntity { Name = $"{prefix} Person{i}", Type = "PERSON", Confidence = 1 })],

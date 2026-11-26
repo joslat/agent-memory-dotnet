@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Owners' identity ingestions no longer all wait on one shared lock** (review of main, identity-4, second half): an owner
+  ingestion that included shared memory held the single shared identity scope lock to commit, so every owner's ingestion
+  waited on every other's. It now holds its owner's scope and takes the shared one only when a decision involves a shared
+  entity (a shared candidate found, a shared target re-read), so those decisions are still serialized with shared writers.
+  Eight owners ingesting at once took 4.7–6.4 s for 48 ingestions, and now take 1.9–2.7 s, as fast as with shared memory left out.
+
 - **Packs: erasures, imports, removals and expiry hold in the cases the review found open** (review of main, extensibility):
   - *An erasure reaches a record of a type the current version no longer declares* (extensibility-0): a later version that
     dropped a type keeps its records as history, and an erasure naming one deleted nothing and left no tombstone.

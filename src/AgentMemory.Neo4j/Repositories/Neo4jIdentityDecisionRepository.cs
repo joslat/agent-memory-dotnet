@@ -36,6 +36,12 @@ internal sealed partial class Neo4jIdentityDecisionRepository(INeo4jTransactionR
         if (tx is not INeo4jAtomicTransactionRunner atomic)
             throw new NotSupportedException("The configured Neo4j runner cannot provide atomic identity ingestion.");
         var scopes = Scopes(ownerId, includeShared).Order(StringComparer.Ordinal).ToArray();
+        // RVW-IDENTITY-SHARED-LOCK: an owner ingestion that includes shared memory held the one shared scope to commit, so every
+        // owner's ingestion waited on every other's (8 owners at once: 2.5 times the time each alone would take). It holds its
+        // owned scope; the shared one is taken by the first step that reads or writes a shared entity (HoldShared below), so
+        // a decision that involves shared memory is serialized with shared writers as before. An ownerless one holds shared.
+        var upFront = ownerId is null ? scopes : [Scope(ownerId)];
+        var deferred = scopes.Except(upFront, StringComparer.Ordinal).ToArray();
         // Establish infrastructure rows outside the logical ingestion. MERGE's index locks must not
         // be upgraded to mutation locks in the same transaction during a concurrent first write.
         await tx.WriteAsync(async runner =>
@@ -56,7 +62,7 @@ internal sealed partial class Neo4jIdentityDecisionRepository(INeo4jTransactionR
                 {
                     await tx.WriteAsync(async runner =>
                     {
-                        foreach (var scope in scopes)
+                        foreach (var scope in upFront)
                         {
                             var cursor = await runner.RunAsync(IdentityDecisionQueries.AcquireScope, new { ownerScope = scope }).ConfigureAwait(false);
                             var rows = await cursor.ToListAsync().ConfigureAwait(false);
@@ -67,7 +73,7 @@ internal sealed partial class Neo4jIdentityDecisionRepository(INeo4jTransactionR
                     }, ct).ConfigureAwait(false);
                     ct.ThrowIfCancellationRequested();
                     callbackStarted = true;
-                    using var heldScopes = IdentityWriteScope.Enter(tx, scopes);
+                    using var heldScopes = IdentityWriteScope.Enter(tx, upFront, deferred);
                     return await work(ct).ConfigureAwait(false);
                 }, cancellationToken).ConfigureAwait(false);
             }
@@ -219,13 +225,16 @@ internal sealed partial class Neo4jIdentityDecisionRepository(INeo4jTransactionR
         }
         query = query with { CalendarKey = literal ? calendar!.CanonicalKey : null };
         var initialIds = request.ExpectedCandidates.Select(candidate => candidate.Entity.EntityId).Order(StringComparer.Ordinal).ToArray();
+        // RVW-IDENTITY-SHARED-LOCK: a shared candidate is locked and read under the shared scope, as before the scope was deferred.
+        if (request.IncludeShared && request.ExpectedCandidates.Any(candidate => candidate.Entity.OwnerId is null))
+            await HoldShared(runner, cancellationToken).ConfigureAwait(false);
         if (initialIds.Length > 0)
         {
             var locks = await runner.RunAsync(IdentityDecisionQueries.LockCandidates, new
             { ids = initialIds, ownerId, includeShared = request.IncludeShared }).ConfigureAwait(false);
             await locks.ConsumeAsync().ConfigureAwait(false);
         }
-        var exact = await Neo4jIdentityEvidenceRepository.FindExact(runner, query, cancellationToken).ConfigureAwait(false);
+        var exact = await ExactHoldingShared(runner, query, request.IncludeShared, cancellationToken).ConfigureAwait(false);
         var ids = exact.Candidates.Select(candidate => candidate.Entity.EntityId).Concat(initialIds).Distinct(StringComparer.Ordinal).Take(65).ToArray();
         if (ids.Length > 64) throw new InvalidOperationException("Fresh identity evidence exceeds the bounded decision plan; retry resolution.");
         var fresh = await Neo4jIdentityEvidenceRepository.Hydrate(runner, query, ids, new Dictionary<string, double>(), cancellationToken).ConfigureAwait(false);
@@ -264,6 +273,22 @@ internal sealed partial class Neo4jIdentityDecisionRepository(INeo4jTransactionR
         return (WithReceipt(conservative, evaluated, fresh, exact.ExactIdentityLookupComplete), null);
     }
 
+    /// <summary>Takes the shared scope when the ingestion's lease deferred it (RVW-IDENTITY-SHARED-LOCK); true when taken now.</summary>
+    private static Task<bool> HoldShared(IAsyncQueryRunner runner, CancellationToken cancellationToken) =>
+        IdentityWriteScope.HoldAsync(runner, Scope(null), cancellationToken);
+
+    // The exact lookup, under the shared scope once it finds a shared candidate: searched again once the scope is taken, so
+    // what it returns cannot change before commit. A lookup that finds none read shared memory as it stood, as a decision
+    // made just before a shared writer's would have (RVW-IDENTITY-SHARED-LOCK).
+    private static async Task<IdentityCandidateSet> ExactHoldingShared(IAsyncQueryRunner runner, IdentityCandidateQuery query,
+        bool includeShared, CancellationToken cancellationToken)
+    {
+        var exact = await Neo4jIdentityEvidenceRepository.FindExact(runner, query, cancellationToken).ConfigureAwait(false);
+        if (includeShared && exact.Candidates.Any(candidate => candidate.Entity.OwnerId is null) && await HoldShared(runner, cancellationToken).ConfigureAwait(false))
+            exact = await Neo4jIdentityEvidenceRepository.FindExact(runner, query, cancellationToken).ConfigureAwait(false);
+        return exact;
+    }
+
     private static async Task<IdentityCandidate?> ReadCurrentTarget(IAsyncQueryRunner runner, IdentityDecision decision,
         bool includeShared, CancellationToken cancellationToken)
     {
@@ -271,6 +296,11 @@ internal sealed partial class Neo4jIdentityDecisionRepository(INeo4jTransactionR
         if (decision.ContextualEvidence is not null && (contextualSnapshots is null ||
             !await ValidateContextualSources(runner, decision, includeShared, cancellationToken).ConfigureAwait(false))) return null;
         var historicalIds = contextualSnapshots?.Keys.ToArray() ?? [decision.ConfirmedEntityId!];
+        if (includeShared && IdentityWriteScope.Defers(Scope(null)))
+        {
+            var shared = await runner.RunAsync(IdentityDecisionQueries.SharedAmong, new { ids = historicalIds }).ConfigureAwait(false);
+            if ((await shared.SingleAsync().ConfigureAwait(false))["shared"].As<long>() > 0) await HoldShared(runner, cancellationToken).ConfigureAwait(false);
+        }
         var locks = await runner.RunAsync(IdentityDecisionQueries.LockCandidates, new
         { ids = historicalIds, ownerId = decision.Observation.OwnerId, includeShared }).ConfigureAwait(false);
         await locks.ConsumeAsync().ConfigureAwait(false);
@@ -282,7 +312,7 @@ internal sealed partial class Neo4jIdentityDecisionRepository(INeo4jTransactionR
             if (calendar?.IsComplete != true) return null;
             query = query with { CalendarKey = calendar.CanonicalKey };
         }
-        var exact = await Neo4jIdentityEvidenceRepository.FindExact(runner, query, cancellationToken).ConfigureAwait(false);
+        var exact = await ExactHoldingShared(runner, query, includeShared, cancellationToken).ConfigureAwait(false);
         if (!exact.ExactIdentityLookupComplete) return null;
         var ids = exact.Candidates.Select(candidate => candidate.Entity.EntityId).Concat(historicalIds)
             .Distinct(StringComparer.Ordinal).Take(65).ToArray();
