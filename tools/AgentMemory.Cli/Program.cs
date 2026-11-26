@@ -375,8 +375,9 @@ try
         // shadow of what the system believes.
         // G3 (40.47): an owner's data as a whole; erase asks for --confirm.
         "owner" => await new OwnerCommand(
-            sp.GetRequiredService<IMemoryOwnerDataService>(), output)
-            .ExecuteAsync(cli.Subcommand, cli.Get("owner"), cli.Get("file"), cli.HasFlag("confirm")),
+            sp.GetRequiredService<IMemoryOwnerDataService>(), output,
+            sp.GetService<AgentMemory.Neo4j.Services.Neo4jConversationOwnerBackfill>())
+            .ExecuteAsync(cli.Subcommand, cli.Get("owner"), cli.Get("file"), cli.HasFlag("confirm"), cli.HasFlag("apply")),
         // G6 (40.50): the store's integrity rules, read-only.
         "integrity" => await new IntegrityCommand(
             sp.GetRequiredService<IMemoryIntegrityService>(), output).ExecuteAsync(cli.Get("owner")),

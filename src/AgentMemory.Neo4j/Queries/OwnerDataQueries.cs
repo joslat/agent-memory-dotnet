@@ -18,6 +18,31 @@ public static class OwnerDataQueries
             DETACH DELETE m
             RETURN 'Message' AS label, count(*) AS deleted";
 
+    /// <summary>
+    /// RVW-CONVERSATION-OWNER-BACKFILL: a page of the conversations with no owner (written before the message paths stamped
+    /// one), each with the owners of the memories extracted from its messages. Paged by id after <c>$after</c>.
+    /// </summary>
+    public const string OwnerlessConversationEvidence = @"
+            MATCH (c:Conversation)
+            WHERE c.user_id IS NULL AND c.id > $after
+            WITH c ORDER BY c.id LIMIT $limit
+            OPTIONAL MATCH (c)-[:HAS_MESSAGE]->(:Message)<-[:EXTRACTED_FROM]-(n)
+            WHERE n.owner_id IS NOT NULL
+            WITH c, collect(DISTINCT n.owner_id) AS owners
+            RETURN c.id AS id, owners
+            ORDER BY id";
+
+    /// <summary>
+    /// RVW-CONVERSATION-OWNER-BACKFILL: gives each conversation the one owner its memories came from, only while it still has
+    /// none (a conversation claimed meanwhile keeps its owner). Returns the ids it stamped.
+    /// </summary>
+    public const string StampConversationOwners = @"
+            UNWIND $claims AS claim
+            MATCH (c:Conversation {id: claim.id})
+            WHERE c.user_id IS NULL
+            SET c.user_id = claim.owner
+            RETURN c.id AS id";
+
     /// <summary>A batch of the owner's conversations.</summary>
     public const string EraseConversationsBatch = @"
             MATCH (c:Conversation {user_id: $ownerId})

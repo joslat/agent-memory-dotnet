@@ -173,6 +173,10 @@ public static class CliHelp
               owner <export|import|erase> --owner <id> [--file <path>] [--confirm]
                                      An owner's data as a whole: export to a JSON file, import a file under
                                      an owner (fresh ids), or erase everything of theirs (needs --confirm).
+              owner backfill-conversations [--apply]
+                                     Conversations written before owners were stamped get the one owner their
+                                     memories came from; none or several owners are listed. Dry run without
+                                     --apply; safe to run again.
               integrity [--owner <id>]
                                      Check the store's integrity rules (no edge across owners, closed facts
                                      have successors, ordered validity windows, sources). Read-only.

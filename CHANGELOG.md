@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Conversations written before owners were stamped can get their owner back** (`agentmemory owner
+  backfill-conversations [--apply]`, `Neo4jConversationOwnerBackfill`). Message writes now stamp the conversation's owner,
+  but older conversations have none, so the owner erase (which finds an owner's messages through their conversation)
+  missed them and an owner-scoped MCP caller no longer saw them. The backfill gives such a conversation the owner of the
+  memories extracted from its messages when they all belong to one owner; a conversation with no owned memory, or with
+  several owners, is left without one and listed. A dry run unless `--apply`; a conversation that has an owner is never
+  touched, so it is safe to run again.
+
 - **Module selection can interleave packs when no judge decides** (`ModuleSelectionOptions.InterleaveContributorsWithoutJudge`,
   off by default). Without a judge's decision, kept items follow contributor (pack priority) order, so the first packs fill
   `MaxItems` and a later pack's best item never reaches the prompt: in the co-speaker evaluation (seven packs, eight items)

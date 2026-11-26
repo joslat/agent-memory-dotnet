@@ -8,6 +8,7 @@ using AgentMemory.Abstractions.Domain;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.Core.Stubs;
+using AgentMemory.Neo4j.Services;
 using AgentMemory.Tests.Integration.Fixtures;
 using Neo4j.Driver;
 
@@ -154,6 +155,54 @@ public sealed class OwnerDataIntegrationTests : IAsyncLifetime
             .Should().BeTrue("no imported link reaches another owner's entity");
     }
 
+    // RVW-CONVERSATION-OWNER-BACKFILL: conversations written before the message paths stamped an owner have none, so the
+    // erase missed them. The backfill gives one the owner its memories came from, lists the rest, and changes nothing twice.
+    [Fact]
+    public async Task Conversations_written_before_owners_were_stamped_get_the_one_owner_their_memories_came_from()
+    {
+        await SayAsync("ana", "I live in Bilbao.");
+        await SayAsync("bob", "I live in Porto.");
+        await RunAsync("MATCH (c:Conversation) REMOVE c.user_id");   // as written before the stamp
+        await RunAsync("""
+            CREATE (shared:Conversation {id: 'c-shared', session_id: 's-shared'}),
+                   (shared)-[:HAS_MESSAGE]->(:Message {id: 'm-shared-ana', conversation_id: 'c-shared', session_id: 's-shared', content: 'one'}),
+                   (shared)-[:HAS_MESSAGE]->(:Message {id: 'm-shared-bob', conversation_id: 'c-shared', session_id: 's-shared', content: 'two'}),
+                   (:Conversation {id: 'c-none', session_id: 's-none'})
+                       -[:HAS_MESSAGE]->(:Message {id: 'm-none', conversation_id: 'c-none', session_id: 's-none', content: 'three'})
+            """);
+        await RunAsync("""
+            MATCH (fa:Fact {owner_id: 'ana'}) WITH fa LIMIT 1
+            MATCH (fb:Fact {owner_id: 'bob'}) WITH fa, fb LIMIT 1
+            MATCH (ma:Message {id: 'm-shared-ana'}), (mb:Message {id: 'm-shared-bob'})
+            CREATE (fa)-[:EXTRACTED_FROM]->(ma), (fb)-[:EXTRACTED_FROM]->(mb)
+            """);
+        using var scope = _provider!.CreateScope();
+        var backfill = scope.ServiceProvider.GetRequiredService<Neo4jConversationOwnerBackfill>();
+
+        var dryRun = await backfill.RunAsync(apply: false);
+        dryRun.Attributed.Select(e => $"{e.ConversationId}:{string.Join(",", e.Owners)}").Should().Equal("c-ana:ana", "c-bob:bob");
+        dryRun.WithoutOwner.Should().Equal("c-none");
+        dryRun.SeveralOwners.Should().ContainSingle().Which.Should().BeEquivalentTo(new { ConversationId = "c-shared", Owners = new[] { "ana", "bob" } });
+        (await ScalarAsync("MATCH (c:Conversation) WHERE c.user_id IS NOT NULL RETURN count(c)")).Should().Be(0, "a dry run writes nothing");
+
+        var applied = await backfill.RunAsync(apply: true);
+        applied.Attributed.Should().HaveCount(2);
+        (await ScalarAsync("MATCH (c:Conversation {id: 'c-ana', user_id: 'ana'}) RETURN count(c)")).Should().Be(1);
+        (await ScalarAsync("MATCH (c:Conversation {id: 'c-bob', user_id: 'bob'}) RETURN count(c)")).Should().Be(1);
+        (await ScalarAsync("MATCH (c:Conversation) WHERE c.id IN ['c-shared', 'c-none'] AND c.user_id IS NULL RETURN count(c)"))
+            .Should().Be(2, "no owner, or several, is not guessed");
+
+        var again = await backfill.RunAsync(apply: true);
+        again.Attributed.Should().BeEmpty("a conversation with an owner is never touched again");
+        again.WithoutOwner.Should().Equal("c-none");
+        again.SeveralOwners.Should().ContainSingle();
+
+        await scope.ServiceProvider.GetRequiredService<IMemoryOwnerDataService>().EraseAsync("ana");
+        (await ScalarAsync("MATCH (m:Message {conversation_id: 'c-ana'}) RETURN count(m)")).Should().Be(0, "the erase now finds the backfilled transcript");
+        (await ScalarAsync("MATCH (m:Message {conversation_id: 'c-bob'}) RETURN count(m)")).Should().Be(1);
+        (await ScalarAsync("MATCH (m:Message {conversation_id: 'c-shared'}) RETURN count(m)")).Should().Be(2, "a conversation of several owners is not one owner's to erase");
+    }
+
     private void Build()
     {
         var services = new ServiceCollection();
@@ -236,6 +285,12 @@ public sealed class OwnerDataIntegrationTests : IAsyncLifetime
     }
 
     private Task<long> CountAsync(string owner) => ScalarAsync($"MATCH (n) WHERE n.owner_id = '{owner}' RETURN count(n)");
+
+    private async Task RunAsync(string cypher)
+    {
+        await using var session = _fixture.Driver.AsyncSession();
+        await (await session.RunAsync(cypher)).ConsumeAsync();
+    }
 
     private async Task<long> ScalarAsync(string cypher)
     {
