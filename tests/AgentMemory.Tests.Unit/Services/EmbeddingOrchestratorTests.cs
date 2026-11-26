@@ -21,6 +21,64 @@ public sealed class EmbeddingOrchestratorTests
     private EmbeddingOrchestrator CreateSut() =>
         new(_generator, NullLogger<EmbeddingOrchestrator>.Instance);
 
+    // ── TT-09: an unusable vector is a failed embedding, never stored or remembered ──
+
+    private static IEmbeddingGenerator<string, Embedding<float>> Returning(params float[][] vectors)
+    {
+        var generator = Substitute.For<IEmbeddingGenerator<string, Embedding<float>>>();
+        var calls = 0;
+        generator
+            .GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                var count = call.Arg<IEnumerable<string>>().Count();
+                var batch = Enumerable.Range(0, count).Select(i => new Embedding<float>(vectors[(calls + i) % vectors.Length])).ToList();
+                calls += count;
+                return Task.FromResult(new GeneratedEmbeddings<Embedding<float>>(batch));
+            });
+        return generator;
+    }
+
+    [Theory]
+    [InlineData(float.NaN)]
+    [InlineData(float.PositiveInfinity)]
+    [InlineData(float.NegativeInfinity)]
+    public async Task A_vector_with_a_non_finite_value_is_no_embedding_and_is_not_remembered(float bad)
+    {
+        var generator = Returning([0.1f, bad, 0.3f, 0.4f]);
+        var sut = new EmbeddingOrchestrator(generator, NullLogger<EmbeddingOrchestrator>.Instance, new EmbeddingVectorCache(capacity: 16));
+
+        (await sut.EmbedAsync("Alice works at Acme")).Should().BeEmpty();
+        (await sut.EmbedAsync("Alice works at Acme")).Should().BeEmpty();
+        await generator.Received(2).GenerateAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task A_vector_of_the_wrong_length_is_no_embedding_when_the_store_knows_its_length()
+    {
+        var generator = Returning([0.1f, 0.2f, 0.3f]);
+
+        (await new EmbeddingOrchestrator(generator, NullLogger<EmbeddingOrchestrator>.Instance, shape: new EmbeddingShape(4))
+            .EmbedAsync("Alice")).Should().BeEmpty();
+        (await new EmbeddingOrchestrator(generator, NullLogger<EmbeddingOrchestrator>.Instance, shape: new EmbeddingShape(3))
+            .EmbedAsync("Alice")).Should().Equal(0.1f, 0.2f, 0.3f);
+        // With no length configured, only finite values are checked.
+        (await new EmbeddingOrchestrator(generator, NullLogger<EmbeddingOrchestrator>.Instance)
+            .EmbedAsync("Alice")).Should().Equal(0.1f, 0.2f, 0.3f);
+    }
+
+    [Fact]
+    public async Task In_a_batch_only_the_unusable_vectors_are_left_empty()
+    {
+        var generator = Returning([1f, 2f, 3f, 4f], [1f, float.NaN, 3f, 4f], [1f, 2f, 3f], [5f, 6f, 7f, 8f]);
+        var sut = new EmbeddingOrchestrator(generator, NullLogger<EmbeddingOrchestrator>.Instance, shape: new EmbeddingShape(4));
+
+        var vectors = await sut.EmbedBatchAsync(["first", "second", "third", "fourth"]);
+
+        vectors.Select(v => v.Length).Should().Equal(4, 0, 0, 4);
+        vectors[3].Should().Equal(5f, 6f, 7f, 8f);
+    }
+
     // ── Null / empty / whitespace inputs ──
 
     [Theory]

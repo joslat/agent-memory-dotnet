@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **A generated embedding with the wrong length or a NaN or infinite value is not stored** (threat TT-09). The
+  embedding orchestrator checks every vector the generator returns against the store's configured dimensions
+  (`Neo4jOptions.EmbeddingDimensions`) and for finite values; one that fails counts as a failed embedding: the memory is
+  stored without a vector (as when the generator throws), a warning is logged once per call, and nothing is cached.
+  Before, a misbehaving generator's vectors reached Neo4j, where the vector index ignored a wrong-length one and a NaN
+  broke similarity.
+
 - **Extracted facts, preferences, relationships and entity names pass length caps and content checks before they are
   stored** (threats TT-05 and TT-06). An item with an empty required field (a fact's subject, predicate or object; a
   preference's text; a relationship's endpoints or type), a field over its cap, a control character (tab and line

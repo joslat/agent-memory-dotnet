@@ -16,6 +16,7 @@ internal sealed class EmbeddingOrchestrator : IEmbeddingOrchestrator
     private readonly IEmbeddingGenerator<string, Embedding<float>> _generator;
     private readonly ILogger<EmbeddingOrchestrator> _logger;
     private readonly EmbeddingVectorCache _cache;
+    private readonly EmbeddingShape _shape;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="EmbeddingOrchestrator"/> class.
@@ -23,14 +24,17 @@ internal sealed class EmbeddingOrchestrator : IEmbeddingOrchestrator
     /// <param name="generator">The underlying embedding generator used to produce vectors.</param>
     /// <param name="logger">The logger used to record generation failures.</param>
     /// <param name="cache">Remembered vectors (<see cref="Abstractions.Options.MemoryOptions.EmbeddingCacheCapacity"/>); none when null.</param>
+    /// <param name="shape">TT-09: the length every vector must have (registered by the store); when null, only finite values are checked.</param>
     public EmbeddingOrchestrator(
         IEmbeddingGenerator<string, Embedding<float>> generator,
         ILogger<EmbeddingOrchestrator> logger,
-        EmbeddingVectorCache? cache = null)
+        EmbeddingVectorCache? cache = null,
+        EmbeddingShape? shape = null)
     {
         _generator = generator;
         _logger = logger;
         _cache = cache ?? EmbeddingVectorCache.Disabled;
+        _shape = shape ?? EmbeddingShape.Unknown;
     }
 
     /// <inheritdoc/>
@@ -54,6 +58,12 @@ internal sealed class EmbeddingOrchestrator : IEmbeddingOrchestrator
         {
             var result = await _generator.GenerateAsync([input], cancellationToken: cancellationToken).ConfigureAwait(false);
             var vector = result[0].Vector.ToArray();
+            // TT-09: a vector of the wrong length, or with a NaN or an infinity, is a failed embedding, never stored.
+            if (_shape.Problem(vector) is { } problem)
+            {
+                _logger.LogWarning("The embedding generator returned an unusable vector ({Problem}); treating it as no embedding.", problem);
+                return Array.Empty<float>();
+            }
             _cache.Set(input, vector);
             return vector;
         }
@@ -120,11 +130,25 @@ internal sealed class EmbeddingOrchestrator : IEmbeddingOrchestrator
                     "Batch embedding generator returned {Returned} vectors for {Requested} inputs; unmatched slots left empty.",
                     generated.Count, nonBlankTexts.Count);
             }
+            string? firstProblem = null;
+            var unusable = 0;
             for (int j = 0; j < nonBlankIndices.Count && j < generated.Count; j++)
             {
-                results[nonBlankIndices[j]] = generated[j].Vector.ToArray();
-                _cache.Set(nonBlankTexts[j], results[nonBlankIndices[j]]);
+                var vector = generated[j].Vector.ToArray();
+                // TT-09: a vector of the wrong length, or with a NaN or an infinity, is a failed embedding, never stored.
+                if (_shape.Problem(vector) is { } problem)
+                {
+                    firstProblem ??= problem;
+                    unusable++;
+                    continue;
+                }
+                results[nonBlankIndices[j]] = vector;
+                _cache.Set(nonBlankTexts[j], vector);
             }
+            if (unusable > 0)
+                _logger.LogWarning(
+                    "The embedding generator returned {Unusable} unusable vectors of {Requested} (the first: {Problem}); those slots are left empty.",
+                    unusable, nonBlankTexts.Count, firstProblem);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

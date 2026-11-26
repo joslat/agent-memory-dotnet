@@ -178,6 +178,9 @@ public static class ServiceCollectionExtensions
         // G3 (40.47). Erase, export and import an owner's data. Scoped: it writes through the scoped repositories.
         services.TryAddScoped<IMemoryOwnerDataService, Neo4jMemoryOwnerDataService>();
         services.TryAddScoped<Neo4jConversationOwnerBackfill>();
+        // TT-09: every generated embedding must have the store's configured length (and finite values) to be stored.
+        services.TryAddSingleton(sp => new AgentMemory.Core.Services.EmbeddingShape(
+            sp.GetRequiredService<IOptions<Neo4jOptions>>().Value.EmbeddingDimensions));
         // Applied-once writes (ExtractionRequest.OperationId): receipts on the stored message, in the persistence transaction.
         services.TryAddScoped<IMemoryOperationReceiptStore, Neo4jMemoryOperationReceiptStore>();
 
