@@ -120,16 +120,33 @@ public sealed class IdentityPlannerTests
         await act.Should().ThrowAsync<InvalidOperationException>();
     }
 
+    /// <summary>
+    /// The approximate routes are asked for the remaining slots plus the exact candidates they may find again (never more
+    /// than MaxCandidates in all), and no more than the remaining slots are added (IDENTITY-THING-NAMESAKES: a rediscovered
+    /// exact candidate took a slot from a namesake).
+    /// </summary>
     [Fact]
-    public async Task Approximation_receives_only_the_remaining_candidate_budget()
+    public async Task Approximation_is_asked_for_the_remaining_budget_and_the_exact_candidates_it_may_find_again()
     {
         _options.MaxCandidates = 3;
         _provider.FindExactCandidatesAsync(Arg.Any<IdentityCandidateQuery>(), Arg.Any<CancellationToken>())
             .Returns(new IdentityCandidateSet { Candidates = [Candidate("a"), Candidate("b")], ExactIdentityLookupComplete = true });
         await Planner().PlanAsync(Mention(), Context(), Scope);
         await _provider.Received(1).FindApproximateCandidatesAsync(
-            Arg.Is<IdentityCandidateQuery>(q => q.Limit == 1 && q.OwnerId == "owner" && !q.IncludeShared),
+            Arg.Is<IdentityCandidateQuery>(q => q.Limit == 3 && q.OwnerId == "owner" && !q.IncludeShared),
             Arg.Any<float[]?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task No_more_than_the_remaining_slots_are_added_from_the_approximate_routes()
+    {
+        _options.MaxCandidates = 3;
+        _provider.FindExactCandidatesAsync(Arg.Any<IdentityCandidateQuery>(), Arg.Any<CancellationToken>())
+            .Returns(new IdentityCandidateSet { Candidates = [Candidate("a"), Candidate("b")], ExactIdentityLookupComplete = true });
+        _provider.FindApproximateCandidatesAsync(Arg.Any<IdentityCandidateQuery>(), Arg.Any<float[]?>(), Arg.Any<CancellationToken>())
+            .Returns(new IdentityCandidateSet { Candidates = [Candidate("a"), Candidate("c"), Candidate("d")], ExactIdentityLookupComplete = true });
+        var plan = await Planner().PlanAsync(Mention(), Context(), Scope);
+        plan.Candidates.Select(c => c.Entity.EntityId).Should().Equal("a", "b", "c");
     }
 
     [Fact]

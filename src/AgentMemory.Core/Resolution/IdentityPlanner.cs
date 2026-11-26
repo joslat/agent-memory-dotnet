@@ -119,10 +119,15 @@ internal sealed class IdentityPlanner
             cancellationToken.ThrowIfCancellationRequested();
             if (_fuzzy || vector is not null || query.ContextSourceMessageIds.Count > 0)
             {
-                var approximate = await _provider.FindApproximateCandidatesAsync(query with { Limit = remaining }, vector, cancellationToken)
+                // IDENTITY-THING-NAMESAKES (the sealed v4, 25 Nov): the approximate routes find the exact candidates again, often
+                // first, and each such hit took one of their slots ("Adom" found the stored caterer twice, so the supplier also
+                // called Adom was never offered). They are asked for as many more as the exact lookup found; no more than the
+                // remaining slots are added.
+                var asked = remaining + exact.Candidates.Count;
+                var approximate = await _provider.FindApproximateCandidatesAsync(query with { Limit = asked }, vector, cancellationToken)
                     .ConfigureAwait(false);
                 cancellationToken.ThrowIfCancellationRequested();
-                AddCandidates(approximate, remaining, candidates, effectiveScope);
+                AddCandidates(approximate, asked, candidates, effectiveScope, maxNew: remaining);
                 result = Evaluate();
             }
         }
@@ -145,8 +150,9 @@ internal sealed class IdentityPlanner
             candidates.ToArray(), context, diagnostics.ToArray());
     }
 
-    private static void AddCandidates(IdentityCandidateSet set, int limit, List<IdentityCandidate> target, MemoryScope scope)
+    private static void AddCandidates(IdentityCandidateSet set, int limit, List<IdentityCandidate> target, MemoryScope scope, int? maxNew = null)
     {
+        var added = 0;
         if (set is null || set.Candidates is null || set.Candidates.Count > limit)
             throw new InvalidOperationException("The identity candidate provider exceeded or violated its bounded result contract.");
         var routeIds = new HashSet<string>(StringComparer.Ordinal);
@@ -162,6 +168,8 @@ internal sealed class IdentityPlanner
             if (!visible) continue;
             // An approximate hit may rediscover an exact candidate; it cannot replace that authority snapshot.
             if (target.Any(previous => previous.Entity.EntityId == candidate.Entity.EntityId)) continue;
+            if (maxNew is { } most && added >= most) break;
+            added++;
             target.Add(candidate with
             {
                 VerifiedKeys = Array.AsReadOnly(candidate.VerifiedKeys.Select(Freeze).ToArray()),

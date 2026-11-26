@@ -44,14 +44,16 @@ public sealed class IdentityWriterReferenceTests
 
     private async Task<IdentityDecision> Plan(ExtractedEntityReference? reference, IdentityCandidate[] found,
         bool allowContextualConfirmation = true, bool withModel = true, string type = "EVENT", string text = CurrentText,
-        IIdentityDecisionRepository? store = null, string name = EventName, string[]? aliases = null)
+        IIdentityDecisionRepository? store = null, string name = EventName, string[]? aliases = null, IdentityCandidate[]? approximate = null)
     {
         var candidates = Substitute.For<IIdentityCandidateProvider>();
         candidates.Capabilities.Returns(new IdentityCandidateCapabilities { BoundedReads = true, CalendarValueLookup = true, VerifiedKeyLookup = true });
         candidates.FindExactCandidatesAsync(Arg.Any<IdentityCandidateQuery>(), Arg.Any<CancellationToken>())
             .Returns(new IdentityCandidateSet { ExactIdentityLookupComplete = true, Candidates = found });
+        // The approximate routes' hits, best first, cut to the limit asked: what the repository returns.
         candidates.FindApproximateCandidatesAsync(Arg.Any<IdentityCandidateQuery>(), Arg.Any<float[]?>(), Arg.Any<CancellationToken>())
-            .Returns(new IdentityCandidateSet { ExactIdentityLookupComplete = true });
+            .Returns(call => new IdentityCandidateSet { ExactIdentityLookupComplete = true,
+                Candidates = (approximate ?? []).Take(call.Arg<IdentityCandidateQuery>().Limit).ToArray() });
         store ??= Substitute.For<IIdentityDecisionRepository>();
         store.IsEnabled.Returns(true); store.SupportsAtomicIngestion.Returns(true);
         var embeddings = Substitute.For<IEmbeddingOrchestrator>();
@@ -466,5 +468,54 @@ public sealed class IdentityWriterReferenceTests
         var found = IdentityRelationCue.InTurn(text, ["Valentina Ríos"]);
         if (expected is null) found.Should().BeEmpty();
         else found.Should().Contain(expected);
+    }
+
+    /// <summary>
+    /// IDENTITY-THING-NAMESAKES (the sealed v4, 25 Nov, one run of three): the first mention of a second team, "our team is
+    /// also called the Eagles", was referred by the writer to the one Eagles stored and confirmed, and every later mention of
+    /// either team went to that one identity. The turn itself says the name is shared: the writer's guess is kept for review.
+    /// </summary>
+    [Theory]
+    [InlineData("On Saturdays I play football with my neighbours, and our team is also called the Eagles.")]
+    [InlineData("My cousin has a band that is also named the Eagles.")]
+    public async Task A_turn_that_says_the_name_is_also_another_things_does_not_confirm_the_writer_s_reference(string text)
+    {
+        var decision = await Plan(new() { EntityId = "team-a", Quote = "also" }, [Candidate("team-a", "the Eagles", "ORGANIZATION")],
+            type: "ORGANIZATION", text: text, name: "the Eagles");
+
+        decision.Status.Should().NotBe(IdentityDecisionKind.Confirmed);
+        decision.Diagnostics.Should().Contain("writer_reference_namesake_cue");
+    }
+
+    /// <summary>The cue is the name's own: an alias given with "also called" still lets a supported reference confirm.</summary>
+    [Fact]
+    public async Task An_alias_given_with_also_called_is_not_a_namesake_cue()
+    {
+        var decision = await Plan(new() { EntityId = "team-a", Quote = "the Eagles, also called the Birds" },
+            [Candidate("team-a", "the Eagles", "ORGANIZATION")], type: "ORGANIZATION",
+            text: "We watched the Eagles, also called the Birds, win on Sunday.", name: "the Eagles");
+
+        decision.Status.Should().Be(IdentityDecisionKind.Confirmed);
+        decision.Diagnostics.Should().NotContain("writer_reference_namesake_cue");
+    }
+
+    /// <summary>
+    /// IDENTITY-THING-NAMESAKES (the sealed v4, 25 Nov): "Adom delivered the last load of blocks a week late" was referred by
+    /// the writer to the stored caterer Adom and confirmed; the stored supplier also called Adom was never offered. The exact
+    /// lookup had found the caterer, the approximate routes found it again first, and that hit took one of their few slots, so
+    /// the supplier lost the last one. Asked for as many more as the exact lookup found, the routes offer it, and a bare name
+    /// another candidate's name holds keeps the writer's guess for review.
+    /// </summary>
+    [Fact]
+    public async Task An_exact_candidate_found_again_does_not_take_an_approximate_slot_from_a_namesake()
+    {
+        var caterer = Candidate("org-caterer", "Adom", "ORGANIZATION");
+        var decision = await Plan(new() { EntityId = "org-caterer", Quote = "Adom delivered" }, [caterer], type: "ORGANIZATION",
+            text: "Adom delivered the last load of blocks a week late, again.", name: "Adom",
+            approximate: [caterer, Candidate("org-team-1", "the Lions", "ORGANIZATION"), Candidate("org-team-2", "the Lions", "ORGANIZATION"),
+                Candidate("org-supplier", "the supplier called Adom", "ORGANIZATION")]);
+
+        decision.Status.Should().NotBe(IdentityDecisionKind.Confirmed);
+        decision.Diagnostics.Should().Contain("writer_reference_ambiguous");
     }
 }

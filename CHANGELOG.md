@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Two ways a writer's reference merged namesakes are closed** (IDENTITY-THING-NAMESAKES; traced in the sealed who's-who
+  v4, where the writer's reference made 9 of the 10 confirmations into a wrong identity):
+  - *A rediscovered exact candidate no longer takes a namesake's slot.* The approximate routes find the exact candidates
+    again, often first, and each such hit used one of their few slots: "Adom delivered the last load of blocks" found the
+    stored caterer twice, the supplier also called Adom was never offered, and the writer's reference to the caterer was
+    confirmed. The routes are now asked for as many more as the exact lookup found (never more than `MaxCandidates` in all),
+    and no more than the remaining slots are added; with the namesake offered, a bare name another candidate's name holds
+    keeps the writer's guess for review.
+  - *A turn that says the name is shared does not confirm it.* "Our team is also called the Eagles" was referred to the one
+    Eagles stored, and every later mention of either team went to it. When the turn says something is (was) also called or
+    also named the very name the writer matched, the reference is kept for review (`writer_reference_namesake_cue`). An alias
+    ("the Eagles, also called the Birds"; "Roberto is also called Bob") names something else and still confirms.
+
 - **Identity's near-name candidates are this owner's, however many others share the store** (ER-OWNER-CROWDING): the
   fuzzy and semantic routes take a pool of eight times the candidate limit (32 by default) from the store-wide full-text and
   vector indexes and keep this owner's, of the mention's type, only afterwards. In a store shared by many owners, or one

@@ -61,6 +61,13 @@ internal static class IdentityWriterReference
         // holds, in the turn still decides.
         if (NamedOnlyByShared(turnText, target, mention, plan.Candidates, result.RejectedEntityIds))
             return Note("writer_reference_ambiguous");
+        // IDENTITY-THING-NAMESAKES (the sealed v4, 25 Nov, one run of three): "our team is also called the Eagles", the first
+        // mention of a second team, was referred by the writer to the one Eagles stored and confirmed, and every later mention
+        // of either team went to that identity. When the turn says something is also called the very name the writer matched,
+        // the name is shared, not the thing: the guess is kept for review, a split rather than a merge. An alias names
+        // something else ("the Eagles, also called the Birds"; "Roberto is also called Bob") and is no cue.
+        if (MemoryTripleCanonicalizer.CanonicalValue(mention.Name) == name && SaysAlsoCalled(turnText, mention.Name))
+            return Note("writer_reference_namesake_cue");
         if (IdentityRelationCue.Disagree(IdentityRelationCue.InTurn(turnText, [mention.Name, target.Name, .. mention.Aliases]),
                 IdentityRelationCue.Known(targetCandidate!)))
             return Note("writer_reference_relation_conflict");
@@ -83,6 +90,14 @@ internal static class IdentityWriterReference
             Diagnostics = [.. plan.Diagnostics, "writer_reference_confirmed"], ContextualEvidence = evidence
         };
     }
+
+    // Whether the turn says something "is (was, are, were) also called" or "also named" the name, whole: the predicate of a
+    // namesake ("a dog that is also called Rocky"). Case-insensitive; bounded, as the turn is the user's text.
+    private static bool SaysAlsoCalled(string turn, string name) =>
+        !string.IsNullOrWhiteSpace(name) && System.Text.RegularExpressions.Regex.IsMatch(turn,
+            @"\b(?:is|are|was|were)\s+also\s+(?:called|named)\s+" + System.Text.RegularExpressions.Regex.Escape(name.Trim()) + @"(?![\p{L}\p{N}])",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant,
+            TimeSpan.FromMilliseconds(100));
 
     // Whether the turn names the target only by words another candidate of its type is also called by: the target's full name
     // and the mention's short forms are looked for whole in the turn first; any of them no other candidate holds decides. With
