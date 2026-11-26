@@ -135,7 +135,10 @@ public sealed class GraphRetrieverTests
         // R1 hardening: a scoped graph walk must not route THROUGH another owner's node — every node on
         // the path (seed, intermediates, related) is owner/shared-filtered, not only the endpoints.
         var scoped = GraphRetriever.BuildTraversalCypher(2, scoped: true, gamma: gamma);
-        scoped.Should().Contain("all(n IN nodes(path) WHERE n.owner_id = $owner_id OR n.owner_id IS NULL)");
+        scoped.Should().Contain("all(n IN nodes(path) WHERE (n.owner_id = $owner_id OR n.owner_id IS NULL)");
+        // RVW-REST-STORAGE (storage-6): every edge on the path too, and nothing invalidated or merged away.
+        scoped.Should().Contain("all(r IN relationships(path) WHERE (r.owner_id = $owner_id OR r.owner_id IS NULL) AND r.invalidated_at IS NULL)");
+        scoped.Should().Contain("n.invalidated_at IS NULL AND n.merged_into IS NULL");
         scoped.Should().NotContain("related.owner_id", "the endpoint-only filter is subsumed by the path-wide one");
     }
 

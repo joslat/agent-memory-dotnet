@@ -6,6 +6,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Storage fixes from the review of main** (storage):
+  - *A restated fact in other casing no longer writes its whole batch twice* (storage-2): the fused batch returns the
+    stored node with its stored text, and persistence matched results on the raw text, so "user | likes | coffee"
+    against a stored "User | likes | Coffee" went missing and every fact of the batch was replayed through the item
+    path. Results are matched on the store's canonical key.
+  - *A revived decayed fact is no longer marked as decayed* (storage-3): a restatement cleared `invalidated_at` but kept
+    `invalidated_reason = 'decay'`, so a later forget or plain supersede read as decayed and legible forgetting said the
+    system "used to know" it. All three fact upserts clear the reason with the date.
+  - *Dreaming's unsaid-preference check sees the earlier turns* (storage-4): it read `Message.created_at`, which no
+    message has (they carry `timestamp`), so the model judged each preference's source sentence with no context and the
+    request was dated now.
+  - *The writer finds preferences that name a person* (storage-5): `FindMentioning` read `preference_text`, which no
+    preference has, and always returned nothing.
+  - *GraphRAG's owner-scoped walk checks the edges too* (storage-6): an edge carries its owner, so another owner's
+    association between two shared entities is no longer walked; invalidated or merged-away nodes and invalidated edges
+    are not walked; a message seeds a scoped walk only when its conversation is the owner's.
+  - *The decay prune works a batch per transaction* (storage-7), 2,000 nodes at a time, as the owner erase does, so a
+    first prune after months or a hard prune of a large store is never one transaction.
+
 - **Agent Framework and MCP host fixes from the review of main** (hosts):
   - *Users of one agent no longer share a memory session* (hosts-2). Without a session id the providers used the agent's
     id as the session, so every user of one agent instance had the others' recent turns replayed into their requests.

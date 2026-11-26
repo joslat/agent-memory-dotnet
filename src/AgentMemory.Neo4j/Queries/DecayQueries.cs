@@ -125,6 +125,9 @@ internal static class DecayQueries
             "            WHERE ((COALESCE(conf, 0.5) + CASE WHEN $boostFactor * log(1 + ac) > $maxBoost" +
             " THEN $maxBoost ELSE $boostFactor * log(1 + ac) END)" +
             " * exp(-$lambda * daysSince)) < $minScore\n" +
+            // RVW-REST-STORAGE (the review's storage-7): a batch at a time (the service repeats it), as the owner erase
+            // does, so a first prune after months or a hard prune of a large store is never one transaction.
+            "            WITH " + a + " LIMIT $batch\n" +
             "            " + action + "\n" +
             "            RETURN count(*) AS pruned";
     }

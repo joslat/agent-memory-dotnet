@@ -79,16 +79,18 @@ internal sealed partial class Neo4jFactRepository
                 .ConfigureAwait(false);
             var records = await cursor.ToListAsync().ConfigureAwait(false);
             if (records.Count == 0) throw new InvalidOperationException("Fact scope-key collision; migrate reserved owner keys before writing.");
-            var embeddingByTriple = deduped.ToDictionary(
-                fact => TripleKey(fact.Subject, fact.Predicate, fact.Object, OwnerStorageKey.Encode(fact.OwnerId)),
-                fact => fact.Embedding);
+            // On the MERGE key (storage-2): the stored node keeps its first text, so a restatement in other casing matches it.
+            var embeddingByTriple = deduped
+                .GroupBy(fact => TripleKey(MemoryTripleCanonicalizer.CanonicalValue(fact.Subject), MemoryTripleCanonicalizer.Canonical(fact.Predicate),
+                    MemoryTripleCanonicalizer.CanonicalValue(fact.Object), OwnerStorageKey.Encode(fact.OwnerId)))
+                .ToDictionary(group => group.Key, group => group.Last().Embedding);
             return records.Select(record =>
             {
                 var node = record["f"].As<INode>();
                 var key = TripleKey(
-                    node["subject"].As<string>(),
-                    node["predicate"].As<string>(),
-                    node["object"].As<string>(),
+                    node["subject_key"].As<string>(),
+                    node["predicate_key"].As<string>(),
+                    node["object_key"].As<string>(),
                     node["owner_key"].As<string>());
                 return MapToFact(node, embeddingByTriple.TryGetValue(key, out var embedding) ? embedding : null);
             }).ToList();

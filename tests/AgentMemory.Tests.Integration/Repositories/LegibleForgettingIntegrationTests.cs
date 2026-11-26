@@ -70,6 +70,7 @@ public class LegibleForgettingIntegrationTests : IAsyncLifetime
                 ["boostFactor"] = 0.0,
                 ["maxBoost"] = 0.0,
                 ["minScore"] = 2.0,
+                ["batch"] = 2000, // the service's batch (RVW-REST-STORAGE, storage-7)
             });
             var records = await cursor.ToListAsync();
             return records.Count;

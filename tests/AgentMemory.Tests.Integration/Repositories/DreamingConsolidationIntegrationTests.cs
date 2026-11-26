@@ -51,14 +51,16 @@ public class DreamingConsolidationIntegrationTests : IAsyncLifetime
         ApprovedProposals = approved,
     };
 
+    // RVW-REST-STORAGE (the review's storage-4): messages carry `timestamp`, as MessageQueries writes them; the seed used
+    // `created_at`, which no stored message has, so the query's reads of it went unnoticed.
     private async Task SeedAsync()
     {
         await using var session = _fixture.Driver.AsyncSession();
         await session.RunAsync(@"
             CREATE (c:Conversation {id: 'c1', session_id: 's1'})
-            CREATE (m0:Message {id: 'm0', role: 'user', content: $m0, created_at: datetime('2027-09-14T19:00:00Z')})
-            CREATE (ma:Message {id: 'ma', role: 'assistant', content: 'That sounds lovely!', created_at: datetime('2027-09-14T19:00:05Z')})
-            CREATE (m1:Message {id: 'm1', role: 'user', content: $m1, created_at: datetime('2027-09-15T10:00:00Z')})
+            CREATE (m0:Message {id: 'm0', role: 'user', content: $m0, timestamp: datetime('2027-09-14T19:00:00Z')})
+            CREATE (ma:Message {id: 'ma', role: 'assistant', content: 'That sounds lovely!', timestamp: datetime('2027-09-14T19:00:05Z')})
+            CREATE (m1:Message {id: 'm1', role: 'user', content: $m1, timestamp: datetime('2027-09-15T10:00:00Z')})
             CREATE (c)-[:HAS_MESSAGE]->(m0), (c)-[:HAS_MESSAGE]->(ma), (c)-[:HAS_MESSAGE]->(m1)
             CREATE (e1:Entity {id: 'e1', owner_id: 'alice', name: 'School backpack', type: 'OBJECT'})
             CREATE (e2:Entity {id: 'e2', owner_id: 'alice', name: 'New school backpack', type: 'OBJECT'})

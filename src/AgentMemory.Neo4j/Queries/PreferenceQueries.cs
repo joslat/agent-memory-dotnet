@@ -73,7 +73,9 @@ internal static class PreferenceQueries
             : includeShared ? " AND (p.owner_id = $ownerId OR p.owner_id IS NULL)"
                             : " AND p.owner_id = $ownerId";
         return "MATCH (p:Preference) WHERE p.invalidated_at IS NULL AND p.merged_into IS NULL" + owner
-            + " AND any(n IN $names WHERE toLower(p.preference_text) CONTAINS n)"
+            // RVW-REST-STORAGE (the review's storage-5): a preference's text is `preference`; `preference_text`, which no
+            // preference has, made this always empty.
+            + " AND any(n IN $names WHERE toLower(p.preference) CONTAINS n)"
             + " RETURN p ORDER BY p.created_at, p.id LIMIT $limit";
     }
 

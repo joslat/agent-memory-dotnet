@@ -114,20 +114,22 @@ internal static class ConsolidationQueries
 
     /// <summary>
     /// Live preferences, each with the first message it was stored from and up to two earlier messages of the same role
-    /// in that message's conversation (oldest first).
+    /// in that message's conversation (oldest first). Messages carry <c>timestamp</c> (RVW-REST-STORAGE, the review's
+    /// storage-4: this read <c>created_at</c>, which no message has, so the earlier turns were never shown and the
+    /// request was dated now).
     /// </summary>
     public const string LivePreferenceSources = @"
             MATCH (p:Preference)-[:EXTRACTED_FROM]->(m:Message)
             WHERE p.invalidated_at IS NULL AND ($ownerId IS NULL OR p.owner_id = $ownerId)
-            WITH p, m ORDER BY m.created_at ASC
+            WITH p, m ORDER BY m.timestamp ASC
             WITH p, head(collect(m)) AS m
             OPTIONAL MATCH (c:Conversation)-[:HAS_MESSAGE]->(m)
             OPTIONAL MATCH (c)-[:HAS_MESSAGE]->(e:Message)
-            WHERE e.role = m.role AND e.created_at < m.created_at
-            WITH p, m, e ORDER BY e.created_at DESC
+            WHERE e.role = m.role AND e.timestamp < m.timestamp
+            WITH p, m, e ORDER BY e.timestamp DESC
             WITH p, m, collect(e.content)[0..2] AS earlier
             RETURN p.id AS id, p.owner_id AS ownerId, p.category AS category, p.preference AS text,
-                   m.id AS messageId, m.content AS message, toString(m.created_at) AS saidAt, reverse(earlier) AS earlier";
+                   m.id AS messageId, m.content AS message, toString(m.timestamp) AS saidAt, reverse(earlier) AS earlier";
 
     /// <summary>Live preferences among <c>$ids</c>: an approved proposal is closed without asking the model again.</summary>
     public const string LivePreferencesById = @"

@@ -112,6 +112,37 @@ public class GraphRagAdapterIntegrationTests : IAsyncLifetime
             "a scoped walk must not bridge two owned nodes via another owner's node");
     }
 
+    // RVW-REST-STORAGE (the review's storage-6): between two shared nodes, bob's own RELATED_TO edge is bob's association,
+    // and an invalidated node or edge is not walked.
+    [Fact]
+    public async Task GraphMode_OwnerScoped_DoesNotWalkAnotherOwnersEdgeOrAnythingInvalidated()
+    {
+        await SeedOwnedAsync(
+            ("acme", "acme shared", AxisX, null),
+            ("bob-person", "bob shared", AxisX, null),
+            ("gone", "forgotten shared", AxisX, null),
+            ("kept", "kept shared", AxisX, null));
+        await using (var session = _fixture.Driver.AsyncSession())
+        {
+            await session.RunAsync("""
+                MATCH (a:Knowledge {id: 'acme'}), (b:Knowledge {id: 'bob-person'}), (g:Knowledge {id: 'gone'}), (k:Knowledge {id: 'kept'})
+                SET g.invalidated_at = datetime()
+                MERGE (b)-[:RELATED_TO {owner_id: 'bob'}]->(a)
+                MERGE (a)-[:RELATED_TO]->(g)
+                MERGE (a)-[:RELATED_TO {invalidated_at: datetime()}]->(k)
+                """);
+        }
+
+        var source = CreateSource(GraphRagSearchMode.Graph, queryVector: AxisX);
+        var result = await source.GetContextAsync(
+            new GraphRagContextRequest { SessionId = "s1", Query = "node", TopK = 25, UserId = "alice" });
+
+        var texts = result.Items.Select(i => i.Text).ToList();
+        texts.Should().NotContain(t => t.Contains("acme shared") && t.Contains("bob shared"), "bob's own association is not alice's");
+        texts.Should().NotContain(t => t.Contains("forgotten shared"), "an invalidated node is not walked");
+        texts.Should().NotContain(t => t.Contains("acme shared") && t.Contains("kept shared"), "an invalidated edge is not walked");
+    }
+
     // ── Retrieval mode selection + provider wiring ─────────────────────────────
 
     [Fact]

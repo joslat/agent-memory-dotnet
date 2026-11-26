@@ -95,7 +95,8 @@ internal static class FusedPersistenceQueries
                 f.source_message_ids = item.source_message_ids,
                 f.updated_at         = datetime(item.updated_at),
                 f.metadata           = item.metadata,
-                f.invalidated_at     = null
+                f.invalidated_at     = null,
+                f.invalidated_reason = null // RVW-REST-STORAGE (storage-3): a revived fact is no longer 'decay'
             SET f.embedding = CASE
                 WHEN item.embedding IS NOT NULL AND size(item.embedding) > 0 THEN item.embedding
                 ELSE f.embedding END

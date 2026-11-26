@@ -154,8 +154,12 @@ internal sealed class FactPersistence
             }
         }
 
+        // RVW-REST-STORAGE (the review's storage-2): on the store's MERGE key, as the batch result comes back as the stored
+        // node with its stored text; on the raw text a restatement in other casing went "missing" and the whole batch was
+        // written a second time through the item path.
         static (string Subject, string Predicate, string Object, string? OwnerId) FactKey(Fact fact) =>
-            (fact.Subject, fact.Predicate, fact.Object, fact.OwnerId);
+            (MemoryTripleCanonicalizer.CanonicalValue(fact.Subject), MemoryTripleCanonicalizer.Canonical(fact.Predicate),
+             MemoryTripleCanonicalizer.CanonicalValue(fact.Object), fact.OwnerId);
 
         // Distinct as STORED: canonical names applied, compared on the storage MERGE key (values by
         // CanonicalValue, the predicate by Canonical, which folds "_" and "-": "works_at" and "works at"

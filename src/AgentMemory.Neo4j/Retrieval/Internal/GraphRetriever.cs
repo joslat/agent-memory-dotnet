@@ -88,12 +88,23 @@ internal sealed class GraphRetriever : IRetriever
         // Owner-scope (R1): filter the vector-seeded nodes AND the traversed neighbours to the owner
         // (plus shared/global) so the graph walk cannot surface another user's connected nodes. Blank
         // lines when unscoped, so the query is byte-for-byte today's behavior. Over-fetch via $fetchK.
-        var seedWhere = scoped ? "WHERE (seed.owner_id = $owner_id OR seed.owner_id IS NULL)" : string.Empty;
+        // RVW-REST-STORAGE (the review's storage-6): a Message carries no owner_id, so "no owner = shared" let every tenant's
+        // messages seed a walk over the message index; a message is the owner's when its conversation is.
+        var seedWhere = scoped
+            ? "WHERE (seed.owner_id = $owner_id OR (seed.owner_id IS NULL AND NOT seed:Message) OR "
+              + "(seed:Message AND EXISTS { MATCH (:Conversation {user_id: $owner_id})-[:HAS_MESSAGE]->(seed) })) "
+              + "AND seed.invalidated_at IS NULL"
+            : string.Empty;
         // Scope the WHOLE path — seed, every intermediate hop, and the related endpoint — not just the
         // endpoints, so a scoped walk can never route THROUGH another owner's private node to reach an
         // owned/shared neighbour (that path would otherwise leak a connecting-bridge inference via `hops`).
         // `nodes(path)` includes seed+related, so this single predicate subsumes the old endpoint filter.
-        var pathWhere = scoped ? "WHERE all(n IN nodes(path) WHERE n.owner_id = $owner_id OR n.owner_id IS NULL)" : string.Empty;
+        // storage-6: the edges are scoped too (an edge carries its owner: bob's association between two shared entities is
+        // bob's, as every other scoped relationship read treats it), and nothing invalidated or merged away is walked.
+        var pathWhere = scoped
+            ? "WHERE all(n IN nodes(path) WHERE (n.owner_id = $owner_id OR n.owner_id IS NULL) AND n.invalidated_at IS NULL AND n.merged_into IS NULL) "
+              + "AND all(r IN relationships(path) WHERE (r.owner_id = $owner_id OR r.owner_id IS NULL) AND r.invalidated_at IS NULL)"
+            : string.Empty;
 
         // D2 — structural hop decay: a neighbour at h hops is scored seedScore·γ^h (spreading-activation
         // lite). γ = 1.0 ⇒ no decay ⇒ emit today's exact query (rank by raw score, hops as tiebreaker).

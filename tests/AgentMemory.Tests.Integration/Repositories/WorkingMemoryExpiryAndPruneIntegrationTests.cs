@@ -68,6 +68,27 @@ public class WorkingMemoryExpiryAndPruneIntegrationTests : IAsyncLifetime
         NullLogger<Neo4jMemoryDecayService>.Instance,
         Options.Create(_options));
 
+    // RVW-REST-STORAGE (the review's storage-7): the prune works a batch per transaction until a batch comes back short,
+    // so a large store is never one transaction; every expired node is still pruned, and nothing live is.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task The_prune_works_in_batches_and_still_prunes_every_expired_node(bool nonDestructive)
+    {
+        foreach (var city in new[] { "A1", "A2", "A3", "A4", "A5" })
+            await _facts.UpsertAsync(NewFact(city) with { CreatedAtUtc = _clock.GetUtcNow().AddYears(-5) });
+        var liveFact = await _facts.UpsertAsync(NewFact("Live") with { CreatedAtUtc = _clock.GetUtcNow() });
+        var prune = new Neo4jMemoryDecayService(_fixture.TransactionRunner, _clock,
+            Options.Create(new MemoryDecayOptions { DecayHalfLifeDays = 1, MinRetentionScore = 0.5, NonDestructive = nonDestructive }),
+            NullLogger<Neo4jMemoryDecayService>.Instance, Options.Create(_options)) { PruneBatchSize = 2 };
+
+        (await prune.PruneExpiredMemoriesAsync(MemoryScope.For("alice"))).Should().Be(5);
+
+        var live = await _facts.GetByIdAsync(liveFact.FactId);
+        live.Should().NotBeNull();
+        live!.InvalidatedAtUtc.Should().BeNull("a live fact is not pruned");
+    }
+
     private Fact NewFact(string @object, DateTimeOffset? validUntil = null, string owner = "alice") => new()
     {
         FactId = Guid.NewGuid().ToString("N"),

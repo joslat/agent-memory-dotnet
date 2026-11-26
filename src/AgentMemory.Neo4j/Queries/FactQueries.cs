@@ -192,6 +192,7 @@ internal static class FactQueries
                 f.updated_at         = datetime($updatedAtUtc),
                 f.metadata           = $metadata,
                 f.invalidated_at     = null,
+                f.invalidated_reason = null, // RVW-REST-STORAGE (storage-3): a revived fact is no longer 'decay'
                 f.mention_count      = coalesce(f.mention_count, 1) + 1
             RETURN f";
 
@@ -248,6 +249,7 @@ internal static class FactQueries
                 f.updated_at         = datetime(item.updated_at),
                 f.metadata           = item.metadata,
                 f.invalidated_at     = null,
+                f.invalidated_reason = null, // RVW-REST-STORAGE (storage-3): a revived fact is no longer 'decay'
                 f.mention_count      = coalesce(f.mention_count, 1) + 1
             RETURN f";
 

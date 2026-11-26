@@ -51,6 +51,33 @@ public sealed class PersistenceStageFusedBatchTests
         result.RelationshipCount.Should().Be(1);
     }
 
+    // RVW-REST-STORAGE (the review's storage-2): the store MERGEs a fact on its canonical keys, so a restatement in other
+    // casing comes back as the stored node with its stored text ("ALICE | Likes | ..." for "Alice | likes | ..."). Matched
+    // on the raw text, the batch "omitted" the fact and was replayed through the item path, every fact written twice.
+    [Fact]
+    public async Task PersistAsync_ARestatementInOtherCasingIsMatchedToItsStoredFactAndNotReplayed()
+    {
+        var entities = Substitute.For<IEntityRepository, IFusedBatchMemoryRepository<Entity>>();
+        var facts = Substitute.For<IFactRepository, IFusedBatchMemoryRepository<Fact>>();
+        var preferences = Substitute.For<IPreferenceRepository, IFusedBatchMemoryRepository<Preference>>();
+        var relationships = Substitute.For<IRelationshipRepository>();
+        ((IFusedBatchMemoryRepository<Entity>)entities).UpsertFusedBatchAsync(Arg.Any<IReadOnlyList<Entity>>(), Arg.Any<CancellationToken>())
+            .Returns(call => call.Arg<IReadOnlyList<Entity>>());
+        ((IFusedBatchMemoryRepository<Fact>)facts).UpsertFusedBatchAsync(Arg.Any<IReadOnlyList<Fact>>(), Arg.Any<CancellationToken>())
+            .Returns(call => (IReadOnlyList<Fact>)[.. call.Arg<IReadOnlyList<Fact>>().Select(f => f with
+            {
+                FactId = "stored-fact", Subject = f.Subject.ToUpperInvariant(), Predicate = char.ToUpperInvariant(f.Predicate[0]) + f.Predicate[1..],
+            })]);
+        ((IFusedBatchMemoryRepository<Preference>)preferences).UpsertFusedBatchAsync(Arg.Any<IReadOnlyList<Preference>>(), Arg.Any<CancellationToken>())
+            .Returns(call => call.Arg<IReadOnlyList<Preference>>());
+        relationships.UpsertAsync(Arg.Any<Relationship>(), Arg.Any<CancellationToken>()).Returns(call => call.Arg<Relationship>());
+
+        var result = await CreateStage(entities, facts, preferences, relationships, enabled: true).PersistAsync(Extraction(), ownerId: "owner-1");
+
+        await facts.DidNotReceive().UpsertAsync(Arg.Any<Fact>(), Arg.Any<CancellationToken>());
+        result.FactCount.Should().Be(1);
+    }
+
     [Fact]
     public async Task PersistAsync_CoalescingDisabled_DoesNotUseFusedCapability()
     {

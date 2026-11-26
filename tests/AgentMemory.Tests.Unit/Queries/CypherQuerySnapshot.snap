@@ -88,15 +88,15 @@ UNWIND $ids AS id
 ## ConsolidationQueries.LivePreferenceSources
 MATCH (p:Preference)-[:EXTRACTED_FROM]->(m:Message)
             WHERE p.invalidated_at IS NULL AND ($ownerId IS NULL OR p.owner_id = $ownerId)
-            WITH p, m ORDER BY m.created_at ASC
+            WITH p, m ORDER BY m.timestamp ASC
             WITH p, head(collect(m)) AS m
             OPTIONAL MATCH (c:Conversation)-[:HAS_MESSAGE]->(m)
             OPTIONAL MATCH (c)-[:HAS_MESSAGE]->(e:Message)
-            WHERE e.role = m.role AND e.created_at < m.created_at
-            WITH p, m, e ORDER BY e.created_at DESC
+            WHERE e.role = m.role AND e.timestamp < m.timestamp
+            WITH p, m, e ORDER BY e.timestamp DESC
             WITH p, m, collect(e.content)[0..2] AS earlier
             RETURN p.id AS id, p.owner_id AS ownerId, p.category AS category, p.preference AS text,
-                   m.id AS messageId, m.content AS message, toString(m.created_at) AS saidAt, reverse(earlier) AS earlier
+                   m.id AS messageId, m.content AS message, toString(m.timestamp) AS saidAt, reverse(earlier) AS earlier
 
 ## ConsolidationQueries.LiveStatementTexts
 MATCH (f:Fact)
@@ -662,6 +662,7 @@ WHERE NOT EXISTS {
                 f.updated_at         = datetime($updatedAtUtc),
                 f.metadata           = $metadata,
                 f.invalidated_at     = null,
+                f.invalidated_reason = null, // RVW-REST-STORAGE (storage-3): a revived fact is no longer 'decay'
                 f.mention_count      = coalesce(f.mention_count, 1) + 1
             RETURN f
 
@@ -715,6 +716,7 @@ WHERE NOT EXISTS {
                 f.updated_at         = datetime(item.updated_at),
                 f.metadata           = item.metadata,
                 f.invalidated_at     = null,
+                f.invalidated_reason = null, // RVW-REST-STORAGE (storage-3): a revived fact is no longer 'decay'
                 f.mention_count      = coalesce(f.mention_count, 1) + 1
             RETURN f
 
@@ -815,7 +817,8 @@ WHERE NOT EXISTS {
                 f.source_message_ids = item.source_message_ids,
                 f.updated_at         = datetime(item.updated_at),
                 f.metadata           = item.metadata,
-                f.invalidated_at     = null
+                f.invalidated_at     = null,
+                f.invalidated_reason = null // RVW-REST-STORAGE (storage-3): a revived fact is no longer 'decay'
             SET f.embedding = CASE
                 WHEN item.embedding IS NOT NULL AND size(item.embedding) > 0 THEN item.embedding
                 ELSE f.embedding END

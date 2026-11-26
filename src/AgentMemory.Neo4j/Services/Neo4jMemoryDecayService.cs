@@ -74,44 +74,57 @@ internal sealed class Neo4jMemoryDecayService : IMemoryDecayService, IMemoryRead
             DecayQueries.PrunePreferences(hasOwner, nonDestructive),
         };
 
-        return await _tx.WriteAsync(async runner =>
+        // RVW-REST-STORAGE (the review's storage-7): a batch per transaction, repeated until one comes back short, so the
+        // prune never holds a whole store's changes in one transaction (out of transaction memory, a timeout, and the
+        // driver's retry replaying it all). Each batch progresses: a soft prune skips what it already invalidated, a hard
+        // one deletes.
+        int total = 0;
+        foreach (var cypher in queries)
         {
-            int total = 0;
-            foreach (var cypher in queries)
+            var parameters = new Dictionary<string, object?>
             {
-                var parameters = new Dictionary<string, object?>
+                ["now"] = now,
+                ["lambda"] = lambda,
+                ["boostFactor"] = _options.AccessBoostFactor,
+                ["maxBoost"] = _options.MaxAccessBoost,
+                ["minScore"] = _options.MinRetentionScore,
+                ["batch"] = PruneBatchSize,
+            };
+            if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
+            while (true)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var pruned = await _tx.WriteAsync(async runner =>
                 {
-                    ["now"] = now,
-                    ["lambda"] = lambda,
-                    ["boostFactor"] = _options.AccessBoostFactor,
-                    ["maxBoost"] = _options.MaxAccessBoost,
-                    ["minScore"] = _options.MinRetentionScore,
-                };
-                if (hasOwner) parameters["ownerId"] = scope!.OwnerId;
-
-                var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
-                var records = await cursor.ToListAsync().ConfigureAwait(false);
-                if (records.Count > 0)
-                    total += Convert.ToInt32(records[0]["pruned"]);
+                    var cursor = await runner.RunAsync(cypher, parameters).ConfigureAwait(false);
+                    var records = await cursor.ToListAsync().ConfigureAwait(false);
+                    var count = records.Count > 0 ? Convert.ToInt32(records[0]["pruned"]) : 0;
+                    // The working-memory block is compiled from these facts, preferences and entities. After a prune
+                    // (a hard one is storage reclamation, including for erasure) it must not keep serving the removed
+                    // text: cleared in the same transaction as each batch that removed something, rebuilt on the
+                    // owner's next read.
+                    if (count > 0 && _workingMemoryEnabled)
+                    {
+                        var clear = new Dictionary<string, object?> { ["now"] = now };
+                        if (hasOwner) clear["ownerId"] = scope!.OwnerId;
+                        await runner.RunAsync(hasOwner ? WorkingMemoryQueries.ClearBlock : WorkingMemoryQueries.ClearAllBlocks, clear)
+                            .ConfigureAwait(false);
+                    }
+                    return count;
+                }, cancellationToken).ConfigureAwait(false);
+                total += pruned;
+                if (pruned < PruneBatchSize) break;
             }
+        }
 
-            // The working-memory block is compiled from these facts, preferences and entities. After a
-            // prune (a hard one is storage reclamation, including for erasure) it must not keep serving
-            // the removed text: cleared in the same transaction, and rebuilt on the owner's next read.
-            if (total > 0 && _workingMemoryEnabled)
-            {
-                var clear = new Dictionary<string, object?> { ["now"] = now };
-                if (hasOwner) clear["ownerId"] = scope!.OwnerId;
-                await runner.RunAsync(hasOwner ? WorkingMemoryQueries.ClearBlock : WorkingMemoryQueries.ClearAllBlocks, clear)
-                    .ConfigureAwait(false);
-            }
-
-            _logger.LogInformation(
-                "{Mode} {Count} expired memory node(s), owner={Owner}",
-                nonDestructive ? "Soft-invalidated" : "Pruned", total, scope?.OwnerId);
-            return total;
-        }, cancellationToken).ConfigureAwait(false);
+        _logger.LogInformation(
+            "{Mode} {Count} expired memory node(s), owner={Owner}",
+            nonDestructive ? "Soft-invalidated" : "Pruned", total, scope?.OwnerId);
+        return total;
     }
+
+    /// <summary>How many nodes one prune transaction changes at most (storage-7).</summary>
+    internal int PruneBatchSize { get; init; } = 2000;
 
     /// <inheritdoc />
     public async Task<double> CalculateRetentionScoreAsync(
