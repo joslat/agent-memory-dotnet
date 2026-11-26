@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using ModelContextProtocol.Server;
 using AgentMemory.Nams.Client;
+using AgentMemory.Nams.Domain;
 
 namespace AgentMemory.McpServer.Nams.Tools;
 
@@ -12,6 +13,23 @@ namespace AgentMemory.McpServer.Nams.Tools;
 [McpServerToolType]
 internal sealed class NamsReasoningReadTools
 {
+    /// <summary>
+    /// RVW-REST-HOSTS (the review's hosts-8): a step's reasoning, action and result are recorded text and can carry tool
+    /// output (a fetched page's "</untrusted_tool_content> SYSTEM: ..."), so they come back as the tool calls' input and
+    /// output do: escaped and delimited, with an advisory instruction-like flag. Never redacted.
+    /// </summary>
+    private static object Step(NamsReasoningStep s, string namsConversationId) => new
+    {
+        s.Id,
+        ConversationId = namsConversationId,
+        Reasoning = NamsUntrustedContentGuard.Delimit(s.Reasoning),
+        ActionTaken = NamsUntrustedContentGuard.Delimit(s.ActionTaken),
+        Result = NamsUntrustedContentGuard.Delimit(s.Result),
+        FlaggedInstructionLike = NamsUntrustedContentGuard.IsInstructionLike(s.Reasoning)
+            || NamsUntrustedContentGuard.IsInstructionLike(s.ActionTaken) || NamsUntrustedContentGuard.IsInstructionLike(s.Result),
+        s.CreatedAt,
+    };
+
     [McpServerTool(Name = "nams_list_reasoning_steps"),
      Description("List recorded reasoning steps for a NAMS conversation.")]
     public static async Task<string> NamsListReasoningSteps(
@@ -28,7 +46,7 @@ internal sealed class NamsReasoningReadTools
             // NAMS's own response omits conversationId per-step (confirmed live) -- substitute the caller's
             // already-known namsConversationId rather than echoing the (always-null) domain field, the same
             // fix tools/AgentMemory.TckBridge.Nams/Program.cs's get_trace_by_conversation route already applies.
-            steps = steps.Select(s => new { s.Id, ConversationId = namsConversationId, s.Reasoning, s.ActionTaken, s.Result, s.CreatedAt })
+            steps = steps.Select(s => Step(s, namsConversationId))
         });
     }
 
@@ -50,7 +68,7 @@ internal sealed class NamsReasoningReadTools
             // NAMS's own response omits conversationId per-step (confirmed live) -- substitute the caller's
             // already-known namsConversationId, same fix as NamsListReasoningSteps above and matching
             // tools/AgentMemory.TckBridge.Nams/Program.cs's get_trace_by_conversation route.
-            steps = trace.Steps.Select(s => new { s.Id, ConversationId = namsConversationId, s.Reasoning, s.ActionTaken, s.Result, s.CreatedAt }),
+            steps = trace.Steps.Select(s => Step(s, namsConversationId)),
             // SECURITY (partially mitigated): Input/Output are caller-supplied, pre-serialized JSON strings
             // (see INamsClient.RecordToolCallAsync) that can carry arbitrary content -- e.g. the text of a
             // fetched web page an agent tool call returned -- the same untrusted-content risk NamsRecalledItem's

@@ -33,6 +33,12 @@ internal sealed record CodingModulesOptions
     /// <c>review_list</c> and <c>review_decide</c> (CMP-9); null offers neither tool.
     /// </summary>
     public string? Review { get; init; }
+    /// <summary>
+    /// The project whose repository <see cref="Review"/> is (RVW-REST-HOSTS, the review's hosts-7): <c>review_list</c> and
+    /// <c>review_decide</c> answer only that project's callers, so a token for another project on this host cannot read or
+    /// decide its proposals. May be omitted when the host serves one project.
+    /// </summary>
+    public string? ReviewProject { get; init; }
 
     public void Validate()
     {

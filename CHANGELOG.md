@@ -25,6 +25,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - *The MCP add tools refuse a confidence outside 0..1* (hosts-6): `memory_add_entity`, `memory_add_fact`,
     `memory_add_preference` and `memory_create_relationship` return an error instead of storing 1000000.
   - *A failed native open leaves no context behind* (hosts-9): the context is published only after its writer starts.
+  - *Coding mode's review tools answer only the review folder's project* (hosts-7): `review_list` and `review_decide`
+    were not bound to the caller's project, so another project's token on the same host read and decided its
+    proposals. `modules.reviewProject` names the project (optional when the host serves one); a host with several
+    projects and a review folder must set it.
+  - *NAMS reasoning steps come back escaped, delimited and flagged* (hosts-8): `nams_list_reasoning_steps` and
+    `nams_reasoning_trace` returned recorded reasoning, action and result text verbatim; they now get the
+    `<untrusted_tool_content>` delimiting and instruction-like flag the tool calls' input and output already had.
 
 - **Evidence-based identity's exact lookup reads by index, not by scanning the store** (review of main, identity-4).
   Every mention's exact lookup (by name, calendar key, key assertion or alias assertion), run at planning, at

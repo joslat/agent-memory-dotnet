@@ -85,7 +85,8 @@ internal static class CodingHost
         if (configuration.Options.RecallDiagnostics is { } diagnostics)
             services.AddSingleton(sp => new CodingRecallReceipts(diagnostics, configuration.Content));
         services.AddSingleton<CodingOperationScope>().AddSingleton<CodingMemoryOperations>().AddSingleton<CodingApi>();
-        if (configuration.Options.Modules?.Review is { } reviewRoot) services.AddSingleton(new CodingReview(reviewRoot));
+        if (configuration.Options.Modules?.Review is { } reviewRoot)
+            services.AddSingleton(new CodingReview(reviewRoot, configuration.Options.ReviewProject));
         if (configuration.Options.Evidence is { } evidence)
         {
             services.AddSingleton(evidence).AddSingleton<CodingEvidenceReader>().AddSingleton<CodingEvidence>();

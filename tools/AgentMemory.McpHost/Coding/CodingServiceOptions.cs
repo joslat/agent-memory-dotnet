@@ -29,11 +29,16 @@ internal sealed record CodingServiceOptions
     public IReadOnlyList<CodingJudgeOptions> Judges { get; init; } = [];
     /// <summary>Opt-in memory packs. Null composes no modules and preserves baseline tool and receipt bytes.</summary>
     public CodingModulesOptions? Modules { get; init; }
+    /// <summary>The project the review folder belongs to: the configured one, or the host's only project.</summary>
+    internal string? ReviewProject => Modules?.Review is null ? null
+        : Modules.ReviewProject ?? (Projects.Count == 1 ? Projects.Keys.Single() : null);
 
     public void Validate()
     {
         WriteJournal?.Validate();
         Modules?.Validate();
+        if (Modules?.Review is not null && (ReviewProject is null || !Projects.ContainsKey(ReviewProject)))
+            throw new ArgumentException("A review folder belongs to one project: set modules.reviewProject to one of this host's projects.");
         RecallDiagnostics?.Validate();
         Evidence?.Validate();
         if (string.IsNullOrWhiteSpace(OwnerId) || OwnerId.Length > 256 ||

@@ -42,6 +42,33 @@ public sealed class CodingReviewTests : IDisposable
         CodingToolDefinitions.For(durable: false, review: true).Select(t => t.Name).Should().Contain(["review_list", "review_decide"]);
     }
 
+    // RVW-REST-HOSTS (the review's hosts-7): a host may serve several projects with their own tokens; the review folder is
+    // one project's repository, and only that project's callers list or decide its proposals.
+    [Fact]
+    public void The_review_serves_only_its_own_project()
+    {
+        var review = new CodingReview(_root, "app");
+
+        review.Serves(new CodingIdentity("alex", "app")).Should().BeTrue();
+        review.Serves(new CodingIdentity("alex", "infra")).Should().BeFalse();
+    }
+
+    [Fact]
+    public void A_host_with_several_projects_must_name_the_reviews_project()
+    {
+        var modules = new CodingModulesOptions { Repository = true, Review = _root };
+        CodingServiceOptions Host(string? reviewProject, params string[] projects) => new()
+        {
+            OwnerId = "owner", Modules = modules with { ReviewProject = reviewProject },
+            Projects = projects.ToDictionary(p => p, p => p.ToUpperInvariant() + "_KEY"),
+        };
+
+        FluentActions.Invoking(() => Host(null, "app", "infra").Validate()).Should().Throw<ArgumentException>().WithMessage("*reviewProject*");
+        FluentActions.Invoking(() => Host("other", "app", "infra").Validate()).Should().Throw<ArgumentException>();
+        Host("infra", "app", "infra").ReviewProject.Should().Be("infra");
+        Host(null, "app").ReviewProject.Should().Be("app", "a host with one project needs no name");
+    }
+
     [Fact]
     public void A_decision_is_written_to_the_review_set_with_the_owner_as_reviewer()
     {

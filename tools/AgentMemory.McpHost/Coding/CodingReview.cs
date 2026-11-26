@@ -15,8 +15,14 @@ namespace AgentMemory.McpHost.Coding;
 /// <c>review_list</c> and <c>review_decide</c>. A decision is the same file change <c>agentmemory onboard decide</c> makes;
 /// the pack's next import merges what was accepted. An edit is checked against the pack's own rules before it is kept.
 /// </summary>
-internal sealed class CodingReview(string root)
+internal sealed class CodingReview(string root, string? project = null)
 {
+    /// <summary>
+    /// RVW-REST-HOSTS (hosts-7): whether this caller's project is the one whose repository this is. Every other coding
+    /// operation is confined to its project; these were not.
+    /// </summary>
+    public bool Serves(CodingIdentity identity) => project is null || string.Equals(identity.ProjectId, project, StringComparison.Ordinal);
+
     private static readonly Dictionary<string, Func<ModuleManifest>> Manifests = new(StringComparer.OrdinalIgnoreCase)
     {
         ["decisions"] = () => DecisionsPack.Manifest, ["architecture"] = () => ArchitecturePack.Manifest, ["intent"] = () => IntentPack.Manifest,

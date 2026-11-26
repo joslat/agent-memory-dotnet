@@ -79,10 +79,10 @@ internal sealed class CodingApi(CodingMemoryOperations memory, CodingWriteQueue 
                     var feedback = Read<RecallFeedbackInput>(arguments);
                     var updated = receipts.Feedback(identity, feedback.Session, feedback.RecallId, feedback.Label);
                     return updated is null ? Error(404, "recall_not_found") : new(200, updated);
-                case "review_list" when review is not null:
+                case "review_list" when review is not null && review.Serves(identity):
                     var list = Read<ReviewListInput>(arguments);
                     return new(200, review.List(list.Pack, list.State is { } s ? Enum.Parse<Extensibility.Packs.ReviewState>(s, ignoreCase: true) : null));
-                case "review_decide" when review is not null:
+                case "review_decide" when review is not null && review.Serves(identity):
                     var decide = Read<ReviewDecideInput>(arguments);
                     if (decide.Decision is not ("accept" or "reject") || decide.Keys.Count is 0 or > 50) return Error(400, "invalid_input");
                     var decided = review.Decide(identity, decide.Pack, decide.Keys, decide.Decision == "accept", decide.Edit, decide.Note);
