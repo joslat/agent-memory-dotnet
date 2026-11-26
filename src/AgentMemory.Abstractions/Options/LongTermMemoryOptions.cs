@@ -47,4 +47,19 @@ public sealed record LongTermMemoryOptions
     /// supplied. Default 0.1.
     /// </summary>
     public double FeedbackConfidenceDelta { get; init; } = 0.1;
+
+    /// <summary>
+    /// Threat TT-13: the bar for an explicit supersession (<c>SupersedeFactAsync</c>, <c>SupersedePreferenceAsync</c>, the
+    /// MCP tool <c>memory_supersede</c>). A winner below this confidence must be at least as confident as the memory it
+    /// replaces; at or above it, it may replace any. Default 0.7: extracted memories usually sit above it, so ordinary
+    /// corrections pass, while a weak or made-up winner cannot displace a stronger memory. 0 turns the check off.
+    /// </summary>
+    public double SupersessionConfidenceFloor { get; init; } = 0.7;
+
+    /// <summary>
+    /// Threat TT-13: when true (the default), a winner with no source message may not replace a memory extracted from a
+    /// conversation, so a memory written straight through the API (or by a model through MCP) cannot displace what was
+    /// actually said.
+    /// </summary>
+    public bool RequireSourcedWinnerForSourcedLoser { get; init; } = true;
 }

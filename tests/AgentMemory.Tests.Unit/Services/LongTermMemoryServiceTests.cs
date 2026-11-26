@@ -689,6 +689,91 @@ public sealed class LongTermMemoryServiceTests
         await _prefRepo.Received(1).SupersedeAsync("loser", "winner", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
     }
 
+    // ── TT-13: the bar an explicit supersession's winner must meet ──
+
+    private void StoredFacts(Fact loser, Fact winner)
+    {
+        _factRepo.GetByIdAsync(loser.FactId, Arg.Any<CancellationToken>()).Returns(loser);
+        _factRepo.GetByIdAsync(winner.FactId, Arg.Any<CancellationToken>()).Returns(winner);
+        _factRepo.SupersedeAsync(loser.FactId, winner.FactId, Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>()).Returns(true);
+    }
+
+    private static Fact StoredFact(string id, double confidence, string? owner = "alice", params string[] sources) => new()
+    {
+        FactId = id, Subject = "Alice", Predicate = "lives in", Object = id, Confidence = confidence,
+        CreatedAtUtc = DateTimeOffset.UnixEpoch, OwnerId = owner, SourceMessageIds = sources,
+    };
+
+    [Fact]
+    public async Task A_weak_winner_may_not_supersede_a_stronger_fact_and_nothing_changes()
+    {
+        StoredFacts(StoredFact("strong", 0.95, "alice", "m-1"), StoredFact("weak", 0.4, "alice", "m-2"));
+
+        var act = () => CreateSut().SupersedeFactAsync("strong", "weak", MemoryScope.For("alice"));
+
+        (await act.Should().ThrowAsync<MemorySupersessionRefusedException>())
+            .Which.Reason.Should().Be("the winner's confidence 0.4 is below 0.7 and below that of the memory it would replace (0.95).");
+        await _factRepo.DidNotReceive().SupersedeAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task An_unsourced_winner_may_not_supersede_a_fact_extracted_from_a_conversation()
+    {
+        StoredFacts(StoredFact("said", 0.8, "alice", "m-1"), StoredFact("made-up", 1.0, "alice"));
+
+        var act = () => CreateSut().SupersedeFactAsync("said", "made-up", MemoryScope.For("alice"));
+
+        (await act.Should().ThrowAsync<MemorySupersessionRefusedException>()).Which.Reason.Should().Contain("no source message");
+    }
+
+    [Theory]
+    [InlineData(0.95, 0.85)]  // an ordinary correction: the winner is weaker but above the floor
+    [InlineData(0.6, 0.6)]    // below the floor, but as confident as the loser
+    [InlineData(0.3, 0.5)]    // below the floor, but more confident than the loser
+    public async Task A_winner_that_meets_the_bar_supersedes(double loserConfidence, double winnerConfidence)
+    {
+        StoredFacts(StoredFact("old", loserConfidence, "alice", "m-1"), StoredFact("new", winnerConfidence, "alice", "m-2"));
+
+        (await CreateSut().SupersedeFactAsync("old", "new", MemoryScope.For("alice"))).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task The_bar_can_be_lowered_by_the_host()
+    {
+        StoredFacts(StoredFact("said", 0.95, "alice", "m-1"), StoredFact("made-up", 0.1, "alice"));
+        var off = Options.Create(new LongTermMemoryOptions { SupersessionConfidenceFloor = 0, RequireSourcedWinnerForSourcedLoser = false });
+
+        (await CreateSut(off).SupersedeFactAsync("said", "made-up", MemoryScope.For("alice"))).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_pair_outside_the_scope_is_left_to_the_store_and_the_refusal_reveals_nothing()
+    {
+        // bob's strong fact as the loser of alice's weak one: not alice's to supersede, so no refusal names it;
+        // the store answers false as before.
+        StoredFacts(StoredFact("bobs", 0.95, "bob", "m-1"), StoredFact("alices", 0.2, "alice"));
+        _factRepo.SupersedeAsync("bobs", "alices", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>()).Returns(false);
+
+        (await CreateSut().SupersedeFactAsync("bobs", "alices", MemoryScope.For("alice"))).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_weak_preference_may_not_supersede_a_stronger_one()
+    {
+        Preference Stored(string id, double confidence) => new()
+        {
+            PreferenceId = id, Category = "style", PreferenceText = id, Confidence = confidence, CreatedAtUtc = DateTimeOffset.UnixEpoch,
+            OwnerId = "alice", SourceMessageIds = ["m-1"],
+        };
+        _prefRepo.GetByIdAsync("strong", Arg.Any<CancellationToken>()).Returns(Stored("strong", 0.9));
+        _prefRepo.GetByIdAsync("weak", Arg.Any<CancellationToken>()).Returns(Stored("weak", 0.3));
+
+        var act = () => CreateSut().SupersedePreferenceAsync("strong", "weak", MemoryScope.For("alice"));
+
+        await act.Should().ThrowAsync<MemorySupersessionRefusedException>();
+        await _prefRepo.DidNotReceive().SupersedeAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>());
+    }
+
     // ── #100 Stage 2: every write/read now goes through IMemoryIsolationPolicy, not just
     // invalidate/supersede — StrictMultiTenant fails closed before any repository call. ──
 

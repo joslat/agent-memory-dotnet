@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using ModelContextProtocol.Server;
+using AgentMemory.Abstractions.Exceptions;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 
@@ -50,12 +51,21 @@ internal sealed class MaintenanceTools
         var scope = string.IsNullOrEmpty(userId) ? null : MemoryScope.For(userId);
         var kind = (type ?? string.Empty).Trim().ToLowerInvariant();
 
-        bool? superseded = kind switch
+        bool? superseded;
+        try
         {
-            "fact" => await longTerm.SupersedeFactAsync(loserId, winnerId, scope, cancellationToken).ConfigureAwait(false),
-            "preference" or "pref" => await longTerm.SupersedePreferenceAsync(loserId, winnerId, scope, cancellationToken).ConfigureAwait(false),
-            _ => null,
-        };
+            superseded = kind switch
+            {
+                "fact" => await longTerm.SupersedeFactAsync(loserId, winnerId, scope, cancellationToken).ConfigureAwait(false),
+                "preference" or "pref" => await longTerm.SupersedePreferenceAsync(loserId, winnerId, scope, cancellationToken).ConfigureAwait(false),
+                _ => null,
+            };
+        }
+        catch (MemorySupersessionRefusedException refused)
+        {
+            // TT-13: the winner does not meet the bar to replace the loser; nothing changed, and the caller learns why.
+            return ToolJsonContext.Serialize(new { type = kind, loserId, winnerId, superseded = false, refused = refused.Reason });
+        }
 
         return superseded is null
             ? ToolJsonContext.Serialize(new { error = $"unknown type '{type}' (expected fact or preference)" })

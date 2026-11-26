@@ -1,6 +1,8 @@
+using System.Globalization;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AgentMemory.Abstractions.Domain;
+using AgentMemory.Abstractions.Exceptions;
 using AgentMemory.Core.Memory;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Repositories;
@@ -1195,6 +1197,10 @@ internal sealed partial class LongTermMemoryService : ILongTermMemoryService, IS
     public async Task<bool> SupersedeFactAsync(string loserFactId, string winnerFactId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
     {
         var resolved = Resolve(scope, nameof(SupersedeFactAsync));
+        var loser = await _factRepo.GetByIdAsync(loserFactId, cancellationToken).ConfigureAwait(false);
+        var winner = await _factRepo.GetByIdAsync(winnerFactId, cancellationToken).ConfigureAwait(false);
+        if (loser is not null && winner is not null && SupersedablePair(resolved, loser.OwnerId, winner.OwnerId))
+            EnsureMayReplace(loserFactId, winnerFactId, loser.Confidence, loser.SourceMessageIds, winner.Confidence, winner.SourceMessageIds);
         var superseded = await _factRepo
             .SupersedeAsync(loserFactId, winnerFactId, resolved, cancellationToken).ConfigureAwait(false);
         if (superseded)
@@ -1207,12 +1213,42 @@ internal sealed partial class LongTermMemoryService : ILongTermMemoryService, IS
     public async Task<bool> SupersedePreferenceAsync(string loserPreferenceId, string winnerPreferenceId, MemoryScope? scope = null, CancellationToken cancellationToken = default)
     {
         var resolved = Resolve(scope, nameof(SupersedePreferenceAsync));
+        var loser = await _prefRepo.GetByIdAsync(loserPreferenceId, cancellationToken).ConfigureAwait(false);
+        var winner = await _prefRepo.GetByIdAsync(winnerPreferenceId, cancellationToken).ConfigureAwait(false);
+        if (loser is not null && winner is not null && SupersedablePair(resolved, loser.OwnerId, winner.OwnerId))
+            EnsureMayReplace(loserPreferenceId, winnerPreferenceId, loser.Confidence, loser.SourceMessageIds, winner.Confidence, winner.SourceMessageIds);
         var superseded = await _prefRepo
             .SupersedeAsync(loserPreferenceId, winnerPreferenceId, resolved, cancellationToken).ConfigureAwait(false);
         if (superseded)
             await RebuildWorkingMemoryAsync(resolved?.OwnerId, cancellationToken).ConfigureAwait(false);
 
         return superseded;
+    }
+
+    /// <summary>
+    /// TT-13: the bar is judged only for a pair the store would supersede in this scope (both the scope owner's, or on
+    /// the unscoped path both one owner's): anything else is left to the repository's own refusal, so a refusal never
+    /// tells a caller about another owner's memory.
+    /// </summary>
+    private static bool SupersedablePair(MemoryScope? scope, string? loserOwner, string? winnerOwner) =>
+        scope?.OwnerId is { } owner
+            ? string.Equals(loserOwner, owner, StringComparison.Ordinal) && string.Equals(winnerOwner, owner, StringComparison.Ordinal)
+            : string.Equals(loserOwner, winnerOwner, StringComparison.Ordinal);
+
+    /// <summary>
+    /// TT-13: an explicit supersession needs a winner that meets the bar (<see cref="LongTermMemoryOptions.SupersessionConfidenceFloor"/>,
+    /// <see cref="LongTermMemoryOptions.RequireSourcedWinnerForSourcedLoser"/>); otherwise nothing changes and the caller is told why.
+    /// </summary>
+    private void EnsureMayReplace(string loserId, string winnerId, double loserConfidence, IReadOnlyCollection<string> loserSources,
+        double winnerConfidence, IReadOnlyCollection<string> winnerSources)
+    {
+        if (_options.RequireSourcedWinnerForSourcedLoser && loserSources.Count > 0 && winnerSources.Count == 0)
+            throw new MemorySupersessionRefusedException(loserId, winnerId,
+                "the winner has no source message, and the memory it would replace was extracted from a conversation.");
+        var floor = _options.SupersessionConfidenceFloor;
+        if (winnerConfidence < floor && winnerConfidence < loserConfidence)
+            throw new MemorySupersessionRefusedException(loserId, winnerId, string.Create(CultureInfo.InvariantCulture,
+                $"the winner's confidence {winnerConfidence:0.##} is below {floor:0.##} and below that of the memory it would replace ({loserConfidence:0.##})."));
     }
 
     // ── #100 Stage 2: every remaining read/write in this service now goes through the central policy

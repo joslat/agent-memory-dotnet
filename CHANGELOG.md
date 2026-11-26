@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **An explicit supersession needs a winner that meets a bar** (threat TT-13). `SupersedeFactAsync`,
+  `SupersedePreferenceAsync` and the MCP tool `memory_supersede` refuse, with the new `MemorySupersessionRefusedException`
+  (the tool returns `superseded: false` and `refused` with the reason), when the winner has no source message and the
+  memory it would replace was extracted from a conversation, or when the winner's confidence is below
+  `LongTermMemoryOptions.SupersessionConfidenceFloor` (default 0.7) and below the loser's. Ordinary corrections from
+  extraction pass; the host can lower the bar (`SupersessionConfidenceFloor = 0`, `RequireSourcedWinnerForSourcedLoser =
+  false`). The extraction pipeline's own supersession and the operator CLI's `supersede` are unchanged. Behaviour change:
+  a caller that superseded a stronger memory with a weaker or unsourced one now gets the exception.
+
 - **A generated embedding with the wrong length or a NaN or infinite value is not stored** (threat TT-09). The
   embedding orchestrator checks every vector the generator returns against the store's configured dimensions
   (`Neo4jOptions.EmbeddingDimensions`) and for finite values; one that fails counts as a failed embedding: the memory is

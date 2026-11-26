@@ -1,5 +1,6 @@
 using System.Text.Json;
 using FluentAssertions;
+using AgentMemory.Abstractions.Exceptions;
 using AgentMemory.Abstractions.Options;
 using AgentMemory.Abstractions.Services;
 using AgentMemory.McpServer.Tools;
@@ -72,6 +73,20 @@ public sealed class MaintenanceToolsTests
         doc.RootElement.GetProperty("superseded").GetBoolean().Should().BeTrue();
         await _longTerm.Received(1).SupersedeFactAsync(
             "loser", "winner", Arg.Is<MemoryScope?>(s => s != null && s.OwnerId == "alice"), Arg.Any<CancellationToken>());
+    }
+
+    // TT-13: a winner below the bar is refused; the tool says so instead of failing the call.
+    [Fact]
+    public async Task MemorySupersede_Refused_ReportsWhyAndSupersedesNothing()
+    {
+        _longTerm.SupersedeFactAsync("strong", "weak", Arg.Any<MemoryScope?>(), Arg.Any<CancellationToken>())
+            .Returns<Task<bool>>(_ => throw new MemorySupersessionRefusedException("strong", "weak", "the winner is weaker."));
+
+        var json = await MaintenanceTools.MemorySupersede(_longTerm, "fact", "strong", "weak", userId: "alice");
+
+        using var doc = JsonDocument.Parse(json);
+        doc.RootElement.GetProperty("superseded").GetBoolean().Should().BeFalse();
+        doc.RootElement.GetProperty("refused").GetString().Should().Be("the winner is weaker.");
     }
 
     [Fact]
