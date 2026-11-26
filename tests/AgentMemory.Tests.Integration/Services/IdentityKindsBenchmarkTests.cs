@@ -8,7 +8,7 @@ namespace AgentMemory.Tests.Integration.Services;
 
 /// <summary>
 /// The Identity Kinds Benchmark, tier 1, on the repository's own code (IKB-1): 134 scripted cases in each of three arms,
-/// each case's verdict compared with the recorded baseline (version 2: each arm on an empty store; 2.3.1's in its about note). No model is called.
+/// each case's verdict compared with the recorded baseline (its versions and their reasons in its about note). No model is called.
 /// The pass rule that holds whatever the baseline says: an arm with evidence-based identity merges no two real things.
 /// A change that moves a row, for the better or the worse, updates the baseline file with its reason.
 /// </summary>
@@ -76,5 +76,36 @@ public sealed class IdentityKindsBenchmarkTests(IdentityKindsNeo4jFixture fixtur
         moved.Should().BeEmpty("each case's verdict, things, merges and open proposals are as recorded; a change that moves a row updates the baseline with its reason");
         rows.Count(r => r.Verdict == "right").Should().Be(tally.GetProperty("right").GetInt32());
         rows.Sum(r => r.OpenProposals).Should().Be(tally.GetProperty("openProposals").GetInt32());
+    }
+
+    /// <summary>
+    /// ER-OWNER-CROWDING: other owners' records leave an owner's identity as it was. The arm runs on an empty store, then
+    /// again with the first run's records still there: 134 other owners holding the same names, none of them shared. Every
+    /// case's identity outcome (verdict, things, merges, last-mention join, open proposals, decisions) must be the same.
+    /// </summary>
+    [Theory]
+    [InlineData("rules")]
+    [InlineData("writer")]
+    public async Task Other_owners_records_leave_every_identity_row_of_an_arm_as_it_was(string arm)
+    {
+        var alone = await IdentityKindsBenchmark.RunArmAsync(arm, fixture.Uri, IdentityKindsNeo4jFixture.User, IdentityKindsNeo4jFixture.Password, fixture.Driver);
+        var crowded = await IdentityKindsBenchmark.RunArmAsync(arm, fixture.Uri, IdentityKindsNeo4jFixture.User, IdentityKindsNeo4jFixture.Password, fixture.Driver,
+            emptyStoreFirst: false);
+
+        static string Identity(IdentityKindsBenchmark.Row r) =>
+            $"({r.Verdict}, {r.SeparateThings}, {r.WrongMerges}, {r.LastMentionJoinedToTheRightThing}, {r.OpenProposals}) [{string.Join(", ", r.Decisions)}]";
+        static string Reads(IdentityKindsBenchmark.Row r) => $"(named {r.TimesNamedInProfileBlock}, recalled {r.EntitiesRecalledForTheName})";
+        var pairs = alone.Zip(crowded).ToList();
+        var moved = pairs.Where(p => Identity(p.First) != Identity(p.Second))
+            .Select(p => $"{p.First.Case}: alone {Identity(p.First)}, crowded {Identity(p.Second)}").ToList();
+        output.WriteLine($"{arm}: open proposals alone {alone.Sum(r => r.OpenProposals)}, crowded {crowded.Sum(r => r.OpenProposals)}; " +
+                         $"right alone {alone.Count(r => r.Verdict == "right")}, crowded {crowded.Count(r => r.Verdict == "right")}; {moved.Count} identity rows moved");
+        foreach (var line in moved) output.WriteLine("  moved " + line);
+        foreach (var p in pairs.Where(p => Reads(p.First) != Reads(p.Second)))
+            output.WriteLine($"  reads {p.First.Case}: alone {Reads(p.First)}, crowded {Reads(p.Second)}");
+
+        crowded.Select(r => r.Case).Should().Equal(alone.Select(r => r.Case));
+        crowded.Sum(r => r.WrongMerges).Should().Be(0, "evidence-based identity must never merge two real things");
+        moved.Should().BeEmpty("another owner's records must not change what identity proposes or decides for this owner");
     }
 }

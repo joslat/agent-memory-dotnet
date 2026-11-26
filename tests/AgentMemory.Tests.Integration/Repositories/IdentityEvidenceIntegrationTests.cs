@@ -191,6 +191,59 @@ public sealed class IdentityEvidenceIntegrationTests : IAsyncLifetime
     }
 
     /// <summary>
+    /// ER-OWNER-CROWDING: each route takes a pool of eight times the limit from the store-wide index and keeps this owner's
+    /// only afterwards. With more of other owners' namesakes than that pool, all of them closer than this owner's own
+    /// near-name, the owner's entity was never proposed, though no other owner's is visible to it.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Other_owners_namesakes_do_not_crowd_out_this_owners_own_near_name(bool vector)
+    {
+        var own = await Seed("Jose Garcia Lopez");
+        await _entities.UpsertAsync(own with { Embedding = [0.9f, 0.1f, 0, 0] });
+        for (var i = 0; i < 40; i++)
+        {
+            var other = await Seed("Jose Garcia", "other-" + i);
+            await _entities.UpsertAsync(other with { Embedding = [1, 0, 0, 0] });
+        }
+        await _fixture.TransactionRunner.ReadAsync(async runner => { await runner.RunAsync("CALL db.index.fulltext.awaitEventuallyConsistentIndexRefresh()"); });
+
+        var query = Query("Jose Garcia", limit: 2);
+        var result = vector
+            ? await _identity.FindApproximateCandidatesAsync(query with { UseFuzzyCandidates = false }, [1, 0, 0, 0])
+            : await _identity.FindApproximateCandidatesAsync(query, null);
+
+        result.Candidates.Should().ContainSingle().Which.Entity.EntityId.Should().Be(own.EntityId);
+    }
+
+    /// <summary>
+    /// ER-OWNER-CROWDING, within one owner: the pool is also filtered by type afterwards, so the owner's own entities of
+    /// another type, closer to the name, can fill it and leave no candidate of the mention's type.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task This_owners_entities_of_another_type_do_not_crowd_out_one_of_the_mentions_type(bool vector)
+    {
+        var person = await Seed("Jose Garcia Lopez");
+        await _entities.UpsertAsync(person with { Embedding = [0.9f, 0.1f, 0, 0] });
+        for (var i = 0; i < 40; i++)
+        {
+            var place = await Seed("Jose Garcia", type: "LOCATION");
+            await _entities.UpsertAsync(place with { Embedding = [1, 0, 0, 0] });
+        }
+        await _fixture.TransactionRunner.ReadAsync(async runner => { await runner.RunAsync("CALL db.index.fulltext.awaitEventuallyConsistentIndexRefresh()"); });
+
+        var query = Query("Jose Garcia", limit: 2);
+        var result = vector
+            ? await _identity.FindApproximateCandidatesAsync(query with { UseFuzzyCandidates = false }, [1, 0, 0, 0])
+            : await _identity.FindApproximateCandidatesAsync(query, null);
+
+        result.Candidates.Should().ContainSingle().Which.Entity.EntityId.Should().Be(person.EntityId);
+    }
+
+    /// <summary>
     /// IDENTITY-HARD-CASES D against the real lookup (the second paid check of 24 Nov, ihc2-v2-glm-1 statement 113): one
     /// stored person has a bare first name exactly, two others hold it in longer names. The full-text lookup finds the
     /// longer names, and the plan reviews them with the exact one, so the adjudicator is never offered only one of them.

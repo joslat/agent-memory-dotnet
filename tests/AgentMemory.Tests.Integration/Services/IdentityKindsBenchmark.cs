@@ -36,18 +36,23 @@ internal static class IdentityKindsBenchmark
 
     private sealed record Decision(string Status, string Name, string? ConfirmedId, string Diagnostics);
 
-    public static async Task<IReadOnlyList<Row>> RunArmAsync(string arm, string uri, string user, string password, IDriver driver)
+    /// <param name="emptyStoreFirst">
+    /// False keeps what is already in the store: other owners' records, which this arm's owners must never see or feel
+    /// (ER-OWNER-CROWDING).
+    /// </param>
+    public static async Task<IReadOnlyList<Row>> RunArmAsync(string arm, string uri, string user, string password, IDriver driver,
+        bool emptyStoreFirst = true)
     {
         var cases = Build().ToArray();
         var rows = new List<Row>();
         var start = new DateTimeOffset(2026, 11, 2, 9, 0, 0, TimeSpan.Zero);
         var logs = new ConcurrentQueue<string>();
         var scripted = new Scripted();
-        // ER-KIT: every arm starts on an empty store. Each case writes under its own owner, but recall and identity read
-        // shared (ownerless) memory too, so whatever an arm run before left there was a candidate for the next one: the rules
-        // arm's open proposals were 236 alone and 210 after the other arms in one test process (xUnit does not promise the
-        // order of a theory's rows), and the recorded 2.3.1 baseline had 235.
-        await Q(driver, "MATCH (n) DETACH DELETE n", new { });
+        // ER-KIT: every arm starts on an empty store. Each case writes under its own owner, and none of them is shared,
+        // yet what an arm run before left there changed the next one: identity takes its near-name candidates from the
+        // whole store's indexes before keeping this owner's (ER-OWNER-CROWDING), so the rules arm's open proposals were 236
+        // alone and 210 after the other arms in one test process (xUnit does not promise the order of a theory's rows).
+        if (emptyStoreFirst) await Q(driver, "MATCH (n) DETACH DELETE n", new { });
         await using var sp = Services(uri, user, password, arm != "previous", scripted, logs);
         await sp.GetRequiredService<ISchemaBootstrapper>().BootstrapAsync();
         await Q(driver, "CALL db.awaitIndexes(120)", new { });

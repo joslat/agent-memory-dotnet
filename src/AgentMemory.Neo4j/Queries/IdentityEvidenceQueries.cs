@@ -38,19 +38,65 @@ internal static class IdentityEvidenceQueries
         RETURN DISTINCT e.id AS id ORDER BY id LIMIT $sentinelLimit
         """;
 
-    internal const string LexicalIds = """
-        CALL db.index.fulltext.queryNodes('entity_name', $lucene, {limit: $poolLimit}) YIELD node AS e, score
-        WHERE
-        """ + Visible + " AND " + Typed + """
-        RETURN e.id AS id, score ORDER BY score DESC, id LIMIT $limit
+    /// <summary>
+    /// ER-OWNER-CROWDING: the whole store's index gives a pool of <c>$poolLimit</c> hits that is filtered to this scope only
+    /// afterwards, so on a store shared by many owners the other owners' entities can fill the pool and leave this owner's
+    /// near-names out (tier 1's arms: fewer proposals with another arm's records in the store, none of them shared). Each
+    /// route therefore also scores this scope's own entities directly, in the same query, when the pool came back full and
+    /// fewer than <c>$limit</c> of its hits are visible: one owner's entities by <c>entity_owner_idx</c>, the shared ones by
+    /// <c>owner_key = '*'</c> (G-14's two seeks), so the read is bounded by this scope's data, never by the store's.
+    /// Returns <c>pool</c> (the index's hit count), <c>pooled</c> (its visible hits) and <c>scanned</c> (the scope's own;
+    /// empty unless the pool was full and short).
+    /// </summary>
+    internal static string LexicalIds(bool owned, bool shared) => $$"""
+        CALL db.index.fulltext.queryNodes('entity_name', $lucene, {limit: $poolLimit}) YIELD node, score
+        {{Pooled}}
+        CALL (hits, pooled) {
+            UNWIND CASE WHEN size(pooled) < $limit AND size(hits) >= $poolLimit THEN [true] ELSE [] END AS crowded
+            MATCH (e:Entity) WHERE {{OwnScope(owned, shared)}}
+            WITH e, size([term IN $namePatterns WHERE e.name =~ term]) AS inName,
+                 size([term IN $namePatterns WHERE coalesce(e.description, '') =~ term]) AS inDescription
+            WHERE (inName > 0 OR inDescription > 0) AND {{Typed}}
+            WITH e, 2 * inName + inDescription AS score ORDER BY score DESC, size(e.name), e.id LIMIT $limit
+            RETURN collect({id: e.id, score: toFloat(score)}) AS scanned
+        }
+        RETURN size(hits) AS pool, pooled, scanned
         """;
 
-    internal const string VectorIds = """
-        CALL db.index.vector.queryNodes('entity_embedding_idx', $poolLimit, $embedding) YIELD node AS e, score
-        WHERE
-        """ + Visible + " AND " + Typed + """
-        RETURN e.id AS id, score ORDER BY score DESC, id LIMIT $limit
+    /// <summary>The vector twin of <see cref="LexicalIds"/>: the scope's own entities scored by cosine, as the index scores them.</summary>
+    internal static string VectorIds(bool owned, bool shared) => $$"""
+        CALL db.index.vector.queryNodes('entity_embedding_idx', $poolLimit, $embedding) YIELD node, score
+        {{Pooled}}
+        CALL (hits, pooled) {
+            UNWIND CASE WHEN size(pooled) < $limit AND size(hits) >= $poolLimit THEN [true] ELSE [] END AS crowded
+            MATCH (e:Entity) WHERE {{OwnScope(owned, shared)}}
+              AND e.embedding IS NOT NULL AND size(e.embedding) = size($embedding) AND {{Typed}}
+            WITH e, vector.similarity.cosine(e.embedding, $embedding) AS score ORDER BY score DESC, e.id LIMIT $limit
+            RETURN collect({id: e.id, score: score}) AS scanned
+        }
+        RETURN size(hits) AS pool, pooled, scanned
         """;
+
+    /// <summary>The index's hits as one list, and the visible ones of the right type among them, best first.</summary>
+    private const string Pooled = $$"""
+        WITH collect({node: node, score: score}) AS hits
+        CALL (hits) {
+            UNWIND hits AS hit
+            WITH hit.node AS e, hit.score AS score
+            WHERE {{Visible}} AND {{Typed}}
+            WITH e, score ORDER BY score DESC, e.id LIMIT $limit
+            RETURN collect({id: e.id, score: score}) AS pooled
+        }
+        """;
+
+    /// <summary>
+    /// The scope's own entities, as an indexed predicate: <see cref="Visible"/> without its parameter tests, which no index
+    /// can serve. G-14: the shared half by <c>owner_key = '*'</c>, a seek, where <c>owner_id IS NULL</c> reads every entity.
+    /// </summary>
+    internal static string OwnScope(bool owned, bool shared) =>
+        owned && shared ? "(e.owner_id = $ownerId OR (e.owner_key = '*' AND e.owner_id IS NULL))"
+        : owned ? "e.owner_id = $ownerId"
+        : "(e.owner_key = '*' AND e.owner_id IS NULL)";
 
     // ILC-13: same-type entities observed in the window's context messages (through EXTRACTED_FROM, the message index
     // first), each resolved through its own decision to its current identity. Review-only nomination; bounded.

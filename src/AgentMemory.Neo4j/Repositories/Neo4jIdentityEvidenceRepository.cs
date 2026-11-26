@@ -14,7 +14,7 @@ using Neo4j.Driver;
 namespace AgentMemory.Neo4j.Repositories;
 
 /// <summary>Explicit host assertions and bounded reads; constructors never contact the database.</summary>
-internal sealed class Neo4jIdentityEvidenceRepository : IIdentityEvidenceRepository, IIdentityCandidateProvider, IIdentitySourceProvider
+internal sealed partial class Neo4jIdentityEvidenceRepository : IIdentityEvidenceRepository, IIdentityCandidateProvider, IIdentitySourceProvider
 {
     /// <summary>The most source messages one identity source read may request.</summary>
     internal const int MaxSourceReads = 32;
@@ -206,6 +206,8 @@ internal sealed class Neo4jIdentityEvidenceRepository : IIdentityEvidenceReposit
         parameters["poolLimit"] = Math.Min(1024, query.Limit * 8);
         parameters["embedding"] = embedding;
         parameters["contextIds"] = query.ContextSourceMessageIds.Take(32).ToArray();
+        parameters["namePatterns"] = NamePatterns(query.Name);
+        var (owned, shared) = (query.OwnerId is not null, query.OwnerId is null || query.IncludeShared);
         return await _tx.ReadAsync(async runner =>
         {
             var rank = new Dictionary<string, double>(StringComparer.Ordinal);
@@ -223,18 +225,19 @@ internal sealed class Neo4jIdentityEvidenceRepository : IIdentityEvidenceReposit
                     rank[id] = rank.GetValueOrDefault(id) + 1.0 / (60 + i + 1);
                 }
             }
-            foreach (var route in new[] { (query.UseFuzzyCandidates, IdentityEvidenceQueries.LexicalIds, false),
-                (embedding is not null, IdentityEvidenceQueries.VectorIds, true) })
+            foreach (var route in new[] { (query.UseFuzzyCandidates, IdentityEvidenceQueries.LexicalIds(owned, shared), false),
+                (embedding is not null, IdentityEvidenceQueries.VectorIds(owned, shared), true) })
             {
                 if (!route.Item1) continue;
                 var cursor = await runner.RunAsync(route.Item2, parameters).ConfigureAwait(false);
-                var rows = await cursor.ToListAsync().ConfigureAwait(false);
+                var record = (await cursor.ToListAsync().ConfigureAwait(false)).Single();
                 cancellationToken.ThrowIfCancellationRequested();
+                var rows = RouteHits(record, query.Limit);
                 for (var i = 0; i < rows.Count; i++)
                 {
-                    var id = rows[i]["id"].As<string>();
+                    var (id, score) = rows[i];
                     rank[id] = rank.GetValueOrDefault(id) + 1.0 / (60 + i + 1);
-                    if (route.Item3) cosine[id] = Math.Clamp(2 * rows[i]["score"].As<double>() - 1, -1, 1);
+                    if (route.Item3) cosine[id] = Math.Clamp(2 * score - 1, -1, 1);
                 }
             }
             var ids = rank.OrderByDescending(pair => pair.Value).ThenBy(pair => pair.Key, StringComparer.Ordinal)
@@ -307,6 +310,33 @@ internal sealed class Neo4jIdentityEvidenceRepository : IIdentityEvidenceReposit
         cancellationToken.ThrowIfCancellationRequested();
         if (!IsEnabled) throw new InvalidOperationException("Enable and migrate the identity-evidence schema extension before using identity evidence.");
     }
+
+    /// <summary>
+    /// ER-OWNER-CROWDING: a route's candidates, best first. The scope's own scan (non-empty only when the store's index came
+    /// back full and short of visible hits) leads, and the index's visible hits it missed follow, up to the limit.
+    /// </summary>
+    internal static IReadOnlyList<(string Id, double Score)> RouteHits(IRecord record, int limit)
+    {
+        static List<(string, double)> Read(object value) =>
+            [.. value.As<List<Dictionary<string, object>>>().Select(hit => (hit["id"].As<string>(), hit["score"].As<double>()))];
+        var pooled = Read(record["pooled"]);
+        var scanned = Read(record["scanned"]);
+        if (scanned.Count == 0) return pooled;
+        var seen = scanned.Select(hit => hit.Item1).ToHashSet(StringComparer.Ordinal);
+        return [.. scanned.Concat(pooled.Where(hit => !seen.Contains(hit.Item1))).Take(limit)];
+    }
+
+    /// <summary>
+    /// The name's words as the fulltext index splits them (runs of letters, marks and digits, lowercased: Lucene's standard
+    /// tokenizer, which keeps an inner apostrophe that this splits on), each as a whole-word, case-insensitive Java pattern
+    /// over a whole property, for the scope's own scan. At most sixteen words.
+    /// </summary>
+    internal static string[] NamePatterns(string name) =>
+        [.. WordPattern().Matches(name).Select(match => match.Value.ToLowerInvariant()).Distinct(StringComparer.Ordinal).Take(16)
+            .Select(word => @"(?isu).*(?<![\p{L}\p{M}\p{N}])\Q" + word + @"\E(?![\p{L}\p{M}\p{N}]).*")];
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"[\p{L}\p{M}\p{N}]+")]
+    private static partial System.Text.RegularExpressions.Regex WordPattern();
 
     private static Dictionary<string, object?> Parameters(IdentityCandidateQuery query) => new()
     {

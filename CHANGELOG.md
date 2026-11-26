@@ -6,6 +6,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Identity's near-name candidates are this owner's, however many others share the store** (ER-OWNER-CROWDING): the
+  fuzzy and semantic routes take a pool of eight times the candidate limit (32 by default) from the store-wide full-text and
+  vector indexes and keep this owner's, of the mention's type, only afterwards. In a store shared by many owners, or one
+  owner's many entities of other types, the pool filled with entities this owner can never be resolved to, and its own
+  near-names were not proposed at all. Each route now also reports the pool's size, and when the pool came back full with
+  fewer than the limit visible, scores the scope's own entities directly in the same query (by `entity_owner_idx`, and the
+  shared ones by `owner_key = '*'`): bounded by that scope's data, no extra round trip, and only when the pool was crowded.
+  The lexical scan matches the name's words whole and case-insensitively in the name or description, as the full-text index
+  splits them (an inner apostrophe aside). Measured on the Identity Kinds tier 1 (134 scripted cases, no model): with another
+  arm's records left in the store, the rules arm's open proposals fell from 236 to 204 and the writer arm's from 197 to 172;
+  now an arm run beside its own earlier records gives every identity row unchanged. Alone, where an arm's 134 owners had
+  crowded each other, rules propose 247 (from 236) and writer 214 (from 197), in 13 rows named again after six unrelated
+  turns; no verdict moves and no wrong merge appears (tier 1 baseline version 3). On a store of 3,000 other owners' namesakes
+  each route reads about 230 database hits, the owner's half by two index seeks. Wall time on tier 1 is not yet measured
+  cleanly (the arms took longer, on a loaded machine, with more proposals to make).
+
 - **The memory gate keeps whoever has answered by its deadline** (GATE-DEADLINE-WHOEVER): the judges are still asked at
   once, but `MemoryGateOptions.Timeout` is no longer all or nothing. At the deadline each memory type is judged by the
   judges that answered it in time (both blended, or one alone), a type no judge answered in time takes the similarity
