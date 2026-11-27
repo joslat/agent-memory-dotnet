@@ -72,38 +72,6 @@ public sealed class IdentityEvidenceIntegrationTests : IAsyncLifetime
         result.Candidates.Should().OnlyContain(c => c.Entity.OwnerId == owner || includeShared && c.Entity.OwnerId == null);
     }
 
-    /// <summary>
-    /// ER-ADJUDICATOR-BOUND-SOURCES: a confirmed mention adds no source to its target, so the candidate carries the turns its
-    /// live bound facts were said in, newest binding first and at most four; an invalidated fact and another owner's
-    /// binding give none.
-    /// </summary>
-    [Fact]
-    public async Task A_candidate_carries_the_source_turns_of_its_live_bound_facts_newest_first()
-    {
-        var esi = await Seed("Esi");
-        await _fixture.TransactionRunner.WriteAsync(async runner =>
-        {
-            foreach (var (fact, scope, sources, minutes, invalidated) in new (string, string, string[], int, bool)[]
-            {
-                ("f1", "owned:pablito", ["m1"], 1, false), ("f2", "owned:pablito", ["m2", "m1"], 2, false),
-                ("f3", "owned:pablito", ["m3"], 3, true), ("f4", "owned:other", ["m4"], 4, false),
-                ("f5", "owned:pablito", ["m5"], 5, false), ("f6", "owned:pablito", ["m6"], 6, false), ("f7", "owned:pablito", ["m7"], 7, false),
-            })
-                await runner.RunAsync("""
-                    MATCH (e:Entity {id: $entityId})
-                    CREATE (f:Fact {id: $fact, owner_id: 'pablito', subject: 'Esi', predicate: 'swears by', object: 'Woodin'})
-                    SET f.invalidated_at = CASE WHEN $invalidated THEN datetime() ELSE null END
-                    CREATE (b:IdentityFactBinding {id: 'b-' + $fact, owner_scope: $scope, identity_source_ids: $sources,
-                        created_at: datetime('2026-11-27T10:00:00Z') + duration({minutes: $minutes})})
-                    CREATE (f)-[:HAS_IDENTITY_BINDING]->(b)-[:RESOLVES_TO]->(e)
-                    """, new { entityId = esi.EntityId, fact, scope, sources, minutes, invalidated });
-        });
-
-        var candidate = (await _identity.FindExactCandidatesAsync(Query("Esi"))).Candidates.Should().ContainSingle().Subject;
-
-        candidate.BoundSourceIds.Should().Equal("m7", "m6", "m5", "m2");
-    }
-
     [Fact]
     public async Task Duplicate_exact_matches_report_truncation_before_context_hydration()
     {

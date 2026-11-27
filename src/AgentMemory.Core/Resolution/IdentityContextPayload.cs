@@ -19,7 +19,7 @@ internal static class IdentityContextPayload
         json = ""; diagnostic = "contextual_context_budget";
         if (maximumBytes <= 0 || context.Sources.Count > 256 || candidates.Count > 64 ||
             context.Sources.Any(source => source.OriginIds.Count > 256) ||
-            candidates.Any(candidate => candidate.Entity.SourceMessageIds.Count > 256 || candidate.BoundSourceIds.Count > 256)) return false;
+            candidates.Any(candidate => candidate.Entity.SourceMessageIds.Count > 256)) return false;
 
         var own = new Dictionary<string, object?>
         { ["Name"] = mention.Name, ["Type"] = mention.Type, ["Description"] = mention.Description };
@@ -33,9 +33,7 @@ internal static class IdentityContextPayload
             {
                 ["id"] = entity.EntityId, ["Name"] = entity.Name, ["Type"] = entity.Type,
                 ["Description"] = entity.Description,
-                // ER-ADJUDICATOR-BOUND-SOURCES: the turns of its bound facts are its sources too, when they were offered.
-                ["sourceIds"] = entity.SourceMessageIds.Concat(candidate.BoundSourceIds).Where(offeredSources.ContainsKey)
-                    .Distinct(StringComparer.Ordinal).ToArray()
+                ["sourceIds"] = entity.SourceMessageIds.Where(offeredSources.ContainsKey).ToArray()
             };
             // ER-ADJUDICATOR-EVIDENCE: what the candidate's own facts and sources say it is ("is the office manager").
             var knownAs = candidate.KnownAs.Where(phrase => !string.IsNullOrWhiteSpace(phrase))

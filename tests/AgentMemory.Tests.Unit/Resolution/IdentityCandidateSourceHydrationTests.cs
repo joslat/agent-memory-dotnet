@@ -49,14 +49,13 @@ public sealed class IdentityCandidateSourceHydrationTests
     }
 
     private async Task<IdentityDecision> Plan(bool withSources = true, int calls = 1, string candidateSource = "prior",
-        int maxContextBytes = 8_192, IReadOnlyList<string>? boundSources = null)
+        int maxContextBytes = 8_192)
     {
         var candidates = Substitute.For<IIdentityCandidateProvider>();
         candidates.Capabilities.Returns(new IdentityCandidateCapabilities { BoundedReads = true, CalendarValueLookup = true, VerifiedKeyLookup = true });
         candidates.FindExactCandidatesAsync(Arg.Any<IdentityCandidateQuery>(), Arg.Any<CancellationToken>()).Returns(new IdentityCandidateSet
         { ExactIdentityLookupComplete = true, Candidates = [new() { Entity = new() { EntityId = "event-a", Name = EventName,
-            Type = "EVENT", OwnerId = "pablito", SourceMessageIds = [candidateSource], CreatedAtUtc = DateTimeOffset.UnixEpoch, Confidence = 1 },
-            BoundSourceIds = boundSources ?? [] }] });
+            Type = "EVENT", OwnerId = "pablito", SourceMessageIds = [candidateSource], CreatedAtUtc = DateTimeOffset.UnixEpoch, Confidence = 1 } }] });
         candidates.FindApproximateCandidatesAsync(Arg.Any<IdentityCandidateQuery>(), Arg.Any<float[]?>(), Arg.Any<CancellationToken>())
             .Returns(new IdentityCandidateSet { ExactIdentityLookupComplete = true });
         var store = Substitute.For<IIdentityDecisionRepository>();
@@ -130,39 +129,6 @@ public sealed class IdentityCandidateSourceHydrationTests
         await Plan(calls: 0);
         _sources.ReceivedCalls().Should().BeEmpty();
         _sent.Should().BeEmpty();
-    }
-
-    /// <summary>
-    /// ER-ADJUDICATOR-BOUND-SOURCES (the who's-who v4, statement 101): "so Esi has finally won their argument" about Woodin
-    /// fabric was left uncertain between the two stored Esis. The friend's fact from statement 35 ("Esi swears by Woodin
-    /// instead") was bound to her, but a confirmed mention adds no source to its target, so the adjudicator saw only her
-    /// first sentence. The turns of a candidate's bound facts are loaded as its sources too.
-    /// </summary>
-    [Fact]
-    public async Task The_turns_of_a_candidates_bound_facts_are_loaded_and_offered_as_its_sources()
-    {
-        var decision = await Plan(candidateSource: "first", boundSources: ["prior"]);
-        using var document = JsonDocument.Parse(_sent.Should().ContainSingle().Which);
-        document.RootElement.GetProperty("candidates")[0].GetProperty("sourceIds").EnumerateArray()
-            .Select(source => source.GetString()).Should().Equal("prior");
-        decision.Status.Should().Be(IdentityDecisionKind.Confirmed);
-        decision.Context.Sources.Select(source => source.SourceId).Should().Equal("current", "prior");
-    }
-
-    [Fact]
-    public async Task At_most_three_bound_turns_a_candidate_are_read_the_newest_first()
-    {
-        await Plan(candidateSource: "first", boundSources: ["prior", "b2", "b3", "b4", "b5"]);
-        await _sources.Received(1).GetSourcesAsync(Arg.Is<IReadOnlyList<string>>(ids => ids.SequenceEqual(new[] { "first", "prior", "b2", "b3" })),
-            "pablito", false, Arg.Any<int>(), Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task A_bound_turn_that_is_already_an_own_source_is_read_once()
-    {
-        await Plan(candidateSource: "prior", boundSources: ["prior"]);
-        await _sources.Received(1).GetSourcesAsync(Arg.Is<IReadOnlyList<string>>(ids => ids.SequenceEqual(new[] { "prior" })),
-            "pablito", false, Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

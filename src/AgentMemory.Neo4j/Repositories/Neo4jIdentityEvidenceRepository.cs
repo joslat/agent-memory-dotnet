@@ -267,11 +267,9 @@ internal sealed partial class Neo4jIdentityEvidenceRepository : IIdentityEvidenc
             var known = row["known"].As<List<Dictionary<string, object>>>()
                 .Select(fact => ((string?)fact["subject"].As<string>(), (string?)fact["predicate"].As<string>(), (string?)fact["object"].As<string>()));
             var texts = row["texts"].As<List<string>>();
-            var boundSources = row["boundSources"].As<List<string>>();
             return new IdentityCandidate
             {
-                Entity = entity, KnownAs = AgentMemory.Core.Resolution.IdentityRelationCue.FromFactsAndSources(entity, known, texts),
-                BoundSourceIds = boundSources, EvidenceComplete = evidence.Count <= MaxEvidence && kinds.Select(item => item["subject_kind"].As<string>()).Distinct().Count() <= 1,
+                Entity = entity, KnownAs = AgentMemory.Core.Resolution.IdentityRelationCue.FromFactsAndSources(entity, known, texts), EvidenceComplete = evidence.Count <= MaxEvidence && kinds.Select(item => item["subject_kind"].As<string>()).Distinct().Count() <= 1,
                 EvidenceVersion = row["version"].As<long>(),
                 NameNamespace = namespaces.Contains(query.NameNamespace, StringComparer.Ordinal) ? query.NameNamespace : null,
                 VerifiedKind = kinds.Length == 0 ? null : new VerifiedIdentityKind
