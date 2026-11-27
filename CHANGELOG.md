@@ -13,23 +13,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and what it is for is a THING of its own even with no title, named with the words that pin it down, and that two
   owners' documents are two entities.
 
-- **A fact that names a stored person by the stored name is bound to that person** (ER-BIND-REMENTIONS).
-  - *The gap.* The store-aware writer is told that a stored entity needs no new entity: its facts use the stored name.
-    So a person met before and named again ("Adwoa has three weddings to cater this month") got a fact with the name as
-    text, and no identity decision bound it to Adwoa. On the who's-who v4, 116 to 129 of the key's 217 mentions were kept
-    only in such facts.
-  - *The change.* In event-identity mode, a fact whose subject or object is exactly the name of one stored person or
-    organisation the writer was shown now gives that entity a reference in the fact's own quoted words. These are the
-    guards connection ends already had: no namesake the reply names apart, no person the message describes by a relation
-    ("my neighbour Tomás"), and no thing or place. The reference is marked `ExtractedEntityReference.Implied`.
-  - *Two more guards for implied references.* The name must hold two capitalised name words ("Kofi Fitter", not
-    "Kofi" or "the Eagles"), and no other entity shown or named in the reply may hold one of them. A first version
-    without them was measured and reverted: its paid who's-who runs merged one-word namesakes (two teams called the
-    Eagles; an aunt and a canoe both called Esther) where the other one was not yet stored under that name.
-  - *The checks.* Evidence-based identity checks it as it checks the writer's own references. A confirmation is kept
-    (`writer_reference_implied`) and binds the turn's facts that name the entity. Anything else is dropped before the
-    adjudicator and before persistence, so the turn ends as it did before: no proposal and no model call.
-
 - **The identity adjudicator sees what each candidate is, and its "none of these" is read** (ER-ADJUDICATOR-EVIDENCE).
   - *What each candidate is.* The adjudicator was shown each candidate's id, name, type, description and source ids, but
     not the phrases its own facts and sources say it is. The candidates already carried those phrases (`KnownAs`, such as

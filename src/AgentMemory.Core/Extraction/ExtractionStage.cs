@@ -378,9 +378,6 @@ internal sealed class ExtractionStage : IExtractionStage
                     if (identityPlans.Count >= _identity.MaxMentions)
                         throw new InvalidOperationException("Identity ingestion exceeds MaxMentionsPerIngestion.");
                     var plan = await _identity.PlanAsync(extracted, window, scope, cancellationToken, identityBudget).ConfigureAwait(false);
-                    // ER-BIND-REMENTIONS: the writer did not state an implied reference, so one its checks refuse is no
-                    // mention of its own: no decision and no proposal, and the turn's facts stay as they were.
-                    if (extracted.Reference is { Implied: true } && plan.Decision.Status != IdentityDecisionKind.Confirmed) continue;
                     var baseKey = plan.Decision.ObservationKey;
                     var occurrence = identityOccurrences.GetValueOrDefault(baseKey);
                     identityOccurrences[baseKey] = occurrence + 1;
