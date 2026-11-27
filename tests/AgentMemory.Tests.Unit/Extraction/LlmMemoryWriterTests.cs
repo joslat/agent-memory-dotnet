@@ -337,49 +337,6 @@ public sealed class LlmMemoryWriterTests
         shown.Should().Contain("E2: Café Lumen (EVENT), first said in \"Café Lumen is also the name of the jazz night in Porto.\"");
     }
 
-    /// <summary>
-    /// ER-NAMESAKE-LINES (the namesake after-run of 27 Nov, whos-who v4, both runs): the two Graces were stored as "Grace Addo"
-    /// and "Grace, the girl next door". For "Grace is seventeen" the writer saw two names sharing one word and no line telling
-    /// them apart, wrote the bare first name as one stored exact name, and picked the wrong Grace. Stored things that share a
-    /// name word the turn says are shown with the words each was first said in.
-    /// </summary>
-    [Fact]
-    public async Task In_event_identity_mode_stored_things_sharing_a_name_the_turn_says_are_shown_with_their_first_words()
-    {
-        Entity Grace(string id, string name, string source) => new()
-        { EntityId = id, Name = name, Type = "PERSON", SourceMessageIds = [source], Confidence = 1, CreatedAtUtc = Now };
-        _entities.SearchByVectorAsync(default!, default, default, default, default).ReturnsForAnyArgs(
-        [
-            (Grace("e-addo", "Grace Addo", "m-office"), 0.9),
-            (Grace("e-next-door", "Grace, the girl next door", "m-next-door"), 0.8),
-        ]);
-        _messages.GetByIdAsync("m-office", Arg.Any<CancellationToken>()).Returns(Said("m-office", "Grace Addo, our office manager, sends out the invoices."));
-        _messages.GetByIdAsync("m-next-door", Arg.Any<CancellationToken>()).Returns(Said("m-next-door", "Grace, the girl next door, waved from her porch."));
-
-        await Writer(true).WriteAsync(Turn("Grace is seventeen and learning to drive.", MemoryScope.For("kwabena")));
-
-        var shown = Stored(_asked.Single().User);
-        shown.Should().Contain("E1: Grace Addo (PERSON), first said in \"Grace Addo, our office manager, sends out the invoices.\"");
-        shown.Should().Contain("E2: Grace, the girl next door (PERSON), first said in \"Grace, the girl next door, waved from her porch.\"");
-    }
-
-    /// <summary>ER-NAMESAKE-LINES: a word two stored names share that the turn does not say reads no source message.</summary>
-    [Fact]
-    public async Task Stored_things_sharing_only_a_word_the_turn_does_not_say_read_no_source_message()
-    {
-        Entity Grace(string id, string name, string source) => new()
-        { EntityId = id, Name = name, Type = "PERSON", SourceMessageIds = [source], Confidence = 1, CreatedAtUtc = Now };
-        _entities.SearchByVectorAsync(default!, default, default, default, default).ReturnsForAnyArgs(
-        [
-            (Grace("e-addo", "Grace Addo", "m-office"), 0.9),
-            (Grace("e-next-door", "Grace, the girl next door", "m-next-door"), 0.8),
-        ]);
-
-        await Writer(true).WriteAsync(Turn("The invoices went out on Monday.", MemoryScope.For("kwabena")));
-
-        await _messages.DidNotReceiveWithAnyArgs().GetByIdAsync(default!, default);
-    }
-
     [Fact]
     public async Task The_default_writer_and_a_unique_name_read_no_source_message()
     {

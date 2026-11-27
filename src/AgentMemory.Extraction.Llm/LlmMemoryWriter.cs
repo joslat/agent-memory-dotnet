@@ -36,7 +36,7 @@ namespace AgentMemory.Extraction.Llm;
 /// vector); and today is the clock's date in UTC.
 /// </para>
 /// </remarks>
-internal sealed partial class LlmMemoryWriter : IMemoryWriter
+internal sealed class LlmMemoryWriter : IMemoryWriter
 {
     private readonly LlmExtractionOptions _options;
     private readonly LlmExtractionRunner _runner;
@@ -460,47 +460,22 @@ internal sealed partial class LlmMemoryWriter : IMemoryWriter
         var shown = MemoryWriterOps.Stored.Number(
             [.. named.Select(OfEntity).Concat(byName).Concat(byMeaning).Concat(theirs).Concat(nearby)
                 .DistinctBy(item => item.Id).Take(limit + 6)]);
-        return alsoCalled ? await WithFirstSaidAsync(shown, text, cancellationToken).ConfigureAwait(false) : shown;
+        return alsoCalled ? await WithFirstSaidAsync(shown, cancellationToken).ConfigureAwait(false) : shown;
     }
-
-    // ER-NAMESAKE-LINES: at most this many stored entities are read for a shared name word in one turn.
-    private const int SharedWordReads = 8;
-    private static readonly HashSet<string> NotNameWords = new(["the", "a", "an", "my", "our", "his", "her", "their", "its", "of"],
-        StringComparer.OrdinalIgnoreCase);
-
-    /// <summary>The capitalised words of a stored name, lower-cased; articles and possessives are not name words.</summary>
-    private static IEnumerable<string> NameWords(string name) => NameWord().Matches(name).Select(match => match.Value)
-        .Where(word => char.IsUpper(word[0]) && !NotNameWords.Contains(word)).Select(word => word.ToLowerInvariant());
-
-    [GeneratedRegex(@"[\p{L}\p{M}\p{N}]+")]
-    private static partial Regex NameWord();
 
     /// <summary>
     /// IDENTITY-WRITER-COVERAGE: stored entities shown under the same name and type carry the words each was first said
     /// in, so the writer can tell them apart. One message read for each such entity, none when every name shown is unique.
     /// </summary>
     private async Task<IReadOnlyList<MemoryWriterOps.Stored>> WithFirstSaidAsync(IReadOnlyList<MemoryWriterOps.Stored> shown,
-        string turn, CancellationToken cancellationToken)
+        CancellationToken cancellationToken)
     {
         // IDENTITY-HARD-CASES A1: by name, whatever the type (whos-who-v2 run 1: a bid stored as an event and a project as a
         // thing, both "Lighthouse", were shown without their first words, and the writer picked the wrong one).
-        var entities = shown.Where(item => item.Letter == 'E' && item.SourceMessageId is not null).ToList();
-        var repeated = entities
+        var repeated = shown.Where(item => item.Letter == 'E' && item.SourceMessageId is not null)
             .GroupBy(item => MemoryWriterContract.Canonical(MemoryWriterContract.EntityName(item.Text)), StringComparer.Ordinal)
             .Where(group => group.Count() > 1)
             .SelectMany(group => group).ToList();
-        // ER-NAMESAKE-LINES (whos-who v4, 27 Nov): "Grace Addo" and "Grace, the girl next door" share only "Grace", the word
-        // the turn says, so the writer had no line telling them apart and wrote the wrong one's exact name for a bare "Grace".
-        var said = NameWord().Matches(turn).Select(match => match.Value.ToLowerInvariant()).ToHashSet(StringComparer.Ordinal);
-        repeated = [.. repeated.Concat(entities
-            .SelectMany(item => NameWords(MemoryWriterContract.EntityName(item.Text)).Distinct(StringComparer.Ordinal)
-                .Where(said.Contains).Select(word => (Word: word, Item: item)))
-            .GroupBy(pair => pair.Word, StringComparer.Ordinal)
-            .Where(group => group.Select(pair => pair.Item.Id).Distinct(StringComparer.Ordinal).Count() > 1)
-            .SelectMany(group => group.Select(pair => pair.Item))
-            .Where(item => !repeated.Contains(item))
-            .DistinctBy(item => item.Id).Take(SharedWordReads))
-            .DistinctBy(item => item.Id)];
         if (repeated.Count == 0 || _services.GetService<IMessageRepository>() is not { } messages) return shown;
         var firstSaid = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var item in repeated)
