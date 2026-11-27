@@ -242,7 +242,7 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
         System.Diagnostics.Activity? activity, CancellationToken cancellationToken)
     {
         var persons = await PersonsAsync(ops, stored, message, earlier, cancellationToken).ConfigureAwait(false);
-        var issues = MemoryWriterContract.Check(ops, drops, stored, owner, persons, message);
+        var issues = MemoryWriterContract.Check(ops, drops, stored, owner, persons);
         if (issues.Count == 0) return (ops, [], []);
         var correctable = issues.Where(issue => !MemoryWriterContract.ReportedOnly(issue.Reason)).ToList();
         IReadOnlyList<MemoryWriterOps.Op> corrected = [];
@@ -265,7 +265,7 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
                 _logger.LogWarning(ex, "Memory writer: the correction call failed; {Count} problem(s) stay rejected.", correctable.Count);
             }
         }
-        var (merged, unfixed) = MemoryWriterContract.Merge(ops, issues, corrected, stored, _options.MemoryWriterMaxOperations, message);
+        var (merged, unfixed) = MemoryWriterContract.Merge(ops, issues, corrected, stored, _options.MemoryWriterMaxOperations);
         if (unfixed.Count > 0)
         {
             activity?.SetTag("memory.write.rejected", unfixed.Count);
@@ -1118,7 +1118,7 @@ internal static class MemoryWriterOps
                     // IDENTITY-NICKNAME-SPLIT: a stored person referred to under a short form of their name is that person,
                     // also called so: the stored name, which tells namesakes apart, and the short form as an alias.
                     var referred = reference is not null && byLabel.TryGetValue(op.Ref!, out var shown) ? shown : null;
-                    var alsoCalled = referred is null ? null : MemoryWriterContract.AlsoCalled(op, referred, referenceMessage);
+                    var alsoCalled = referred is null ? null : MemoryWriterContract.AlsoCalled(op, referred);
                     entities.Add(new ExtractedEntity
                     {
                         Name = alsoCalled is not null ? MemoryWriterContract.EntityName(referred!.Text)

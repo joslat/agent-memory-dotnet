@@ -91,7 +91,7 @@ internal static class MemoryWriterContract
     /// operation stays, without its reference) and returned as issues, as are drops and missing event observations.
     /// </summary>
     internal static IReadOnlyList<Issue> Check(List<MemoryWriterOps.Op> ops, IReadOnlyList<MemoryWriterOps.DroppedOp> dropped,
-        IReadOnlyList<MemoryWriterOps.Stored> stored, string? owner, Persons? persons = null, string? message = null)
+        IReadOnlyList<MemoryWriterOps.Stored> stored, string? owner, Persons? persons = null)
     {
         var issues = new List<Issue>();
         // The paid check of 24 Nov (ihc1-v1-glm-2 and 3, statement 50): a rename answered as an entity "replace" whose text
@@ -132,7 +132,7 @@ internal static class MemoryWriterContract
             if (ops[i].Ref is null) continue;
             // A reference only means something on an entity add; elsewhere it is unused and silently dropped.
             if (ops[i].Kind != "entity" || ops[i].Action != "add") { ops[i] = ops[i] with { Ref = null }; continue; }
-            var (reason, problem) = ReferenceProblem(ops[i], byLabel, message);
+            var (reason, problem) = ReferenceProblem(ops[i], byLabel);
             if (reason is null) continue;
             var kept = ops[i] with { Ref = null };
             issues.Add(new(reason.Value, ops[i].Index, ops[i].Kind, ops[i].Text, problem!) { Kept = kept });
@@ -313,8 +313,7 @@ internal static class MemoryWriterContract
     /// unfixed becomes a visible rejection; a reference problem leaves its entity kept without the reference.
     /// </summary>
     internal static (List<MemoryWriterOps.Op> Ops, List<Issue> Unfixed) Merge(List<MemoryWriterOps.Op> ops, IReadOnlyList<Issue> issues,
-        IReadOnlyList<MemoryWriterOps.Op> corrected, IReadOnlyList<MemoryWriterOps.Stored> stored, int maxOperations,
-        string? message = null)
+        IReadOnlyList<MemoryWriterOps.Op> corrected, IReadOnlyList<MemoryWriterOps.Stored> stored, int maxOperations)
     {
         var byLabel = stored.ToDictionary(item => item.Label, StringComparer.OrdinalIgnoreCase);
         var result = new List<MemoryWriterOps.Op>(ops);
@@ -343,7 +342,7 @@ internal static class MemoryWriterContract
                 used.Add(fix);
                 continue;
             }
-            if (fix is not null && fix.Ref is not null && ReferenceProblem(fix, byLabel, message).Reason is not null) fix = fix with { Ref = null };
+            if (fix is not null && fix.Ref is not null && ReferenceProblem(fix, byLabel).Reason is not null) fix = fix with { Ref = null };
             // IDENTITY-THING-REF-LEFT-OUT holds for a correction too (the paid check of 24 Nov, ihc1-v1-glm-1 statement 54:
             // a malformed "Luna (OBJECT) (also called: Luna) (OBJECT)" fixed as "Luna (OBJECT)" with "ref": "E1" was stored,
             // and the re-mention stayed pending as another identity of the stored thing).
@@ -424,7 +423,7 @@ internal static class MemoryWriterContract
             : null;
 
     private static (MemoryWriterOps.DropReason? Reason, string? Problem) ReferenceProblem(MemoryWriterOps.Op op,
-        IReadOnlyDictionary<string, MemoryWriterOps.Stored> byLabel, string? message = null)
+        IReadOnlyDictionary<string, MemoryWriterOps.Stored> byLabel)
     {
         if (op.Kind != "entity" || op.Action != "add")
             return (MemoryWriterOps.DropReason.ReferenceInvalid, "\"ref\" belongs only on an entity add");
@@ -433,7 +432,7 @@ internal static class MemoryWriterContract
         if (op.QuoteStart is null)
             return (MemoryWriterOps.DropReason.ReferenceWithoutQuote, "a \"ref\" needs a quote of the last message's words that refer to the stored entity");
         var stored = EntityName(item.Text);
-        if (Canonical(EntityName(op.Text)) != Canonical(stored) && AlsoCalled(op, item, message) is null)
+        if (Canonical(EntityName(op.Text)) != Canonical(stored) && AlsoCalled(op, item) is null)
             return (MemoryWriterOps.DropReason.ReferenceNameMismatch, $"\"ref\" {op.Ref} is \"{stored}\"; with a ref, the text must use that exact stored name");
         return (null, null);
     }
@@ -446,9 +445,9 @@ internal static class MemoryWriterContract
     /// mention keeps the stored name, which tells namesakes apart, and the short form becomes its alias. Only people: an
     /// organisation, place, thing or event keeps the exact stored-name rule (ILC-10).
     /// </summary>
-    internal static string? AlsoCalled(MemoryWriterOps.Op op, MemoryWriterOps.Stored item, string? message = null)
+    internal static string? AlsoCalled(MemoryWriterOps.Op op, MemoryWriterOps.Stored item)
     {
-        if (Renamed(op, item, message) is { } renamed) return renamed;
+        if (Renamed(op, item) is { } renamed) return renamed;
         if (op.Kind != "entity" || op.Action != "add" || item.Letter != 'E' || op.Quote is not { } quote ||
             EntityText.Match(op.Text) is not { Success: true } said ||
             !string.Equals(said.Groups["t"].Value.Trim(), "PERSON", StringComparison.OrdinalIgnoreCase) || StoredType(item.Text) != "PERSON")
@@ -473,24 +472,7 @@ internal static class MemoryWriterContract
     /// </summary>
     /// <summary>Words that say a name is corrected or changed: "it's Okafor, not Okoro", "renamed it MedPath", "has a new name".</summary>
     private static readonly Regex RenameCue = new(
-        @"\b(?:not|renamed|rebranded|new\s+name|now\s+called|now\s+named|is\s+now|(?:is|are|was|were)\s+(?:now\s+)?(?:called|named)|spell(?:ed|ing|t)?|misspel\w*|actually|correction"
-        // ER-RENAME-CUE: a future or explicit naming, a marriage, a reopening under a new name.
-        + @"|will\s+be\s+(?:called|named|known\s+as)|(?:going|about)\s+to\s+be\s+(?:called|named)|married|maiden\s+name|(?:re)?opens?\s+as|relaunch\w*\s+as)\b",
-        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-
-    /// <summary>ER-RENAME-CUE: the namings that say a new name on their own, without the old name beside it.</summary>
-    private static readonly Regex ExplicitRename = new(
-        @"\b(?:renamed|rebranded|new\s+name|will\s+be\s+(?:called|named|known\s+as)|(?:going|about)\s+to\s+be\s+(?:called|named))\b",
-        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-
-    /// <summary>
-    /// ER-RENAME-CUE, second design: the cues that say a rename wherever they stand in the turn. The weak ones of
-    /// <see cref="RenameCue"/> ("not", "actually", "spelling", "correction") count only in the reference's own quote.
-    /// </summary>
-    private static readonly Regex StrongRenameCue = new(
-        @"\b(?:renamed|rebranded|new\s+name|now\s+called|now\s+named|(?:is|are|was|were)\s+now\s+(?:called|named)" +
-        @"|will\s+be\s+(?:called|named|known\s+as)|(?:going|about)\s+to\s+be\s+(?:called|named)|married|maiden\s+name" +
-        @"|(?:re)?opens?\s+as|relaunch\w*\s+as)\b",
+        @"\b(?:not|renamed|rebranded|new\s+name|now\s+called|now\s+named|is\s+now|(?:is|are|was|were)\s+(?:now\s+)?(?:called|named)|spell(?:ed|ing|t)?|misspel\w*|actually|correction)\b",
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     /// <summary>
@@ -500,7 +482,7 @@ internal static class MemoryWriterContract
     /// the stored one and a correction or a rename, for the kinds a reference may confirm (a person, an organisation, an
     /// event); a place or a thing keeps the exact-name rule. Null otherwise.
     /// </summary>
-    private static string? Renamed(MemoryWriterOps.Op op, MemoryWriterOps.Stored item, string? message = null)
+    private static string? Renamed(MemoryWriterOps.Op op, MemoryWriterOps.Stored item)
     {
         if (op.Kind != "entity" || op.Action != "add" || item.Letter != 'E' || op.Quote is not { } quote ||
             EntityText.Match(op.Text) is not { Success: true } said) return null;
@@ -508,26 +490,10 @@ internal static class MemoryWriterContract
         if (type != StoredType(item.Text) || type is not ("PERSON" or "ORGANIZATION" or "EVENT")) return null;
         var name = said.Groups["n"].Value.Trim();
         var stored = EntityName(item.Text);
-        if (Canonical(name) == Canonical(stored) || !Says(quote, name)) return null;
+        if (Canonical(name) == Canonical(stored) || !RenameCue.IsMatch(quote) || !Says(quote, name)) return null;
         var newWords = NameWord.Matches(name).Select(m => Canonical(m.Value)).ToHashSet(StringComparer.Ordinal);
-        // ER-RENAME-CUE, third design (who's-who v4, statement 86): the engineer was shown as "Esi Quarcoo (PERSON), also
-        // called Esi Quaye", and the turn said "Quaye". A word of a shown other name is a word of the old name too.
-        var oldNames = OtherNames(item).Prepend(stored).ToList();
-        bool SaysOldWord(string text) => oldNames.SelectMany(old => NameWord.Matches(old).Select(m => m.Value))
-            .Any(word => word.Length >= 3 && !newWords.Contains(Canonical(word)) && Says(text, word));
-        if (RenameCue.IsMatch(quote) && SaysOldWord(quote)) return name;
-        // ER-RENAME-CUE (who's-who v4, both runs of the standing build): "Our practice will be called Studio Lamptey from
-        // January" names the firm by a role, not by its old name, and the rename the writer proposed was refused. An
-        // organisation or an event renamed by an explicit naming may be named so, when the new name keeps a word of the old
-        // one. A person still needs a word of the old name said: "our new intern is called Ana Vidal" renames no Ana Ruiz.
-        if (type is "ORGANIZATION" or "EVENT" && ExplicitRename.IsMatch(quote) &&
-            NameWord.Matches(stored).Select(m => Canonical(m.Value)).Any(word => word.Length >= 3 && newWords.Contains(word)))
-            return name;
-        // ER-RENAME-CUE, second design (who's-who v4, statement 86, 15 of 16 runs): "Esi Quaye got married on Saturday, so her
-        // emails are signed Esi Arthur now". The reference quoted only "her emails are signed Esi Arthur now"; the cue and the
-        // stored name were in the half quoted for a fact. A strong cue and a word of the stored name anywhere in the turn
-        // say the rename too; the new name must still be in the reference's own quote.
-        return message is not null && StrongRenameCue.IsMatch(message) && SaysOldWord(message) ? name : null;
+        return NameWord.Matches(stored).Select(m => m.Value)
+            .Any(word => word.Length >= 3 && !newWords.Contains(Canonical(word)) && Says(quote, word)) ? name : null;
 
         static bool Says(string text, string words) => Regex.IsMatch(text,
             $@"(?<![\p{{L}}\p{{M}}]){Regex.Escape(words)}(?![\p{{L}}\p{{M}}])",

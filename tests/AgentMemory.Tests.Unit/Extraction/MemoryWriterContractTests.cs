@@ -82,11 +82,11 @@ public sealed class MemoryWriterContractTests : IDisposable
 
     private const string PersonId = "identity-observation-beatriz";
 
-    private void ShowStored(string id, string name, string type, params string[] aliases) =>
+    private void ShowStored(string id, string name, string type) =>
         _entities.SearchByVectorAsync(default!, default, default, default, default).ReturnsForAnyArgs([(new Entity
         {
             EntityId = id, Name = name, Type = type, OwnerId = "bruna", Confidence = 1, SourceMessageIds = ["prior"],
-            CreatedAtUtc = DateTimeOffset.UnixEpoch, Aliases = aliases,
+            CreatedAtUtc = DateTimeOffset.UnixEpoch,
         }, 0.9)]);
 
     private void ShowStoredPerson() => ShowStored(PersonId, "Beatriz Molina", "PERSON");
@@ -528,10 +528,6 @@ public sealed class MemoryWriterContractTests : IDisposable
     [InlineData("Ms. Ortega", "PERSON", "Ms. Vidal", "I've been getting her name wrong: it's Ms. Vidal, not Ortega.", "it's Ms. Vidal, not Ortega")]
     [InlineData("Nexo Studio", "ORGANIZATION", "Brightline", "Nexo Studio has a new name: it's Brightline now.", "Nexo Studio has a new name: it's Brightline now")]
     [InlineData("Nexo Studio", "ORGANIZATION", "Brightline", "Nexo Studio was renamed Brightline last week.", "Nexo Studio was renamed Brightline")]
-    // ER-RENAME-CUE: the writer proposed these renames on the sealed v4 and the contract refused them (ReferenceNameMismatch).
-    [InlineData("Ana Ruiz", "PERSON", "Ana Vidal", "Ana Ruiz got married in June, so she signs as Ana Vidal now.", "Ana Ruiz got married in June, so she signs as Ana Vidal now")]
-    [InlineData("Ortega Partners", "ORGANIZATION", "Studio Ortega", "Our firm will be called Studio Ortega from March.", "Our firm will be called Studio Ortega from March")]
-    [InlineData("Nexo Studio", "ORGANIZATION", "Nexo Labs", "The studio will be known as Nexo Labs after the merger.", "The studio will be known as Nexo Labs after the merger")]
     public async Task A_stored_name_corrected_or_renamed_in_the_message_is_that_entity_also_called_by_the_new_name(
         string stored, string type, string renamed, string message, string quote)
     {
@@ -546,69 +542,6 @@ public sealed class MemoryWriterContractTests : IDisposable
         entity.Aliases.Should().Equal(renamed);
         entity.Reference!.EntityId.Should().Be("stored-1");
         result.Outcomes.Should().BeEmpty();
-    }
-
-    /// <summary>
-    /// ER-RENAME-CUE, second design (the who's-who v4, statement 86, "Esi Quaye got married on Saturday, so her emails are
-    /// signed Esi Arthur now"): the writer referred the new name to the stored engineer with the quote of the second half
-    /// only, and quoted the first half ("got married", "Quaye") for a fact. Neither the cue nor the stored name was in the
-    /// reference's own quote, so the rename was refused in 15 of 16 runs. A rename may rest on the whole turn: a strong rename
-    /// cue and a word of the stored name anywhere in it, the new name in the reference's own quote.
-    /// </summary>
-    [Fact]
-    public async Task A_rename_whose_cue_and_old_name_are_in_another_part_of_the_turn_is_that_entity_also_called_by_the_new_name()
-    {
-        ShowStored("stored-1", "Ana Ruiz", "PERSON");
-        _replies.Enqueue("""{"ops":[{"op":"add","kind":"fact","text":"Ana Ruiz | got married in | June","quote":"Ana Ruiz got married in June"},{"op":"add","kind":"entity","text":"Ana Vidal (PERSON)","quote":"her emails are signed Ana Vidal now","ref":"E1"}]}""");
-
-        var result = await Write("Ana Ruiz got married in June, so her emails are signed Ana Vidal now.");
-
-        _calls.Should().ContainSingle("the turn says the rename, so there is no name mismatch to correct");
-        var entity = result.Entities.Should().ContainSingle(e => e.Reference != null).Which;
-        entity.Name.Should().Be("Ana Ruiz");
-        entity.Aliases.Should().Equal("Ana Vidal");
-        entity.Reference!.EntityId.Should().Be("stored-1");
-        result.Outcomes.Should().BeEmpty();
-    }
-
-    /// <summary>
-    /// ER-RENAME-CUE, third design (who's-who v4, statement 86, the second design's runs 1 and 3): the engineer was shown as
-    /// "Esi Quarcoo (PERSON), also called Esi Quaye". The correction kept "Esi Quaye" as an alias, so the turn's "Quaye" was
-    /// no word of the stored name and the rename was refused. A word of a shown other name counts as the old name too.
-    /// </summary>
-    [Fact]
-    public async Task A_rename_that_names_the_stored_entity_by_its_other_name_is_that_entity_also_called_by_the_new_name()
-    {
-        ShowStored("stored-1", "Ana Ruiz", "PERSON", "Ana Rius");
-        _replies.Enqueue("""{"ops":[{"op":"add","kind":"fact","text":"Ana Rius | got married in | June","quote":"Ana Rius got married in June"},{"op":"add","kind":"entity","text":"Ana Vidal (PERSON)","quote":"her emails are signed Ana Vidal now","ref":"E1"}]}""");
-
-        var result = await Write("Ana Rius got married in June, so her emails are signed Ana Vidal now.");
-
-        _calls.Should().ContainSingle("the turn names the stored person by her other name and says the rename");
-        var entity = result.Entities.Should().ContainSingle(e => e.Reference != null).Which;
-        entity.Name.Should().Be("Ana Ruiz");
-        entity.Aliases.Should().Contain("Ana Vidal");
-        entity.Reference!.EntityId.Should().Be("stored-1");
-        result.Outcomes.Should().BeEmpty();
-    }
-
-    /// <summary>
-    /// ER-RENAME-CUE, second design: only a strong rename cue counts from elsewhere in the turn, and the turn must say a word
-    /// of the stored name. A "not" elsewhere in the turn, or a marriage of someone the turn does not name as the stored
-    /// person, is no rename: the mismatch is corrected as before.
-    /// </summary>
-    [Theory]
-    [InlineData("Ana Ruiz is not in today, and her emails are signed Ana Vidal now.")]
-    [InlineData("My cousin got married in June, and her emails are signed Ana Vidal now.")]
-    public async Task A_weak_cue_or_no_stored_name_elsewhere_in_the_turn_is_no_rename(string message)
-    {
-        ShowStored("stored-1", "Ana Ruiz", "PERSON");
-        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Ana Vidal (PERSON)","quote":"her emails are signed Ana Vidal now","ref":"E1"}]}""");
-        _replies.Enqueue("""{"ops":[]}""");
-
-        await Write(message);
-
-        _calls.Should().HaveCount(2, "the name mismatch is corrected as before");
     }
 
     /// <summary>
@@ -637,9 +570,6 @@ public sealed class MemoryWriterContractTests : IDisposable
     [Theory]
     [InlineData("Ms. Vidal called about the will.", "Ms. Vidal called")]                       // the stored name is not said
     [InlineData("Ms. Vidal and Ms. Ortega both called.", "Ms. Vidal and Ms. Ortega both called")] // both said, no correction
-    // ER-RENAME-CUE: a new person introduced by a name is no rename of a stored one, even with a naming verb and a shared word.
-    [InlineData("Our new intern is called Ms. Vidal.", "Our new intern is called Ms. Vidal")]
-    [InlineData("The new lawyer will be called in as Ms. Vidal's second.", "The new lawyer will be called in as Ms. Vidal's second")]
     public async Task Another_name_without_a_correction_or_a_rename_still_needs_the_stored_name(string message, string quote)
     {
         ShowStored("stored-1", "Ms. Ortega", "PERSON");
@@ -649,23 +579,6 @@ public sealed class MemoryWriterContractTests : IDisposable
         await Write(message);
 
         _calls.Should().HaveCount(2, "the name mismatch is corrected as before");
-    }
-
-    /// <summary>
-    /// ER-RENAME-CUE: an organisation's rename may name it by a role ("our firm") instead of its old name, when the cue is an
-    /// explicit naming and the new name keeps a word of the old one. Without a shared word it stays a mismatch to correct: a
-    /// role noun alone does not say which organisation.
-    /// </summary>
-    [Fact]
-    public async Task An_organisations_rename_by_role_without_a_shared_word_still_needs_the_stored_name()
-    {
-        ShowStored("stored-1", "Ortega Partners", "ORGANIZATION");
-        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Brightline (ORGANIZATION)","quote":"Our firm will be called Brightline from March","ref":"E1"}]}""");
-        _replies.Enqueue("""{"ops":[]}""");
-
-        await Write("Our firm will be called Brightline from March.");
-
-        _calls.Should().HaveCount(2, "no word of the stored name in the new one and the old name not said: corrected as before");
     }
 
     [Fact]
