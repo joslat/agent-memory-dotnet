@@ -39,6 +39,8 @@ internal sealed class IdentityContextualAdjudication(
 {
     // At most two roots per candidate and 32 fragments in all (the native source re-validation bound).
     private const int SourcesPerCandidate = 2;
+    // ER-ADJUDICATOR-BOUND-SOURCES: and up to three turns of the candidate's bound facts, newest first.
+    private const int BoundSourcesPerCandidate = 3;
     private const int MaxSources = 32;
 
     private const string Instructions = "Assess entity identity using only the offered candidates and sources. "
@@ -184,8 +186,13 @@ internal sealed class IdentityContextualAdjudication(
         Dictionary<string, string> sources, string? ownerId, bool includeShared, CancellationToken cancellationToken)
     {
         var wanted = candidates
-            .SelectMany(candidate => candidate.Entity.SourceMessageIds.Where(id => !string.IsNullOrWhiteSpace(id))
-                .Distinct(StringComparer.Ordinal).Take(SourcesPerCandidate))
+            .SelectMany(candidate =>
+            {
+                var own = candidate.Entity.SourceMessageIds.Where(id => !string.IsNullOrWhiteSpace(id))
+                    .Distinct(StringComparer.Ordinal).Take(SourcesPerCandidate).ToList();
+                return own.Concat(candidate.BoundSourceIds.Where(id => !string.IsNullOrWhiteSpace(id) && !own.Contains(id, StringComparer.Ordinal))
+                    .Distinct(StringComparer.Ordinal).Take(BoundSourcesPerCandidate));
+            })
             .Where(id => !sources.ContainsKey(id)).Distinct(StringComparer.Ordinal)
             .Take(Math.Max(0, MaxSources - plan.Context.Sources.Count)).ToArray();
         var added = new List<IdentitySourceFragment>();
@@ -214,7 +221,7 @@ internal sealed class IdentityContextualAdjudication(
             if (added.Count > 0) diagnostics.Add("contextual_candidate_sources_hydrated");
             if (omitted) diagnostics.Add("contextual_candidate_sources_omitted_budget");
         }
-        if (candidates.Any(candidate => !candidate.Entity.SourceMessageIds.Any(sources.ContainsKey)))
+        if (candidates.Any(candidate => !candidate.Entity.SourceMessageIds.Concat(candidate.BoundSourceIds).Any(sources.ContainsKey)))
             diagnostics.Add("contextual_candidate_sources_missing");
         if (added.Count == 0 && diagnostics.Count == 0) return plan;
         return plan with

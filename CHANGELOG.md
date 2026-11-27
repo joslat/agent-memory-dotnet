@@ -6,6 +6,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **A rename the writer proposes is accepted in more of the ways people say it** (ER-RENAME-CUE). On the who's-who v4
+  the writer referred each rename to the stored entity with its new name, and the writer contract refused all three as
+  a name mismatch, so each became a new identity. The examples were a name after a wedding, a firm that "will be called"
+  something from January, and a project reopening under another name. The contract now also reads these as rename cues:
+  "will be called", "will be named", "will be known as", "going to be called", a marriage, and "opens as". An
+  organisation's or an event's explicit rename may name it by a role ("our firm") when the new name keeps a word of the
+  old one. A person still needs a word of the old name said, so "our new intern is called Ana Vidal" renames no stored
+  Ana Ruiz.
+  - *A rename split across the turn.* "Esi Quaye got married on Saturday, so her emails are signed Esi Arthur now" was
+    refused in 15 of 16 runs. The writer's reference quoted only the second half, while the cue and the stored name sat
+    in the half it quoted for a fact. A strong rename cue and a word of the stored name may now come from anywhere in the
+    turn, as long as the new name is in the reference's own quote. The strong cues are a renaming, a new name, "now
+    called", "will be called", a marriage and "opens as". The weak ones ("not", "actually", a spelling, "correction")
+    still count only inside the quote.
+  - *The old name may be another name the entity is shown with.* After the correction "it is Esi Quaye, not Esi
+    Quarcoo", the engineer was shown as "Esi Quarcoo, also called Esi Quaye". The turn's "Quaye" was therefore no word
+    of the stored name, and her rename was still refused. A word of any name the stored entity is shown as also called
+    by now counts as the old name.
+
 - **A document referred to by what it is becomes a thing of its own** (WRITER-DOCUMENTS-V4). In event-identity mode the
   writer folded a document named by what it is for ("our tender for the library", "the building permit application")
   into a fact about its owner, so on the who's-who v4 none of its three documents was ever stored (14 of 18 missed over
@@ -35,6 +54,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - *The checks.* Evidence-based identity checks it as it checks the writer's own references. A confirmation is kept
     (`writer_reference_implied`) and binds the turn's facts that name the entity. Anything else is dropped before the
     adjudicator and before persistence, so the turn ends as it did before: no proposal and no model call.
+
+- **The identity adjudicator sees the turns already bound to each candidate** (ER-ADJUDICATOR-BOUND-SOURCES).
+  - *The problem.* A confirmed mention adds no source to the identity it joins, so the adjudicator saw each candidate
+    only through the turn it was first stored from. On the who's-who v4, "so Esi has finally won their argument" about
+    Woodin fabric stayed uncertain between the two stored Esis. "Esi swears by Woodin instead", said and bound to the
+    friend 66 turns before, never reached it.
+  - *The change.* The Neo4j candidate query also returns the source messages of the candidate's live bound facts,
+    newest first, at most four, as `IdentityCandidate.BoundSourceIds`. The adjudicator loads up to three of them per
+    candidate through the owner-scoped source capability, within the existing 32-source and byte budgets, and lists them
+    under that candidate's `sourceIds`.
 
 - **The identity adjudicator sees what each candidate is, and its "none of these" is read** (ER-ADJUDICATOR-EVIDENCE).
   - *What each candidate is.* The adjudicator was shown each candidate's id, name, type, description and source ids, but

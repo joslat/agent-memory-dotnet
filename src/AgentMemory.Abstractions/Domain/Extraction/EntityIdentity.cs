@@ -104,6 +104,13 @@ public sealed record IdentityCandidate
     /// (IDENTITY-NAMESAKE-WRITER-MERGE). Empty when the backend reads none.
     /// </summary>
     public IReadOnlyList<string> KnownAs { get; init; } = Array.Empty<string>();
+    /// <summary>
+    /// ER-ADJUDICATOR-BOUND-SOURCES: the source messages of the candidate's live facts bound to it, newest binding first,
+    /// read by the backend. A confirmed mention adds no source to its target, so without these the identity adjudicator
+    /// saw only the turn the candidate was first stored from. Data only, never identity proof; the adjudicator loads a few
+    /// of them through the owner-scoped source capability. Empty when the backend reads none.
+    /// </summary>
+    public IReadOnlyList<string> BoundSourceIds { get; init; } = Array.Empty<string>();
 }
 
 /// <summary>A source fragment and its root origins, allowing correlated evidence to stay identifiable.</summary>
