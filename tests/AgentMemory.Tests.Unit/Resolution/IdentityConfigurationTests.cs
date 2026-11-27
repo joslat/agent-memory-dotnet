@@ -103,4 +103,35 @@ public sealed class IdentityConfigurationTests
         options.Policies["LOCATION"].AllowContextualConfirmation.Should().BeFalse();
         options.Policies.Keys.Should().BeEquivalentTo(["EVENT", "PERSON", "ORGANIZATION", "LOCATION"]);
     }
+
+    /// <summary>
+    /// IBP-2, first step (off by default): opted in, the conversational set also lets the adjudicator's quoted "same" confirm
+    /// a place or a thing. No context-rooted review is added for them, so the adjudicator sees the requests it sees today,
+    /// and a host's own settings for those types are kept.
+    /// </summary>
+    [Fact]
+    public void Confirming_places_and_things_opens_contextual_confirmation_for_locations_and_objects_without_context_rooted_review()
+    {
+        var options = new IdentityResolutionOptions { ConfirmPlacesAndThings = true };
+        options.Policies["LOCATION"] = new() { IdentityProperties = ["placeId"] };
+        options.ApplyConversationalPolicies();
+        foreach (var type in new[] { "LOCATION", "OBJECT" })
+            options.Policies[type].Should().Match<EntityIdentityPolicy>(p => p.AllowContextualConfirmation && !p.ReviewContextRootedCandidates);
+        options.Policies["LOCATION"].IdentityProperties.Should().Equal("placeId");
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Automatic_mode_confirms_places_and_things_only_when_opted_in(bool optedIn)
+    {
+        var captured = IdentityConfiguration.Capture(new IdentityResolutionOptions { ConfirmPlacesAndThings = optedIn },
+            active: true, contextRootedLookup: true);
+        foreach (var type in new[] { "LOCATION", "OBJECT" })
+        {
+            captured.PolicyFor(type).AllowContextualConfirmation.Should().Be(optedIn);
+            captured.PolicyFor(type).ReviewContextRootedCandidates.Should().BeFalse("no context-rooted review is added for places and things");
+        }
+        captured.PolicyFor("PERSON").ReviewContextRootedCandidates.Should().BeTrue();
+    }
 }

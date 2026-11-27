@@ -12,6 +12,13 @@ internal static class Arms
 {
     public static readonly IReadOnlyList<string> Baselines = ["file", "vector"];
 
+    /// <summary>
+    /// IBP-2, first step (<c>--identity-confirm-places-things</c>): the identity arms open places and things to the
+    /// adjudicator's quoted confirmation (<see cref="AgentMemory.Abstractions.Options.IdentityResolutionOptions.ConfirmPlacesAndThings"/>).
+    /// Off unless asked for, as in the library.
+    /// </summary>
+    public static bool ConfirmPlacesAndThings { get; set; }
+
     private static MemoryOptions Without(MemoryOptions options, bool lookAhead) =>
         options with { Recall = options.Recall with { Upcoming = lookAhead, TimeWindows = lookAhead, OverlapExpansion = lookAhead } };
 
@@ -86,6 +93,7 @@ internal static class Arms
             {
                 o.Enabled=true; o.MaxCandidates=4; o.MaxAdjudicationsPerIngestion=2;
                 o.AdjudicatorMaxOutputTokens=1024; o.AdjudicationTimeout=TimeSpan.FromSeconds(45);
+                o.ConfirmPlacesAndThings = ConfirmPlacesAndThings;
                 o.ApplyConversationalPolicies();
             }),
         new(
@@ -106,6 +114,7 @@ internal static class Arms
             {
                 o.Enabled=true; o.MaxCandidates=4; o.MaxAdjudicationsPerIngestion=2;
                 o.AdjudicatorMaxOutputTokens=1024; o.AdjudicationTimeout=TimeSpan.FromSeconds(45);
+                o.ConfirmPlacesAndThings = ConfirmPlacesAndThings;
                 o.ApplyConversationalPolicies();
             }),
         // IBP-1b: the freed entity places given back (RecallOptions.FillFoldedEntityPlaces), recalled from the same store as
@@ -128,6 +137,7 @@ internal static class Arms
             {
                 o.Enabled=true; o.MaxCandidates=4; o.MaxAdjudicationsPerIngestion=2;
                 o.AdjudicatorMaxOutputTokens=1024; o.AdjudicationTimeout=TimeSpan.FromSeconds(45);
+                o.ConfirmPlacesAndThings = ConfirmPlacesAndThings;
                 o.ApplyConversationalPolicies();
             }),
     ];

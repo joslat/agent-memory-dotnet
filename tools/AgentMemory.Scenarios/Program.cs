@@ -42,6 +42,8 @@ CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
 var root = RepositoryRoot();
 var identityValidation = args.Contains("--identity-validation");
 var identityWriter = args.Contains("--identity-writer");
+Arms.ConfirmPlacesAndThings = args.Contains("--identity-confirm-places-things");
+if (Arms.ConfirmPlacesAndThings) Console.WriteLine("IBP-2: places and things may be confirmed by the adjudicator (--identity-confirm-places-things).");
 var identityFullScenario = args.Contains("--identity-full-scenario");
 if(identityFullScenario && (!identityValidation || !identityWriter))
 {

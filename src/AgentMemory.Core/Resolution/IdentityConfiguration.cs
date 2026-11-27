@@ -81,8 +81,10 @@ internal sealed record IdentityConfiguration
             if (!policies.TryAdd(type, snapshot)) errors.Add($"Entity type {type} is configured more than once ignoring case.");
         }
         if (options.Enabled is null)
-            foreach (var (type, policy) in new IdentityResolutionOptions().ApplyConversationalPolicies().Policies)
-                policies.TryAdd(type, policy with { ReviewContextRootedCandidates = contextRootedLookup });
+            // IBP-2: places and things are opened only when the host opted in, and never for context-rooted review.
+            foreach (var (type, policy) in new IdentityResolutionOptions { ConfirmPlacesAndThings = options.ConfirmPlacesAndThings }
+                         .ApplyConversationalPolicies().Policies)
+                policies.TryAdd(type, policy with { ReviewContextRootedCandidates = contextRootedLookup && policy.ReviewContextRootedCandidates });
         if (errors.Count > 0) throw new OptionsValidationException(nameof(IdentityResolutionOptions), typeof(IdentityResolutionOptions), errors);
         return new IdentityConfiguration
         {

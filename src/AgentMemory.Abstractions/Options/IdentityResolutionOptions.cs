@@ -42,10 +42,20 @@ public sealed class IdentityResolutionOptions
         new Dictionary<string, EntityIdentityPolicy>(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
+    /// IBP-2, first step; off by default and measured before any default changes. When set,
+    /// <see cref="ApplyConversationalPolicies"/> (and automatic mode) also lets checked contextual evidence, the adjudicator's
+    /// quoted verdict, confirm a place (LOCATION) or a thing (OBJECT). No context-rooted review is added for them, and the
+    /// store-aware writer's references to a stored place or thing are still left out, so the adjudicator is asked what it is
+    /// asked today. Vetoes, host keys and ambiguity rules still apply.
+    /// </summary>
+    public bool ConfirmPlacesAndThings { get; set; }
+
+    /// <summary>
     /// The measured conversational policy set (Identity Lifecycle Benchmark, 2026-11): EVENT, PERSON and ORGANIZATION may
     /// be confirmed by checked contextual evidence (a store-aware writer's stored-entity reference or the adjudicator's
     /// quoted verdict) and nominate same-type entities from the extraction window's context turns for review. Every other
-    /// type, places and calendar values included, stays review-only. Vetoes, host keys and ambiguity rules still apply.
+    /// type, places and calendar values included, stays review-only, unless <see cref="ConfirmPlacesAndThings"/> opens places
+    /// and things. Vetoes, host keys and ambiguity rules still apply.
     /// Existing policies for those three types keep their other settings. Automatic mode uses this set for any of the three
     /// types left unset. Does not switch identity on or off. Returns this instance.
     /// </summary>
@@ -56,10 +66,17 @@ public sealed class IdentityResolutionOptions
             var current = Policies.TryGetValue(type, out var existing) && existing is not null ? existing : new EntityIdentityPolicy();
             Policies[type] = current with { AllowContextualConfirmation = true, ReviewContextRootedCandidates = true };
         }
+        if (ConfirmPlacesAndThings)
+            foreach (var type in PlaceAndThingTypes)
+            {
+                var current = Policies.TryGetValue(type, out var existing) && existing is not null ? existing : new EntityIdentityPolicy();
+                Policies[type] = current with { AllowContextualConfirmation = true };
+            }
         return this;
     }
 
     private static readonly string[] ConversationalTypes = ["EVENT", "PERSON", "ORGANIZATION"];
+    private static readonly string[] PlaceAndThingTypes = ["LOCATION", "OBJECT"];
 }
 
 /// <summary>Domain rules for one entity type. Similarity thresholds only select review candidates.</summary>

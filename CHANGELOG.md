@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Places and things may be confirmed by the identity adjudicator, opt-in** (IBP-2, first step).
+  `IdentityResolutionOptions.ConfirmPlacesAndThings` is off by default. When set, the conversational policy set, and
+  automatic mode, let the adjudicator's quoted "same" confirm a LOCATION or an OBJECT, as it already does for people,
+  organisations and events. Without it, such a "same" stays a proposal for review: "Akosombo cloth" stays apart from
+  the stored Akosombo wax print, the same thing. No context-rooted review is added for these types. The store-aware
+  writer's references to a stored place or thing are still left out, because namesake things (a town and a fabric
+  brand called Akosombo) need a guard first. The scenario tool turns it on with `--identity-confirm-places-things`.
+
 - **A rename the writer proposes is accepted in more of the ways people say it** (ER-RENAME-CUE). On the who's-who v4
   the writer referred each rename to the stored entity with its new name, and the writer contract refused all three as
   a name mismatch, so each became a new identity. The examples were a name after a wedding, a firm that "will be called"
