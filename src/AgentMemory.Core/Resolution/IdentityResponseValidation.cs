@@ -34,7 +34,9 @@ internal static class IdentityResponseValidation
                 candidate.ValueKind is not (JsonValueKind.String or JsonValueKind.Null)) return null;
             var id = candidate.ValueKind == JsonValueKind.String ? candidate.GetString() : null;
             if (id is not null && !allowedIds.Contains(id)) return null;
-            if (verdict != IdentityContextualVerdict.Uncertain && string.IsNullOrWhiteSpace(id)) return null;
+            // ER-ADJUDICATOR-EVIDENCE: "different" with no candidate is "none of these is it" (all 8 invalid replies of a
+            // replayed v4 run were this answer, with quotes that checked out); "same" always names the one it means.
+            if (verdict == IdentityContextualVerdict.Same && string.IsNullOrWhiteSpace(id)) return null;
             if (!root.TryGetProperty("evidence", out var evidence) || evidence.ValueKind != JsonValueKind.Array || evidence.GetArrayLength() > 32) return null;
             var quotes = new List<IdentityEvidenceQuote>();
             foreach (var item in evidence.EnumerateArray())

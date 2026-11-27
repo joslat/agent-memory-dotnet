@@ -112,16 +112,29 @@ internal sealed class IdentityContextualAdjudication(
         var (response, failure) = await AskAsync(json, cancellationToken).ConfigureAwait(false);
         if (failure is not null) return Keep(failure);
         var parsed = IdentityResponseValidation.Parse(response, allowed, sources);
-        // ER-ADJUDICATOR-EVIDENCE: an invalid reply (unparsable, an id or a quote that was not offered) is asked again once,
-        // when the ingestion's budget has a call left; it still decides nothing unless the second reply is valid.
-        if (parsed is null && budget.TryConsume(configuration.MaxAdjudicationsPerIngestion))
-        {
-            plan = plan with { Diagnostics = [.. plan.Diagnostics, "contextual_retried_invalid_response"] };
-            (response, failure) = await AskAsync(json, cancellationToken).ConfigureAwait(false);
-            if (failure is not null) return Keep(failure);
-            parsed = IdentityResponseValidation.Parse(response, allowed, sources);
-        }
         if (parsed is null) return Keep("contextual_invalid_response");
+        // ER-ADJUDICATOR-EVIDENCE: "different" naming no candidate is different from every one offered (a replayed v4 run:
+        // all 8 replies the validator refused were this answer). As for a single "different", a nomination offered only by
+        // context leaves no proposal and a same-name one stays for review. A verdict without a candidate is not kept as
+        // evidence. (An identical second ask was tried and withdrawn: at temperature 0, 27 of 28 replays repeated the reply.)
+        if (parsed.Verdict == IdentityContextualVerdict.Different && parsed.CandidateId is null)
+        {
+            var dropped = plan.Result.PendingEntityIds.Where(id =>
+                plan.Result.Reasons.TryGetValue(id, out var why) && why == IdentityPolicy.ContextRootedReview).ToArray();
+            var kept = plan.Result.PendingEntityIds.Except(dropped, StringComparer.Ordinal).ToArray();
+            var reasonsAfter = plan.Result.Reasons.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+            foreach (var id in dropped) reasonsAfter[id] = "contextual_different";
+            return plan with
+            {
+                Result = plan.Result with
+                {
+                    Decision = kept.Length == 0 ? IdentityDecisionKind.New : IdentityDecisionKind.Pending,
+                    PendingEntityIds = kept, CanAdjudicate = false, Reasons = reasonsAfter,
+                    RejectedEntityIds = [.. plan.Result.RejectedEntityIds, .. dropped]
+                },
+                Diagnostics = [.. plan.Diagnostics, "contextual_different_from_all"]
+            };
+        }
         if (parsed.Verdict == IdentityContextualVerdict.Different && parsed.CandidateId is { } different &&
             plan.Result.Reasons.TryGetValue(different, out var why) && why == IdentityPolicy.ContextRootedReview)
         {

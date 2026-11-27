@@ -6,16 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- **The identity adjudicator sees what each candidate is, and gets a second chance at an invalid reply**
-  (ER-ADJUDICATOR-EVIDENCE).
+- **The identity adjudicator sees what each candidate is, and its "none of these" is read** (ER-ADJUDICATOR-EVIDENCE).
   - *What each candidate is.* The adjudicator was shown each candidate's id, name, type, description and source ids, but
     not the phrases its own facts and sources say it is. The candidates already carried those phrases (`KnownAs`, such as
     "is the office manager"), for the check on the writer's reference. They now go into the adjudicator's data as
     `knownAs`, at most eight phrases of 160 characters each. On the who's-who v4, the office manager Grace had been
     confirmed for "Grace is seventeen and learning to drive" with nothing beside the name to say what each Grace was.
-  - *A second chance.* An invalid reply (unparsable, or an id or quote that was not offered) is now asked again once when
-    the ingestion's adjudication budget has a call left (`contextual_retried_invalid_response`). It counts against that
-    budget, and it decides nothing unless the second reply is valid.
+  - *"None of these."* About one adjudication in four was refused as invalid. A v4 run's 28 requests, sent again, showed
+    why: all 8 refused replies were `different` with no candidate and quotes that checked out. That answer is now read as
+    different from every candidate offered, under the rule for a single `different`: nominations offered only by context
+    leave no proposal, and same-name candidates stay for review (`contextual_different_from_all`). A `same` must still name
+    its candidate, and no verdict without a candidate is stored as evidence. An identical second ask was tried and
+    withdrawn: at temperature 0, 27 of the 28 replays gave the same verdict.
 
 - **The writer is shown what tells namesakes apart when they share only part of a name** (ER-NAMESAKE-LINES). The
   store-aware writer showed the words each stored entity was first said in only when two shown entities had the same

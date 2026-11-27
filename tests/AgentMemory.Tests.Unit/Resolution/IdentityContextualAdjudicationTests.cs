@@ -114,43 +114,73 @@ public sealed class IdentityContextualAdjudicationTests
         data.Should().Contain("\"knownAs\":[\"is the office manager\",\"sends out the invoices\"]");
     }
 
-    // ER-ADJUDICATOR-EVIDENCE: an invalid reply is asked again once, within the ingestion's budget.
-    [Fact]
-    public async Task An_invalid_reply_is_asked_again_once_and_a_valid_second_reply_decides()
+    // ER-ADJUDICATOR-EVIDENCE: a replayed v4 run's 8 refused replies were all "different" with no candidate and quotes that
+    // checked out: "none of these is it". It is read as different from every candidate offered, under the rule for one.
+    private const string DifferentFromAll =
+        "{\"decision\":\"different\",\"candidateId\":null,\"evidence\":[{\"sourceId\":\"m\",\"quote\":\"Alex is Alexandra\"}]}";
+
+    private static IdentityResolutionPlan PlanWith(params (string Id, string Reason)[] pending)
     {
-        _options.Policies["PERSON"] = new() { AllowContextualConfirmation = true };
-        _model.GetDecisionAsync(Arg.Any<IdentityAdjudicationRequest>(), Arg.Any<CancellationToken>()).Returns("{\"decision\":", Same);
-        var budget = new IdentityAdjudicationBudget(2);
-
-        var result = await Sut().ApplyAsync(Mention, Plan(), budget);
-
-        result.Result.ConfirmedEntityId.Should().Be("a");
-        result.Diagnostics.Should().Contain("contextual_retried_invalid_response");
-        budget.Consumed.Should().Be(2);
+        var plan = Plan();
+        var entity = plan.Candidates[0].Entity;
+        return plan with
+        {
+            Result = plan.Result with
+            {
+                PendingEntityIds = [.. pending.Select(p => p.Id)],
+                Reasons = pending.ToDictionary(p => p.Id, p => p.Reason, StringComparer.Ordinal),
+            },
+            Candidates = [.. pending.Select(p => new IdentityCandidate { Entity = entity with { EntityId = p.Id } })],
+        };
     }
 
     [Fact]
-    public async Task Two_invalid_replies_leave_the_proposal_as_it_was()
+    public async Task A_different_naming_no_candidate_drops_the_context_only_nominations_and_keeps_same_name_ones_for_review()
+    {
+        _model.GetDecisionAsync(Arg.Any<IdentityAdjudicationRequest>(), Arg.Any<CancellationToken>()).Returns(DifferentFromAll);
+
+        var result = await Sut().ApplyAsync(Mention,
+            PlanWith(("a", "candidate_for_review"), ("b", IdentityPolicy.ContextRootedReview)), new IdentityAdjudicationBudget(2));
+
+        result.Result.Decision.Should().Be(IdentityDecisionKind.Pending);
+        result.Result.PendingEntityIds.Should().Equal("a");
+        result.Result.RejectedEntityIds.Should().Contain("b");
+        result.Result.CanAdjudicate.Should().BeFalse();
+        result.Diagnostics.Should().Contain("contextual_different_from_all").And.NotContain("contextual_invalid_response");
+        result.ContextualEvidence.Should().BeNull("a verdict without a candidate is not kept as evidence");
+    }
+
+    [Fact]
+    public async Task A_different_naming_no_candidate_when_every_nomination_came_from_context_leaves_a_new_thing()
+    {
+        _model.GetDecisionAsync(Arg.Any<IdentityAdjudicationRequest>(), Arg.Any<CancellationToken>()).Returns(DifferentFromAll);
+
+        var result = await Sut().ApplyAsync(Mention, PlanWith(("b", IdentityPolicy.ContextRootedReview)), new IdentityAdjudicationBudget(2));
+
+        result.Result.Decision.Should().Be(IdentityDecisionKind.New);
+        result.Result.PendingEntityIds.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_same_verdict_must_name_its_candidate()
     {
         _options.Policies["PERSON"] = new() { AllowContextualConfirmation = true };
-        _model.GetDecisionAsync(Arg.Any<IdentityAdjudicationRequest>(), Arg.Any<CancellationToken>()).Returns("{\"decision\":");
+        _model.GetDecisionAsync(Arg.Any<IdentityAdjudicationRequest>(), Arg.Any<CancellationToken>())
+            .Returns("{\"decision\":\"same\",\"candidateId\":null,\"evidence\":[{\"sourceId\":\"m\",\"quote\":\"Alex is Alexandra\"}]}");
 
-        var result = await Sut().ApplyAsync(Mention, Plan(), new IdentityAdjudicationBudget(3));
+        var result = await Sut().ApplyAsync(Mention, Plan(), new IdentityAdjudicationBudget(2));
 
         result.Result.Decision.Should().Be(IdentityDecisionKind.Pending);
         result.Diagnostics.Should().Contain("contextual_invalid_response");
-        await _model.Received(2).GetDecisionAsync(Arg.Any<IdentityAdjudicationRequest>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task No_second_ask_when_the_budget_has_no_call_left()
+    public async Task An_invalid_reply_is_not_asked_again()
     {
-        _options.Policies["PERSON"] = new() { AllowContextualConfirmation = true };
         _model.GetDecisionAsync(Arg.Any<IdentityAdjudicationRequest>(), Arg.Any<CancellationToken>()).Returns("{\"decision\":");
 
-        var result = await Sut().ApplyAsync(Mention, Plan(), new IdentityAdjudicationBudget(1));
+        await Sut().ApplyAsync(Mention, Plan(), new IdentityAdjudicationBudget(3));
 
-        result.Diagnostics.Should().Contain("contextual_invalid_response");
         await _model.Received(1).GetDecisionAsync(Arg.Any<IdentityAdjudicationRequest>(), Arg.Any<CancellationToken>());
     }
 
