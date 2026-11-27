@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **A document referred to by what it is becomes a thing of its own** (WRITER-DOCUMENTS-V4). In event-identity mode the
+  writer folded a document named by what it is for ("our tender for the library", "the building permit application")
+  into a fact about its owner, so on the who's-who v4 none of its three documents was ever stored (14 of 18 missed over
+  six runs). The writer's rules now say that a document, form, bid or application the message refers to by what it is
+  and what it is for is a THING of its own even with no title, named with the words that pin it down, and that two
+  owners' documents are two entities.
+
 - **A fact that names a stored person by the stored name is bound to that person** (ER-BIND-REMENTIONS).
   - *The gap.* The store-aware writer is told that a stored entity needs no new entity: its facts use the stored name.
     So a person met before and named again ("Adwoa has three weddings to cater this month") got a fact with the name as

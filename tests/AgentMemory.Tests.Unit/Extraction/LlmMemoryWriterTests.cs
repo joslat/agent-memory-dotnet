@@ -200,6 +200,21 @@ public sealed class LlmMemoryWriterTests
     }
 
     /// <summary>
+    /// WRITER-DOCUMENTS-V4: on the sealed v4 no document was ever stored (14 of 18 missed over six runs): the writer refers to
+    /// a tender or a permit application by what it is and folds it into a fact about its owner. A document referred to by what
+    /// it is and what it is for is a thing of its own, named with the words that pin it down; our own examples, none of a test.
+    /// </summary>
+    [Fact]
+    public void Event_identity_prompt_makes_a_document_referred_to_by_what_it_is_a_thing()
+    {
+        var prompt = EventIdentityPrompt();
+        prompt.Should().Contain("A document, form, bid or application the message refers to by what it is");
+        prompt.Should().Contain("\"the planning permit for the barn\"");
+        prompt.Should().Contain("is a THING of its own even with no title");
+        prompt.Should().Contain("Two owners' documents are two entities");
+    }
+
+    /// <summary>
     /// IDENTITY-NICKNAME-SPLIT: in six tier 2 runs the writer, shown the stored person, wrote her nickname as a new person
     /// with "ref" null: the prompt said a similar name alone is no reference, and a reference had to carry the stored name.
     /// A short form or nickname of a stored person's name, with the context making it clear, is that person; a first name

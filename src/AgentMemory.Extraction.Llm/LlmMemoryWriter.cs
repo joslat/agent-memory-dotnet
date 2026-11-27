@@ -595,6 +595,11 @@ internal static class MemoryWriterPrompt
           speaker ("user's laptop"), others as the message says ("Ana's flat", "the house on Elm Street"): a home, shop or
           venue is PLACE, a group, club or team ORGANIZATION, anything else THING. Two owners' things are two entities ("my
           car" and "Dad's car"). The same noun said later without its anchor ("the car") gets no new entity.
+        - A document, form, bid or application the message refers to by what it is and what it is for
+          ("our bid for the bridge contract", "my sister's visa application", "the planning permit for the barn")
+          is a THING of its own even with no title. Add its entity named with the words that pin it down ("user's bid
+          for the bridge contract", "user's sister's visa application", "the planning permit for the barn"), beside the
+          facts about it. Two owners' documents are two entities.
         - A thing or place already listed in STORED as an E item needs no new entity: its facts use the stored name. Two
           stored things of one name are shown with the words each was first said in: a qualifier that says which one is
           meant ("the one in the old town") picks that one and adds nothing new. Only a message that brings in another
