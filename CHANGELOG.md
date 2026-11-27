@@ -6,15 +6,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- **A rename the writer proposes is accepted in more of the ways people say it** (ER-RENAME-CUE). On the who's-who v4
-  the writer referred each rename to the stored entity with its new name, and the writer contract refused all three as
-  a name mismatch, so each became a new identity. The examples were a name after a wedding, a firm that "will be called"
-  something from January, and a project reopening under another name. The contract now also reads these as rename cues:
-  "will be called", "will be named", "will be known as", "going to be called", a marriage, and "opens as". An
-  organisation's or an event's explicit rename may name it by a role ("our firm") when the new name keeps a word of the
-  old one. A person still needs a word of the old name in the same words, so "our new intern is called Ana Vidal" renames
-  no stored Ana Ruiz.
-
 - **A document referred to by what it is becomes a thing of its own** (WRITER-DOCUMENTS-V4). In event-identity mode the
   writer folded a document named by what it is for ("our tender for the library", "the building permit application")
   into a fact about its owner, so on the who's-who v4 none of its three documents was ever stored (14 of 18 missed over

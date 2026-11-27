@@ -528,10 +528,6 @@ public sealed class MemoryWriterContractTests : IDisposable
     [InlineData("Ms. Ortega", "PERSON", "Ms. Vidal", "I've been getting her name wrong: it's Ms. Vidal, not Ortega.", "it's Ms. Vidal, not Ortega")]
     [InlineData("Nexo Studio", "ORGANIZATION", "Brightline", "Nexo Studio has a new name: it's Brightline now.", "Nexo Studio has a new name: it's Brightline now")]
     [InlineData("Nexo Studio", "ORGANIZATION", "Brightline", "Nexo Studio was renamed Brightline last week.", "Nexo Studio was renamed Brightline")]
-    // ER-RENAME-CUE: the writer proposed these renames on the sealed v4 and the contract refused them (ReferenceNameMismatch).
-    [InlineData("Ana Ruiz", "PERSON", "Ana Vidal", "Ana Ruiz got married in June, so she signs as Ana Vidal now.", "Ana Ruiz got married in June, so she signs as Ana Vidal now")]
-    [InlineData("Ortega Partners", "ORGANIZATION", "Studio Ortega", "Our firm will be called Studio Ortega from March.", "Our firm will be called Studio Ortega from March")]
-    [InlineData("Nexo Studio", "ORGANIZATION", "Nexo Labs", "The studio will be known as Nexo Labs after the merger.", "The studio will be known as Nexo Labs after the merger")]
     public async Task A_stored_name_corrected_or_renamed_in_the_message_is_that_entity_also_called_by_the_new_name(
         string stored, string type, string renamed, string message, string quote)
     {
@@ -574,9 +570,6 @@ public sealed class MemoryWriterContractTests : IDisposable
     [Theory]
     [InlineData("Ms. Vidal called about the will.", "Ms. Vidal called")]                       // the stored name is not said
     [InlineData("Ms. Vidal and Ms. Ortega both called.", "Ms. Vidal and Ms. Ortega both called")] // both said, no correction
-    // ER-RENAME-CUE: a new person introduced by a name is no rename of a stored one, even with a naming verb and a shared word.
-    [InlineData("Our new intern is called Ms. Vidal.", "Our new intern is called Ms. Vidal")]
-    [InlineData("The new lawyer will be called in as Ms. Vidal's second.", "The new lawyer will be called in as Ms. Vidal's second")]
     public async Task Another_name_without_a_correction_or_a_rename_still_needs_the_stored_name(string message, string quote)
     {
         ShowStored("stored-1", "Ms. Ortega", "PERSON");
@@ -586,23 +579,6 @@ public sealed class MemoryWriterContractTests : IDisposable
         await Write(message);
 
         _calls.Should().HaveCount(2, "the name mismatch is corrected as before");
-    }
-
-    /// <summary>
-    /// ER-RENAME-CUE: an organisation's rename may name it by a role ("our firm") instead of its old name, when the cue is an
-    /// explicit naming and the new name keeps a word of the old one. Without a shared word it stays a mismatch to correct: a
-    /// role noun alone does not say which organisation.
-    /// </summary>
-    [Fact]
-    public async Task An_organisations_rename_by_role_without_a_shared_word_still_needs_the_stored_name()
-    {
-        ShowStored("stored-1", "Ortega Partners", "ORGANIZATION");
-        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Brightline (ORGANIZATION)","quote":"Our firm will be called Brightline from March","ref":"E1"}]}""");
-        _replies.Enqueue("""{"ops":[]}""");
-
-        await Write("Our firm will be called Brightline from March.");
-
-        _calls.Should().HaveCount(2, "no word of the stored name in the new one and the old name not said: corrected as before");
     }
 
     [Fact]

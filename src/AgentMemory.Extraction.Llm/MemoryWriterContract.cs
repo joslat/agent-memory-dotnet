@@ -472,14 +472,7 @@ internal static class MemoryWriterContract
     /// </summary>
     /// <summary>Words that say a name is corrected or changed: "it's Okafor, not Okoro", "renamed it MedPath", "has a new name".</summary>
     private static readonly Regex RenameCue = new(
-        @"\b(?:not|renamed|rebranded|new\s+name|now\s+called|now\s+named|is\s+now|(?:is|are|was|were)\s+(?:now\s+)?(?:called|named)|spell(?:ed|ing|t)?|misspel\w*|actually|correction"
-        // ER-RENAME-CUE: a future or explicit naming, a marriage, a reopening under a new name.
-        + @"|will\s+be\s+(?:called|named|known\s+as)|(?:going|about)\s+to\s+be\s+(?:called|named)|married|maiden\s+name|(?:re)?opens?\s+as|relaunch\w*\s+as)\b",
-        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-
-    /// <summary>ER-RENAME-CUE: the namings that say a new name on their own, without the old name beside it.</summary>
-    private static readonly Regex ExplicitRename = new(
-        @"\b(?:renamed|rebranded|new\s+name|will\s+be\s+(?:called|named|known\s+as)|(?:going|about)\s+to\s+be\s+(?:called|named))\b",
+        @"\b(?:not|renamed|rebranded|new\s+name|now\s+called|now\s+named|is\s+now|(?:is|are|was|were)\s+(?:now\s+)?(?:called|named)|spell(?:ed|ing|t)?|misspel\w*|actually|correction)\b",
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     /// <summary>
@@ -499,15 +492,8 @@ internal static class MemoryWriterContract
         var stored = EntityName(item.Text);
         if (Canonical(name) == Canonical(stored) || !RenameCue.IsMatch(quote) || !Says(quote, name)) return null;
         var newWords = NameWord.Matches(name).Select(m => Canonical(m.Value)).ToHashSet(StringComparer.Ordinal);
-        if (NameWord.Matches(stored).Select(m => m.Value)
-            .Any(word => word.Length >= 3 && !newWords.Contains(Canonical(word)) && Says(quote, word))) return name;
-        // ER-RENAME-CUE (the sealed v4, both runs of the standing build): "Our practice will be called Studio Lamptey from
-        // January" names the firm by a role, not by its old name, and the rename the writer proposed was refused. An
-        // organisation or an event renamed by an explicit naming may be named so, when the new name keeps a word of the old
-        // one. A person still needs a word of the old name said: "our new intern is called Ana Vidal" renames no Ana Ruiz.
-        return type is "ORGANIZATION" or "EVENT" && ExplicitRename.IsMatch(quote) &&
-               NameWord.Matches(stored).Select(m => Canonical(m.Value)).Any(word => word.Length >= 3 && newWords.Contains(word))
-            ? name : null;
+        return NameWord.Matches(stored).Select(m => m.Value)
+            .Any(word => word.Length >= 3 && !newWords.Contains(Canonical(word)) && Says(quote, word)) ? name : null;
 
         static bool Says(string text, string words) => Regex.IsMatch(text,
             $@"(?<![\p{{L}}\p{{M}}]){Regex.Escape(words)}(?![\p{{L}}\p{{M}}])",
