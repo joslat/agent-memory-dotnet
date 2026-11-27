@@ -1114,6 +1114,9 @@ internal static class MemoryWriterOps
                     var entity = Named.Match(op.Text);
                     // Event-identity mode only (the message is passed): a checked label shown in this call, never a guess.
                     var reference = referenceMessage is null ? null : MemoryWriterContract.Reference(op, byLabel, referenceMessage);
+                    // IDENTITY-NAMESAKE-ACROSS-TYPES: a bare name another type also holds says nothing of which one is meant.
+                    if (reference is not null && byLabel.TryGetValue(op.Ref!, out var referredItem) && referredItem.Entity is { } referredEntity &&
+                        CrossTypeNamesake(referredEntity, referenceMessage!, stored)) reference = null;
                     // IDENTITY-NICKNAME-SPLIT: a stored person referred to under a short form of their name is that person,
                     // also called so: the stored name, which tells namesakes apart, and the short form as an alias.
                     var referred = reference is not null && byLabel.TryGetValue(op.Ref!, out var shown) ? shown : null;
@@ -1241,6 +1244,7 @@ internal static class MemoryWriterOps
                 var before = earlier ?? [];
                 if (!before.Any(turn => HoldsWord(turn, word))) return null;
                 if (before.Append(message).Any(turn => NamingAct(turn, word))) return null;
+                if (CrossTypeNamesake(entity, message, stored)) return null;
             }
         }
         // The blind whos-who-v3 run of 24 Nov: "Finn's best mate Sam slept over" (a second Sam) was referred to the
@@ -1259,6 +1263,24 @@ internal static class MemoryWriterOps
         static bool HoldsWord(string text, string words) => Regex.IsMatch(text,
             $@"(?<![\p{{L}}\p{{M}}]){Regex.Escape(words)}(?![\p{{L}}\p{{M}}])",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(50));
+    }
+
+    /// <summary>
+    /// IDENTITY-NAMESAKE-ACROSS-TYPES: whether the turn names <paramref name="entity"/> only by part of its name, or by its
+    /// one-word name, while another shown entity of another type holds one of those words. Over 22 stored v4 runs most wrong
+    /// merges began at a reference on such a bare name ("Rocky bit a delivery boy" beside "the watchman's dog Rocky" stored
+    /// as a thing): identity's own guard reads only candidates of the mention's type, so the other one was never in view.
+    /// </summary>
+    internal static bool CrossTypeNamesake(Entity entity, string message, IReadOnlyList<Stored> stored)
+    {
+        var proper = ProperNameWords(entity.Name);
+        if (proper.Count == 0) return false;
+        var said = proper.Where(word => Regex.IsMatch(message, $@"(?<![\p{{L}}\p{{M}}]){Regex.Escape(word)}(?![\p{{L}}\p{{M}}])",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(50))).ToHashSet(StringComparer.Ordinal);
+        if (said.Count == 0 || (said.Count == proper.Count && proper.Count > 1)) return false;
+        var type = EntityType(entity.Type);
+        return stored.Any(item => item.Letter == 'E' && item.Entity is { } other && other.EntityId != entity.EntityId &&
+            EntityType(other.Type) != type && ProperNameWords(other.Name).Overlaps(said));
     }
 
     /// <summary>
