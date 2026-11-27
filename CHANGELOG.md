@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **The writer is shown what tells namesakes apart when they share only part of a name** (ER-NAMESAKE-LINES). The
+  store-aware writer showed the words each stored entity was first said in only when two shown entities had the same
+  name. On the who's-who v4, "Grace Addo" (the office manager) and "Grace, the girl next door" share only "Grace". For
+  "Grace is seventeen and learning to drive" the writer saw two names and nothing telling them apart, wrote the bare first
+  name as one stored exact name, and picked the wrong Grace in both runs. Now stored entities that share a capitalised
+  name word the turn itself says also get their first-said line. Articles and possessives don't count as name words, and
+  at most eight more source messages are read per turn. A word the turn does not say reads nothing.
+
 - **One batch decides what the same turns decide one after the other** (ILC-14, the ILCS cell CROSS-01 same-batch, now
   verified). Mentions planned in one extraction cannot see each other, because nothing is written yet. When the decision is
   written, a mention is now checked against the observations written just before it in the same extraction. If the
