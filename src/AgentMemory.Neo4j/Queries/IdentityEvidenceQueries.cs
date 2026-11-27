@@ -157,7 +157,19 @@ internal static class IdentityEvidenceQueries
             WITH m ORDER BY m.id
             RETURN collect(left(m.content, 1024)) AS texts
         }
-        RETURN known, texts, e {.id, .name, .type, .owner_id, .canonical_name,
+        // ER-ADJUDICATOR-BOUND-SOURCES: a confirmed mention adds no source to its target, so the turns its bound facts were
+        // said in are read here: newest binding first, at most four, the same bindings `known` reads. Ids only; the
+        // adjudicator loads the text through CandidateSources, with its visibility rule.
+        CALL {
+            WITH e
+            OPTIONAL MATCH (f:Fact)-[:HAS_IDENTITY_BINDING]->(b:IdentityFactBinding)-[:RESOLVES_TO]->(e)
+            WHERE f.invalidated_at IS NULL AND b.owner_scope IN $evidenceScopes
+            WITH b ORDER BY b.created_at DESC, b.id
+            WITH collect(coalesce(b.identity_source_ids, [])) AS lists
+            WITH reduce(ids = [], list IN lists | ids + [id IN list WHERE id IS NOT NULL AND NOT id IN ids]) AS ids
+            RETURN ids[..4] AS boundSources
+        }
+        RETURN known, texts, boundSources, e {.id, .name, .type, .owner_id, .canonical_name,
             confidence: coalesce(e.confidence, 1.0), .created_at,
             description: left(coalesce(e.description, ''), 4096),
             aliases: coalesce(e.aliases, [])[..32],

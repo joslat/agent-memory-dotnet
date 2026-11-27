@@ -36,6 +36,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     (`writer_reference_implied`) and binds the turn's facts that name the entity. Anything else is dropped before the
     adjudicator and before persistence, so the turn ends as it did before: no proposal and no model call.
 
+- **The identity adjudicator sees the turns already bound to each candidate** (ER-ADJUDICATOR-BOUND-SOURCES).
+  - *The problem.* A confirmed mention adds no source to the identity it joins, so the adjudicator saw each candidate
+    only through the turn it was first stored from. On the who's-who v4, "so Esi has finally won their argument" about
+    Woodin fabric stayed uncertain between the two stored Esis. "Esi swears by Woodin instead", said and bound to the
+    friend 66 turns before, never reached it.
+  - *The change.* The Neo4j candidate query also returns the source messages of the candidate's live bound facts,
+    newest first, at most four, as `IdentityCandidate.BoundSourceIds`. The adjudicator loads up to three of them per
+    candidate through the owner-scoped source capability, within the existing 32-source and byte budgets, and lists them
+    under that candidate's `sourceIds`.
+
 - **The identity adjudicator sees what each candidate is, and its "none of these" is read** (ER-ADJUDICATOR-EVIDENCE).
   - *What each candidate is.* The adjudicator was shown each candidate's id, name, type, description and source ids, but
     not the phrases its own facts and sources say it is. The candidates already carried those phrases (`KnownAs`, such as
