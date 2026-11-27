@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     turn, as long as the new name is in the reference's own quote. The strong cues are a renaming, a new name, "now
     called", "will be called", a marriage and "opens as". The weak ones ("not", "actually", a spelling, "correction")
     still count only inside the quote.
+  - *The old name may be another name the entity is shown with.* After the correction "it is Esi Quaye, not Esi
+    Quarcoo", the engineer was shown as "Esi Quarcoo, also called Esi Quaye". The turn's "Quaye" was therefore no word
+    of the stored name, and her rename was still refused. A word of any name the stored entity is shown as also called
+    by now counts as the old name.
 
 - **A document referred to by what it is becomes a thing of its own** (WRITER-DOCUMENTS-V4). In event-identity mode the
   writer folded a document named by what it is for ("our tender for the library", "the building permit application")

@@ -510,7 +510,10 @@ internal static class MemoryWriterContract
         var stored = EntityName(item.Text);
         if (Canonical(name) == Canonical(stored) || !Says(quote, name)) return null;
         var newWords = NameWord.Matches(name).Select(m => Canonical(m.Value)).ToHashSet(StringComparer.Ordinal);
-        bool SaysOldWord(string text) => NameWord.Matches(stored).Select(m => m.Value)
+        // ER-RENAME-CUE, third design (who's-who v4, statement 86): the engineer was shown as "Esi Quarcoo (PERSON), also
+        // called Esi Quaye", and the turn said "Quaye". A word of a shown other name is a word of the old name too.
+        var oldNames = OtherNames(item).Prepend(stored).ToList();
+        bool SaysOldWord(string text) => oldNames.SelectMany(old => NameWord.Matches(old).Select(m => m.Value))
             .Any(word => word.Length >= 3 && !newWords.Contains(Canonical(word)) && Says(text, word));
         if (RenameCue.IsMatch(quote) && SaysOldWord(quote)) return name;
         // ER-RENAME-CUE (who's-who v4, both runs of the standing build): "Our practice will be called Studio Lamptey from

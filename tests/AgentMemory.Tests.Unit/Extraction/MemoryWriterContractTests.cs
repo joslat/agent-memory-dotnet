@@ -82,11 +82,11 @@ public sealed class MemoryWriterContractTests : IDisposable
 
     private const string PersonId = "identity-observation-beatriz";
 
-    private void ShowStored(string id, string name, string type) =>
+    private void ShowStored(string id, string name, string type, params string[] aliases) =>
         _entities.SearchByVectorAsync(default!, default, default, default, default).ReturnsForAnyArgs([(new Entity
         {
             EntityId = id, Name = name, Type = type, OwnerId = "bruna", Confidence = 1, SourceMessageIds = ["prior"],
-            CreatedAtUtc = DateTimeOffset.UnixEpoch,
+            CreatedAtUtc = DateTimeOffset.UnixEpoch, Aliases = aliases,
         }, 0.9)]);
 
     private void ShowStoredPerson() => ShowStored(PersonId, "Beatriz Molina", "PERSON");
@@ -567,6 +567,27 @@ public sealed class MemoryWriterContractTests : IDisposable
         var entity = result.Entities.Should().ContainSingle(e => e.Reference != null).Which;
         entity.Name.Should().Be("Ana Ruiz");
         entity.Aliases.Should().Equal("Ana Vidal");
+        entity.Reference!.EntityId.Should().Be("stored-1");
+        result.Outcomes.Should().BeEmpty();
+    }
+
+    /// <summary>
+    /// ER-RENAME-CUE, third design (who's-who v4, statement 86, the second design's runs 1 and 3): the engineer was shown as
+    /// "Esi Quarcoo (PERSON), also called Esi Quaye". The correction kept "Esi Quaye" as an alias, so the turn's "Quaye" was
+    /// no word of the stored name and the rename was refused. A word of a shown other name counts as the old name too.
+    /// </summary>
+    [Fact]
+    public async Task A_rename_that_names_the_stored_entity_by_its_other_name_is_that_entity_also_called_by_the_new_name()
+    {
+        ShowStored("stored-1", "Ana Ruiz", "PERSON", "Ana Rius");
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"fact","text":"Ana Rius | got married in | June","quote":"Ana Rius got married in June"},{"op":"add","kind":"entity","text":"Ana Vidal (PERSON)","quote":"her emails are signed Ana Vidal now","ref":"E1"}]}""");
+
+        var result = await Write("Ana Rius got married in June, so her emails are signed Ana Vidal now.");
+
+        _calls.Should().ContainSingle("the turn names the stored person by her other name and says the rename");
+        var entity = result.Entities.Should().ContainSingle(e => e.Reference != null).Which;
+        entity.Name.Should().Be("Ana Ruiz");
+        entity.Aliases.Should().Contain("Ana Vidal");
         entity.Reference!.EntityId.Should().Be("stored-1");
         result.Outcomes.Should().BeEmpty();
     }
