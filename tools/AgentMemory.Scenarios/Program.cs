@@ -432,7 +432,8 @@ try
                 if (kinds.WrongMerges > 0) acceptanceFailures.Add($"identity-kinds: {kinds.WrongMerges} wrong merge(s)");
                 Console.WriteLine($"  identity kinds ({view}): {kinds.Right}/{kinds.Things} real things right, {kinds.WrongMerges} wrong merges, " +
                                   $"{kinds.Splits} splits ({string.Join(", ", kinds.ByKind.Where(k => k.Value.Splits > 0).Select(k => $"{k.Key} {k.Value.Splits}"))}), " +
-                                  $"{kinds.Missed} never stored, {kinds.PendingDecisions} open proposals; {kinds.LabelledMentions} labelled / {kinds.UnlabelledMentions} unlabelled mentions");
+                                  $"{kinds.Missed} never stored, {kinds.PendingDecisions} open proposals; {kinds.LabelledMentions} labelled / {kinds.UnlabelledMentions} unlabelled mentions; " +
+                                  $"covers {kinds.Coverage.Linked}/{kinds.Coverage.KeyMentions} of the key's mentions ({kinds.Coverage.OnlyFromBoundFacts} only through bound facts)");
             }
         }
         Console.WriteLine($"  {graph.Arm.Writes} store: {snapshot.Facts.Count} live facts, {snapshot.Closed.Count} closed, {snapshot.Entities.Count} entities; " +

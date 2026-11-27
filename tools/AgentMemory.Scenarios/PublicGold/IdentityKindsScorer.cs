@@ -70,8 +70,11 @@ internal static class IdentityKindsScorer
         var unplaced = 0;
         // ER-KIT split causes: the status of each identity's first decision, in store order (0 Confirmed, 1 Pending, 2 New).
         var firstStatus = new Dictionary<string, int>(StringComparer.Ordinal);
+        // IKB-SCORER-COVERAGE: the observations that only a bound fact gives (by index in observations).
+        var boundOnly = new HashSet<int>();
         if (view == IdentityGoldScorer.DecisionsView)
         {
+            var decided = new Dictionary<string, (string Identity, string Name, string Type)>(StringComparer.Ordinal);
             foreach (var decision in store.GetProperty("identity").GetProperty("decisions").EnumerateArray())
             {
                 var observation = decision.GetProperty("Observation");
@@ -87,8 +90,30 @@ internal static class IdentityKindsScorer
                 var name = observation.GetProperty("Name").GetString() ?? "";
                 var type = observation.GetProperty("Type").GetString() ?? "";
                 firstStatus.TryAdd(identity, status);
+                if (decision.TryGetProperty("DecisionId", out var decisionId) && decisionId.GetString() is { Length: > 0 } key)
+                    decided.TryAdd(key, (identity, name, type));
                 if (said.Length == 0) unplaced++;
                 observations.AddRange(said.Select(n => new Observation(identity, name, type, n)));
+            }
+            // A fact bound to an identity places it in each of the fact's statements: a re-mention kept only as a fact is
+            // a mention too. A statement a decision (or another bound fact) already places the identity in is not counted
+            // twice, so a binding in its own decision's turn adds nothing.
+            var statementsOf = FactStatements(store, Numbers);
+            if (statementsOf is not null && store.GetProperty("identity").TryGetProperty("bindings", out var bindings) && bindings.ValueKind == JsonValueKind.Array)
+            {
+                var placed = observations.Select(o => (o.Identity, o.Statement)).ToHashSet();
+                foreach (var binding in bindings.EnumerateArray())
+                {
+                    if (!decided.TryGetValue(binding.GetProperty("decisionId").GetString() ?? "", out var holder)) continue;
+                    var words = binding.TryGetProperty("surface", out var surface) && surface.ValueKind == JsonValueKind.String &&
+                                surface.GetString() is { Length: > 0 } said ? said : holder.Name;
+                    foreach (var n in statementsOf.GetValueOrDefault(binding.GetProperty("factId").GetString() ?? "") ?? [])
+                        if (placed.Add((holder.Identity, n)))
+                        {
+                            observations.Add(new Observation(holder.Identity, words, holder.Type, n));
+                            boundOnly.Add(observations.Count - 1);
+                        }
+                }
             }
         }
         else if (view == IdentityGoldScorer.EntitiesView)
@@ -115,6 +140,11 @@ internal static class IdentityKindsScorer
             return new LabelledMention(o.Identity, o.Words, o.Type, o.Statement, thing, how);
         }).ToList();
         var labelled = labels.Where(l => l.Thing is not null).ToList();
+        var linked = labels.Where(l => l.Thing is not null).Select(l => (l.Statement, l.Thing!)).ToHashSet();
+        var linkedByRecord = labels.Where((l, i) => l.Thing is not null && !boundOnly.Contains(i)).Select(l => (l.Statement, l.Thing!)).ToHashSet();
+        var coverage = new IdentityKindsCoverage(gold.Mentions.Count,
+            gold.Mentions.Count(m => linked.Contains((m.Statement, m.Thing))),
+            gold.Mentions.Count(m => linked.Contains((m.Statement, m.Thing)) && !linkedByRecord.Contains((m.Statement, m.Thing))));
 
         var thingsByIdentity = labelled.GroupBy(l => l.Identity, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.Select(l => l.Thing!).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList(), StringComparer.Ordinal);
@@ -175,6 +205,7 @@ internal static class IdentityKindsScorer
             SplitCauses = splitCauses.Causes,
             SplitCausesByKind = splitCauses.ByKind,
             FactAttribution = attribution,
+            Coverage = coverage,
         };
     }
 
@@ -187,13 +218,9 @@ internal static class IdentityKindsScorer
     private static IdentityKindsFactAttribution? FactAttribution(JsonElement store, Func<IEnumerable<string?>, int[]> numbers,
         IReadOnlyDictionary<int, List<string>> inStatement, IReadOnlyDictionary<string, List<string>> thingsByIdentity)
     {
-        if (!store.TryGetProperty("snapshot", out var snapshot) || snapshot.ValueKind != JsonValueKind.Object
-            || !snapshot.TryGetProperty("Facts", out var facts) || !store.GetProperty("identity").TryGetProperty("bindings", out var bindings))
+        var statementsOf = FactStatements(store, numbers);
+        if (statementsOf is null || !store.GetProperty("identity").TryGetProperty("bindings", out var bindings))
             return null;
-        var statementsOf = facts.EnumerateArray().Where(f => f.TryGetProperty("FactId", out var id) && id.ValueKind == JsonValueKind.String)
-            .ToDictionary(f => f.GetProperty("FactId").GetString()!,
-                f => f.TryGetProperty("Sources", out var s) && s.ValueKind == JsonValueKind.Array ? numbers(s.EnumerateArray().Select(x => x.GetString())) : [],
-                StringComparer.Ordinal);
         var identityOf = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var d in store.GetProperty("identity").GetProperty("decisions").EnumerateArray())
             if (d.TryGetProperty("DecisionId", out var decisionId) && decisionId.GetString() is { Length: > 0 } key)
@@ -211,6 +238,18 @@ internal static class IdentityKindsScorer
             if (statements.Any(n => inStatement.GetValueOrDefault(n)?.Contains(held[0]) == true)) right++; else wrong++;
         }
         return new(total, right, wrong, merged, unscored);
+    }
+
+    /// <summary>Each stored fact's source statements, by fact id; null when the store has no snapshot (reports before ER-KIT).</summary>
+    private static Dictionary<string, int[]>? FactStatements(JsonElement store, Func<IEnumerable<string?>, int[]> numbers)
+    {
+        if (!store.TryGetProperty("snapshot", out var snapshot) || snapshot.ValueKind != JsonValueKind.Object
+            || !snapshot.TryGetProperty("Facts", out var facts) || facts.ValueKind != JsonValueKind.Array)
+            return null;
+        return facts.EnumerateArray().Where(f => f.TryGetProperty("FactId", out var id) && id.ValueKind == JsonValueKind.String)
+            .ToDictionary(f => f.GetProperty("FactId").GetString()!,
+                f => f.TryGetProperty("Sources", out var s) && s.ValueKind == JsonValueKind.Array ? numbers(s.EnumerateArray().Select(x => x.GetString())) : [],
+                StringComparer.Ordinal);
     }
 
     /// <summary>
@@ -388,6 +427,12 @@ internal sealed record IdentityKindsClustering(
 /// <summary>ER-KIT: one kind's real things the store holds, and how many of them carry the key's type in every mention.</summary>
 internal sealed record IdentityKindsTyping(int Stored, int Typed);
 
+/// <summary>
+/// IKB-SCORER-COVERAGE: how much of the key a store's score covers. Of the key's mentions, those linked to their thing (a
+/// labelled mention of it in that statement), and how many of those only a fact bound to an identity links.
+/// </summary>
+internal sealed record IdentityKindsCoverage(int KeyMentions, int Linked, int OnlyFromBoundFacts);
+
 /// <summary>ER-KIT: the store's fact bindings, each scored against the real things its fact's statements mention.</summary>
 internal sealed record IdentityKindsFactAttribution(int Bindings, int Right, int Wrong, int ToAMergedIdentity, int Unscored);
 
@@ -427,4 +472,6 @@ internal sealed record IdentityKindsScore(
     public IReadOnlyDictionary<string, IReadOnlyDictionary<string, int>> SplitCausesByKind { get; init; } = new Dictionary<string, IReadOnlyDictionary<string, int>>();
     /// <summary>ER-KIT: facts bound to the right identity (decisions view only; null for the entities view).</summary>
     public IdentityKindsFactAttribution? FactAttribution { get; init; }
+    /// <summary>IKB-SCORER-COVERAGE: how many of the key's mentions this score covers.</summary>
+    public IdentityKindsCoverage Coverage { get; init; } = new(0, 0, 0);
 }

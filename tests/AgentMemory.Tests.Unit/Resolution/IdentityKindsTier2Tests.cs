@@ -251,6 +251,45 @@ public sealed class IdentityKindsTier2Tests
         attribution.Should().Be(new IdentityKindsFactAttribution(Bindings: 4, Right: 1, Wrong: 1, ToAMergedIdentity: 0, Unscored: 2));
     }
 
+    /// <summary>
+    /// IKB-SCORER-COVERAGE: a re-mention the store keeps only as a fact bound to an identity is a mention of that identity
+    /// (on v4 most repeats had no decision of their own, so the score covered a third of the key). Bound facts in a
+    /// statement a decision already places the identity in are not counted twice.
+    /// </summary>
+    [Fact]
+    public void A_mention_kept_only_as_a_fact_bound_to_an_identity_is_covered_once_under_that_identity()
+    {
+        var texts = WhosWho.Turns().Select(t => t.Text).ToList();
+        var vale = StatementsOf("T01");
+        object Decided(string id, string entity, int statement) => new
+        {
+            DecisionId = id,
+            Observation = new { EntityId = entity, Name = "Valentina Ríos", Type = "PERSON" },
+            Context = new { SourceMessageIds = new[] { "m" + id }, Sources = new[] { new { SourceId = "m" + id, Text = texts[statement - 1] } } },
+            Status = 2,
+        };
+        object Fact(string id, params int[] statements) => new { FactId = id, Sources = statements.Select(n => texts[n - 1]).ToArray() };
+        object Binding(string fact, string decision) => new { factId = fact, role = "Subject", surface = "Valentina Ríos", decisionId = decision };
+        var store = JsonSerializer.SerializeToElement(new
+        {
+            identity = new
+            {
+                decisions = new[] { Decided("d1", "p1", vale[0]) },
+                bindings = new[] { Binding("first", "d1"), Binding("again", "d1"), Binding("again-too", "d1") },
+            },
+            snapshot = new { Facts = new[] { Fact("first", vale[0]), Fact("again", vale[1]), Fact("again-too", vale[1]) } },
+            entities = new { entities = Array.Empty<object>(), sameAs = Array.Empty<object>() },
+        });
+
+        var score = IdentityKindsScorer.Score(Key, WhosWho, store, IdentityGoldScorer.DecisionsView);
+
+        score.Coverage.Should().Be(new IdentityKindsCoverage(KeyMentions: Key.Mentions.Count, Linked: 2, OnlyFromBoundFacts: 1));
+        score.ByLevel.Values.Sum(level => level.Found).Should().Be(2);
+        score.Clustering.Mentions.Should().Be(2);
+        score.SplitThings.Should().NotContainKey("T01");
+        score.WrongMerges.Should().Be(0);
+    }
+
     [Fact]
     public void With_identity_decisions_a_same_name_repeat_is_pending_or_new_by_its_first_decision()
     {
