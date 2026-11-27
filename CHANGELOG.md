@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **The identity adjudicator sees what each candidate is, and gets a second chance at an invalid reply**
+  (ER-ADJUDICATOR-EVIDENCE).
+  - *What each candidate is.* The adjudicator was shown each candidate's id, name, type, description and source ids, but
+    not the phrases its own facts and sources say it is. The candidates already carried those phrases (`KnownAs`, such as
+    "is the office manager"), for the check on the writer's reference. They now go into the adjudicator's data as
+    `knownAs`, at most eight phrases of 160 characters each. On the who's-who v4, the office manager Grace had been
+    confirmed for "Grace is seventeen and learning to drive" with nothing beside the name to say what each Grace was.
+  - *A second chance.* An invalid reply (unparsable, or an id or quote that was not offered) is now asked again once when
+    the ingestion's adjudication budget has a call left (`contextual_retried_invalid_response`). It counts against that
+    budget, and it decides nothing unless the second reply is valid.
+
 - **The writer is shown what tells namesakes apart when they share only part of a name** (ER-NAMESAKE-LINES). The
   store-aware writer showed the words each stored entity was first said in only when two shown entities had the same
   name. On the who's-who v4, "Grace Addo" (the office manager) and "Grace, the girl next door" share only "Grace". For

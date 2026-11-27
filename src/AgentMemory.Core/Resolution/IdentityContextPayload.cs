@@ -9,6 +9,9 @@ namespace AgentMemory.Core.Resolution;
 /// <summary>Bounded untrusted model data; configured attributes never execute host getters.</summary>
 internal static class IdentityContextPayload
 {
+    private const int KnownAsPerCandidate = 8;
+    private const int KnownAsLength = 160;
+
     public static bool TryEncode(ExtractedEntity mention, IReadOnlyList<IdentityCandidate> candidates,
         EntityIdentityResolutionContext context, IReadOnlyDictionary<string, string> offeredSources,
         EntityIdentityPolicy policy, int maximumBytes, out string json, out string diagnostic)
@@ -32,6 +35,11 @@ internal static class IdentityContextPayload
                 ["Description"] = entity.Description,
                 ["sourceIds"] = entity.SourceMessageIds.Where(offeredSources.ContainsKey).ToArray()
             };
+            // ER-ADJUDICATOR-EVIDENCE: what the candidate's own facts and sources say it is ("is the office manager").
+            var knownAs = candidate.KnownAs.Where(phrase => !string.IsNullOrWhiteSpace(phrase))
+                .Select(phrase => phrase.Length <= KnownAsLength ? phrase : phrase[..KnownAsLength]).Distinct(StringComparer.Ordinal)
+                .Take(KnownAsPerCandidate).ToArray();
+            if (knownAs.Length > 0) data["knownAs"] = knownAs;
             if (!Project(data, entity.Attributes, policy.ContextProperties))
             { diagnostic = "contextual_invalid_property"; return false; }
             offered.Add(data);

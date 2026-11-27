@@ -48,6 +48,37 @@ internal sealed class IdentityContextualAdjudication(
         + "(an array of sourceId and exact quote). Same and different require supporting quotes. "
         + "When evidence is insufficient return uncertain. Do not add fields or invented sources.";
 
+    /// <summary>One bounded call to the adjudicator: its reply, or the diagnostic that says why there is none.</summary>
+    private async Task<(string? Response, string? Failure)> AskAsync(string json, CancellationToken cancellationToken)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        Task<string?>? work = null;
+        try
+        {
+            work = adjudicator.GetDecisionAsync(new IdentityAdjudicationRequest
+            { SystemInstructions = Instructions, DataJson = json, MaxOutputTokens = configuration.AdjudicatorMaxOutputTokens }, deadline.Token);
+            var response = await work.WaitAsync(configuration.AdjudicationTimeout, clock, cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            return (response, null);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            CancelOwned(deadline);
+            if (work is not null) _ = ObserveAsync(work);
+            throw;
+        }
+        catch (TimeoutException)
+        {
+            CancelOwned(deadline);
+            if (work is not null) _ = ObserveAsync(work);
+            return (null, "contextual_timeout");
+        }
+        catch (Exception)
+        {
+            return (null, "contextual_unavailable");
+        }
+    }
+
     public async Task<IdentityResolutionPlan> ApplyAsync(ExtractedEntity mention, IdentityResolutionPlan plan,
         IdentityAdjudicationBudget budget, CancellationToken cancellationToken = default, string? ownerId = null, bool includeShared = false)
     {
@@ -78,33 +109,18 @@ internal sealed class IdentityContextualAdjudication(
             return Keep(diagnostic);
         cancellationToken.ThrowIfCancellationRequested();
         if (!budget.TryConsume(configuration.MaxAdjudicationsPerIngestion)) return Keep("contextual_call_budget");
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        Task<string?>? work = null;
-        string? response;
-        try
-        {
-            work = adjudicator.GetDecisionAsync(new IdentityAdjudicationRequest
-            { SystemInstructions = Instructions, DataJson = json, MaxOutputTokens = configuration.AdjudicatorMaxOutputTokens }, deadline.Token);
-            response = await work.WaitAsync(configuration.AdjudicationTimeout, clock, cancellationToken).ConfigureAwait(false);
-            cancellationToken.ThrowIfCancellationRequested();
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            CancelOwned(deadline);
-            if (work is not null) _ = ObserveAsync(work);
-            throw;
-        }
-        catch (TimeoutException)
-        {
-            CancelOwned(deadline);
-            if (work is not null) _ = ObserveAsync(work);
-            return Keep("contextual_timeout");
-        }
-        catch (Exception)
-        {
-            return Keep("contextual_unavailable");
-        }
+        var (response, failure) = await AskAsync(json, cancellationToken).ConfigureAwait(false);
+        if (failure is not null) return Keep(failure);
         var parsed = IdentityResponseValidation.Parse(response, allowed, sources);
+        // ER-ADJUDICATOR-EVIDENCE: an invalid reply (unparsable, an id or a quote that was not offered) is asked again once,
+        // when the ingestion's budget has a call left; it still decides nothing unless the second reply is valid.
+        if (parsed is null && budget.TryConsume(configuration.MaxAdjudicationsPerIngestion))
+        {
+            plan = plan with { Diagnostics = [.. plan.Diagnostics, "contextual_retried_invalid_response"] };
+            (response, failure) = await AskAsync(json, cancellationToken).ConfigureAwait(false);
+            if (failure is not null) return Keep(failure);
+            parsed = IdentityResponseValidation.Parse(response, allowed, sources);
+        }
         if (parsed is null) return Keep("contextual_invalid_response");
         if (parsed.Verdict == IdentityContextualVerdict.Different && parsed.CandidateId is { } different &&
             plan.Result.Reasons.TryGetValue(different, out var why) && why == IdentityPolicy.ContextRootedReview)
