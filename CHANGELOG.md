@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **One batch decides what the same turns decide one after the other** (ILC-14, the ILCS cell CROSS-01 same-batch, now
+  verified). Mentions planned in one extraction cannot see each other, because nothing is written yet. When the decision is
+  written, a mention is now checked against the observations written just before it in the same extraction. If the
+  deterministic policy confirms one of them (a host-verified key or alias), the mention joins it
+  (`identity_confirmed_in_batch`), as it would a turn later. Before, two records sharing a verified key in one bulk import
+  became an open proposal. A shared name alone still leaves a proposal for review, so two identical mentions in one turn stay
+  two identities with a proposal between them, as in 2.2.0. Only observations of the extraction's own source turns that the
+  plan could not see qualify. Evidence written by anyone else between planning and commit can still only veto. The paid
+  who's-who sets are unaffected: in eight runs our extractor never named one thing twice in a turn. No Identity Kinds tier 1
+  row moved.
+
 - **Names that say they are different things are never offered for review** (ER-CANNOT-LINK, the entity study's R14):
   evidence-based identity rejects a candidate, whatever its fuzzy or semantic score, when both names carry numbers (digits,
   or roman II to XVI) and neither's are among the other's ("invoice batch 6" and "invoice batch 1", 0.93 fuzzy), both name

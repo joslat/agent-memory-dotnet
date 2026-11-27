@@ -111,8 +111,11 @@ public sealed class IdentityLifecycleNativeTests(Neo4jIntegrationFixture fixture
     private sealed record Outcome(IReadOnlyList<IdentityDecision> Decisions, IReadOnlyList<(string FactId, string Role, string Target, string Decision)> Bindings,
         IReadOnlyDictionary<string, Fact> FactsByKey);
 
-    /// <summary>Writes both turns in order, each in its own host scope, as two separate conversation turns.</summary>
-    private async Task<Outcome> Run(JsonElement item)
+    /// <summary>
+    /// Writes both turns in order, each in its own host scope, as two separate conversation turns; or, with
+    /// <paramref name="sameBatch"/>, both turns' messages, mentions and facts in one extraction (CROSS-01 same-batch).
+    /// </summary>
+    private async Task<Outcome> Run(JsonElement item, bool sameBatch = false)
     {
         var owner = Text(item, "owner");
         var scope = MemoryScope.For(owner, item.GetProperty("includeShared").GetBoolean());
@@ -124,7 +127,24 @@ public sealed class IdentityLifecycleNativeTests(Neo4jIntegrationFixture fixture
                 await runner.RunAsync("MATCH (c:Conversation {id:'lifecycle-conversation'}) CREATE (m:Message {id:$id, conversation_id:'lifecycle-conversation', content:$text, session_id:'lifecycle'}), (c)-[:HAS_MESSAGE]->(m)",
                     new { id = Text(turn, "sourceId"), text = Text(turn, "text") });
         });
-        using (var host = Host(item))
+        Message MessageOf(JsonElement turn) => new() { MessageId = Text(turn, "sourceId"), ConversationId = "lifecycle-conversation", SessionId = "lifecycle",
+            Role = "user", Content = Text(turn, "text"), TimestampUtc = DateTimeOffset.Parse(Text(turn, "timestampUtc")) };
+        ExtractedEntity EntityOf(JsonElement turn)
+        {
+            var entity = item.GetProperty(Text(turn, "entityRef"));
+            return new() { Name = Text(entity, "name"), Type = Text(entity, "type"), Subtype = entity.GetProperty("subtype").GetString(), Confidence = 1 };
+        }
+        IEnumerable<ExtractedFact> FactsOf(JsonElement turn) => turn.GetProperty("facts").EnumerateArray().Select(f => new ExtractedFact
+            { Subject = Text(f, "subject"), Predicate = Text(f, "predicate"), Object = Text(f, "object"), Confidence = 1 });
+        if (sameBatch)
+            using (var host = Host(item))
+            {
+                using var batchScope = host.CreateScope(); var services = batchScope.ServiceProvider;
+                var input = new UnifiedExtractionResult { Entities = [.. turns.Select(EntityOf)], Facts = [.. turns.SelectMany(FactsOf)] };
+                var staged = await services.GetRequiredService<IExtractionStage>().ProcessUnifiedAsync([.. turns.Select(MessageOf)], input, ExtractionTypes.All, scope);
+                await services.GetRequiredService<IPersistenceStage>().PersistAsync(staged, owner);
+            }
+        else using (var host = Host(item))
             foreach (var turn in turns)
             {
                 using var turnScope = host.CreateScope(); var services = turnScope.ServiceProvider;
@@ -172,6 +192,43 @@ public sealed class IdentityLifecycleNativeTests(Neo4jIntegrationFixture fixture
     }
 
     private static string Identity(IdentityDecision decision) => decision.ConfirmedEntityId ?? decision.Observation.EntityId;
+
+    private async Task ResetAsync()
+    {
+        await fixture.CleanDatabaseAsync();
+        await InitializeAsync();
+    }
+
+    /// <summary>
+    /// What the pair's two mentions end as, independent of the ids a run gives them: the later mention's decision, whether it
+    /// shares the earlier one's identity, and whether it proposes the earlier one. The earlier mention is the first
+    /// decision written for the seed's name (an identical repeat in one batch carries an occurrence suffix).
+    /// </summary>
+    private static (IdentityDecisionKind Status, bool SameIdentity, bool ProposesSeed) FinalIdentity(JsonElement item, Outcome outcome)
+    {
+        var seedName = Text(item.GetProperty("seed"), "name"); var mentionName = Text(item.GetProperty("mention"), "name");
+        var seed = outcome.Decisions.Where(d => d.Observation.Name == seedName).OrderBy(d => d.ObservationKey.Contains(':')).First();
+        var mention = outcome.Decisions.Single(d => d.Observation.Name == mentionName && d.DecisionId != seed.DecisionId);
+        return (mention.Status, Identity(mention) == Identity(seed), mention.PendingEntityIds.Contains(Identity(seed)));
+    }
+
+    // CROSS-01 same-batch (ILC-14): the pair's two turns written in one extraction end as the same identities as written
+    // one after the other: a confirmation stays a confirmation, a proposal a proposal, and two things stay two.
+    [Theory]
+    [InlineData("EVENT-01")]
+    [InlineData("PERSON-01")]
+    public async Task Storage_same_batch_identity_equals_sequential(string id)
+    {
+        using var document = JsonDocument.Parse(File.ReadAllText(CorpusPath()));
+        var item = document.RootElement.GetProperty("cases").EnumerateArray().Single(c => c.GetProperty("id").GetString() == id);
+
+        var sequential = FinalIdentity(item, await Run(item));
+        await ResetAsync();
+        var batch = FinalIdentity(item, await Run(item, sameBatch: true));
+
+        sequential.Status.Should().Be(Enum.Parse<IdentityDecisionKind>(Text(item.GetProperty("expected"), "policyDecision")), $"{id}: the gold's sequential decision");
+        batch.Should().Be(sequential, $"{id}: one batch decides what the same turns decide one after the other");
+    }
 
     [Theory]
     [MemberData(nameof(BindingCases))]

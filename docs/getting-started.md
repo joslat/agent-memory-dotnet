@@ -972,8 +972,9 @@ services.Configure<IdentityResolutionOptions>(o => o.Enabled = false); // the pr
 ```
 
 Where it runs: an ingestion with more than `MaxMentionsPerIngestion` (64) entity mentions fails before persistence;
-ingestion started inside a caller-owned write transaction is rejected; mentions in one batch are not candidates for each
-other, so a bulk write can split one identity in two (never merge two). Within-extraction deduplication
+ingestion started inside a caller-owned write transaction is rejected. Mentions in one batch are checked at commit against the
+batch's earlier mentions, as if the turns had been written one after another: a host-verified key or alias joins them, while a
+shared name alone leaves a proposal for review. A bulk write never merges two things on a name. Within-extraction deduplication
 (`ExtractionOptions.DeduplicateWithinExtraction`) merges only exact copies, because identity keeps each original
 phrasing. Owner export and import work: importing an
 identity store's export brings back each confirmed identity as one entity, without decision history, evidence or open

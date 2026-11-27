@@ -2813,7 +2813,10 @@
           "stage": "storage-bindings",
           "configuration": "evidence-deterministic",
           "variant": "same-batch",
-          "check": "equivalent-final-identity"
+          "check": "equivalent-final-identity",
+          "tests": [
+            "AgentMemory.Tests.Integration.Services.IdentityLifecycleNativeTests.Storage_same_batch_identity_equals_sequential"
+          ]
         },
         {
           "stage": "retrieval",

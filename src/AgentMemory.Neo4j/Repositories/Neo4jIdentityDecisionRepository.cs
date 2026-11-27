@@ -260,6 +260,25 @@ internal sealed partial class Neo4jIdentityDecisionRepository(INeo4jTransactionR
                 request.IncludeShared, cancellationToken).ConfigureAwait(false)))
             return (WithReceipt(decision, evaluated, fresh, true), Snapshot(confirmed, decision.Policy));
 
+        // CROSS-01 same-batch (ILC-14): a mention planned in one extraction with others cannot see the observations planned
+        // before it, since none is written yet. The fresh lookup here does. When the deterministic policy confirms one of
+        // them (a verified key or alias), the decision is what the same turns written one after the other give: confirmed.
+        // Only an observation of this extraction's own source turns that the plan could not see qualifies, so evidence
+        // written by anyone else still only ever vetoes; anything short of a deterministic confirmation stays a proposal.
+        var planned = request.ExpectedCandidates.Select(candidate => candidate.Entity.EntityId).ToHashSet(StringComparer.Ordinal);
+        if (decision.Status != IdentityDecisionKind.Confirmed && !literal && exact.ExactIdentityLookupComplete &&
+            evaluated.Decision == IdentityDecisionKind.Confirmed &&
+            fresh.SingleOrDefault(candidate => candidate.Entity.EntityId == evaluated.ConfirmedEntityId) is { } sameBatch &&
+            !planned.Contains(sameBatch.Entity.EntityId) && SameExtraction(sameBatch.Entity, observation))
+        {
+            var joined = decision with
+            {
+                Status = IdentityDecisionKind.Confirmed, ConfirmedEntityId = sameBatch.Entity.EntityId, PendingEntityIds = [],
+                ContextualEvidence = null, Diagnostics = [.. decision.Diagnostics, "identity_confirmed_in_batch"]
+            };
+            return (WithReceipt(joined, evaluated, fresh, true), Snapshot(sameBatch, decision.Policy));
+        }
+
         var rejected = evaluated.RejectedEntityIds.ToHashSet(StringComparer.Ordinal);
         var pending = evaluated.PendingEntityIds.Concat(evaluated.ConfirmedEntityId is { } id ? [id] : Array.Empty<string>())
             .Concat(decision.PendingEntityIds).Where(id => !rejected.Contains(id) && fresh.Any(candidate => candidate.Entity.EntityId == id))
@@ -272,6 +291,15 @@ internal sealed partial class Neo4jIdentityDecisionRepository(INeo4jTransactionR
         };
         return (WithReceipt(conservative, evaluated, fresh, exact.ExactIdentityLookupComplete), null);
     }
+
+    /// <summary>
+    /// Whether a stored entity is an identity observation written from exactly this observation's source turns: one planned
+    /// earlier in the same extraction (CROSS-01 same-batch).
+    /// </summary>
+    private static bool SameExtraction(Entity candidate, Entity observation) =>
+        candidate.EntityId.StartsWith("identity-observation-", StringComparison.Ordinal) && candidate.OwnerId == observation.OwnerId &&
+        candidate.SourceMessageIds.Count > 0 &&
+        candidate.SourceMessageIds.ToHashSet(StringComparer.Ordinal).SetEquals(observation.SourceMessageIds);
 
     /// <summary>Takes the shared scope when the ingestion's lease deferred it (RVW-IDENTITY-SHARED-LOCK); true when taken now.</summary>
     private static Task<bool> HoldShared(IAsyncQueryRunner runner, CancellationToken cancellationToken) =>
