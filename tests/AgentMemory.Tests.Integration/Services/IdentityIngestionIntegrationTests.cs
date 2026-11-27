@@ -2203,6 +2203,87 @@ public sealed class IdentityIngestionIntegrationTests(Neo4jIntegrationFixture fi
         (await facts.GetPersonIdentitiesAsync(1000, Scope)).Should().HaveCount(3, "the reference adds no second Tomás");
     }
 
+    // ── ER-BIND-REMENTIONS: an implied reference (a fact that names a stored person by the stored name) ──
+
+    private async Task<(IServiceProvider Services, string Tomas)> TomasMetBefore(IServiceScope scope, string later)
+    {
+        var services = scope.ServiceProvider;
+        const string first = "My son Tomás starts school in September.";
+        // The turns are stored before they are read, as in the product: identity checks a reference's words against them.
+        await fixture.TransactionRunner.WriteAsync(async runner => { await runner.RunAsync(
+            "MATCH (c:Conversation {id:'conversation'}) " +
+            "CREATE (a:Message {id:'turn-1', conversation_id:'conversation', content:$a, session_id:'scenario'}), (c)-[:HAS_MESSAGE]->(a) " +
+            "CREATE (b:Message {id:'turn-2', conversation_id:'conversation', content:$b, session_id:'scenario'}), (c)-[:HAS_MESSAGE]->(b)",
+            new { a = first, b = later }); });
+        await Ingest(services, new UnifiedExtractionResult
+        {
+            Entities = [new() { Name = "Tomás", Type = "PERSON", Confidence = 1 }],
+            Facts = [new() { Subject = "Tomás", Predicate = "starts school in", Object = "September", Confidence = 1 }]
+        }, messageId: "turn-1", content: first);
+        var tomas = (await services.GetRequiredService<IFactRepository>().GetPersonIdentitiesAsync(1000, Scope)).Should().ContainSingle().Subject.EntityId;
+        return (services, tomas);
+    }
+
+    private async Task<IReadOnlyList<IdentityDecision>> StoredDecisions() => await fixture.TransactionRunner.ReadAsync(async runner =>
+    {
+        var cursor = await runner.RunAsync("MATCH (d:IdentityDecision {owner_id:$owner}) RETURN d.identity_record_json AS value", new { owner = "pablito" });
+        return (IReadOnlyList<IdentityDecision>)(await cursor.ToListAsync()).Select(row => JsonSerializer.Deserialize<IdentityDecision>(ValueExtensions.As<string>(row["value"]))!).ToList();
+    });
+
+    /// <summary>
+    /// ER-BIND-REMENTIONS: on the sealed v4, 116 to 129 of the key's 217 mentions were facts naming a stored person as text,
+    /// bound to nobody, because the writer is told a stored entity needs no new mention. The writer now gives such a fact's
+    /// end an implied reference (LlmMemoryWriter.FactEnds); identity checks it like the writer's own, and a confirmed one
+    /// binds the turn's fact to the person met before.
+    /// </summary>
+    [Fact]
+    public async Task An_implied_reference_its_checks_confirm_binds_the_turns_fact_to_the_person_met_before()
+    {
+        using var host = Host(conversationalPolicies: true); using var scope = host.CreateScope();
+        const string later = "Tomás scored his first goal on Saturday.";
+        var (services, tomas) = await TomasMetBefore(scope, later);
+
+        await Ingest(services, new UnifiedExtractionResult
+        {
+            Entities = [new() { Name = "Tomás", Type = "PERSON", Confidence = 1, Reference = new() { EntityId = tomas, Quote = "Tomás", Implied = true } }],
+            Facts = [new() { Subject = "Tomás", Predicate = "scored", Object = "his first goal on Saturday", Confidence = 1 }]
+        }, messageId: "turn-2", content: later);
+
+        (await Count($"(:Fact {{object:'his first goal on Saturday'}})-[:HAS_IDENTITY_BINDING]->(:IdentityFactBinding)-[:RESOLVES_TO]->(:Entity {{id:'{tomas}'}})"))
+            .Should().Be(1, "the fact said of Tomás again is bound to the Tomás met before");
+        var implied = (await StoredDecisions()).Should().ContainSingle(d => d.Diagnostics.Contains("writer_reference_implied")).Which;
+        implied.Status.Should().Be(IdentityDecisionKind.Confirmed);
+        implied.ConfirmedEntityId.Should().Be(tomas);
+        (await services.GetRequiredService<IFactRepository>().GetPersonIdentitiesAsync(1000, Scope)).Should().ContainSingle("the reference adds no second Tomás");
+    }
+
+    /// <summary>
+    /// ER-BIND-REMENTIONS: the writer did not state an implied reference, so one its checks refuse is not kept as a mention
+    /// of its own: no decision, no proposal for review and no adjudicator call. The fact stays as it was before.
+    /// </summary>
+    [Fact]
+    public async Task An_implied_reference_its_checks_refuse_leaves_no_decision_no_proposal_and_no_adjudication()
+    {
+        var model = Substitute.For<IIdentityAdjudicator>();
+        model.GetDecisionAsync(Arg.Any<IdentityAdjudicationRequest>(), Arg.Any<CancellationToken>()).Returns("{\"decision\":\"uncertain\"}");
+        using var host = Host(conversationalPolicies: true, adjudicator: model); using var scope = host.CreateScope();
+        const string later = "Tomás scored his first goal on Saturday.";
+        var (services, tomas) = await TomasMetBefore(scope, later);
+        model.ClearReceivedCalls();
+
+        // The quote is not in the turn: the reference check refuses it ("writer_reference_unsupported_quote").
+        await Ingest(services, new UnifiedExtractionResult
+        {
+            Entities = [new() { Name = "Tomás", Type = "PERSON", Confidence = 1, Reference = new() { EntityId = tomas, Quote = "Tomasito", Implied = true } }],
+            Facts = [new() { Subject = "Tomás", Predicate = "scored", Object = "his first goal on Saturday", Confidence = 1 }]
+        }, messageId: "turn-2", content: later);
+
+        (await StoredDecisions()).Should().ContainSingle("only the first turn's decision: the refused implied mention is dropped");
+        (await Count("(:Fact {object:'his first goal on Saturday'})-[:HAS_IDENTITY_BINDING]->(:IdentityFactBinding)")).Should().Be(0);
+        await model.DidNotReceiveWithAnyArgs().GetDecisionAsync(default!, default);
+        (await services.GetRequiredService<IFactRepository>().GetPersonIdentitiesAsync(1000, Scope)).Should().ContainSingle();
+    }
+
     // ── P231-A part 2 (17-P231A-KEPT-NAMES-RIPPLES.md): other paths and identity data ──
 
     /// <summary>Valentina, confirmed, two facts bound, one of them said of "Vale", her nickname (kept on her, as Bind keeps it).</summary>

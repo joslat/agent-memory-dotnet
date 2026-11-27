@@ -1399,4 +1399,230 @@ public sealed class MemoryWriterContractTests : IDisposable
 
         result.Entities.Should().NotContain(e => e.Name == "Tomás", "off is byte-identical");
     }
+
+    // ── ER-BIND-REMENTIONS: a fact that names a stored entity by its stored name implies the writer's reference ──
+
+    private void ReplyWithFact(string fact, string quote, string entityOp = "") => _replies.Enqueue($$"""
+        {"ops":[
+          {{entityOp}}
+          {"op":"add","kind":"fact","text":"{{fact}}","quote":"{{quote}}","ref":null}
+        ]}
+        """);
+
+    /// <summary>
+    /// ER-BIND-REMENTIONS: the writer is told a stored entity "needs no new entity: its facts use the stored name", so on
+    /// v4 116 to 129 of 217 mentions were facts naming a stored person as text, bound to no identity. A fact end that names
+    /// exactly one stored person the writer was shown, by that person's stored name, is that person, referred to in the
+    /// fact's own quoted words and marked implied: identity keeps it only if its checks confirm it.
+    /// </summary>
+    [Fact]
+    public async Task A_fact_naming_one_stored_person_by_the_stored_name_implies_a_reference_to_that_person()
+    {
+        ShowStoredEntities(StoredPerson(SonId, "Tomás Etxeberria"));
+        ReplyWithFact("Tomás Etxeberria | started | school in Bilbao", "Tomás Etxeberria started school in Bilbao");
+
+        var result = await Write("Tomás Etxeberria started school in Bilbao today.");
+
+        var tomas = result.Entities.Should().ContainSingle().Which;
+        tomas.Name.Should().Be("Tomás Etxeberria");
+        tomas.Type.Should().Be("PERSON");
+        tomas.Reference!.EntityId.Should().Be(SonId);
+        tomas.Reference.Quote.Should().Be("Tomás Etxeberria");
+        tomas.Reference.Implied.Should().BeTrue();
+        result.Facts.Should().ContainSingle().Which.Subject.Should().Be("Tomás Etxeberria");
+    }
+
+    [Fact]
+    public async Task A_fact_naming_a_name_two_stored_people_share_implies_no_reference()
+    {
+        ShowStoredEntities(StoredPerson(SonId, "Tomás Etxeberria"), StoredPerson("identity-observation-tomas-2", "Tomás Etxeberria"));
+        ReplyWithFact("Tomás Etxeberria | started | school in Bilbao", "Tomás Etxeberria started school in Bilbao");
+
+        var result = await Write("Tomás Etxeberria started school in Bilbao today.");
+
+        result.Entities.Should().BeEmpty("two stored people of that name: which one is not the writer's to guess");
+    }
+
+    [Fact]
+    public async Task A_fact_about_a_person_the_reply_names_itself_is_left_to_that_mention()
+    {
+        ShowStoredEntities(StoredPerson(SonId, "Tomás Etxeberria"));
+        ReplyWithFact("Tomás Etxeberria | started | school in Bilbao", "Tomás Etxeberria started school in Bilbao",
+            """{"op":"add","kind":"entity","text":"Tomás Etxeberria (PERSON)","quote":"Tomás Etxeberria","ref":null},""");
+
+        var result = await Write("Tomás Etxeberria started school in Bilbao today.");
+
+        result.Entities.Should().ContainSingle().Which.Reference.Should().BeNull("the reply's own mention stands");
+    }
+
+    [Fact]
+    public async Task A_fact_naming_a_stored_thing_implies_no_reference()
+    {
+        ShowStoredEntities(new Entity
+        {
+            EntityId = "thing-atlas", Name = "Atlas Platform", Type = "OBJECT", OwnerId = "bruna", Confidence = 1, SourceMessageIds = ["prior"],
+            CreatedAtUtc = DateTimeOffset.UnixEpoch,
+        });
+        ReplyWithFact("Atlas Platform | ships | in March", "Atlas Platform ships in March");
+
+        var result = await Write("Atlas Platform ships in March.");
+
+        result.Entities.Should().BeEmpty("a reference confirms no thing or place");
+    }
+
+    [Fact]
+    public async Task A_fact_naming_a_person_the_message_describes_by_a_relation_implies_no_reference()
+    {
+        ShowStoredEntities(StoredPerson(SonId, "Tomás Etxeberria"));
+        ReplyWithFact("Tomás Etxeberria | fixed | the fence", "My neighbour Tomás Etxeberria fixed the fence");
+
+        var result = await Write("My neighbour Tomás Etxeberria fixed the fence.");
+
+        result.Entities.Should().BeEmpty("a person the message introduces by a relation may be someone new");
+    }
+
+    [Fact]
+    public async Task A_fact_whose_other_end_is_the_user_implies_a_reference_only_for_the_named_end()
+    {
+        ShowStoredEntities(StoredPerson(SonId, "Tomás Etxeberria"));
+        ReplyWithFact("user | drove to school | Tomás Etxeberria", "I drove Tomás Etxeberria to school");
+
+        var result = await Write("I drove Tomás Etxeberria to school.");
+
+        var tomas = result.Entities.Should().ContainSingle().Which;
+        tomas.Name.Should().Be("Tomás Etxeberria");
+        tomas.Reference!.Implied.Should().BeTrue("the object end names the stored person; the user end names nobody");
+    }
+
+    [Fact]
+    public async Task A_fact_end_that_holds_more_than_the_stored_name_implies_no_reference()
+    {
+        ShowStoredEntities(StoredPerson(SonId, "Tomás Etxeberria"));
+        ReplyWithFact("user | drove | Tomás Etxeberria to school", "I drove Tomás Etxeberria to school");
+
+        var result = await Write("I drove Tomás Etxeberria to school.");
+
+        result.Entities.Should().BeEmpty("only an end that is the stored name itself refers to the stored entity");
+    }
+
+    /// <summary>
+    /// ER-BIND-REMENTIONS, second design: the first one's paid after-run merged exact one-word namesakes through implied
+    /// references (the two Eagles, Auntie Esther and the canoe Esther), each where the other one was not stored under that
+    /// name. A bare first name is a mention only earlier facts decide, so an implied end needs two capitalised name words,
+    /// and no other shown entity may hold one of them.
+    /// </summary>
+    [Fact]
+    public async Task A_fact_naming_a_stored_person_by_one_name_word_implies_no_reference()
+    {
+        ShowStoredEntities(StoredPerson(SonId, "Tomás"));
+        ReplyWithFact("Tomás | started | school in Bilbao", "Tomás started school in Bilbao");
+
+        var result = await Write("Tomás started school in Bilbao today.");
+
+        result.Entities.Should().BeEmpty("a bare first name not named in the turns before may be a namesake not yet stored");
+    }
+
+    /// <summary>
+    /// ER-BIND-REMENTIONS, third design: the second design's two-word rule left 2 or 3 implied references a run, too few to
+    /// move coverage, because most repeats are one-word names. A one-word name the writer saw named in the turns before is
+    /// the stored entity those turns are about.
+    /// </summary>
+    [Fact]
+    public async Task A_one_word_name_named_in_an_earlier_turn_of_the_window_implies_a_reference()
+    {
+        ShowStoredEntities(StoredPerson(SonId, "Tomás"));
+        ReplyWithFact("Tomás | started | school in Bilbao", "Tomás started school in Bilbao");
+
+        var result = await Write("Tomás started school in Bilbao today.", true, "Tomás was nervous about the first day.");
+
+        var tomas = result.Entities.Should().ContainSingle().Which;
+        tomas.Reference!.EntityId.Should().Be(SonId);
+        tomas.Reference.Implied.Should().BeTrue();
+    }
+
+    /// <summary>
+    /// The first design's paid run (v4, statements 51 and 52): "Her husband has just built a new canoe and named it Esther,
+    /// after her." then "Esther went out at four in the morning and came back full of herring." The canoe was never stored,
+    /// and the bare name was referred to the aunt. A naming act brings in a namesake whether or not it was stored.
+    /// </summary>
+    [Theory]
+    [InlineData("My uncle built a new boat and named it Tomás, after my son.")]
+    [InlineData("The new puppy is called Tomás too.")]
+    [InlineData("They named the bakery after Tomás.")]
+    public async Task A_one_word_name_after_a_naming_act_for_it_implies_no_reference(string before)
+    {
+        ShowStoredEntities(StoredPerson(SonId, "Tomás"));
+        ReplyWithFact("Tomás | came back | full of fish", "Tomás came back full of fish");
+
+        var result = await Write("Tomás came back full of fish.", true, before, "Tomás was out all night.");
+
+        result.Entities.Should().BeEmpty("a naming act in the turns the writer sees makes the name a shared one");
+    }
+
+    [Fact]
+    public async Task A_fact_naming_a_stored_organisation_by_one_name_word_implies_no_reference()
+    {
+        ShowStoredEntities(new Entity
+        {
+            EntityId = "org-eagles", Name = "the Eagles", Type = "ORGANIZATION", OwnerId = "bruna", Confidence = 1, SourceMessageIds = ["prior"],
+            CreatedAtUtc = DateTimeOffset.UnixEpoch,
+        });
+        ReplyWithFact("the Eagles | lost | 4-2 on Saturday", "the Eagles lost 4-2 on Saturday");
+
+        var result = await Write("Ugh, the Eagles lost 4-2 on Saturday.");
+
+        result.Entities.Should().BeEmpty("'the Eagles' holds one name word, which another team may share");
+    }
+
+    [Fact]
+    public async Task A_fact_end_sharing_a_name_word_with_another_shown_entity_implies_no_reference()
+    {
+        ShowStoredEntities(StoredPerson(SonId, "Tomás Etxeberria"), StoredPerson("identity-observation-tomas-ruiz", "Tomás Ruiz"));
+        ReplyWithFact("Tomás Etxeberria | started | school in Bilbao", "Tomás Etxeberria started school in Bilbao");
+
+        var result = await Write("Tomás Etxeberria started school in Bilbao today.");
+
+        result.Entities.Should().BeEmpty("another stored person is called Tomás too");
+    }
+
+    [Fact]
+    public async Task A_name_word_that_is_only_a_possessive_owner_elsewhere_does_not_block_the_reference()
+    {
+        ShowStoredEntities(StoredPerson(SonId, "Tomás Etxeberria"), new Entity
+        {
+            EntityId = "thing-bike", Name = "Tomás Etxeberria's bike", Type = "OBJECT", OwnerId = "bruna", Confidence = 1, SourceMessageIds = ["prior"],
+            CreatedAtUtc = DateTimeOffset.UnixEpoch,
+        });
+        ReplyWithFact("Tomás Etxeberria | started | school in Bilbao", "Tomás Etxeberria started school in Bilbao");
+
+        var result = await Write("Tomás Etxeberria started school in Bilbao today.");
+
+        result.Entities.Should().ContainSingle().Which.Reference!.EntityId.Should().Be(SonId, "his bike is named after him, it is not a namesake");
+    }
+
+    [Theory]
+    [InlineData("Her husband has just built a new canoe and named it Tomás, after her.", true)]
+    [InlineData("They named the bakery after Tomás.", true)]
+    [InlineData("The new puppy is called Tomás too.", true)]
+    [InlineData("We called him Tomás after his grandfather.", true)]
+    [InlineData("Our landlord is also called Tomás.", true)]
+    [InlineData("I called Tomás yesterday about the fence.", false)]
+    [InlineData("Tomás named his price for the car.", false)]
+    [InlineData("Tomás was out all night.", false)]
+    public void A_naming_act_is_a_turn_that_gives_the_name_to_something(string turn, bool naming)
+    {
+        MemoryWriterOps.NamingAct(turn, "tomás").Should().Be(naming);
+    }
+
+    [Fact]
+    public async Task A_connection_ends_reference_is_not_marked_implied()
+    {
+        ShowStoredEntities(StoredPerson(SonId, "Tomás"));
+        ReplyWithTheParents();
+
+        var result = await Write(Parents);
+
+        result.Entities.Should().ContainSingle(e => e.Name == "Tomás").Which.Reference!.Implied.Should().BeFalse(
+            "connection ends keep their behaviour; only fact ends are dropped when identity does not confirm them");
+    }
 }

@@ -13,4 +13,11 @@ public sealed record ExtractedEntityReference
 
     /// <summary>The exact, contiguous words of the current message the reference rests on.</summary>
     public required string Quote { get; init; }
+
+    /// <summary>
+    /// True when the writer did not state the reference itself: a fact it wrote names the stored entity by its exact
+    /// stored name. Evidence-based identity keeps an implied reference only when its checks confirm it; otherwise the
+    /// mention is dropped, with no proposal and no adjudication, and the fact stays as it was.
+    /// </summary>
+    public bool Implied { get; init; }
 }

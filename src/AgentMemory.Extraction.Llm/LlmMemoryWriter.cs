@@ -92,12 +92,12 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
         var message = said[^1].Content;
         var (ops, drops) = Locate(answered, dropped, message, _options.MemoryWriterRequireQuotes);
         IReadOnlyList<IngestionItemOutcome> rejected = [];
+        // The window's earlier user turns, latest first: a person named in the last message may have been given a relation
+        // in the turn before ("My niece Valentina ..." then "Valentina lost her first tooth").
+        var earlier = request.Window.Context.Where(m => MemoryWriterPrompt.IsUser(m.Role) && !string.IsNullOrWhiteSpace(m.Content))
+            .Select(m => m.Content!).Reverse().ToList();
         if (_operationFormat is not null)
         {
-            // The window's earlier user turns, latest first: a person named in the last message may have been given a relation
-            // in the turn before ("My niece Valentina ..." then "Valentina lost her first tooth").
-            var earlier = request.Window.Context.Where(m => MemoryWriterPrompt.IsUser(m.Role) && !string.IsNullOrWhiteSpace(m.Content))
-                .Select(m => m.Content!).Reverse().ToList();
             (ops, drops, rejected) = await EnforceAsync(system, context, reply, ops, drops, stored, owner, message, earlier, activity, cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -120,7 +120,7 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
                 "Memory writer: {Count} replacement(s) name no memory of their kind shown in this call and are written as additions; the memory each meant stays live: {Ops}.",
                 unresolved.Count, string.Join(" ; ", unresolved.Select(o => $"{o.Action} {o.Id} {o.Kind}: {o.Text}")));
         }
-        var result = MemoryWriterOps.ToResult(ops, stored, owner, _operationFormat is null ? null : message);
+        var result = MemoryWriterOps.ToResult(ops, stored, owner, _operationFormat is null ? null : message, earlier);
         if (_options.DatesFromText)
         {
             // The dates the facts' own words state, as date fields too (the words stay as written). A yearless date is
@@ -1012,7 +1012,8 @@ internal static class MemoryWriterOps
     /// preference, a stored connection for a connection; a connection-shaped replacement of a fact remains a fact so its
     /// target is preserved without requiring separately persisted entity endpoints. Anything else is simply added.
     /// </summary>
-    internal static UnifiedExtractionResult ToResult(IReadOnlyList<Op> ops, IReadOnlyList<Stored> stored, string? owner, string? referenceMessage = null)
+    internal static UnifiedExtractionResult ToResult(IReadOnlyList<Op> ops, IReadOnlyList<Stored> stored, string? owner, string? referenceMessage = null,
+        IReadOnlyList<string>? earlierTurns = null)
     {
         var byLabel = stored.ToDictionary(s => s.Label, StringComparer.OrdinalIgnoreCase);
         var facts = new List<ExtractedFact>();
@@ -1022,6 +1023,7 @@ internal static class MemoryWriterOps
         var confirmedFacts = new List<string>();
         var confirmedPreferences = new List<string>();
         var connectionOps = new List<(ExtractedRelationship Connection, Op Op)>();
+        var factOps = new List<(string Subject, string Object, Op Op)>();
         // ILC-34: the entity names this call knows: the stored entities it showed, the ends of the stored connections it
         // showed (an entity may be shown only as one), and the entities this reply declares. The user is never one.
         var known = stored.Where(s => s.Letter == 'E').Select(s => s.Text)
@@ -1137,11 +1139,15 @@ internal static class MemoryWriterOps
                     };
                     if (subject.Length == 0 || predicate.Length == 0 || @object.Length == 0) break;
                     facts.Add(ClosingPair(CreateFact(op, target, subject, predicate, @object), stored, target));
+                    factOps.Add((subject, @object, op));
                     break;
             }
         }
         if (referenceMessage is not null)
+        {
             entities.AddRange(ConnectionEnds(connectionOps, stored, entities, referenceMessage));
+            entities.AddRange(FactEnds(factOps, stored, entities, referenceMessage, earlierTurns ?? []));
+        }
         return new UnifiedExtractionResult
         {
             Facts = facts, Preferences = preferences, Entities = entities, Relationships = relationships,
@@ -1168,39 +1174,127 @@ internal static class MemoryWriterOps
             // "user's landlord Arun -[no relation]-> Arun". A connection that says there is none joins nobody.
             if (Negated.IsMatch(connection.RelationshipType.Replace('_', ' '))) continue;
             foreach (var end in new[] { connection.SourceEntity, connection.TargetEntity })
-            {
-                var name = MemoryWriterContract.Canonical(end);
-                if (name.Length == 0 || MemoryUserNames.IsSelf(end) ||
-                    mentioned.Concat(added).Any(e => MemoryWriterContract.Canonical(e.Name) == name)) continue;
-                // A namesake this reply names apart ("user's landlord Arun" beside a stored "Arun"): which one a bare end
-                // means is not the writer's word.
-                if (mentioned.Any(e => HoldsWord(e.Name, end.Trim()))) continue;
-                var shown = stored.Where(s => s.Letter == 'E' && s.Entity is { } e && MemoryWriterContract.Canonical(e.Name) == name).ToList();
-                if (shown is not [{ Entity: { } entity } only] || op.QuoteStart is not int start || op.QuoteEnd is not int stop ||
-                    start < 0 || stop > message.Length || start >= stop) continue;
-                // The paid check of 24 Nov (ihc1-v1-glm-1, statement 8): a reference cannot confirm a thing or a place, so one
-                // to "Atlas" stayed open beside the stored project, a split. Only a person or an organisation is referred to.
-                if (EntityType(entity.Type) is not ("PERSON" or "ORGANIZATION")) continue;
-                // The blind whos-who-v3 run of 24 Nov: "Finn's best mate Sam slept over" (a second Sam) was referred to the
-                // one stored Sam and confirmed, in all three runs. Only the end a relation is about ("Tomás" in "Tomás's
-                // parents") is referred, never an end the message describes by it, whichever way the arrow was drawn.
-                if (Described(message, end.Trim())) continue;
-                var words = Regex.Match(message[start..stop], $@"(?<![\p{{L}}\p{{M}}]){Regex.Escape(end.Trim())}(?![\p{{L}}\p{{M}}])",
-                    RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(50));
-                if (!words.Success) continue;
-                added.Add(new ExtractedEntity
-                {
-                    Name = entity.Name, Type = entity.Type,
-                    Reference = new() { EntityId = only.Id, Quote = words.Value },
-                });
-            }
+                if (StoredEnd(end, op, stored, mentioned, added, message, implied: false) is { } referred) added.Add(referred);
         }
         return added;
+    }
+
+    /// <summary>
+    /// ER-BIND-REMENTIONS (event-identity mode): the writer is told a stored entity "needs no new entity: its facts use the
+    /// stored name", so on the sealed v4 116 to 129 of the key's 217 mentions were facts naming a stored person as text, with
+    /// no identity decision and no binding. A fact's subject or object that is exactly one shown stored entity's name, under
+    /// the guards of <see cref="ConnectionEnds"/>, is that entity, referred to in the fact's own quoted words and marked
+    /// <see cref="ExtractedEntityReference.Implied"/>: identity keeps it only when its checks confirm it, and then binds the
+    /// turn's facts that name it.
+    /// </summary>
+    private static IEnumerable<ExtractedEntity> FactEnds(IReadOnlyList<(string Subject, string Object, Op Op)> facts,
+        IReadOnlyList<Stored> stored, IReadOnlyList<ExtractedEntity> mentioned, string message, IReadOnlyList<string> earlier)
+    {
+        var added = new List<ExtractedEntity>();
+        foreach (var (subject, @object, op) in facts)
+            foreach (var end in new[] { subject, @object })
+                if (StoredEnd(end, op, stored, mentioned, added, message, implied: true, earlier) is { } referred) added.Add(referred);
+        return added;
+    }
+
+    /// <summary>
+    /// The stored entity an operation's end names, as a reference in the operation's own quoted words, or null: an end that
+    /// is the user, already a mention of this reply, a word a mention of this reply holds, a name two shown entities share,
+    /// a thing or a place, a person the message describes by a relation, or words the quote does not hold.
+    /// </summary>
+    private static ExtractedEntity? StoredEnd(string end, Op op, IReadOnlyList<Stored> stored, IReadOnlyList<ExtractedEntity> mentioned,
+        IReadOnlyList<ExtractedEntity> added, string message, bool implied, IReadOnlyList<string>? earlier = null)
+    {
+        var name = MemoryWriterContract.Canonical(end);
+        if (name.Length == 0 || MemoryUserNames.IsSelf(end) ||
+            mentioned.Concat(added).Any(e => MemoryWriterContract.Canonical(e.Name) == name)) return null;
+        // A namesake this reply names apart ("user's landlord Arun" beside a stored "Arun"): which one a bare end
+        // means is not the writer's word.
+        if (mentioned.Any(e => HoldsWord(e.Name, end.Trim()))) return null;
+        var shown = stored.Where(s => s.Letter == 'E' && s.Entity is { } e && MemoryWriterContract.Canonical(e.Name) == name).ToList();
+        if (shown is not [{ Entity: { } entity } only] || op.QuoteStart is not int start || op.QuoteEnd is not int stop ||
+            start < 0 || stop > message.Length || start >= stop) return null;
+        // The paid check of 24 Nov (ihc1-v1-glm-1, statement 8): a reference cannot confirm a thing or a place, so one
+        // to "Atlas" stayed open beside the stored project, a split. Only a person or an organisation is referred to.
+        if (EntityType(entity.Type) is not ("PERSON" or "ORGANIZATION")) return null;
+        // ER-BIND-REMENTIONS, second design: the first one's paid after-run (27 Nov) merged exact one-word namesakes through
+        // implied ends (the two Eagles, Auntie Esther and the canoe Esther), each where the other one was not stored under
+        // that name. A bare first name is a mention only earlier facts decide, so an implied end needs two capitalised name
+        // words, and no other shown entity nor any entity of this reply may hold one of them. The writer's own references and
+        // connection ends keep their rules.
+        // ER-BIND-REMENTIONS, third design: the second design's two-word rule alone left 2 or 3 implied ends a run, because most
+        // repeats are one-word names. A one-word name is referred to only when the stored entity was named in the turns the
+        // writer sees, and never after a naming act for that name there: "named it Esther, after her" brought in the canoe
+        // the first design's paid run then merged with the aunt.
+        if (implied)
+        {
+            var proper = ProperNameWords(end);
+            if (proper.Count == 0) return null;
+            if (proper.Count >= 2)
+            {
+                if (stored.Any(s => s.Letter == 'E' && s.Entity is { } other && other.EntityId != entity.EntityId && ProperNameWords(other.Name).Overlaps(proper)) ||
+                    mentioned.Concat(added).Any(e => ProperNameWords(e.Name).Overlaps(proper))) return null;
+            }
+            else
+            {
+                var word = proper.First();
+                var before = earlier ?? [];
+                if (!before.Any(turn => HoldsWord(turn, word))) return null;
+                if (before.Append(message).Any(turn => NamingAct(turn, word))) return null;
+            }
+        }
+        // The blind whos-who-v3 run of 24 Nov: "Finn's best mate Sam slept over" (a second Sam) was referred to the
+        // one stored Sam and confirmed, in all three runs. Only the end a relation is about ("Tomás" in "Tomás's
+        // parents") is referred, never an end the message describes by it, whichever way the arrow was drawn.
+        if (Described(message, end.Trim())) return null;
+        var words = Regex.Match(message[start..stop], $@"(?<![\p{{L}}\p{{M}}]){Regex.Escape(end.Trim())}(?![\p{{L}}\p{{M}}])",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(50));
+        if (!words.Success) return null;
+        return new ExtractedEntity
+        {
+            Name = entity.Name, Type = entity.Type,
+            Reference = new() { EntityId = only.Id, Quote = words.Value, Implied = implied },
+        };
 
         static bool HoldsWord(string text, string words) => Regex.IsMatch(text,
             $@"(?<![\p{{L}}\p{{M}}]){Regex.Escape(words)}(?![\p{{L}}\p{{M}}])",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(50));
     }
+
+    /// <summary>
+    /// Whether a turn gives the name to something ("named it Esther", "named the bakery after Tomás", "is called Tomás",
+    /// "called him Tomás", "also called Tomás"): a naming act brings in a namesake whether or not anything was stored for it.
+    /// "I called Tomás" (a phone call) is no naming act.
+    /// </summary>
+    internal static bool NamingAct(string turn, string word)
+    {
+        if (string.IsNullOrWhiteSpace(turn) || string.IsNullOrWhiteSpace(word)) return false;
+        var w = Regex.Escape(word);
+        const string thing = @"(?:it|him|her|them|(?:the|a|an|our|my|his|her|their)\s+[\p{L}\p{M}-]+)";
+        var pattern = $@"\b(?:re)?named\s+(?:{thing}\s+)?(?:after\s+)?['""“]?{w}(?![\p{{L}}\p{{M}}])"
+            + $@"|\b(?:is|was|are|were|be|been|also|it's|he's|she's)\s+called\s+['""“]?{w}(?![\p{{L}}\p{{M}}])"
+            + $@"|\bcalled\s+(?:it|him|her|them)\s+['""“]?{w}(?![\p{{L}}\p{{M}}])";
+        return Regex.IsMatch(turn, pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(50));
+    }
+
+    /// <summary>
+    /// The capitalised words of a name, lower-cased, without a possessive's owner ("Tomás's bike" names no Tomás) or the
+    /// place it is in ("the house in Cape Coast"), and without small words ("the Eagles" holds one: "eagles").
+    /// </summary>
+    internal static HashSet<string> ProperNameWords(string name)
+    {
+        var text = PlaceItIsIn.Replace(name ?? "", "");
+        text = PossessiveOwner.Replace(text, " ");
+        return ProperWord.Matches(text).Select(m => m.Value.ToLowerInvariant())
+            .Where(w => !SmallNameWords.Contains(w)).ToHashSet(StringComparer.Ordinal);
+    }
+
+    private static readonly Regex PlaceItIsIn = new(@"\s+in\s+\p{Lu}.*$", RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(50));
+    private static readonly Regex PossessiveOwner = new(
+        @"(?:\b(?:her|his|my|our|their|your|the)\s+)?(?:\b\p{Lu}[\p{L}\p{M}]*\.?\s+){0,3}[\p{L}\p{M}]+['’]s(?=\s|$)",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(50));
+    private static readonly Regex ProperWord = new(@"(?<![\p{L}\p{M}])\p{Lu}[\p{L}\p{M}]*", RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(50));
+    private static readonly HashSet<string> SmallNameWords = new(["the", "a", "an", "of", "and"], StringComparer.Ordinal);
 
     private static readonly Regex Negated = new(@"\b(?:no|not|none|unrelated|non)\b",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);

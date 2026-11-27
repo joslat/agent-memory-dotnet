@@ -108,7 +108,11 @@ internal sealed partial class IdentityIngestion
         // A writer's checked stored-entity reference first: it needs no call; whatever it refuses reaches the adjudicator.
         (mention, plan) = await ResolveReferenceAsync(mention, plan, owner, cancellationToken).ConfigureAwait(false);
         plan = IdentityWriterReference.Apply(mention, plan, _configuration.PolicyFor(mention.Type));
-        if (_contextual is not null)
+        // ER-BIND-REMENTIONS: a reference the writer implied (a fact naming a stored entity by its stored name) is kept only
+        // as a confirmation; the extraction stage drops it otherwise, so it never reaches the adjudicator.
+        var implied = mention.Reference is { Implied: true };
+        if (implied) plan = plan with { Diagnostics = [.. plan.Diagnostics, "writer_reference_implied"] };
+        if (_contextual is not null && !implied)
             plan = await _contextual.ApplyAsync(mention, plan, budget ?? CreateAdjudicationBudget(), cancellationToken,
                 owner, scope?.IncludeShared ?? false).ConfigureAwait(false);
         return IdentityDecisionPayload.Capture(initial with
