@@ -6,13 +6,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- **A reference on a bare name that a thing of another type also holds is dropped** (IDENTITY-NAMESAKE-ACROSS-TYPES). In
-  event-identity mode, when the turn names a stored entity only by part of its name or by a one-word name ("Rocky bit
-  the postman"), and another stored entity of another type shown to the writer holds that word ("the watchman's dog
-  Rocky", stored as a thing beside a person "Rocky"), the writer's reference and the implied fact reference are no longer
-  made. The mention is planned like any other. Identity's own guard reads only candidates of the mention's type; over 22
-  who's-who v4 runs, most wrong merges began at a reference on such a bare name.
-
 - **A document referred to by what it is becomes a thing of its own** (WRITER-DOCUMENTS-V4). In event-identity mode the
   writer folded a document named by what it is for ("our tender for the library", "the building permit application")
   into a fact about its owner, so on the who's-who v4 none of its three documents was ever stored (14 of 18 missed over
