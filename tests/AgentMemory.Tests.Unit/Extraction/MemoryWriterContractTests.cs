@@ -1559,6 +1559,59 @@ public sealed class MemoryWriterContractTests : IDisposable
         result.Entities.Should().BeEmpty("a naming act in the turns the writer sees makes the name a shared one");
     }
 
+    /// <summary>
+    /// ER-IMPLIED-NEW-NAMESAKE (the ER-RENAME-CUE after-run, v4 run 1, statement 64): "We have a new intern, Akosua" then
+    /// "Akosua redrew all the clinic elevations" was bound through an implied reference to the stored sister. The intern
+    /// was never shown as an entity. A window turn that introduces the name as someone new makes it a shared one.
+    /// </summary>
+    [Theory]
+    [InlineData("We have a new intern, Tomás, who has just finished his degree.")]
+    [InlineData("A boy called Tomás moved in next door.")]
+    [InlineData("Another Tomás joined the football team today.")]
+    [InlineData("Our new goalkeeper Tomás is only twelve.")]
+    public async Task A_one_word_name_a_window_turn_introduces_as_someone_new_implies_no_reference(string before)
+    {
+        ShowStoredEntities(StoredPerson(SonId, "Tomás"));
+        ReplyWithFact("Tomás | redrew | the plans", "Tomás redrew the plans");
+
+        var result = await Write("Tomás redrew the plans in one afternoon.", true, before);
+
+        result.Entities.Should().BeEmpty("the turn before introduces a new Tomás beside the stored one");
+    }
+
+    /// <summary>
+    /// ER-IMPLIED-NEW-NAMESAKE: an introduction in the turn the stored entity was written from is that entity's own.
+    /// </summary>
+    [Fact]
+    public async Task A_one_word_name_introduced_in_the_turn_it_was_stored_from_still_implies_a_reference()
+    {
+        ShowStoredEntities(StoredPerson(SonId, "Tomás") with { SourceMessageIds = ["before-0"] });
+        ReplyWithFact("Tomás | redrew | the plans", "Tomás redrew the plans");
+
+        var result = await Write("Tomás redrew the plans in one afternoon.", true, "We have a new intern, Tomás, who has just finished his degree.");
+
+        var tomas = result.Entities.Should().ContainSingle().Which;
+        tomas.Reference!.EntityId.Should().Be(SonId);
+        tomas.Reference.Implied.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("We have a new intern, Tomás, who has just finished his degree.", true)]
+    [InlineData("A boy called Tomás moved in next door.", true)]
+    [InlineData("I met a girl named Tomás at the party.", true)]
+    [InlineData("Another Tomás joined the football team.", true)]
+    [InlineData("There is a second Tomás in his class.", true)]
+    [InlineData("Our new goalkeeper Tomás is only twelve.", true)]
+    [InlineData("My son Tomás has a new bike.", false)]
+    [InlineData("I gave a present to Tomás.", false)]
+    [InlineData("We bought a new dress for Tomás's sister.", false)]
+    [InlineData("Tomás has a new teacher, Ms. Vidal.", false)]
+    [InlineData("I called Tomás about a new job.", false)]
+    public void A_new_namesake_is_a_turn_that_introduces_the_name_as_someone_new(string turn, bool introduces)
+    {
+        MemoryWriterOps.IntroducesNew(turn, "tomás").Should().Be(introduces);
+    }
+
     [Fact]
     public async Task A_fact_naming_a_stored_organisation_by_one_name_word_implies_no_reference()
     {

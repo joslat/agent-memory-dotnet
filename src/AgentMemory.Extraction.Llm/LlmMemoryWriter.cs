@@ -94,8 +94,9 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
         IReadOnlyList<IngestionItemOutcome> rejected = [];
         // The window's earlier user turns, latest first: a person named in the last message may have been given a relation
         // in the turn before ("My niece Valentina ..." then "Valentina lost her first tooth").
-        var earlier = request.Window.Context.Where(m => MemoryWriterPrompt.IsUser(m.Role) && !string.IsNullOrWhiteSpace(m.Content))
-            .Select(m => m.Content!).Reverse().ToList();
+        var earlierTurns = request.Window.Context.Where(m => MemoryWriterPrompt.IsUser(m.Role) && !string.IsNullOrWhiteSpace(m.Content))
+            .Reverse().ToList();
+        var earlier = earlierTurns.Select(m => m.Content!).ToList();
         if (_operationFormat is not null)
         {
             (ops, drops, rejected) = await EnforceAsync(system, context, reply, ops, drops, stored, owner, message, earlier, activity, cancellationToken)
@@ -120,7 +121,7 @@ internal sealed class LlmMemoryWriter : IMemoryWriter
                 "Memory writer: {Count} replacement(s) name no memory of their kind shown in this call and are written as additions; the memory each meant stays live: {Ops}.",
                 unresolved.Count, string.Join(" ; ", unresolved.Select(o => $"{o.Action} {o.Id} {o.Kind}: {o.Text}")));
         }
-        var result = MemoryWriterOps.ToResult(ops, stored, owner, _operationFormat is null ? null : message, earlier);
+        var result = MemoryWriterOps.ToResult(ops, stored, owner, _operationFormat is null ? null : message, earlierTurns);
         if (_options.DatesFromText)
         {
             // The dates the facts' own words state, as date fields too (the words stay as written). A yearless date is
@@ -1013,7 +1014,7 @@ internal static class MemoryWriterOps
     /// target is preserved without requiring separately persisted entity endpoints. Anything else is simply added.
     /// </summary>
     internal static UnifiedExtractionResult ToResult(IReadOnlyList<Op> ops, IReadOnlyList<Stored> stored, string? owner, string? referenceMessage = null,
-        IReadOnlyList<string>? earlierTurns = null)
+        IReadOnlyList<Message>? earlierTurns = null)
     {
         var byLabel = stored.ToDictionary(s => s.Label, StringComparer.OrdinalIgnoreCase);
         var facts = new List<ExtractedFact>();
@@ -1188,7 +1189,7 @@ internal static class MemoryWriterOps
     /// turn's facts that name it.
     /// </summary>
     private static IEnumerable<ExtractedEntity> FactEnds(IReadOnlyList<(string Subject, string Object, Op Op)> facts,
-        IReadOnlyList<Stored> stored, IReadOnlyList<ExtractedEntity> mentioned, string message, IReadOnlyList<string> earlier)
+        IReadOnlyList<Stored> stored, IReadOnlyList<ExtractedEntity> mentioned, string message, IReadOnlyList<Message> earlier)
     {
         var added = new List<ExtractedEntity>();
         foreach (var (subject, @object, op) in facts)
@@ -1203,7 +1204,7 @@ internal static class MemoryWriterOps
     /// a thing or a place, a person the message describes by a relation, or words the quote does not hold.
     /// </summary>
     private static ExtractedEntity? StoredEnd(string end, Op op, IReadOnlyList<Stored> stored, IReadOnlyList<ExtractedEntity> mentioned,
-        IReadOnlyList<ExtractedEntity> added, string message, bool implied, IReadOnlyList<string>? earlier = null)
+        IReadOnlyList<ExtractedEntity> added, string message, bool implied, IReadOnlyList<Message>? earlier = null)
     {
         var name = MemoryWriterContract.Canonical(end);
         if (name.Length == 0 || MemoryUserNames.IsSelf(end) ||
@@ -1239,8 +1240,14 @@ internal static class MemoryWriterOps
             {
                 var word = proper.First();
                 var before = earlier ?? [];
-                if (!before.Any(turn => HoldsWord(turn, word))) return null;
-                if (before.Append(message).Any(turn => NamingAct(turn, word))) return null;
+                if (!before.Any(turn => HoldsWord(turn.Content, word))) return null;
+                if (before.Select(turn => turn.Content).Append(message).Any(turn => NamingAct(turn, word))) return null;
+                // ER-IMPLIED-NEW-NAMESAKE (the ER-RENAME-CUE after-run, v4 run 1, statement 64): "We have a new intern,
+                // Akosua" then "Akosua redrew all the clinic elevations" was bound to the stored sister; the intern was
+                // never shown. A turn that introduces the name as someone new makes it a shared one, unless the stored
+                // entity was written from that very turn.
+                if (before.Where(turn => !entity.SourceMessageIds.Contains(turn.MessageId, StringComparer.Ordinal))
+                        .Select(turn => turn.Content).Append(message).Any(turn => IntroducesNew(turn, word))) return null;
             }
         }
         // The blind whos-who-v3 run of 24 Nov: "Finn's best mate Sam slept over" (a second Sam) was referred to the
@@ -1275,6 +1282,25 @@ internal static class MemoryWriterOps
             + $@"|\b(?:is|was|are|were|be|been|also|it's|he's|she's)\s+called\s+['""“]?{w}(?![\p{{L}}\p{{M}}])"
             + $@"|\bcalled\s+(?:it|him|her|them)\s+['""“]?{w}(?![\p{{L}}\p{{M}}])";
         return Regex.IsMatch(turn, pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(50));
+    }
+
+    /// <summary>
+    /// ER-IMPLIED-NEW-NAMESAKE: whether a turn introduces <paramref name="word"/> as someone new: an indefinite
+    /// introduction in apposition ("a new intern, Akosua"), a naming ("a girl called Grace", "a boy named Tomás"),
+    /// "another Tomás" or "a second Tomás", or "new" before a role ("our new goalkeeper Tomás"). "My son Tomás has a new
+    /// bike" and "a present to Tomás" introduce nobody.
+    /// </summary>
+    internal static bool IntroducesNew(string turn, string word)
+    {
+        if (string.IsNullOrWhiteSpace(turn) || string.IsNullOrWhiteSpace(word)) return false;
+        var w = $@"(?i:{Regex.Escape(word)})(?![\p{{L}}\p{{M}}])";
+        // A role noun, never a preposition, a conjunction or a pronoun ("a present to Tomás", "a new dress for Tomás").
+        const string noun = @"(?!(?:for|to|with|from|by|of|at|in|on|and|or|but|that|who|which|about|like|as)\b)[\p{Ll}\p{M}-]+";
+        var pattern = $@"\b(?:[Aa]n?)\s+(?:new\s+)?(?:{noun}\s+){{0,3}}{noun}\s*,\s*{w}"
+            + $@"|\b(?:[Aa]n?)\s+(?:new\s+)?(?:{noun}\s+){{0,3}}?(?:called|named)\s+{w}"
+            + $@"|\b(?:[Aa]nother|[Aa]\s+second|[Oo]ne\s+more)\s+{w}"
+            + $@"|\bnew\s+(?:{noun}\s+){{0,2}}{noun}\s*,?\s*{w}";
+        return Regex.IsMatch(turn, pattern, RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(50));
     }
 
     /// <summary>

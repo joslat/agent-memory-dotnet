@@ -28,6 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     name there ("named it Esther", "called it", "named after", "also called"). Two earlier versions were measured and
     reverted. The first merged one-word namesakes (two teams called the Eagles; an aunt and the canoe named after her).
     The second, two-word names only, bound too few mentions to move coverage.
+  - *A new namesake in the window* (ER-IMPLIED-NEW-NAMESAKE). A one-word name is not referred to when a turn the writer
+    sees introduces it as someone new: "We have a new intern, Akosua", "a mechanic called Kofi", "another Tomás", "our
+    new goalkeeper Tomás". The exception is the turn the stored entity was written from. On the who's-who v4, "Akosua
+    redrew all the clinic elevations" had been bound to the stored sister the turn after the intern was introduced.
   - *The checks.* Evidence-based identity checks it as it checks the writer's own references. A confirmation is kept
     (`writer_reference_implied`) and binds the turn's facts that name the entity. Anything else is dropped before the
     adjudicator and before persistence, so the turn ends as it did before: no proposal and no model call.
