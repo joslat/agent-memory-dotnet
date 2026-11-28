@@ -81,10 +81,15 @@ internal static class IdentityRelationCue
             if (m.Groups[group].Success && Words.TryGetValue(m.Groups[group].Value, out var rel)) found.Add(rel);
     }
 
+    /// <summary>ER-APPOSITION-GUARD: "the girl next door" is a neighbour.</summary>
+    private static readonly Regex NextDoor = new(@"\bnext[\s-]+door\b",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(50));
+
     private static IReadOnlySet<string> Collect(string text, IEnumerable<string> names, bool describes)
     {
         var found = new HashSet<string>(StringComparer.Ordinal);
         if (string.IsNullOrWhiteSpace(text)) return found;
+        text = NextDoor.Replace(text, "neighbour");
         var words = names.Where(n => !string.IsNullOrWhiteSpace(n))
             .SelectMany(n => Token.Matches(n).Select(m => m.Value))
             .Where(w => w.Length >= 2 && char.IsUpper(w[0]))
@@ -105,6 +110,9 @@ internal static class IdentityRelationCue
                 $@"\b{n}\s*\(\s*(?:my|our)\s+{two}",
                 // IDENTITY-HARD-CASES A2: an apposition or a list after the relation ("my mum, Marta", "my parents, Iker and Marta").
                 $@"\b(?:my|our)\s+(?<a>[\p{{L}}-]+)\s*,\s*{listed}{n}\b",
+                // ER-APPOSITION-GUARD (who's-who v4, statement 36): an apposition with an article says what the turn calls the
+                // person too ("Grace, the girl next door," "Hazel, the nurse educator on 4B,").
+                $@"\b{n}\s*,\s*(?:the|a|an)\s+{two}",
             };
             if (describes)
                 patterns.AddRange(

@@ -1119,6 +1119,38 @@ public sealed class MemoryWriterContractTests : IDisposable
         await _entities.DidNotReceiveWithAnyArgs().FindLiveBySeenNameAsync(default!, default!, default, default);
     }
 
+    /// <summary>
+    /// ER-APPOSITION-GUARD (who's-who v4, statement 36, 6 of 36 stored runs): shown the stored office manager "Grace Addo",
+    /// the writer put "Grace, the girl next door, babysits Ama" under her name, and the next turn named the girl "Grace
+    /// Addo" too, so the two Graces merged. The apposition calls her a neighbour, which the office manager is not known as:
+    /// the facts keep the message's own name.
+    /// </summary>
+    [Fact]
+    public async Task Facts_the_message_gives_a_namesake_described_in_apposition_keep_the_message_s_name()
+    {
+        var manager = new Entity
+        {
+            EntityId = "identity-observation-grace-addo", Name = "Grace Addo", Type = "PERSON", OwnerId = "bruna", Confidence = 1,
+            SourceMessageIds = ["m-manager"], CreatedAtUtc = DateTimeOffset.UnixEpoch,
+        };
+        _messages.GetByIdAsync("m-manager", Arg.Any<CancellationToken>()).Returns(new Message
+        {
+            MessageId = "m-manager", ConversationId = "c", SessionId = "s", Role = "user",
+            Content = "Grace Addo, our office manager, sends out the invoices and keeps the whole place running.",
+            TimestampUtc = DateTimeOffset.UnixEpoch,
+        });
+        ShowStoredEntities(manager);
+        _replies.Enqueue("""
+            {"ops":[
+              {"op":"add","kind":"fact","text":"Grace Addo | babysits | Ama on Friday nights","quote":"babysits Ama on Friday nights","ref":null}
+            ]}
+            """);
+
+        var result = await Write("Grace, the girl next door, babysits Ama on Friday nights when Adwoa has an event.");
+
+        result.Facts.Should().ContainSingle().Which.Subject.Should().Be("Grace", "the girl next door is not the office manager");
+    }
+
     // ── IDENTITY-FACT-NAME-GUARD (the fifth paid check, cover5-2 and cover5-4 statement 13: the writer answered only facts,
     // "Valentina Ríos | started school | 2026" and "Valentina Ríos | is | six years old", with no entity operation, so there
     // was no reference for the guard above to refuse and the niece's facts went under the designer's name.) ──

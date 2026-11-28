@@ -333,6 +333,25 @@ public sealed class IdentityWriterReferenceTests
     public void The_owner_s_relation_given_as_an_apposition_is_read(string text, string name, string relation) =>
         IdentityRelationCue.InTurn(text, [name]).Should().Contain(relation);
 
+    /// <summary>
+    /// ER-APPOSITION-GUARD (who's-who v4, statement 36): "Grace, the girl next door, babysits Ama" was put under the stored
+    /// office manager Grace Addo in 6 of 36 runs, and the two Graces merged in all six. An apposition with an article says
+    /// what the turn calls the person, as one with "my" does, and "next door" is a neighbour.
+    /// </summary>
+    [Theory]
+    [InlineData("Grace, the girl next door, babysits Ama on Friday nights.", "Grace", "neighbor")]
+    [InlineData("Hazel, the nurse educator on 4B, asked for a session.", "Hazel", "nurse")]
+    [InlineData("Kwame, a teacher at the school, came to dinner.", "Kwame", "teacher")]
+    public void An_apposition_with_an_article_says_what_the_turn_calls_the_person(string text, string name, string relation) =>
+        IdentityRelationCue.InTurn(text, [name]).Should().Contain(relation);
+
+    [Theory]
+    [InlineData("Adwoa named him after Rocky, the boxing film, which she loves.", "Rocky")]
+    [InlineData("Our pastor is also a Daniel, Pastor Daniel, a big man with an even bigger voice.", "Daniel")]
+    [InlineData("Grace at the office has offered Grace next door a holiday job.", "Grace")]
+    public void An_apposition_without_a_relation_word_or_a_name_without_an_apposition_says_nothing(string text, string name) =>
+        IdentityRelationCue.InTurn(text, [name]).Should().BeEmpty();
+
     [Theory]
     [InlineData(null)]
     [InlineData("Lives in Rosario and likes tango")]

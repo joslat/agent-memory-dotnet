@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **A description in apposition tells a person apart from a stored namesake** (ER-APPOSITION-GUARD). On the
+  who's-who v4 the writer was shown the stored office manager "Grace Addo". It put "Grace, the girl next door, babysits
+  Ama" under her name in 6 of 36 runs, and in all six the two Graces then merged. The relation cue now reads an
+  apposition with an article ("NAME, the|a|an ... ROLE"), as it reads "NAME, my ROLE", and it reads "next door" as a
+  neighbour. A girl next door is not the office manager, so the facts keep the message's own name. Identity's
+  writer-reference check reads the same cue.
+
 - **A second name the turn gives a new entity is its alias** (ER-SAME-TURN-ALIAS). "Our captain is Ebenezer, but
   everybody calls him Ebo" was written by the store-aware writer as two people in 9 of 12 runs of the who's-who v4, so
   the captain split from his first turn on. Now, when one reply adds two entities of one type, neither referring to a
