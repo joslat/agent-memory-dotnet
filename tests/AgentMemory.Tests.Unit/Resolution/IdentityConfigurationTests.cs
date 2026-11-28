@@ -92,8 +92,7 @@ public sealed class IdentityConfigurationTests
     [Fact]
     public void Conversational_policies_open_contextual_confirmation_for_events_people_and_organisations_only()
     {
-        // Places and things left out (IBP-2's opt-out): the measured set of the three conversational types alone.
-        var options = new IdentityResolutionOptions { ConfirmPlacesAndThings = false };
+        var options = new IdentityResolutionOptions();
         options.Policies["PERSON"] = new() { IdentityProperties = ["employeeId"] };
         options.Policies["LOCATION"] = new() { IdentityProperties = ["placeId"] };
         options.ApplyConversationalPolicies().Should().BeSameAs(options);
@@ -122,13 +121,12 @@ public sealed class IdentityConfigurationTests
     }
 
     [Fact]
-    public void Places_and_things_are_confirmable_by_default()
+    public void Places_and_things_stay_review_only_by_default()
     {
         var options = new IdentityResolutionOptions();
-        options.ConfirmPlacesAndThings.Should().BeTrue("IBP-2 is on by default since 28 Nov 2026");
+        options.ConfirmPlacesAndThings.Should().BeFalse("IBP-2 is opt-in: two wrong merges began on confirmed places and things");
         options.ApplyConversationalPolicies();
-        foreach (var type in new[] { "LOCATION", "OBJECT" })
-            options.Policies[type].AllowContextualConfirmation.Should().BeTrue();
+        options.Policies.Should().NotContainKey("OBJECT");
     }
 
     [Theory]

@@ -45,8 +45,8 @@ var identityWriter = args.Contains("--identity-writer");
 if (args.Contains("--identity-confirm-places-things")) Arms.ConfirmPlacesAndThings = true;
 if (args.Contains("--identity-review-places-things")) Arms.ConfirmPlacesAndThings = false;
 if (identityValidation) Console.WriteLine(Arms.ConfirmPlacesAndThings
-    ? "IBP-2: places and things may be confirmed by the adjudicator (the default; --identity-review-places-things turns it off)."
-    : "IBP-2: places and things are kept for review (--identity-review-places-things).");
+    ? "IBP-2: places and things may be confirmed by the adjudicator (--identity-confirm-places-things)."
+    : "IBP-2: places and things are kept for review (the library's default).");
 var identityFullScenario = args.Contains("--identity-full-scenario");
 if(identityFullScenario && (!identityValidation || !identityWriter))
 {

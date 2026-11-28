@@ -15,7 +15,7 @@ internal static class Arms
     /// <summary>
     /// IBP-2: whether the identity arms let the adjudicator's quoted verdict confirm places and things
     /// (<see cref="AgentMemory.Abstractions.Options.IdentityResolutionOptions.ConfirmPlacesAndThings"/>). The library's default
-    /// (on since 28 Nov 2026); <c>--identity-review-places-things</c> turns it off, <c>--identity-confirm-places-things</c> on.
+    /// (opt-in); <c>--identity-confirm-places-things</c> turns it on, <c>--identity-review-places-things</c> off.
     /// </summary>
     public static bool ConfirmPlacesAndThings { get; set; } =
         new AgentMemory.Abstractions.Options.IdentityResolutionOptions().ConfirmPlacesAndThings;
