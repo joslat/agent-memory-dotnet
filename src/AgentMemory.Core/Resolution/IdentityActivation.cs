@@ -23,6 +23,7 @@ internal sealed class IdentityActivation : IMemoryTierSource
     private readonly IOptions<IdentityResolutionOptions> _options;
     private readonly IServiceScopeFactory _scopes;
     private readonly bool _storage;
+    private readonly bool _adjudicator;
     private readonly Lazy<string?> _fallback;
 
     public IdentityActivation(IOptions<IdentityResolutionOptions> options, IServiceScopeFactory scopes, IServiceProviderIsService services)
@@ -30,6 +31,7 @@ internal sealed class IdentityActivation : IMemoryTierSource
         _options = options;
         _scopes = scopes;
         _storage = services.IsService(typeof(IIdentityDecisionRepository)) && services.IsService(typeof(IIdentityCandidateProvider));
+        _adjudicator = services.IsService(typeof(IIdentityAdjudicator));
         _fallback = new(() => Fallback(_options.Value.Enabled is null && _storage && WriterRuns()), LazyThreadSafetyMode.ExecutionAndPublication);
     }
 
@@ -56,7 +58,35 @@ internal sealed class IdentityActivation : IMemoryTierSource
 
     public MemoryTier Describe() => _fallback.Value is { } why
         ? new MemoryTier(MemoryTiers.Identity, "previous resolver", $"{why}; {KnownIssue}")
-        : new MemoryTier(MemoryTiers.Identity, "evidence-based");
+        : new MemoryTier(MemoryTiers.Identity, "evidence-based", NothingConfirms() is { } none ? $"{none}; {EveryMentionNew}" : null);
+
+    internal const string NoConfirmingPolicy = "nothing can confirm a repeat: no type may be confirmed on context and none has identity keys";
+    internal const string NoConfirmer = "nothing can confirm a repeat: neither the store-aware writer nor an identity adjudicator runs";
+    internal const string EveryMentionNew = "each mention is stored as a new one, for review";
+
+    /// <summary>
+    /// IBP-7: switched on explicitly (<see cref="IdentityResolutionOptions.Enabled"/> true), identity may have nothing that
+    /// confirms a repeat: no type a writer's reference or the adjudicator may confirm and no identity keys, or such types but
+    /// neither the store-aware writer nor an adjudicator to confirm them. Three mentions of a person are then three people
+    /// (the battery's rules arm). Automatic mode always has the writer and the measured policies.
+    /// </summary>
+    private string? NothingConfirms()
+    {
+        if (_options.Value.Enabled != true) return null;
+        IdentityConfiguration configuration;
+        try
+        {
+            configuration = IdentityConfiguration.Capture(_options.Value);
+        }
+        catch (OptionsValidationException)
+        {
+            return null; // invalid options fail at the first write, which says why
+        }
+        if (configuration.HasIdentityProperties || configuration.HasUniqueNameNamespace) return null;
+        if (!configuration.AllowsContextualConfirmation) return NoConfirmingPolicy;
+        var adjudicates = _adjudicator && configuration.MaxAdjudicationsPerIngestion > 0;
+        return adjudicates || WriterRuns() ? null : NoConfirmer;
+    }
 
     private string? Fallback(bool storeAwareWriter) => _options.Value.Enabled switch
     {

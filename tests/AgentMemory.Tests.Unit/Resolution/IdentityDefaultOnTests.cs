@@ -108,6 +108,48 @@ public sealed class IdentityDefaultOnTests
         provider.GetRequiredService<IdentityActivation>().Active.Should().BeTrue();
     }
 
+    // IBP-7: switched on with nothing that can confirm, three mentions of a person are three people (the battery's rules arm).
+    // The tiers line says so, and why, at start-up.
+    [Fact]
+    public void Switched_on_with_no_policy_that_can_confirm_the_tiers_line_says_nothing_can()
+    {
+        using var provider = Build(enabled: true, writer: false);
+        provider.GetRequiredService<IMemoryTiers>().Line().Should().Contain(
+            "identity: evidence-based (nothing can confirm a repeat: no type may be confirmed on context and none has identity " +
+            "keys; each mention is stored as a new one, for review)");
+    }
+
+    [Fact]
+    public void Switched_on_with_confirmable_types_but_no_writer_or_adjudicator_the_tiers_line_says_nothing_can()
+    {
+        using var provider = Build(enabled: true, writer: false,
+            more: services => services.Configure<IdentityResolutionOptions>(o => o.ApplyConversationalPolicies()));
+        provider.GetRequiredService<IMemoryTiers>().Line().Should().Contain(
+            "identity: evidence-based (nothing can confirm a repeat: neither the store-aware writer nor an identity adjudicator " +
+            "runs; each mention is stored as a new one, for review)");
+    }
+
+    [Theory]
+    [InlineData(true, false)] // the store-aware writer refers repeats
+    [InlineData(false, true)] // an adjudicator gives its second opinion
+    public void Switched_on_with_confirmable_types_and_a_writer_or_an_adjudicator_the_line_is_plain(bool writer, bool adjudicator)
+    {
+        using var provider = Build(enabled: true, writer: writer, more: services =>
+        {
+            services.Configure<IdentityResolutionOptions>(o => o.ApplyConversationalPolicies());
+            if (adjudicator) services.AddSingleton(Substitute.For<IIdentityAdjudicator>());
+        });
+        provider.GetRequiredService<IMemoryTiers>().Line().Should().Contain("; identity: evidence-based; ");
+    }
+
+    [Fact]
+    public void Switched_on_with_identity_keys_the_line_is_plain()
+    {
+        using var provider = Build(enabled: true, writer: false, more: services => services.Configure<IdentityResolutionOptions>(o =>
+            o.Policies["PERSON"] = new EntityIdentityPolicy { IdentityProperties = ["employeeId"] }));
+        provider.GetRequiredService<IMemoryTiers>().Line().Should().Contain("; identity: evidence-based; ");
+    }
+
     [Fact]
     public void Context_turns_and_event_details_follow_identity()
     {

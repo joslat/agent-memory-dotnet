@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **The memory tiers line says when switched-on identity can confirm nothing** (IBP-7). With
+  `IdentityResolutionOptions.Enabled = true` and no type that context may confirm and no identity keys, or such types
+  but neither the store-aware writer nor an identity adjudicator, three mentions of a person were three people with no
+  word of why. The identity tier now says `evidence-based (nothing can confirm a repeat: ...; each mention is stored as
+  a new one, for review)`. Automatic mode is unchanged.
+
 - **Merging extractors keys entities by name and type** (ER-UNION-KEY). The Union, Intersection and Confidence
   strategies keyed entities by name alone, so "Paris (PERSON)" from one extractor and "Paris (LOCATION)" from another,
   or both from one reply, became one entity with whichever type had the higher confidence. The key is now the name and

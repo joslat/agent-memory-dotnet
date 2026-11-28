@@ -954,7 +954,11 @@ and backends without identity storage, the previous resolver runs. The previous 
 merge two different people or things that share a name: two different "Alex Kim"s become one. Evidence-based identity
 keeps them apart and leaves a proposal for review. The memory tiers line, logged once on the first write
 (`IMemoryTiers`), says which one runs and why, for example `identity: evidence-based` or
-`identity: previous resolver (the store-aware writer is off; it can merge different things that share a name)`.
+`identity: previous resolver (the store-aware writer is off; it can merge different things that share a name)`. Switched on
+explicitly (`IdentityResolutionOptions.Enabled = true`) with nothing that can confirm a repeat (no type that
+context may confirm and no identity keys, or such types but neither the store-aware writer nor an adjudicator), the
+line says so, for example `identity: evidence-based (nothing can confirm a repeat: neither the store-aware writer
+nor an identity adjudicator runs; each mention is stored as a new one, for review)`.
 
 Where it runs, identity brings what it was measured with: its Neo4j schema extension (`identity-evidence`, applied at
 schema bootstrap with the rest of the migrations), at least 4 read-only context turns

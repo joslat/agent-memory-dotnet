@@ -21,6 +21,10 @@ internal sealed record IdentityConfiguration
     public EntityIdentityPolicy PolicyFor(string type) => Policies.TryGetValue(type, out var policy) ? policy : DefaultPolicy;
 
     public bool HasIdentityProperties => Policies.Values.Any(policy => policy.IdentityProperties.Count > 0);
+    /// <summary>IBP-7: whether any type may be confirmed by checked context (a writer's reference or the adjudicator's "same").</summary>
+    public bool AllowsContextualConfirmation => Policies.Values.Any(policy => policy.AllowContextualConfirmation);
+    /// <summary>IBP-7: whether any type has a name that is unique within a verified namespace.</summary>
+    public bool HasUniqueNameNamespace => Policies.Values.Any(policy => policy.UniqueNameNamespace is not null);
     public bool RequiresCaseInsensitiveIdentityNames => Policies.Values.Any(policy => policy.IdentityNameComparison == StringComparison.OrdinalIgnoreCase);
     public bool RequiresContextRootedLookup => Policies.Values.Any(policy => policy.ReviewContextRootedCandidates);
 
