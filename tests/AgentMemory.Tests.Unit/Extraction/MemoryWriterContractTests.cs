@@ -204,6 +204,46 @@ public sealed class MemoryWriterContractTests : IDisposable
         result.Entities.Select(e => e.Name).Should().BeEquivalentTo(["Ebenezer", other]);
     }
 
+    /// <summary>
+    /// ER-FULLER-NAME-GUARD (who's-who v4, 40 stored runs: 3 such references, all wrong merges): "Our structural engineer on
+    /// the clinic is Esi Quarcoo" was referred to the stored friend "Esi". The turn names the person in full, with a name word
+    /// the stored person is not known by, and says nothing of a rename: someone else. The entity and its facts keep the
+    /// turn's fuller name, and nothing is asked again.
+    /// </summary>
+    [Fact]
+    public async Task A_person_the_turn_names_in_full_is_not_referred_to_a_stored_namesake_known_by_the_first_name_alone()
+    {
+        ShowStored("stored-1", "Esi", "PERSON");
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Esi (PERSON)","quote":"Esi Quarcoo","ref":"E1"},{"op":"add","kind":"fact","text":"Esi | is | the structural engineer on the clinic","quote":"Our structural engineer on the clinic is Esi Quarcoo"}]}""");
+
+        var result = await Write("Our structural engineer on the clinic is Esi Quarcoo, and she is very strict about the steel.");
+
+        _calls.Should().ContainSingle("the refusal is deterministic: no correction call");
+        var entity = result.Entities.Should().ContainSingle().Which;
+        entity.Name.Should().Be("Esi Quarcoo");
+        entity.Reference.Should().BeNull();
+        result.Facts.Should().ContainSingle().Which.Subject.Should().Be("Esi Quarcoo");
+    }
+
+    /// <summary>
+    /// ER-FULLER-NAME-GUARD: a fuller name the stored person is already known by, a turn that says only the stored name, or a
+    /// rename in the turn leaves the reference as it was.
+    /// </summary>
+    [Theory]
+    [InlineData("Esi Quarcoo sent the steel schedule today.", "Esi Quarcoo")]
+    [InlineData("Esi sent the steel schedule today.", null)]
+    [InlineData("Esi has a new name: it is Esi Quarcoo now.", null)]
+    public async Task A_fuller_name_the_stored_person_is_known_by_or_a_rename_keeps_the_reference(string message, string? alsoCalled)
+    {
+        if (alsoCalled is null) ShowStored("stored-1", "Esi", "PERSON");
+        else ShowStored("stored-1", "Esi", "PERSON", alsoCalled);
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"entity","text":"Esi (PERSON)","quote":"Esi","ref":"E1"}]}""");
+
+        var result = await Write(message);
+
+        result.Entities.Should().ContainSingle().Which.Reference!.EntityId.Should().Be("stored-1");
+    }
+
     [Fact]
     public async Task A_clean_reply_is_not_corrected()
     {

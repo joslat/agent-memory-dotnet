@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **A person the turn names in full is not referred to a namesake known by the first name alone**
+  (ER-FULLER-NAME-GUARD). On the who's-who v4 the writer referred "Our structural engineer on the clinic is Esi
+  Quarcoo" to the stored friend "Esi", and "Kofi Fitter also services my Hilux" to the stored brother "Kofi". Across 40
+  stored runs, that happened 3 times, and all 3 were wrong merges. The writer contract now refuses such a reference when
+  all of these hold: the turn says the stored one-word name followed by another name word; the stored person is not
+  already known by that fuller name; and the turn names no rename or correction. The entity and its facts keep the
+  turn's fuller name, so a person first met as "Ana" and later as "Ana Ruiz" is at worst a split, never a wrong merge.
+
 - **A description in apposition tells a person apart from a stored namesake** (ER-APPOSITION-GUARD). On the
   who's-who v4 the writer was shown the stored office manager "Grace Addo". It put "Grace, the girl next door, babysits
   Ama" under her name in 6 of 36 runs, and in all six the two Graces then merged. The relation cue now reads an

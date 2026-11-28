@@ -170,6 +170,35 @@ internal static class MemoryWriterContract
                 + $"and the conversation calls this person {string.Join(", ", conflict.Said.Order(StringComparer.Ordinal))}: two people, so the reference "
                 + (conflict.Own is null ? "was refused" : $"was refused and the entity and {moved} other operation(s) keep the message's name \"{conflict.Own}\"")));
         }
+        // ER-FULLER-NAME-GUARD (who's-who v4, 40 stored runs: 3 such references, all wrong merges): "Our structural engineer on
+        // the clinic is Esi Quarcoo" was referred to the stored friend "Esi", "Kofi Fitter also services my Hilux" to the stored
+        // brother "Kofi". A person reference to a stored one-word name the turn says in full, with a name word the stored person
+        // is not known by and no rename or correction, is someone else: the entity and the reply's other operations keep the
+        // turn's fuller name.
+        var turn = message ?? persons?.Message;
+        for (var i = 0; turn is not null && i < ops.Count; i++)
+        {
+            if (renamed.Contains(ops[i]) || FullerName(ops[i], byLabel, turn) is not { } fuller) continue;
+            var item = byLabel[ops[i].Ref!];
+            var storedName = EntityName(item.Text);
+            var written = ops[i].Text;
+            var kept = ops[i] with { Text = $"{fuller} (PERSON)", Ref = null };
+            ops[i] = kept;
+            renamed.Add(kept);
+            var moved = 0;
+            for (var j = 0; j < ops.Count; j++)
+            {
+                if (j == i || ops[j].Kind is not ("fact" or "preference" or "relationship") || ops[j].Action == "confirm" ||
+                    HoldsName(ops[j].Text, fuller)) continue;
+                var text = Rename(ops[j].Text, storedName, fuller);
+                if (text == ops[j].Text) continue;
+                ops[j] = ops[j] with { Text = text };
+                moved++;
+            }
+            issues.Add(new(MemoryWriterOps.DropReason.ReferenceRelationConflict, kept.Index, "entity", written,
+                $"\"ref\" {item.Label} is \"{storedName}\", and the message calls this person \"{fuller}\", a name the stored person is not known by: "
+                + $"two people, so the reference was refused and the entity and {moved} other operation(s) keep \"{fuller}\""));
+        }
         // IDENTITY-FACT-NAME-GUARD: the same rule when the reply names a stored person only in its facts, preferences or
         // connections, with no entity: the fifth paid check, cover5-2 and cover5-4 statement 13, answered only "Valentina Ríos |
         // started school | 2026" and "Valentina Ríos | is | six years old" for "My niece Valentina started school this year,
@@ -582,6 +611,30 @@ internal static class MemoryWriterContract
     private static bool NamesInText(MemoryWriterOps.Op op) => op.Kind is "fact" or "preference" or "relationship" && op.Action != "confirm";
 
     private sealed record Conflict(MemoryWriterOps.Stored Item, string? Own, IReadOnlySet<string> Said, IReadOnlySet<string> Known);
+
+    /// <summary>Words that may follow a name without being part of it ("Esi And", "Kofi The").</summary>
+    private static readonly HashSet<string> NotNameWords = new(
+        ["The", "A", "An", "And", "But", "Or", "So", "On", "In", "At", "For", "To", "Of", "I", "My", "Our", "Is", "Was", "Has", "Had"],
+        StringComparer.Ordinal);
+
+    /// <summary>
+    /// ER-FULLER-NAME-GUARD: the fuller name the turn gives a stored person known by one word only, or null. The reference is
+    /// a person's entity add to a stored person whose name is one word N; the turn says "N X" with X a capitalised name word;
+    /// neither the stored name nor its shown other names hold "N X"; and the turn names no rename or correction.
+    /// </summary>
+    private static string? FullerName(MemoryWriterOps.Op op, IReadOnlyDictionary<string, MemoryWriterOps.Stored> byLabel, string message)
+    {
+        if (op.Kind != "entity" || op.Action != "add" || op.Ref is not { } label || !byLabel.TryGetValue(label, out var item) ||
+            item.Letter != 'E' || StoredType(item.Text) != "PERSON" || EntityText.Match(op.Text) is not { Success: true } written ||
+            MemoryWriterOps.EntityType(written.Groups["t"].Value) != "PERSON") return null;
+        var stored = EntityName(item.Text);
+        if (NameWord.Matches(stored).Count != 1 || RenameCue.IsMatch(message)) return null;
+        var match = Regex.Match(message, $@"(?<![\p{{L}}\p{{M}}]){Regex.Escape(stored)}\s+(?<x>\p{{Lu}}[\p{{L}}\p{{M}}'’-]+)",
+            RegexOptions.CultureInvariant, NameTimeout);
+        if (!match.Success || NotNameWords.Contains(match.Groups["x"].Value)) return null;
+        var fuller = $"{stored} {match.Groups["x"].Value}";
+        return OtherNames(item).Prepend(stored).Any(name => HoldsName(name, fuller)) ? null : fuller;
+    }
 
     /// <summary>
     /// A person reference whose conversation gives the person a relation the stored person is not known by, while the
