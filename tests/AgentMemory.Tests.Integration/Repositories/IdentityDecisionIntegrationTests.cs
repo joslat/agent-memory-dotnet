@@ -781,6 +781,18 @@ public sealed class IdentityDecisionIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task The_review_queue_s_size_is_counted_in_the_owner_s_scope_only()
+    {
+        // IBP-10: a growing review queue is seen without paging through it.
+        var input=await PendingReviewInput();
+        (await _decisions.CountPendingAsync("pablito")).Should().Be(1);
+        (await _decisions.CountPendingAsync("other")).Should().Be(0);
+        (await _decisions.CountPendingAsync(null)).Should().Be(0, "a null owner counts shared decisions only");
+        await ApplyReview(ReviewRequest(input.Decision,"reject-count",IdentityReviewAction.Reject,input.Target));
+        (await _decisions.CountPendingAsync("pablito")).Should().Be(0, "a reviewed proposal leaves the count");
+    }
+
+    [Fact]
     public async Task The_review_queue_is_bounded_and_pages_in_a_stable_order()
     {
         await PendingReviewInput();

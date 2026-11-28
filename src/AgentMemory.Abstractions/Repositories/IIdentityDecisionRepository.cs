@@ -73,6 +73,14 @@ public interface IIdentityDecisionRepository
         CancellationToken cancellationToken = default) =>
         throw new NotSupportedException("This backend does not list identity proposals for review.");
 
+    /// <summary>
+    /// IBP-10: how many of the owner's decisions still hold open proposals, the size of <see cref="ListPendingAsync"/>'s
+    /// queue, so a growing queue is seen without paging through it. A null owner counts shared decisions only. Backends
+    /// without a queue reject it.
+    /// </summary>
+    Task<long> CountPendingAsync(string? ownerId, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("This backend does not count identity proposals for review.");
+
     /// <summary>Read the current decision only in its exact owner scope.</summary>
     Task<IdentityDecision?> GetAsync(string decisionId, string? ownerId = null,
         CancellationToken cancellationToken = default);

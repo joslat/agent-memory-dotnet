@@ -66,6 +66,23 @@ public sealed class MemoryResourcesTests
         doc.RootElement.TryGetProperty("retrievedAtUtc", out _).Should().BeTrue();
     }
 
+    // IBP-10: a growing identity review queue is seen. Store-wide, like the other counts here (R1: no per-owner content);
+    // a host reads one owner's queue size from IIdentityDecisionRepository.CountPendingAsync.
+    [Fact]
+    public async Task MemoryStatus_IncludesTheOpenIdentityProposals()
+    {
+        var row = new Dictionary<string, object?> { ["entityCount"] = 10L, ["openIdentityProposals"] = 7L };
+        _graphQueryService.QueryAsync(Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, object?>?>(), Arg.Any<CancellationToken>())
+            .Returns(new List<IReadOnlyDictionary<string, object?>> { row });
+
+        var result = await MemoryStatusResource.GetMemoryStatus(_graphQueryService);
+
+        JsonDocument.Parse(result).RootElement.GetProperty("openIdentityProposals").GetInt64().Should().Be(7);
+        await _graphQueryService.Received(1).QueryAsync(
+            Arg.Is<string>(q => q.Contains("IdentityDecision") && q.Contains("POSSIBLE_SAME_AS")),
+            Arg.Any<IReadOnlyDictionary<string, object?>?>(), Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public async Task MemoryStatus_ReturnsZerosWhenNoData()
     {
@@ -77,6 +94,7 @@ public sealed class MemoryResourcesTests
         var doc = JsonDocument.Parse(result);
         doc.RootElement.GetProperty("entityCount").GetInt64().Should().Be(0);
         doc.RootElement.GetProperty("messageCount").GetInt64().Should().Be(0);
+        doc.RootElement.GetProperty("openIdentityProposals").GetInt64().Should().Be(0);
     }
 
     // ═══════════════════════════════

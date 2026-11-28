@@ -123,6 +123,9 @@ public sealed class IdentityRelationshipPayloadTests
         backend.SupportsRelationshipIngestion.Should().BeFalse();
         Func<Task> save = () => backend.SaveRelationshipObservationAsync(Input(),"pablito");
         await save.Should().ThrowAsync<NotSupportedException>();
+        // IBP-10: a backend without a review queue says so rather than counting nothing.
+        Func<Task> count = () => backend.CountPendingAsync("pablito");
+        await count.Should().ThrowAsync<NotSupportedException>();
     }
     private sealed class ExistingBackend : IIdentityDecisionRepository
     {

@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **The identity review queue's size can be read** (IBP-10). `IIdentityDecisionRepository.CountPendingAsync(ownerId)`
+  counts the owner's decisions that still hold open proposals, the size of `ListPendingAsync`'s queue, so a growing
+  queue is seen without paging through it; a null owner counts shared decisions only. Backends without a queue throw
+  `NotSupportedException` (a default interface member, so other implementations still compile). The MCP
+  `memory_status` resource adds `openIdentityProposals`, a store-wide count like its other numbers.
+
 - **The memory tiers line says when switched-on identity can confirm nothing** (IBP-7). With
   `IdentityResolutionOptions.Enabled = true` and no type that context may confirm and no identity keys, or such types
   but neither the store-aware writer nor an identity adjudicator, three mentions of a person were three people with no

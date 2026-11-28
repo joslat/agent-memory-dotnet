@@ -64,6 +64,13 @@ internal static class IdentityDecisionQueries
         RETURN d.identity_record_json AS identity_record_json ORDER BY d.id LIMIT $limit
         """;
 
+    // IBP-10: the review queue's size, counted as ListPending selects (decisions holding proposal edges).
+    internal const string CountPending = """
+        MATCH (d:IdentityDecision {owner_scope: $ownerScope})
+        WHERE EXISTS { MATCH (d)-[:POSSIBLE_SAME_AS]->(:Entity) }
+        RETURN count(d) AS pending
+        """;
+
     internal const string Get = """
         MATCH (d:IdentityDecision {id: $decisionId, owner_scope: $ownerScope}) RETURN d.identity_record_json AS identity_record_json
         """;

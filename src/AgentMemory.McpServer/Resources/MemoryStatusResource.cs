@@ -16,7 +16,7 @@ namespace AgentMemory.McpServer.Resources;
 internal sealed class MemoryStatusResource
 {
     [McpServerResource(UriTemplate = "memory://status", Name = "memory_status", MimeType = "application/json"),
-     Description("Returns current memory statistics: entity count, fact count, preference count, conversation count, message count.")]
+     Description("Returns current memory statistics: entity count, fact count, preference count, conversation count, message count, and open identity proposals awaiting review.")]
     public static async Task<string> GetMemoryStatus(
         IGraphQueryService graphQueryService,
         CancellationToken cancellationToken = default)
@@ -33,7 +33,10 @@ internal sealed class MemoryStatusResource
             OPTIONAL MATCH (m:Message)
             WITH entityCount, factCount, preferenceCount, conversationCount, count(m) AS messageCount
             OPTIONAL MATCH (t:ReasoningTrace)
-            RETURN entityCount, factCount, preferenceCount, conversationCount, messageCount, count(t) AS traceCount
+            WITH entityCount, factCount, preferenceCount, conversationCount, messageCount, count(t) AS traceCount
+            OPTIONAL MATCH (d:IdentityDecision) WHERE EXISTS { MATCH (d)-[:POSSIBLE_SAME_AS]->(:Entity) }
+            RETURN entityCount, factCount, preferenceCount, conversationCount, messageCount, traceCount,
+                count(d) AS openIdentityProposals
             """;
 
         var results = await graphQueryService.QueryAsync(countQuery, cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -47,6 +50,8 @@ internal sealed class MemoryStatusResource
             conversationCount = row != null && row.TryGetValue("conversationCount", out var cc) ? Convert.ToInt64(cc) : 0L,
             messageCount = row != null && row.TryGetValue("messageCount", out var mc) ? Convert.ToInt64(mc) : 0L,
             traceCount = row != null && row.TryGetValue("traceCount", out var tc) ? Convert.ToInt64(tc) : 0L,
+            // IBP-10: decisions still holding open identity proposals, across all owners (counts only, as above).
+            openIdentityProposals = row != null && row.TryGetValue("openIdentityProposals", out var op) ? Convert.ToInt64(op) : 0L,
             retrievedAtUtc = DateTimeOffset.UtcNow
         });
     }

@@ -107,6 +107,19 @@ internal sealed partial class Neo4jIdentityDecisionRepository(INeo4jTransactionR
         }, cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<long> CountPendingAsync(string? ownerId, CancellationToken cancellationToken = default)
+    {
+        Check(cancellationToken);
+        if (ownerId is not null) Text(ownerId);
+        return await tx.ReadAsync(async runner =>
+        {
+            var cursor = await runner.RunAsync(IdentityDecisionQueries.CountPending, new { ownerScope = Scope(ownerId) }).ConfigureAwait(false);
+            var row = await cursor.SingleAsync().ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            return row["pending"].As<long>();
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<IdentityDecision?> GetAsync(string decisionId, string? ownerId = null, CancellationToken cancellationToken = default)
     {
         Check(cancellationToken); Text(decisionId);
