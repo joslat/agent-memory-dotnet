@@ -188,8 +188,10 @@ internal static class MemoryWriterContract
             var moved = 0;
             for (var j = 0; j < ops.Count; j++)
             {
+                // Only an operation whose own quote says the fuller name is about that person (second design: "My brother
+                // Kofi is in Accra" stays the brother's in a turn that also names Kofi Fitter).
                 if (j == i || ops[j].Kind is not ("fact" or "preference" or "relationship") || ops[j].Action == "confirm" ||
-                    HoldsName(ops[j].Text, fuller)) continue;
+                    HoldsName(ops[j].Text, fuller) || ops[j].Quote is not { } quoted || !HoldsName(quoted, fuller)) continue;
                 var text = Rename(ops[j].Text, storedName, fuller);
                 if (text == ops[j].Text) continue;
                 ops[j] = ops[j] with { Text = text };
@@ -618,9 +620,11 @@ internal static class MemoryWriterContract
         StringComparer.Ordinal);
 
     /// <summary>
-    /// ER-FULLER-NAME-GUARD: the fuller name the turn gives a stored person known by one word only, or null. The reference is
-    /// a person's entity add to a stored person whose name is one word N; the turn says "N X" with X a capitalised name word;
-    /// neither the stored name nor its shown other names hold "N X"; and the turn names no rename or correction.
+    /// ER-FULLER-NAME-GUARD: the fuller name a reference's own quote gives a stored person known by one word only, or null.
+    /// The reference is a person's entity add to a stored person whose name is one word N; its quote says "N X" with X a
+    /// capitalised name word; neither the stored name nor its shown other names hold "N X"; and the turn names no rename or
+    /// correction. Second design: the quote, not the whole turn, since a turn may name both ("My brother Kofi ... met Kofi
+    /// Fitter").
     /// </summary>
     private static string? FullerName(MemoryWriterOps.Op op, IReadOnlyDictionary<string, MemoryWriterOps.Stored> byLabel, string message)
     {
@@ -628,8 +632,8 @@ internal static class MemoryWriterContract
             item.Letter != 'E' || StoredType(item.Text) != "PERSON" || EntityText.Match(op.Text) is not { Success: true } written ||
             MemoryWriterOps.EntityType(written.Groups["t"].Value) != "PERSON") return null;
         var stored = EntityName(item.Text);
-        if (NameWord.Matches(stored).Count != 1 || RenameCue.IsMatch(message)) return null;
-        var match = Regex.Match(message, $@"(?<![\p{{L}}\p{{M}}]){Regex.Escape(stored)}\s+(?<x>\p{{Lu}}[\p{{L}}\p{{M}}'’-]+)",
+        if (NameWord.Matches(stored).Count != 1 || RenameCue.IsMatch(message) || op.Quote is not { } quote) return null;
+        var match = Regex.Match(quote, $@"(?<![\p{{L}}\p{{M}}]){Regex.Escape(stored)}\s+(?<x>\p{{Lu}}[\p{{L}}\p{{M}}'’-]+)",
             RegexOptions.CultureInvariant, NameTimeout);
         if (!match.Success || NotNameWords.Contains(match.Groups["x"].Value)) return null;
         var fuller = $"{stored} {match.Groups["x"].Value}";

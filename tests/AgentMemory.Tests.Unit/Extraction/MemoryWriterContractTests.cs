@@ -226,6 +226,25 @@ public sealed class MemoryWriterContractTests : IDisposable
     }
 
     /// <summary>
+    /// ER-FULLER-NAME-GUARD, second design (the first design's harm check, v4 run 4, statement 122): "My brother Kofi is in
+    /// Accra for a job interview, and he finally met Kofi Fitter at our Saturday game". The writer referred "Kofi", quoting
+    /// "My brother Kofi is in Accra", to the stored brother, which was right. The first design read the whole turn, refused
+    /// it for the "Kofi Fitter" said elsewhere, and moved the brother's fact to Kofi Fitter. Only the reference's own quote
+    /// counts, and only operations whose own quote says the fuller name are renamed.
+    /// </summary>
+    [Fact]
+    public async Task A_fuller_name_said_elsewhere_in_the_turn_leaves_a_reference_whose_quote_says_only_the_stored_name()
+    {
+        ShowStored("stored-1", "Kofi", "PERSON");
+        _replies.Enqueue("""{"ops":[{"op":"add","kind":"fact","text":"Kofi | is in Accra for | a job interview","quote":"My brother Kofi is in Accra for a job interview"},{"op":"add","kind":"entity","text":"Kofi (PERSON)","quote":"My brother Kofi is in Accra","ref":"E1"},{"op":"add","kind":"entity","text":"Kofi Fitter (PERSON)","quote":"he finally met Kofi Fitter"}]}""");
+
+        var result = await Write("My brother Kofi is in Accra for a job interview, and he finally met Kofi Fitter at our Saturday game.");
+
+        result.Entities.Single(e => e.Name == "Kofi").Reference!.EntityId.Should().Be("stored-1");
+        result.Facts.Should().ContainSingle().Which.Subject.Should().Be("Kofi", "the brother's fact stays his");
+    }
+
+    /// <summary>
     /// ER-FULLER-NAME-GUARD: a fuller name the stored person is already known by, a turn that says only the stored name, or a
     /// rename in the turn leaves the reference as it was.
     /// </summary>
