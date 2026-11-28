@@ -1146,6 +1146,7 @@ internal static class MemoryWriterOps
         }
         if (referenceMessage is not null)
         {
+            SameTurnAliases(entities, referenceMessage);
             entities.AddRange(ConnectionEnds(connectionOps, stored, entities, referenceMessage));
             entities.AddRange(FactEnds(factOps, stored, entities, referenceMessage, earlierTurns ?? []));
         }
@@ -1155,6 +1156,37 @@ internal static class MemoryWriterOps
             ConfirmedFactIds = [.. confirmedFacts.Distinct(StringComparer.Ordinal)],
             ConfirmedPreferenceIds = [.. confirmedPreferences.Distinct(StringComparer.Ordinal)],
         };
+    }
+
+    /// <summary>The cues that give a person or thing a second name in the same turn ("everybody calls him", "known as").</summary>
+    private const string SecondNameCue =
+        @"(?:(?:every(?:body|one)|we|they|people|friends)\s+(?:all\s+)?calls?\s+(?:him|her|them|it)|(?:also\s+)?known\s+as|nicknamed|goes\s+by)\s+";
+
+    /// <summary>
+    /// ER-SAME-TURN-ALIAS (who's-who v4, statement 27, 9 of 12 stored runs): "Our captain is Ebenezer, but everybody calls him
+    /// Ebo" was written as two people, and the captain split from his first turn on. Two entity adds of one type without a
+    /// reference, where the turn gives the second name as the first one's ("A ..., everybody calls him B", "A ..., B for
+    /// short", "A ... known as B"), are one entity: the second is dropped and its name kept as the first one's alias.
+    /// </summary>
+    internal static void SameTurnAliases(List<ExtractedEntity> entities, string message)
+    {
+        static string Whole(string name) => $@"(?<![\p{{L}}\p{{M}}]){Regex.Escape(name)}(?![\p{{L}}\p{{M}}])";
+        bool Gives(string first, string second) =>
+            Regex.IsMatch(message, $@"{Whole(first)}[^.!?]*?\b{SecondNameCue}{Whole(second)}", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(50)) ||
+            Regex.IsMatch(message, $@"{Whole(first)}[^.!?]*?{Whole(second)}\s+for\s+short\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(50));
+        for (var i = 0; i < entities.Count; i++)
+            for (var j = 0; j < entities.Count; j++)
+            {
+                if (i == j || i >= entities.Count || j >= entities.Count) continue;
+                var (first, second) = (entities[i], entities[j]);
+                if (first.Reference is not null || second.Reference is not null ||
+                    !string.Equals(first.Type, second.Type, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(first.Name, second.Name, StringComparison.OrdinalIgnoreCase) || !Gives(first.Name, second.Name)) continue;
+                entities[i] = first with { Aliases = [.. first.Aliases, second.Name, .. second.Aliases] };
+                entities.RemoveAt(j);
+                if (j < i) i--;
+                j = -1;
+            }
     }
 
     /// <summary>

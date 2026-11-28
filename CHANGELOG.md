@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **A second name the turn gives a new entity is its alias** (ER-SAME-TURN-ALIAS). "Our captain is Ebenezer, but
+  everybody calls him Ebo" was written by the store-aware writer as two people in 9 of 12 runs of the who's-who v4, so
+  the captain split from his first turn on. Now, when one reply adds two entities of one type, neither referring to a
+  stored one, and the turn gives one name as the other's second name, they become one entity carrying the second
+  name as an alias. The turn can say this with "everybody calls him", "for short", "known as", "nicknamed" or "goes
+  by". Event-identity mode only.
+
 - **Places and things may be confirmed by the identity adjudicator, opt-in** (IBP-2, first step).
   `IdentityResolutionOptions.ConfirmPlacesAndThings` is off by default. When set, the conversational policy set, and
   automatic mode, let the adjudicator's quoted "same" confirm a LOCATION or an OBJECT, as it already does for people,

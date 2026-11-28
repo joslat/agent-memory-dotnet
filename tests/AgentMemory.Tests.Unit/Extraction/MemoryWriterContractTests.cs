@@ -168,6 +168,42 @@ public sealed class MemoryWriterContractTests : IDisposable
         _calls.Select(c => c.Options!.ResponseFormat is null).Should().Equal(false, true, true);
     }
 
+    /// <summary>
+    /// ER-SAME-TURN-ALIAS (who's-who v4, statement 27, 9 of 12 stored runs): "Our captain is Ebenezer, but everybody calls him
+    /// Ebo" was written as two people, so the captain split from his first turn on. A second name the turn gives a new entity
+    /// is its alias: one entity, the other name kept on it.
+    /// </summary>
+    [Theory]
+    [InlineData("Our captain is Ebenezer, but everybody calls him Ebo.", "Our captain is Ebenezer", "everybody calls him Ebo")]
+    [InlineData("Our new client is Abena Owusu, Abby for short.", "Our new client is Abena Owusu", "Abby for short")]
+    public async Task A_second_name_the_turn_gives_a_new_person_is_an_alias_not_a_second_person(string message, string first, string second)
+    {
+        var (name, alias) = message.Contains("Ebo") ? ("Ebenezer", "Ebo") : ("Abena Owusu", "Abby");
+        _replies.Enqueue($$"""{"ops":[{"op":"add","kind":"entity","text":"{{name}} (PERSON)","quote":"{{first}}"},{"op":"add","kind":"entity","text":"{{alias}} (PERSON)","quote":"{{second}}"}]}""");
+
+        var result = await Write(message);
+
+        var entity = result.Entities.Should().ContainSingle().Which;
+        entity.Name.Should().Be(name);
+        entity.Aliases.Should().Equal(alias);
+    }
+
+    /// <summary>
+    /// ER-SAME-TURN-ALIAS: two people named in one turn without a second-name cue, or a cue that names someone else, stay two.
+    /// </summary>
+    [Theory]
+    [InlineData("Our captain is Ebenezer, and Ebo is his brother.", "Our captain is Ebenezer", "Ebo is his brother")]
+    [InlineData("Ebenezer says everybody calls him Ebo but his mother calls Kwesi.", "Ebenezer says", "his mother calls Kwesi")]
+    public async Task Two_people_in_one_turn_without_a_second_name_cue_between_them_stay_two(string message, string first, string second)
+    {
+        var other = message.Contains("Kwesi") ? "Kwesi" : "Ebo";
+        _replies.Enqueue($$"""{"ops":[{"op":"add","kind":"entity","text":"Ebenezer (PERSON)","quote":"{{first}}"},{"op":"add","kind":"entity","text":"{{other}} (PERSON)","quote":"{{second}}"}]}""");
+
+        var result = await Write(message);
+
+        result.Entities.Select(e => e.Name).Should().BeEquivalentTo(["Ebenezer", other]);
+    }
+
     [Fact]
     public async Task A_clean_reply_is_not_corrected()
     {
