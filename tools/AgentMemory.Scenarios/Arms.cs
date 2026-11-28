@@ -13,11 +13,12 @@ internal static class Arms
     public static readonly IReadOnlyList<string> Baselines = ["file", "vector"];
 
     /// <summary>
-    /// IBP-2, first step (<c>--identity-confirm-places-things</c>): the identity arms open places and things to the
-    /// adjudicator's quoted confirmation (<see cref="AgentMemory.Abstractions.Options.IdentityResolutionOptions.ConfirmPlacesAndThings"/>).
-    /// Off unless asked for, as in the library.
+    /// IBP-2: whether the identity arms let the adjudicator's quoted verdict confirm places and things
+    /// (<see cref="AgentMemory.Abstractions.Options.IdentityResolutionOptions.ConfirmPlacesAndThings"/>). The library's default
+    /// (on since 28 Nov 2026); <c>--identity-review-places-things</c> turns it off, <c>--identity-confirm-places-things</c> on.
     /// </summary>
-    public static bool ConfirmPlacesAndThings { get; set; }
+    public static bool ConfirmPlacesAndThings { get; set; } =
+        new AgentMemory.Abstractions.Options.IdentityResolutionOptions().ConfirmPlacesAndThings;
 
     private static MemoryOptions Without(MemoryOptions options, bool lookAhead) =>
         options with { Recall = options.Recall with { Upcoming = lookAhead, TimeWindows = lookAhead, OverlapExpansion = lookAhead } };

@@ -42,8 +42,11 @@ CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
 var root = RepositoryRoot();
 var identityValidation = args.Contains("--identity-validation");
 var identityWriter = args.Contains("--identity-writer");
-Arms.ConfirmPlacesAndThings = args.Contains("--identity-confirm-places-things");
-if (Arms.ConfirmPlacesAndThings) Console.WriteLine("IBP-2: places and things may be confirmed by the adjudicator (--identity-confirm-places-things).");
+if (args.Contains("--identity-confirm-places-things")) Arms.ConfirmPlacesAndThings = true;
+if (args.Contains("--identity-review-places-things")) Arms.ConfirmPlacesAndThings = false;
+if (identityValidation) Console.WriteLine(Arms.ConfirmPlacesAndThings
+    ? "IBP-2: places and things may be confirmed by the adjudicator (the default; --identity-review-places-things turns it off)."
+    : "IBP-2: places and things are kept for review (--identity-review-places-things).");
 var identityFullScenario = args.Contains("--identity-full-scenario");
 if(identityFullScenario && (!identityValidation || !identityWriter))
 {

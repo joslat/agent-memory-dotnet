@@ -2519,5 +2519,6 @@ window's read-only context turns (`ExtractionOptions.ExtractionContextTurns`) fo
 after "the go-live" reaches the adjudicator with both turns even when the writer names it differently. A free offline
 calibration on three recorded runs rejected name-to-sentence similarity as the nomination signal: it ranked a different
 event (0.55) above the right one (0.53). `IdentityResolutionOptions.ApplyConversationalPolicies()` applies the measured set
-(EVENT, PERSON, ORGANIZATION confirmable by checked contextual evidence; everything else review-only), and
+(EVENT, PERSON, ORGANIZATION confirmable by checked contextual evidence; places and things, LOCATION and OBJECT, by the
+adjudicator's quoted verdict unless `ConfirmPlacesAndThings` is turned off; everything else review-only), and
 `IIdentityDecisionRepository.ListPendingAsync` gives hosts a bounded review queue of open proposals.

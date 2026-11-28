@@ -42,20 +42,21 @@ public sealed class IdentityResolutionOptions
         new Dictionary<string, EntityIdentityPolicy>(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// IBP-2, first step; off by default and measured before any default changes. When set,
-    /// <see cref="ApplyConversationalPolicies"/> (and automatic mode) also lets checked contextual evidence, the adjudicator's
-    /// quoted verdict, confirm a place (LOCATION) or a thing (OBJECT). No context-rooted review is added for them, and the
-    /// store-aware writer's references to a stored place or thing are still left out, so the adjudicator is asked what it is
-    /// asked today. Vetoes, host keys and ambiguity rules still apply.
+    /// IBP-2, first step; on by default since 28 Nov 2026, after it was measured behind this option (who's-who v5: right
+    /// 33.5 to 36.0 of 55, splits 21 to 16, no wrong merge begun on a place or thing). <see cref="ApplyConversationalPolicies"/>
+    /// (and automatic mode) also lets checked contextual evidence, the adjudicator's quoted verdict, confirm a place
+    /// (LOCATION) or a thing (OBJECT). No context-rooted review is added for them, and the store-aware writer's references to
+    /// a stored place or thing are still left out. Vetoes, host keys and ambiguity rules still apply. Set false to keep
+    /// places and things review-only, as before.
     /// </summary>
-    public bool ConfirmPlacesAndThings { get; set; }
+    public bool ConfirmPlacesAndThings { get; set; } = true;
 
     /// <summary>
     /// The measured conversational policy set (Identity Lifecycle Benchmark, 2026-11): EVENT, PERSON and ORGANIZATION may
     /// be confirmed by checked contextual evidence (a store-aware writer's stored-entity reference or the adjudicator's
-    /// quoted verdict) and nominate same-type entities from the extraction window's context turns for review. Every other
-    /// type, places and calendar values included, stays review-only, unless <see cref="ConfirmPlacesAndThings"/> opens places
-    /// and things. Vetoes, host keys and ambiguity rules still apply.
+    /// quoted verdict) and nominate same-type entities from the extraction window's context turns for review. Places
+    /// (LOCATION) and things (OBJECT) may be confirmed by the adjudicator's quoted verdict unless
+    /// <see cref="ConfirmPlacesAndThings"/> is false; calendar values and every other type stay review-only. Vetoes, host keys and ambiguity rules still apply.
     /// Existing policies for those three types keep their other settings. Automatic mode uses this set for any of the three
     /// types left unset. Does not switch identity on or off. Returns this instance.
     /// </summary>

@@ -42,7 +42,12 @@ public sealed class IdentityDefaultOnTests
         var automatic = IdentityConfiguration.Capture(identity, active: true, contextRootedLookup: true);
         foreach (var type in new[] { "EVENT", "PERSON", "ORGANIZATION" })
             automatic.PolicyFor(type).Should().Match<EntityIdentityPolicy>(p => p.AllowContextualConfirmation && p.ReviewContextRootedCandidates);
-        automatic.PolicyFor("LOCATION").AllowContextualConfirmation.Should().BeFalse("every other type, places included, stays review-only");
+        // IBP-2, on by default since 28 Nov 2026: places and things are confirmable by the adjudicator's quoted verdict,
+        // without context-rooted review; every other type stays review-only.
+        identity.ConfirmPlacesAndThings.Should().BeTrue();
+        foreach (var type in new[] { "LOCATION", "OBJECT" })
+            automatic.PolicyFor(type).Should().Match<EntityIdentityPolicy>(p => p.AllowContextualConfirmation && !p.ReviewContextRootedCandidates);
+        automatic.PolicyFor("WORK").AllowContextualConfirmation.Should().BeFalse("every other type stays review-only");
         RecallOptions.Default.EventDetails.Should().BeNull("event details follow identity");
         RecallOptions.Default.MaxEventDetailFacts.Should().Be(8);
         RecallOptions.Default.PersonDetails.Should().BeNull("person details follow identity");
