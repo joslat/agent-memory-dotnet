@@ -1049,6 +1049,9 @@ services.Configure<IdentityResolutionOptions>(options =>
 services.Configure<MemoryOptions>(options => options.Extraction.ExtractionContextTurns = 4);
 // Review queue: open proposals the policy left for a person or an operator.
 var queue = await provider.GetRequiredService<IIdentityDecisionRepository>().ListPendingAsync(ownerId, 50);
+// How long it is (IBP-10), and why each decision stands as it does (ER-EXPLAIN): "possibly-same: ambiguous-name, uncertain".
+var waiting = await provider.GetRequiredService<IIdentityDecisionRepository>().CountPendingAsync(ownerId);
+foreach (var decision in queue) Console.WriteLine($"{decision.Observation.Name}: {IdentityMatchKey.For(decision)}");
 services.Configure<LlmExtractionOptions>(options => { options.UseMemoryWriter = true; options.MemoryWriterEventIdentities = true; });
 ```
 

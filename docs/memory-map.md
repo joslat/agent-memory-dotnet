@@ -2279,4 +2279,6 @@ event (0.55) above the right one (0.53). `IdentityResolutionOptions.ApplyConvers
 (EVENT, PERSON, ORGANIZATION confirmable by checked contextual evidence; places and things, LOCATION and OBJECT, too when
 `ConfirmPlacesAndThings` is turned on, except that a place's or thing's "same" stays for review when the turn gives it
 to another named person than the candidate's name does; everything else review-only), and
-`IIdentityDecisionRepository.ListPendingAsync` gives hosts a bounded review queue of open proposals.
+`IIdentityDecisionRepository.ListPendingAsync` gives hosts a bounded review queue of open proposals,
+`CountPendingAsync` its size, and `IdentityMatchKey.For(decision)` one stable line of what decided a decision and
+what held it back ("same by writer-reference", "possibly-same: ambiguous-name, uncertain", "new: different").
