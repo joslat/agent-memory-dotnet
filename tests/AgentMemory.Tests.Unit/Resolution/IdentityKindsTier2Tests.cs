@@ -290,6 +290,54 @@ public sealed class IdentityKindsTier2Tests
         score.WrongMerges.Should().Be(0);
     }
 
+    private static object Decided(string entity, string name, int statement, int status, string? confirmed, params string[] diagnostics)
+    {
+        var id = "m" + statement.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        return new
+        {
+            Observation = new { EntityId = entity, Name = name, Type = "PERSON" },
+            Context = new { SourceMessageIds = new[] { id }, Sources = new[] { new { SourceId = id, Text = WhosWho.Turns().Select(t => t.Text).ToList()[statement - 1] } } },
+            Status = status,
+            ConfirmedEntityId = confirmed,
+            Diagnostics = diagnostics,
+        };
+    }
+
+    /// <summary>
+    /// ER-EXPLAIN: the report counts every decision by its match key, and scores each confirmation that joins a mention to an
+    /// identity already holding a real thing (right when it is that thing), so "which rule gives our wrong merges?" is read
+    /// from every run. whos-who-v1: T01 is Valentina Ríos (alone at 11 and 42), T02 the niece Valentina (alone at 13).
+    /// </summary>
+    [Fact]
+    public void Every_decision_is_counted_by_its_match_key_and_each_join_to_a_held_identity_is_scored_by_it()
+    {
+        var store = Decisions(
+            Decided("p1", "Valentina Ríos", 11, status: 2, confirmed: null),
+            Decided("o42", "Valentina Ríos", 42, status: 0, confirmed: "p1", "writer_reference_confirmed"),
+            Decided("o13", "Valentina", 13, status: 0, confirmed: "p1", "contextual_candidate_sources_hydrated", "contextual_confirmed"),
+            Decided("p16", "Dr. Sosa", 16, status: 1, confirmed: null, "contextual_uncertain"));
+
+        var score = IdentityKindsScorer.Score(Key, WhosWho, store, IdentityGoldScorer.DecisionsView);
+
+        score.MatchKeys.Should().Equal(new Dictionary<string, int>
+        {
+            ["new: no-candidate"] = 1, ["possibly-same: uncertain"] = 1, ["same by adjudicator"] = 1, ["same by writer-reference"] = 1,
+        });
+        score.JoinsByMatchKey.Should().Equal(new Dictionary<string, IdentityKindsJoins>
+        {
+            ["same by adjudicator"] = new(Right: 0, Wrong: 1), ["same by writer-reference"] = new(Right: 1, Wrong: 0),
+        });
+    }
+
+    [Fact]
+    public void The_old_resolvers_entities_have_no_match_keys()
+    {
+        var score = IdentityKindsScorer.Score(Key, WhosWho, Store(PerfectEntities()), IdentityGoldScorer.EntitiesView);
+
+        score.MatchKeys.Should().BeEmpty();
+        score.JoinsByMatchKey.Should().BeEmpty();
+    }
+
     [Fact]
     public void With_identity_decisions_a_same_name_repeat_is_pending_or_new_by_its_first_decision()
     {

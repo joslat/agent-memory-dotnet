@@ -65,6 +65,15 @@ public sealed class IdentityMatchKeyTests
     }
 
     [Fact]
+    public void A_stored_row_gives_the_same_key_from_its_parts()
+    {
+        var decision = Decision(IdentityDecisionKind.Pending, "writer_reference_ambiguous", "contextual_uncertain");
+
+        IdentityMatchKey.For(decision.Status, review: null, decision.Diagnostics).Should().Be(IdentityMatchKey.For(decision));
+        IdentityMatchKey.For(IdentityDecisionKind.New, IdentityReviewAction.Reject, diagnostics: null).Should().Be("new: rejected-on-review");
+    }
+
+    [Fact]
     public void Held_reasons_keep_one_order_and_no_repeats()
     {
         var key = IdentityMatchKey.For(Decision(IdentityDecisionKind.Pending,

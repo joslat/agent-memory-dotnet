@@ -10,7 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Resolution's rule numbers). `IdentityMatchKey.For(decision)` gives one short, stable line of what decided it and what
   held it back: `same by writer-reference`, `possibly-same: ambiguous-name, uncertain`, `new: different`, computed from
   what the decision stores. It explains a decision in a review and lets decisions be counted by rule; nothing is
-  decided by it.
+  decided by it. `IdentityMatchKey.For(status, review, diagnostics)` gives the same key from a stored row's parts. The
+  scenario tool's identity-kinds report counts every decision by its match key and scores each join to an identity
+  already holding a real thing by the rule that made it ("joins by match key"), so which rule gives the wrong merges
+  is read from every run.
 
 - **The identity review queue's size can be read** (IBP-10). `IIdentityDecisionRepository.CountPendingAsync(ownerId)`
   counts the owner's decisions that still hold open proposals, the size of `ListPendingAsync`'s queue, so a growing

@@ -72,6 +72,8 @@ internal static class IdentityKindsScorer
         var firstStatus = new Dictionary<string, int>(StringComparer.Ordinal);
         // IKB-SCORER-COVERAGE: the observations that only a bound fact gives (by index in observations).
         var boundOnly = new HashSet<int>();
+        // ER-EXPLAIN: each decision's match key and the observations it gave (decisions view only).
+        var rows = new List<DecisionRow>();
         if (view == IdentityGoldScorer.DecisionsView)
         {
             var decided = new Dictionary<string, (string Identity, string Name, string Type)>(StringComparer.Ordinal);
@@ -93,6 +95,8 @@ internal static class IdentityKindsScorer
                 if (decision.TryGetProperty("DecisionId", out var decisionId) && decisionId.GetString() is { Length: > 0 } key)
                     decided.TryAdd(key, (identity, name, type));
                 if (said.Length == 0) unplaced++;
+                rows.Add(new DecisionRow(CreatedAt(observation), rows.Count, status, identity, MatchKeyOf(decision, status),
+                    observations.Count, said.Length));
                 observations.AddRange(said.Select(n => new Observation(identity, name, type, n)));
             }
             // A fact bound to an identity places it in each of the fact's statements: a re-mention kept only as a fact is
@@ -181,6 +185,7 @@ internal static class IdentityKindsScorer
             .ToDictionary(g => g.Key, g => g.First().Words, StringComparer.Ordinal);
         var splitCauses = SplitCauses(gold, labelled, identitiesByThing, firstStatus, view);
         var attribution = view == IdentityGoldScorer.DecisionsView ? FactAttribution(store, Numbers, inStatement, thingsByIdentity) : null;
+        var (matchKeys, joins) = MatchKeyTallies(rows, labels);
 
         return new IdentityKindsScore(
             view,
@@ -206,7 +211,59 @@ internal static class IdentityKindsScorer
             SplitCausesByKind = splitCauses.ByKind,
             FactAttribution = attribution,
             Coverage = coverage,
+            MatchKeys = matchKeys,
+            JoinsByMatchKey = joins,
         };
+    }
+
+    /// <summary>One identity decision as the match-key tally reads it: when and in what order it came, and its observations.</summary>
+    private sealed record DecisionRow(DateTimeOffset? At, int Order, int Status, string Identity, string Key, int First, int Count);
+
+    private static DateTimeOffset? CreatedAt(JsonElement observation) =>
+        observation.TryGetProperty("CreatedAtUtc", out var at) && at.ValueKind == JsonValueKind.String
+        && DateTimeOffset.TryParse(at.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsed) ? parsed : null;
+
+    /// <summary>ER-EXPLAIN: the decision's match key (<see cref="AgentMemory.Abstractions.Domain.IdentityMatchKey"/>) from its stored row.</summary>
+    private static string MatchKeyOf(JsonElement decision, int status)
+    {
+        var diagnostics = decision.TryGetProperty("Diagnostics", out var d) && d.ValueKind == JsonValueKind.Array
+            ? d.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!).ToList() : [];
+        AgentMemory.Abstractions.Domain.IdentityReviewAction? review = null;
+        if (decision.TryGetProperty("LatestReview", out var r) && r.ValueKind == JsonValueKind.Object && r.TryGetProperty("Action", out var a))
+            review = a.ValueKind == JsonValueKind.Number ? (AgentMemory.Abstractions.Domain.IdentityReviewAction)a.GetInt32()
+                : Enum.TryParse<AgentMemory.Abstractions.Domain.IdentityReviewAction>(a.GetString(), ignoreCase: true, out var parsed) ? parsed : null;
+        return AgentMemory.Abstractions.Domain.IdentityMatchKey.For((AgentMemory.Abstractions.Domain.IdentityDecisionKind)status, review, diagnostics);
+    }
+
+    /// <summary>
+    /// ER-EXPLAIN: every decision counted by its match key, and each confirmation that joins a mention to an identity that
+    /// already holds a real thing scored by it: right when the mention's one labelled thing is among those held, wrong when it
+    /// is not (the join that begins or grows a wrong merge). Decisions are read in the order they were made.
+    /// </summary>
+    private static (IReadOnlyDictionary<string, int> Keys, IReadOnlyDictionary<string, IdentityKindsJoins> Joins) MatchKeyTallies(
+        IReadOnlyList<DecisionRow> rows, IReadOnlyList<LabelledMention> labels)
+    {
+        var keys = new SortedDictionary<string, int>(StringComparer.Ordinal);
+        var right = new Dictionary<string, int>(StringComparer.Ordinal);
+        var wrong = new Dictionary<string, int>(StringComparer.Ordinal);
+        var held = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        foreach (var row in rows.OrderBy(r => r.At ?? DateTimeOffset.MinValue).ThenBy(r => r.Order))
+        {
+            keys[row.Key] = keys.GetValueOrDefault(row.Key) + 1;
+            var things = Enumerable.Range(row.First, row.Count).Select(i => labels[i].Thing).OfType<string>()
+                .Distinct(StringComparer.Ordinal).ToList();
+            if (!held.TryGetValue(row.Identity, out var before)) held[row.Identity] = before = new(StringComparer.Ordinal);
+            if (row.Status == 0 && before.Count > 0 && things is [var thing])
+            {
+                var tally = before.Contains(thing) ? right : wrong;
+                tally[row.Key] = tally.GetValueOrDefault(row.Key) + 1;
+            }
+            before.UnionWith(things);
+        }
+        var joins = new SortedDictionary<string, IdentityKindsJoins>(StringComparer.Ordinal);
+        foreach (var key in right.Keys.Union(wrong.Keys, StringComparer.Ordinal))
+            joins[key] = new(right.GetValueOrDefault(key), wrong.GetValueOrDefault(key));
+        return (keys, joins);
     }
 
     /// <summary>
@@ -474,4 +531,11 @@ internal sealed record IdentityKindsScore(
     public IdentityKindsFactAttribution? FactAttribution { get; init; }
     /// <summary>IKB-SCORER-COVERAGE: how many of the key's mentions this score covers.</summary>
     public IdentityKindsCoverage Coverage { get; init; } = new(0, 0, 0);
+    /// <summary>ER-EXPLAIN: every decision counted by its match key (decisions view only; empty for the entities view).</summary>
+    public IReadOnlyDictionary<string, int> MatchKeys { get; init; } = new Dictionary<string, int>();
+    /// <summary>ER-EXPLAIN: the confirmations joining a mention to an identity already holding a real thing, right and wrong, by match key.</summary>
+    public IReadOnlyDictionary<string, IdentityKindsJoins> JoinsByMatchKey { get; init; } = new Dictionary<string, IdentityKindsJoins>();
 }
+
+/// <summary>ER-EXPLAIN: joins to an identity already holding a real thing: to that thing (right) or to another (wrong).</summary>
+internal sealed record IdentityKindsJoins(int Right, int Wrong);

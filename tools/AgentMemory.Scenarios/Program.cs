@@ -439,6 +439,10 @@ try
                                   $"{kinds.Splits} splits ({string.Join(", ", kinds.ByKind.Where(k => k.Value.Splits > 0).Select(k => $"{k.Key} {k.Value.Splits}"))}), " +
                                   $"{kinds.Missed} never stored, {kinds.PendingDecisions} open proposals; {kinds.LabelledMentions} labelled / {kinds.UnlabelledMentions} unlabelled mentions; " +
                                   $"covers {kinds.Coverage.Linked}/{kinds.Coverage.KeyMentions} of the key's mentions ({kinds.Coverage.OnlyFromBoundFacts} only through bound facts)");
+                // ER-EXPLAIN: which rule made the joins, and which of them were wrong.
+                if (kinds.JoinsByMatchKey.Count > 0)
+                    Console.WriteLine("  joins by match key: " + string.Join("; ",
+                        kinds.JoinsByMatchKey.Select(j => $"{j.Key} {j.Value.Right} right, {j.Value.Wrong} wrong")));
             }
         }
         Console.WriteLine($"  {graph.Arm.Writes} store: {snapshot.Facts.Count} live facts, {snapshot.Closed.Count} closed, {snapshot.Entities.Count} entities; " +

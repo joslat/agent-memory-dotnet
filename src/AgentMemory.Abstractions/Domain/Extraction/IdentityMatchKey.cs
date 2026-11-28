@@ -33,10 +33,18 @@ public static class IdentityMatchKey
     public static string For(IdentityDecision decision)
     {
         ArgumentNullException.ThrowIfNull(decision);
-        var diagnostics = decision.Diagnostics ?? [];
-        bool Has(string diagnostic) => diagnostics.Contains(diagnostic, StringComparer.Ordinal);
-        var review = decision.LatestReview?.Action;
-        switch (decision.Status)
+        return For(decision.Status, decision.LatestReview?.Action, decision.Diagnostics);
+    }
+
+    /// <summary>
+    /// The match key from a decision's stored parts: its status, its latest review's action (null when never reviewed) and
+    /// its diagnostics. For rows read back from a report or a store export without the whole decision.
+    /// </summary>
+    public static string For(IdentityDecisionKind status, IdentityReviewAction? review, IEnumerable<string>? diagnostics)
+    {
+        var said = diagnostics?.ToHashSet(StringComparer.Ordinal) ?? [];
+        bool Has(string diagnostic) => said.Contains(diagnostic);
+        switch (status)
         {
             case IdentityDecisionKind.Confirmed:
                 return "same by " + (review == IdentityReviewAction.Confirm ? "review"
