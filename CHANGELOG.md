@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Merging extractors keys entities by name and type** (ER-UNION-KEY). The Union, Intersection and Confidence
+  strategies keyed entities by name alone, so "Paris (PERSON)" from one extractor and "Paris (LOCATION)" from another,
+  or both from one reply, became one entity with whichever type had the higher confidence. The key is now the name and
+  the type, both without case or surrounding spaces ("paris " and "Location" still fold into "Paris" and
+  "LOCATION"), as Neo4j's merge keys on name and type. Intersection now needs two extractors to agree on the type too.
+
 - **A place or thing the turn gives to someone else is not confirmed as the stored one of another owner**
   (ER-THING-OWNER-GUARD, IBP-2's namesake guard). With `ConfirmPlacesAndThings` on, the adjudicator's "same" could
   join "Nick also lends out his old tinny" to the stored "user's tinny". Over 119 stored runs, every such verdict was

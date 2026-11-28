@@ -5,7 +5,7 @@ namespace AgentMemory.Core.Extraction.MergeStrategies;
 
 /// <summary>
 /// Combines all results from every extractor, deduplicating by a normalized key.
-/// For entities: case-insensitive name. For facts: (subject, predicate, object) triple.
+/// For entities: name and type, without case. For facts: (subject, predicate, object) triple.
 /// When duplicates exist, keeps the one with the highest confidence.
 /// </summary>
 internal sealed class UnionMergeStrategy<T> : IMergeStrategy<T> where T : class

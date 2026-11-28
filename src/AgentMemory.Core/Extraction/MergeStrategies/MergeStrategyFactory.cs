@@ -15,11 +15,11 @@ internal static class MergeStrategyFactory
         strategyType switch
         {
             MergeStrategyType.Union => new UnionMergeStrategy<ExtractedEntity>(
-                e => e.Name, e => e.Confidence),
+                EntityKey, e => e.Confidence),
             MergeStrategyType.Intersection => new IntersectionMergeStrategy<ExtractedEntity>(
-                e => e.Name, e => e.Confidence),
+                EntityKey, e => e.Confidence),
             MergeStrategyType.Confidence => new ConfidenceMergeStrategy<ExtractedEntity>(
-                e => e.Name, e => e.Confidence),
+                EntityKey, e => e.Confidence),
             MergeStrategyType.Cascade => new CascadeMergeStrategy<ExtractedEntity>(),
             MergeStrategyType.FirstSuccess => new FirstSuccessMergeStrategy<ExtractedEntity>(),
             _ => throw new ArgumentOutOfRangeException(nameof(strategyType), strategyType, "Unknown merge strategy type.")
@@ -78,6 +78,13 @@ internal static class MergeStrategyFactory
             MergeStrategyType.FirstSuccess => new FirstSuccessMergeStrategy<ExtractedRelationship>(),
             _ => throw new ArgumentOutOfRangeException(nameof(strategyType), strategyType, "Unknown merge strategy type.")
         };
+
+    /// <summary>
+    /// ER-UNION-KEY: an entity's key is its name and its type, without case or surrounding spaces. The name alone folded a
+    /// person and a place of one name from two extractors into one entity; Neo4j's merge keys on name and type.
+    /// </summary>
+    private static string EntityKey(ExtractedEntity e) =>
+        $"{e.Name?.Trim()}|{e.Type?.Trim()}".ToUpperInvariant();
 
     private static string FactKey(ExtractedFact f) =>
         $"{f.Subject}|{f.Predicate}|{f.Object}".ToUpperInvariant();
