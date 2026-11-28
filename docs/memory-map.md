@@ -2277,5 +2277,6 @@ after "the go-live" reaches the adjudicator with both turns even when the writer
 calibration on three recorded runs rejected name-to-sentence similarity as the nomination signal: it ranked a different
 event (0.55) above the right one (0.53). `IdentityResolutionOptions.ApplyConversationalPolicies()` applies the measured set
 (EVENT, PERSON, ORGANIZATION confirmable by checked contextual evidence; places and things, LOCATION and OBJECT, too when
-`ConfirmPlacesAndThings` is turned on; everything else review-only), and
+`ConfirmPlacesAndThings` is turned on, except that a place's or thing's "same" stays for review when the turn gives it
+to another named person than the candidate's name does; everything else review-only), and
 `IIdentityDecisionRepository.ListPendingAsync` gives hosts a bounded review queue of open proposals.

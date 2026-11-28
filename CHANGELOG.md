@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **A place or thing the turn gives to someone else is not confirmed as the stored one of another owner**
+  (ER-THING-OWNER-GUARD, IBP-2's namesake guard). With `ConfirmPlacesAndThings` on, the adjudicator's "same" could
+  join "Nick also lends out his old tinny" to the stored "user's tinny". Over 119 stored runs, every such verdict was
+  wrong (16 of 16, all on one statement of the sealed who's-who v5). Now a place's or thing's "same" stays for review
+  when the candidate's name has an owner and the turn being decided gives the thing's head word to another named
+  person ("X's tinny", or "X ... his/her/their tinny" within the sentence). In the same runs no right verdict is held.
+  The option stays off by default.
+
 - **A person the turn names in full is not referred to a namesake known by the first name alone**
   (ER-FULLER-NAME-GUARD). On the who's-who v4 the writer referred "Our structural engineer on the clinic is Esi
   Quarcoo" to the stored friend "Esi", and "Kofi Fitter also services my Hilux" to the stored brother "Kofi". Across 40

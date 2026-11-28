@@ -166,6 +166,12 @@ internal sealed class IdentityContextualAdjudication(
         // context, so the proposal stays for review.
         if (ownerId is not null && selected.OwnerId is null)
             return Keep("contextual_same_shared_requires_review") with { ContextualEvidence = parsed };
+        // ER-THING-OWNER-GUARD (IBP-2's namesake guard): a place's or thing's "same" stays for review when the turn being
+        // decided gives the thing to another named person than the candidate's name does ("Nick also lends out his old
+        // tinny" against the stored "user's tinny": on the sealed who's-who v5, 16 of 16 such verdicts were wrong).
+        if (IdentityThingOwner.IsPlaceOrThing(mention.Type) && IdentityThingOwner.Contradicts(selected,
+                plan.Context.SourceMessageIds.Where(sources.ContainsKey).Select(id => sources[id])))
+            return Keep("contextual_same_owner_conflict") with { ContextualEvidence = parsed };
         var reasons = plan.Result.Reasons.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
         reasons[selected.EntityId] = "contextual_confirmation";
         return plan with

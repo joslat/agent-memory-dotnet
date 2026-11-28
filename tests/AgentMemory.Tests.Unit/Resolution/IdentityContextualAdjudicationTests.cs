@@ -114,6 +114,82 @@ public sealed class IdentityContextualAdjudicationTests
         data.Should().Contain("\"knownAs\":[\"is the office manager\",\"sends out the invoices\"]");
     }
 
+    // ER-THING-OWNER-GUARD (IBP-2's namesake guard): a place's or thing's "same" is held for review when the turn being
+    // decided gives the thing to another named person than the candidate's name does. The shape of a seed on the sealed
+    // who's-who v5 (16 of 16 such verdicts wrong), in sentences of our own.
+    private const string StoredTurn = "At weekends Ama takes our bicycle to the market.";
+
+    private static IdentityResolutionPlan ThingPlan(string candidateName, string turn, string type = "OBJECT", string[]? aliases = null)
+    {
+        var entity = new Entity { EntityId = "new", Name = candidateName, Type = type, OwnerId = "owner",
+            Confidence = 1, CreatedAtUtc = DateTimeOffset.UnixEpoch };
+        return new(entity, true, new(IdentityDecisionKind.Pending, null, ["a"], [], true,
+            new Dictionary<string, string> { ["a"] = "candidate_for_review" }),
+            [new IdentityCandidate { Entity = entity with { EntityId = "a", Aliases = aliases ?? [] } }],
+            new EntityIdentityResolutionContext { SourceMessageIds = ["m"],
+                Sources = [new() { SourceId = "m", Text = turn, OriginIds = ["m"] },
+                    new() { SourceId = "s", Text = StoredTurn, OriginIds = ["s"] }] }, []);
+    }
+
+    private async Task<IdentityResolutionPlan> AdjudicateThing(string candidateName, string turn, string type = "OBJECT", string[]? aliases = null)
+    {
+        _options.Policies[type] = new() { AllowContextualConfirmation = true };
+        _model.GetDecisionAsync(Arg.Any<IdentityAdjudicationRequest>(), Arg.Any<CancellationToken>()).Returns(
+            "{\"decision\":\"same\",\"candidateId\":\"a\",\"evidence\":[{\"sourceId\":\"s\",\"quote\":\"takes our bicycle\"}]}");
+        return await Sut().ApplyAsync(new ExtractedEntity { Name = candidateName, Type = type }, ThingPlan(candidateName, turn, type, aliases),
+            new IdentityAdjudicationBudget(2));
+    }
+
+    [Theory]
+    [InlineData("user's bicycle", "Kwame also lends out his old bicycle, so Ama borrowed it when ours had a flat tyre.")]
+    [InlineData("user's bicycle", "Kwame's bicycle is faster than ours.")]
+    [InlineData("user's bicycle", "We went to the market, and later Efua lent us her blue bicycle.")]
+    [InlineData("Ama's parents' bicycle", "Kwame also lends out his old bicycle, so we took it.")]
+    public async Task A_things_same_is_held_for_review_when_the_turn_gives_it_to_another_named_person(string candidate, string turn)
+    {
+        var result = await AdjudicateThing(candidate, turn);
+
+        result.Entity.EntityId.Should().Be("new");
+        result.Result.Decision.Should().Be(IdentityDecisionKind.Pending, "it stays for review");
+        result.Diagnostics.Should().Contain("contextual_same_owner_conflict");
+    }
+
+    [Fact]
+    public async Task A_places_same_is_held_for_review_when_the_turn_gives_it_to_another_named_person()
+    {
+        var result = await AdjudicateThing("user's shack at the beach", "We spent the weekend at Mensah's shack, near the lagoon.", "LOCATION");
+
+        result.Result.Decision.Should().Be(IdentityDecisionKind.Pending);
+        result.Diagnostics.Should().Contain("contextual_same_owner_conflict");
+    }
+
+    [Theory]
+    [InlineData("Kwame's bicycle", "Kwame lent us his bicycle again.", null)] // the turn's owner is the candidate's
+    [InlineData("the red bicycle", "Kwame rode his bicycle to school.", null)] // the candidate's name has no owner
+    [InlineData("user's bicycle", "Then his bicycle broke, so Ama walked.", null)] // no named owner before "his"
+    [InlineData("user's bicycle", "Kwame fixed his car. Ama took our bicycle to the market.", null)] // another sentence, another thing
+    [InlineData("user's bicycle", "Kwame's bicycle is faster than ours.", new[] { "Kwame's old bicycle" })] // a name it is known by
+    [InlineData("user's bicycle", "Ama took the bicycle to the market again.", null)] // no owner in the turn
+    public async Task A_things_same_is_still_confirmed_when_the_turn_names_no_other_owner(string candidate, string turn, string[]? aliases)
+    {
+        var result = await AdjudicateThing(candidate, turn, aliases: aliases);
+
+        result.Result.ConfirmedEntityId.Should().Be("a");
+        result.Diagnostics.Should().NotContain("contextual_same_owner_conflict");
+    }
+
+    [Fact]
+    public async Task A_persons_same_is_not_read_for_owners()
+    {
+        _options.Policies["PERSON"] = new() { AllowContextualConfirmation = true };
+        var plan = Plan(text: "Alex is Alexandra, and Kwame says his Alexandra is away.");
+        plan = plan with { Candidates = [plan.Candidates[0] with { Entity = plan.Candidates[0].Entity with { Name = "Ama's friend Alexandra" } }] };
+
+        var result = await Sut().ApplyAsync(Mention, plan, new IdentityAdjudicationBudget(2));
+
+        result.Result.ConfirmedEntityId.Should().Be("a");
+    }
+
     // ER-ADJUDICATOR-EVIDENCE: a replayed v4 run's 8 refused replies were all "different" with no candidate and quotes that
     // checked out: "none of these is it". It is read as different from every candidate offered, under the rule for one.
     private const string DifferentFromAll =
